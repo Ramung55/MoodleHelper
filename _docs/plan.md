@@ -95,6 +95,18 @@ This document records the agreed scope from brainstorming. Implementation and co
 - Data deletion, export, backup, and storage limits.
 - Release milestones and acceptance criteria.
 
-## Next planning options
+## Development workflow
 
-The next discussion can walk through the student experience in detail or divide this full scope into implementation milestones. No implementation has been requested yet.
+- Follow [AGENTS.md](../AGENTS.md) for project commands and dependency rules, and [process.md](process.md) for the working process.
+- Tasks are tracked as [GitHub issues](https://github.com/Ramung55/MoodleHelper/issues); [tasks.md](tasks.md) is the local issue index. Work on one issue at a time.
+- Read the issue's acceptance criteria before starting and before closing it. Existing issues express expected outcomes in their Goal and Description; clarify any missing criteria before implementing the task.
+- Commit regularly. When revising documents based on corrections, commit current work before making those revisions.
+- Ask before adding a dependency. Dependency additions belong in `pyproject.toml`, as specified in AGENTS.md.
+
+## Stack clarification before implementation
+
+The earlier stack proposal used TypeScript, React, WXT, Vite, Dexie, and Vitest. The current AGENTS.md instead specifies `uv sync`, `uv run pytest`, and dependency declarations in `pyproject.toml`; no Python project or tests have been implemented yet. Resolve how these Python commands relate to the browser components before implementing issue 1 or adding dependencies; do not silently substitute a different test command or dependency manifest.
+
+## Current planning status
+
+The backlog has been created as 49 GitHub issues. No application code has been requested or written; the next implementation task is issue 1, setting up an empty project with a passing test, after the command and stack mismatch is resolved.

@@ -2,6 +2,8 @@
 
 The 49 tasks have moved to [GitHub Issues](https://github.com/Ramung55/MoodleHelper/issues). Each issue contains its original goal and description plus the shared project context. Use GitHub to track implementation progress.
 
+Follow [process.md](process.md): work on one issue at a time, read its acceptance criteria before starting and before closing, and commit regularly. Follow [AGENTS.md](../AGENTS.md) for commands and ask before adding dependencies; the earlier stack references in issues must be reconciled with its Python commands before implementation, as recorded in [plan.md](plan.md).
+
 - [1. Set up an empty project with a passing test](https://github.com/Ramung55/MoodleHelper/issues/1)
 - [2. Record architecture and integration contracts](https://github.com/Ramung55/MoodleHelper/issues/2)
 - [3. Inspect SDU Moodle compatibility](https://github.com/Ramung55/MoodleHelper/issues/3)
