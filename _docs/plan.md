@@ -99,7 +99,7 @@ This document records the agreed scope from brainstorming. Implementation and co
 
 - Follow [AGENTS.md](../AGENTS.md) for project commands and dependency rules, and [process.md](process.md) for the working process.
 - Tasks are tracked as [GitHub issues](https://github.com/Ramung55/MoodleHelper/issues); [tasks.md](tasks.md) is the local issue index. Work on one issue at a time.
-- Read the issue's acceptance criteria before starting and before closing it. Existing issues express expected outcomes in their Goal and Description; clarify any missing criteria before implementing the task.
+- Read the issue's acceptance criteria before starting and before closing it. All issues now use [task-template.md](task-template.md), following the [PM role](team/pm.md), with Goal, Acceptance criteria, Out of scope, and Constraints sections.
 - Commit regularly. When revising documents based on corrections, commit current work before making those revisions.
 - Ask before adding a dependency. Dependency additions belong in `pyproject.toml`, as specified in AGENTS.md.
 
@@ -109,4 +109,6 @@ The earlier stack proposal used TypeScript, React, WXT, Vite, Dexie, and Vitest.
 
 ## Current planning status
 
-The backlog has been created as 49 GitHub issues. No application code has been requested or written; the next implementation task is issue 1, setting up an empty project with a passing test, after the command and stack mismatch is resolved.
+All 49 original GitHub issues have been groomed one at a time. Seven linked follow-ups bring the backlog to 56 open issues: #50 resolves toolchain instructions, #51 preserves browser workspace setup, #52 handles irregular teaching calendars, #53 and #54 split personal overrides and completion, and #55 and #56 split restore and deletion from backup export. See [tasks.md](tasks.md) for all issue links.
+
+No application code has been written. Issue #1 remains the first implementation task, setting up an empty project with a passing test, after the command and stack mismatch is resolved in [#50](https://github.com/Ramung55/MoodleHelper/issues/50). Grooming does not mark any implementation acceptance criterion complete.

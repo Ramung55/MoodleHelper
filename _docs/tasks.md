@@ -1,8 +1,8 @@
 # Moodle Helper backlog
 
-The 49 tasks have moved to [GitHub Issues](https://github.com/Ramung55/MoodleHelper/issues). Each issue contains its original goal and description plus the shared project context. Use GitHub to track implementation progress.
+All 56 open [GitHub issues](https://github.com/Ramung55/MoodleHelper/issues) have been groomed using [task-template.md](task-template.md) and the [PM role](team/pm.md). The original 49 tasks are preserved, with seven linked follow-ups for decisions and split scope. GitHub is the source of truth for acceptance criteria and progress.
 
-Follow [process.md](process.md): work on one issue at a time, read its acceptance criteria before starting and before closing, and commit regularly. Follow [AGENTS.md](../AGENTS.md) for commands and ask before adding dependencies; the earlier stack references in issues must be reconciled with its Python commands before implementation, as recorded in [plan.md](plan.md).
+Follow [process.md](process.md): work on one issue at a time, read its acceptance criteria before starting and before closing, and commit regularly. Follow [AGENTS.md](../AGENTS.md) for commands and dependency approval. Resolve [#50](https://github.com/Ramung55/MoodleHelper/issues/50) before implementing setup; it records the Python/TypeScript toolchain conflict.
 
 - [1. Set up an empty project with a passing test](https://github.com/Ramung55/MoodleHelper/issues/1)
 - [2. Record architecture and integration contracts](https://github.com/Ramung55/MoodleHelper/issues/2)
@@ -37,7 +37,7 @@ Follow [process.md](process.md): work on one issue at a time, read its acceptanc
 - [31. Route extraction results by confidence](https://github.com/Ramung55/MoodleHelper/issues/31)
 - [32. Build the syllabus review queue](https://github.com/Ramung55/MoodleHelper/issues/32)
 - [33. Reconcile duplicate assessments and date conflicts](https://github.com/Ramung55/MoodleHelper/issues/33)
-- [34. Add personal assessment controls](https://github.com/Ramung55/MoodleHelper/issues/34)
+- [34. Add and manage personal assessment events](https://github.com/Ramung55/MoodleHelper/issues/34)
 - [35. Build the deadline list and assessment details](https://github.com/Ramung55/MoodleHelper/issues/35)
 - [36. Calculate weekly counts and workload](https://github.com/Ramung55/MoodleHelper/issues/36)
 - [37. Build the weekly overview](https://github.com/Ramung55/MoodleHelper/issues/37)
@@ -48,8 +48,15 @@ Follow [process.md](process.md): work on one issue at a time, read its acceptanc
 - [42. Specify the optional cloud AI contract](https://github.com/Ramung55/MoodleHelper/issues/42)
 - [43. Build the optional AI gateway](https://github.com/Ramung55/MoodleHelper/issues/43)
 - [44. Add consent-based AI extraction fallback](https://github.com/Ramung55/MoodleHelper/issues/44)
-- [45. Add local backup, restore, and deletion](https://github.com/Ramung55/MoodleHelper/issues/45)
+- [45. Export a versioned local-data backup](https://github.com/Ramung55/MoodleHelper/issues/45)
 - [46. Build first-run onboarding](https://github.com/Ramung55/MoodleHelper/issues/46)
 - [47. Verify an end-to-end student journey](https://github.com/Ramung55/MoodleHelper/issues/47)
 - [48. Review permission and data boundaries](https://github.com/Ramung55/MoodleHelper/issues/48)
 - [49. Prepare the Chrome pilot package](https://github.com/Ramung55/MoodleHelper/issues/49)
+- [50. Resolve Python and TypeScript toolchain instructions before implementation](https://github.com/Ramung55/MoodleHelper/issues/50)
+- [51. Set up the approved empty browser workspace and smoke test](https://github.com/Ramung55/MoodleHelper/issues/51)
+- [52. Support partial-week breaks and explicit teaching-week overrides](https://github.com/Ramung55/MoodleHelper/issues/52)
+- [53. Add personal overrides and hiding for imported assessments](https://github.com/Ramung55/MoodleHelper/issues/53)
+- [54. Add personal completion checks independent of Moodle submission status](https://github.com/Ramung55/MoodleHelper/issues/54)
+- [55. Restore a validated local backup without corrupting existing data](https://github.com/Ramung55/MoodleHelper/issues/55)
+- [56. Delete local student data and cancel pending reminders](https://github.com/Ramung55/MoodleHelper/issues/56)
