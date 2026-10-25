@@ -21,8 +21,16 @@ AssessmentType = Literal["assignment", "quiz", "exam", "other"]
 SubmissionStatus = Literal["submitted", "draft", "not_submitted", "reopened", "unknown"]
 
 
+def omit_absence_defaults(schema: dict) -> None:
+    # None is an internal placeholder for omitted fields, not a wire default.
+    for field in schema.get("properties", {}).values():
+        if "default" in field and field["default"] is None:
+            field.pop("default")
+
+
 class WireModel(BaseModel):
-    model_config = ConfigDict(strict=True, extra="ignore", allow_inf_nan=False)
+    model_config = ConfigDict(strict=True, extra="ignore", allow_inf_nan=False,
+                              json_schema_extra=omit_absence_defaults)
 
     @model_validator(mode="before")
     @classmethod
