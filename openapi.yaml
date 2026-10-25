@@ -155,7 +155,7 @@ paths:
       tags:
         - "Assessments"
       summary: "Update personal assessment overlay"
-      description: "Patches the personal layer without mutating source evidence. Current demo stores a source-date baseline when dateOverride is provided. JSON has no undefined value; clearing optional overrides through HTTP is unresolved and is not falsely modeled as nullable."
+      description: "Patches the personal layer without mutating source evidence. Omitted properties remain unchanged. Explicit null clears titleOverride, dateOverride or overrideBase; clearing dateOverride also clears its baseline. Setting a nonnull dateOverride captures the latest effective source date. Clearing dateOverride while supplying a nonnull overrideBase is rejected atomically. Snapshot overlays never contain nulls."
       security: []
       x-frontend-method: "MoodleHelperAdapter.updateOverlay"
       x-http-mapping: "proposed"
@@ -663,16 +663,22 @@ components:
       type: "object"
       properties:
         titleOverride:
-          type: "string"
+          oneOf:
+            - type: "string"
+            - type: "null"
         dateOverride:
-          "$ref": "#/components/schemas/DateValue"
+          anyOf:
+            - "$ref": "#/components/schemas/DateValue"
+            - type: "null"
         overrideBase:
-          "$ref": "#/components/schemas/DateValue"
+          anyOf:
+            - "$ref": "#/components/schemas/DateValue"
+            - type: "null"
         hidden:
           type: "boolean"
         completed:
           type: "boolean"
-      description: "Partial<Omit<Overlay, 'assessmentId'>>. Omitted fields are unchanged. JavaScript undefined used to clear overrides has no JSON equivalent; null is not accepted by the current frontend types. A clear/reset wire operation remains unresolved, so none is invented here."
+      description: "Omitted fields are unchanged. Explicit null clears an optional override; dateOverride null also clears overrideBase. A nonnull baseline together with dateOverride null is contradictory and rejected without mutation. Nonnull dates capture the latest source baseline. Nulls are commands only and never persist in Snapshot. The HTTP adapter translates explicitly present JavaScript undefined override keys into null. This coordinated additive reset representation preserves the existing UI behavior (#53/#58)."
     Material:
       type: "object"
       properties:

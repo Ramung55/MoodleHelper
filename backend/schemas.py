@@ -4,7 +4,7 @@ Optional properties may be omitted, but JSON null is not a valid value. Strings
 remain strings: the contract deliberately specifies no URL/timezone validation.
 """
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
@@ -29,6 +29,7 @@ def omit_absence_defaults(schema: dict) -> None:
 
 
 class WireModel(BaseModel):
+    nullable_properties: ClassVar[frozenset[str]] = frozenset()
     model_config = ConfigDict(strict=True, extra="ignore", allow_inf_nan=False,
                               json_schema_extra=omit_absence_defaults)
 
@@ -38,7 +39,7 @@ class WireModel(BaseModel):
         if isinstance(value, dict):
             for name, field in cls.model_fields.items():
                 key = field.alias or name
-                if key in value and value[key] is None:
+                if key in value and value[key] is None and key not in cls.nullable_properties:
                     raise ValueError(f"{key} cannot be null; omit optional properties")
         return value
 
@@ -105,15 +106,25 @@ class Assessment(WireModel):
 
 
 class OverlayPatch(WireModel):
-    titleOverride: str = None
-    dateOverride: DateValue = None
-    overrideBase: DateValue = None
+    nullable_properties: ClassVar[frozenset[str]] = frozenset({"titleOverride", "dateOverride", "overrideBase"})
+    titleOverride: str | None = None
+    dateOverride: DateValue | None = None
+    overrideBase: DateValue | None = None
     hidden: bool = None
     completed: bool = None
 
+    @model_validator(mode="after")
+    def consistent_clear(self):
+        if "dateOverride" in self.model_fields_set and self.dateOverride is None and self.overrideBase is not None:
+            raise ValueError("Clearing dateOverride cannot set a nonnull overrideBase")
+        return self
 
-class Overlay(OverlayPatch):
+
+class Overlay(WireModel):
     assessmentId: str
+    titleOverride: str = None
+    dateOverride: DateValue = None
+    overrideBase: DateValue = None
     hidden: bool = Field(json_schema_extra={"default": False})
     completed: bool = Field(json_schema_extra={"default": False})
 

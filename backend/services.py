@@ -52,9 +52,12 @@ class BackendService:
             current = next((o for o in s["overlays"] if o["assessmentId"] == id),
                            {"assessmentId": id, "hidden": False, "completed": False})
             current.update(patch)
+            for key in ("titleOverride", "dateOverride", "overrideBase"):
+                if current.get(key) is None:
+                    current.pop(key, None)
             if "dateOverride" in patch:
                 assessment = next((a for a in s["assessments"] if a["id"] == id), None)
-                if assessment:
+                if patch["dateOverride"] is not None and assessment:
                     current["overrideBase"] = source_date(assessment["sources"])
                 else:
                     current.pop("overrideBase", None)

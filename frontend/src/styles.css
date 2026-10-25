@@ -1,0 +1,122 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-demo: var(--demo);
+  --color-demo-foreground: var(--demo-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-course-1: var(--course-1);
+  --color-course-2: var(--course-2);
+  --color-course-3: var(--course-3);
+  --color-course-4: var(--course-4);
+  --color-course-5: var(--course-5);
+  --color-course-6: var(--course-6);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.5rem;
+  /* Warm paper + deep ink-green: calm academic */
+  --background: oklch(0.975 0.008 85);
+  --foreground: oklch(0.24 0.02 160);
+  --card: oklch(0.993 0.004 85);
+  --card-foreground: oklch(0.24 0.02 160);
+  --popover: oklch(0.993 0.004 85);
+  --popover-foreground: oklch(0.24 0.02 160);
+  --primary: oklch(0.38 0.07 165);
+  --primary-foreground: oklch(0.98 0.01 85);
+  --secondary: oklch(0.93 0.015 85);
+  --secondary-foreground: oklch(0.28 0.03 160);
+  --muted: oklch(0.94 0.01 85);
+  --muted-foreground: oklch(0.5 0.02 160);
+  --accent: oklch(0.92 0.03 150);
+  --accent-foreground: oklch(0.28 0.05 165);
+  --destructive: oklch(0.55 0.19 28);
+  --destructive-foreground: oklch(0.98 0.01 85);
+  --success: oklch(0.55 0.12 155);
+  --success-foreground: oklch(0.98 0.01 85);
+  --warning: oklch(0.78 0.14 75);
+  --warning-foreground: oklch(0.28 0.06 60);
+  --info: oklch(0.55 0.1 240);
+  --info-foreground: oklch(0.98 0.01 85);
+  --demo: oklch(0.86 0.13 90);
+  --demo-foreground: oklch(0.3 0.07 70);
+  --border: oklch(0.88 0.015 85);
+  --input: oklch(0.86 0.015 85);
+  --ring: oklch(0.5 0.08 165);
+  --course-1: oklch(0.55 0.12 250);
+  --course-2: oklch(0.6 0.14 30);
+  --course-3: oklch(0.55 0.11 160);
+  --course-4: oklch(0.6 0.13 320);
+  --course-5: oklch(0.65 0.13 75);
+  --course-6: oklch(0.5 0.08 200);
+  --sidebar: oklch(0.27 0.035 165);
+  --sidebar-foreground: oklch(0.92 0.015 85);
+  --sidebar-primary: oklch(0.86 0.13 90);
+  --sidebar-primary-foreground: oklch(0.25 0.04 165);
+  --sidebar-accent: oklch(0.34 0.04 165);
+  --sidebar-accent-foreground: oklch(0.98 0.01 85);
+  --sidebar-border: oklch(0.36 0.03 165);
+  --sidebar-ring: oklch(0.86 0.13 90);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}

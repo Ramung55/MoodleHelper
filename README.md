@@ -1,8 +1,8 @@
-# Moodle Helper backend
+# Moodle Helper local application
 
 The backend uses Python 3.12–3.14 (3.13 selected in `.python-version`),
 FastAPI, uv, and pytest. Install [uv](https://docs.astral.sh/uv/) first.
-The frontend remains its existing independent TypeScript package in `frontend/`.
+The existing TypeScript frontend in `frontend/` uses the local API by default.
 
 From the repository root:
 
@@ -22,8 +22,9 @@ No Moodle login, extension, frontend process, or external account is needed.
 
 The user's backend instruction selects FastAPI with uv/pytest and in-memory
 storage. Existing `AGENTS.md` commands remain applicable to the backend.
-The frontend retains its own `package.json`, npm/Vite/Vitest commands, and
-lockfiles; this setup neither replaces it nor connects its mock services.
+The frontend retains its own `package.json`, Bun/Vite/Vitest commands, and
+lockfile. Its design is preserved; `HttpAdapter` now binds its service contract
+to FastAPI. The old DemoAdapter remains available for focused fixture tests.
 The extension/shared browser package layout remains unimplemented.
 
 Issue [#50](https://github.com/Ramung55/MoodleHelper/issues/50) remains open:
@@ -63,7 +64,8 @@ For example, create an event with JSON:
 ```
 
 PATCH omits unchanged properties; nested settings objects must be complete.
-Explicit nulls are invalid. Unknown properties are ignored. Invalid requests
+Only the three optional overlay fields accept null as a clear command;
+all other explicit nulls are invalid. Unknown properties are ignored. Invalid requests
 return 422 with `{"message":"..."}` and preserve the previous dataset.
 HTTP 404, 405, and 500 responses also use the message envelope. Missing personal
 delete/review ids are successful no-ops; unsupported imports/downloads remain
@@ -77,7 +79,8 @@ Each application instance owns one shared process-local fictional dataset.
 Every client of that instance sees the same data. Restarting clears changes;
 multiple workers have independent datasets, so run the default single worker.
 No database, filesystem persistence, external AI, or live Moodle access is used.
-No CORS permissions are enabled. Hosted deployment and authentication remain
+No CORS permissions are enabled; the frontend development server proxies `/api`
+to FastAPI on the same browser origin. Hosted deployment and authentication remain
 undecided in #2; this implementation does not resolve that deployment design.
 
 `backend/storage.py` defines a repository protocol and copy-on-write,
@@ -93,13 +96,19 @@ permits arbitrary timestamp/timezone/URL strings and only a date-shaped regex.
 This backend implements those exact constraints, including date-shaped strings
 that are not calendar dates. It does not claim to complete #5.
 
-Override clearing remains unresolved (#53): omission means unchanged and null
-is rejected. Sync/import progress callbacks and cancellation have no HTTP
+The justified #53/#58 contract addition preserves overlay reset over JSON:
+omission means unchanged; `titleOverride: null` removes the title, and
+`dateOverride: null` removes both date and baseline. `overrideBase: null`
+clears the baseline. A clear-date command with a nonnull baseline is rejected
+atomically. Snapshot fields remain nonnullable and cleared keys are absent.
+The HTTP adapter serializes explicitly present JavaScript undefined override
+keys as null. Broader #53 product requirements remain independently tracked.
+Sync/import progress callbacks and cancellation have no HTTP
 transport (#19/#21). Imports accept filenames, never file bytes (#24), and
 produce explicitly mocked candidates. Sync is simulated, including a failing
 physics course while preserving earlier data. Downloads require the future
 extension; AI remains unavailable even when settings contain consent. No
-content is transmitted. The frontend keeps its existing mock services.
+content is transmitted. The frontend shows these same truthful capability outcomes.
 
 The pytest suite checks all 16 operations, required fields, union/enum/bound
 validation, atomic restore failures, CRUD, personal/source separation, app
@@ -108,3 +117,45 @@ requests/responses with JSON Schema against `openapi.yaml` and compares the
 generated route/model contract for fields, requiredness and constraints.
 The installed Starlette version emits one httpx TestClient deprecation warning;
 tests pass using the approved httpx dependency without adding another package.
+
+## Run the full application
+
+Use Python/uv as above and Node.js 22.12+ with Bun 1.3+ for the existing frontend.
+In terminal 1, from the repository root:
+
+```powershell
+uv sync --locked
+uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+In terminal 2, from the repository root:
+
+```powershell
+cd frontend
+bun install --frozen-lockfile
+bun run dev --host 127.0.0.1 --port 5173
+```
+
+Open http://127.0.0.1:5173. The Vite server forwards `/api` to
+http://127.0.0.1:8000; requests need no credentials. Keep both processes running.
+Browser reload reads server state. Backend restart restores fictional sample
+data until the separately approved persistence milestone is implemented.
+Do not expose either development server publicly. A production build succeeds,
+but a deployed host must separately proxy `/api`; no hosting is configured here.
+
+Run frontend checks from `frontend/`:
+
+```powershell
+bun run test
+bun run build
+```
+
+`http-live.test.ts` starts a real FastAPI child process on an available localhost
+port using the uv-managed `.venv`, exercises the HTTP adapter, and stops it.
+Run `uv sync` first. Other frontend tests cover all 16 mappings and UI error
+preservation. No mocked request is used for the live integration tests.
+
+The root repository tracks frontend source as ordinary files so a fresh root
+checkout contains the full application. The pre-existing nested frontend Git
+history is preserved locally, and its unrelated remote is never pushed by this
+integration. Future application work should be committed from the root.

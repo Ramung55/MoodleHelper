@@ -54,6 +54,23 @@ def test_overlay_baseline_priority_and_omission(client):
     assert client.patch("/api/assessments/a3/overlay", json={}).status_code == 200
 
 
+def test_overlay_explicit_null_clears_overrides(client):
+    updated = client.patch("/api/assessments/a3/overlay", json={
+        "titleOverride": "Revised",
+        "dateOverride": {"kind": "date", "date": "2026-11-30"},
+    }).json()
+    assert next(o for o in updated["overlays"] if o["assessmentId"] == "a3")["overrideBase"]
+
+    cleared = client.patch("/api/assessments/a3/overlay", json={
+        "titleOverride": None,
+        "dateOverride": None,
+    }).json()
+    layer = next(o for o in cleared["overlays"] if o["assessmentId"] == "a3")
+    assert "titleOverride" not in layer
+    assert "dateOverride" not in layer
+    assert "overrideBase" not in layer
+
+
 def test_latest_source_observation_baseline(client):
     data = snapshot(client)
     data["assessments"][0]["sources"] = [
@@ -177,7 +194,7 @@ def test_ai_unavailable_even_after_opt_in(client):
     ("/api/settings", {"weights": {"exam": 3}}), ("/api/settings", {"ai": {"enabled": True}}),
     ("/api/settings", {"reminders": {"enabled": "false", "hoursBefore": 1, "busyWeek": True}}),
     ("/api/settings", []), ("/api/settings", None),
-    ("/api/assessments/a1/overlay", {"dateOverride": None}),
+    ("/api/assessments/a1/overlay", {"dateOverride": None, "overrideBase": {"kind": "unknown"}}),
     ("/api/assessments/a1/overlay", {"hidden": "true"}),
 ])
 def test_invalid_patch_is_atomic(client, path, body):
