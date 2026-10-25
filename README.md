@@ -27,11 +27,11 @@ lockfile. Its design is preserved; `HttpAdapter` now binds its service contract
 to FastAPI. The old DemoAdapter remains available for focused fixture tests.
 The extension/shared browser package layout remains unimplemented.
 
-Issue [#50](https://github.com/Ramung55/MoodleHelper/issues/50) remains open:
-`_docs/plan.md` still describes the frontend and backend choice as unresolved
-and says no application code exists. That historical project specification,
-AGENTS.md, and agent configurations are preserved as requested. This guide
-records the current backend decision without claiming that #50 is complete.
+The [toolchain decision](_docs/architecture/toolchain.md) records the implemented
+frontend/backend boundaries, verified commands and passing integration checkpoint;
+the project plan now agrees with those facts. SQLAlchemy dependency approval
+remains deferred, so persistence has not begun. See [#50](https://github.com/Ramung55/MoodleHelper/issues/50)
+for its independent documentation-review status.
 
 ## API operations
 
