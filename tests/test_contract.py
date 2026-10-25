@@ -52,6 +52,9 @@ def canonical(schema, document):
     if not isinstance(schema, dict):
         return schema
     schema = resolve(schema, document)
+    if isinstance(schema.get("type"), list):
+        schema = {**{key: value for key, value in schema.items() if key != "type"},
+                  "anyOf": [{"type": kind} for kind in schema["type"]]}
     result = {}
     for key, value in schema.items():
         if key in ("title", "description", "default", "discriminator", "$defs") or key.startswith("x-"):
