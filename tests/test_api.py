@@ -1,4 +1,5 @@
 from copy import deepcopy
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -39,6 +40,41 @@ def test_personal_crud_and_source_separation(client):
 def test_unique_personal_ids(client):
     ids = [client.post("/api/personal-events", json=event()).json()["assessments"][-1]["id"] for _ in range(4)]
     assert len(set(ids)) == 4
+
+
+@pytest.mark.parametrize("id", ["folder/item", "folder/100% ?# Пример", "", "/leading//trailing/"])
+def test_encoded_identifiers_reach_all_identifier_routes(client, id):
+    """Restored identifiers are arbitrary strings, not single URL segments."""
+    data = client.post("/api/personal-events", json=event()).json()
+    data["assessments"][-1]["id"] = id
+    data["candidates"][0]["id"] = id
+    data["materials"][0].update(id=id, accessible=True)
+    assert client.put("/api/snapshot", json=data).status_code == 200
+    encoded = quote(id, safe="")
+
+    patched = client.patch(f"/api/assessments/{encoded}/overlay", json={"completed": True})
+    assert patched.status_code == 200
+    assert next(o for o in patched.json()["overlays"] if o["assessmentId"] == id)["completed"] is True
+    reviewed = client.post(f"/api/candidates/{encoded}/review", json={"kind": "reject"})
+    assert reviewed.status_code == 200
+    assert next(c for c in reviewed.json()["candidates"] if c["id"] == id)["status"] == "rejected"
+    downloaded = client.post(f"/api/materials/{encoded}/download")
+    assert downloaded.status_code == 200
+    assert "Chrome extension" in downloaded.json()["message"]
+    deleted = client.delete(f"/api/personal-events/{encoded}")
+    assert deleted.status_code == 200
+    assert all(a["id"] != id for a in deleted.json()["assessments"])
+    assert all(o["assessmentId"] != id for o in deleted.json()["overlays"])
+
+
+def test_missing_encoded_identifiers_preserve_no_op_outcomes(client):
+    before = snapshot(client)
+    assert client.post("/api/candidates/missing%2Fencoded/review", json={"kind": "confirm"}).json() == before
+    assert client.delete("/api/personal-events/missing%2Fencoded").json() == before
+    outcome = client.post("/api/materials/missing%2Fencoded/download")
+    assert outcome.status_code == 200
+    assert outcome.json()["snapshot"] == before
+    assert outcome.json()["supported"] is False
 
 
 def test_overlay_baseline_priority_and_omission(client):

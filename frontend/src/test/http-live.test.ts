@@ -47,6 +47,31 @@ afterAll(async () => {
 });
 
 describe("actual FastAPI HTTP integration", () => {
+  it("round trips encoded identifiers through real routes and preserves missing-id outcomes", async () => {
+    const original = await api.load();
+    const id = "folder/item %2F? # Пример";
+    const restored = await api.addPersonalEvent({ title: "Encoded identifier", courseId: "c-csc", type: "other", date: { kind: "unknown" } });
+    restored.assessments.at(-1)!.id = id;
+    restored.candidates[0].id = id;
+    restored.materials[0] = { ...restored.materials[0], id, accessible: true };
+    try {
+      await api.replaceAll(restored);
+      const patched = await api.updateOverlay(id, { completed: true });
+      expect(patched.overlays.find((o) => o.assessmentId === id)?.completed).toBe(true);
+      const reviewed = await api.review(id, { kind: "reject" });
+      expect(reviewed.candidates.find((c) => c.id === id)?.status).toBe("rejected");
+      expect((await api.downloadMaterial(id)).message).toContain("Chrome extension");
+      const deleted = await api.deletePersonalEvent(id);
+      expect(deleted.assessments.some((a) => a.id === id)).toBe(false);
+      expect(deleted.overlays.some((o) => o.assessmentId === id)).toBe(false);
+      expect(await api.review("missing/encoded", { kind: "confirm" })).toEqual(deleted);
+      expect(await api.deletePersonalEvent("missing/encoded")).toEqual(deleted);
+      expect((await api.downloadMaterial("missing/encoded")).snapshot).toEqual(deleted);
+    } finally {
+      await api.replaceAll(original);
+    }
+  });
+
   it("loads server state, mutates personal data/settings, preserves failures and restores/resets", async () => {
     const original = await api.load();
     expect(original.courses.length).toBeGreaterThan(0);

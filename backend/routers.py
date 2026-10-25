@@ -42,7 +42,7 @@ def tracked_courses(body: list[str], api: Service):
     return api.set_tracked_courses(body)
 
 
-@router.patch("/assessments/{assessmentId}/overlay", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="updateOverlay", tags=["Assessments"])
+@router.patch("/assessments/{assessmentId:path}/overlay", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="updateOverlay", tags=["Assessments"])
 def overlay(assessmentId: str, body: s.OverlayPatch, api: Service):
     return api.update_overlay(assessmentId, body.model_dump(by_alias=True, exclude_unset=True))
 
@@ -52,7 +52,7 @@ def add_personal_event(body: s.PersonalEventInput, api: Service):
     return api.add_personal_event(wire(body))
 
 
-@router.delete("/personal-events/{id}", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="deletePersonalEvent", tags=["Assessments"])
+@router.delete("/personal-events/{id:path}", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="deletePersonalEvent", tags=["Assessments"])
 def delete_personal_event(id: str, api: Service):
     return api.delete_personal_event(id)
 
@@ -67,12 +67,12 @@ def import_document(body: s.ImportDocumentInput, api: Service):
     return api.import_document(body.courseId, body.fileName)
 
 
-@router.post("/candidates/{candidateId}/review", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="review", tags=["Documents"])
+@router.post("/candidates/{candidateId:path}/review", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="review", tags=["Documents"])
 def review(candidateId: str, body: Annotated[s.ConfirmReview | s.RejectReview | s.CorrectReview, Body(discriminator="kind")], api: Service):
     return api.review(candidateId, wire(body))
 
 
-@router.post("/materials/{id}/download", response_model=s.DownloadMaterialResponse, response_model_exclude_none=True, operation_id="downloadMaterial", tags=["Materials"])
+@router.post("/materials/{id:path}/download", response_model=s.DownloadMaterialResponse, response_model_exclude_none=True, operation_id="downloadMaterial", tags=["Materials"])
 def download(id: str, api: Service):
     return api.download_material(id)
 

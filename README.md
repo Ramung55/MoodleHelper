@@ -90,7 +90,7 @@ Services implement adapter behavior; routers only bind HTTP to services.
 
 ## Contract limitations and verification
 
-The root OpenAPI remains authoritative and unchanged. Broader issue #5 asks
+The root OpenAPI remains authoritative, with the documented reset addition. Broader issue #5 asks
 for invalid-date/unsafe-URL validation, but the current wire contract explicitly
 permits arbitrary timestamp/timezone/URL strings and only a date-shaped regex.
 This backend implements those exact constraints, including date-shaped strings
