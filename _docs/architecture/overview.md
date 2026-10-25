@@ -48,3 +48,5 @@ SQLite/SQLAlchemy is the requested next milestone, but SQLAlchemy dependency app
 | #42/#43 | AI unavailable; settings cause no send | Provider/policy/limits/consent and gateway contract |
 
 These are explicit blockers or proposed decisions owned by the linked issue numbers, not claims that the corresponding feature is complete.
+
+See the [complete shared model, strict ingestion boundary and identity inventory](data-model.md) for the #5 prerequisite to persistence.
