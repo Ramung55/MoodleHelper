@@ -1,0 +1,1236 @@
+# Source-derived proposed HTTP contract; no HTTP client is implemented yet.
+openapi: "3.1.0"
+info:
+  title: "Moodle Helper - proposed backend contract"
+  version: "0.1.0"
+  description: |-
+    PROPOSED HTTP MAPPING, NOT AN EXISTING API. The frontend has no HTTP API client: frontend/src/services/index.ts always returns DemoAdapter, which stores data in localStorage. frontend/src/services/extension-adapter.ts implements only an origin-checked window.postMessage ping/hello handshake, not HTTP transport or a data-capable ExtensionAdapter.
+
+    This document maps every method in MoodleHelperAdapter to a proposed method/path. Paths, HTTP verbs, 200 success status codes, and the generic error envelope are design choices for a future HTTP adapter. No frontend request is currently sent to these URLs. Implementing a backend alone will not connect the frontend; a matching HTTP adapter is still required.
+
+    Authentication: no adapter request carries credentials, an Authorization header, or a session cookie. Every operation therefore has security: []. This describes the current credential-free local/demo boundary, not permission to expose student data publicly. Authentication, authorization, user isolation, trusted-origin policy, and deployment must be designed before any internet-facing backend; no login flow or auth scheme is invented.
+
+    All successful return values follow the TypeScript adapter contract. Data operations return the complete Snapshot, not a partial entity, unless the adapter explicitly declares a wrapper. Readonly adapter.kind ('demo' | 'extension') is metadata, not an endpoint. File export/backup preview, derived workload, filtering, and eligible-alert calculations are frontend-local and have no backend endpoint.
+
+    syncAll and importDocument accept in-process progress callbacks. This proposed HTTP mapping returns only the final result; it cannot carry a JavaScript callback. Progress transport and any cancellation contract remain unspecified. No invented SSE, polling, websocket, or job endpoint is claimed.
+
+    Schemas mirror frontend/src/domain/types.ts and frontend/src/services/adapter.ts. String timestamps, timezones, and URLs are intentionally not given stricter formats than the source schemas. Defaulted booleans are present in the inferred Snapshot output; parsing a restore may materialize the source Zod defaults. Unknown object fields are not made invalid here because the source Zod objects strip extras where parsed rather than universally rejecting them.
+
+    Current adapter failures are rejected JavaScript promises and inline ImportResult/download capability responses, not HTTP errors. The shared default response below is a proposed HTTP convention only; no 401/403 or not-found behavior is inferred.
+x-contract-status: "proposed-http-projection-of-local-adapter"
+x-source-files:
+  - "frontend/src/services/adapter.ts"
+  - "frontend/src/services/index.ts"
+  - "frontend/src/services/demo-adapter.ts"
+  - "frontend/src/services/extension-adapter.ts"
+  - "frontend/src/domain/types.ts"
+  - "frontend/src/domain/backup.ts"
+  - "frontend/src/domain/extraction.ts"
+  - "frontend/src/lib/app-store.tsx"
+  - "frontend/src/routes/settings.tsx"
+  - "frontend/src/routes/syllabus.tsx"
+servers:
+  -
+    url: "/"
+    description: "Placeholder relative origin for a future same-origin HTTP adapter; no backend host or API base is configured by the frontend."
+security: []
+tags:
+  -
+    name: "Connection"
+  -
+    name: "Snapshot"
+  -
+    name: "Courses"
+  -
+    name: "Assessments"
+  -
+    name: "Sync"
+  -
+    name: "Documents"
+  -
+    name: "Materials"
+  -
+    name: "Alerts"
+  -
+    name: "Settings"
+  -
+    name: "Local data"
+  -
+    name: "Demo"
+  -
+    name: "AI availability"
+paths:
+  "/api/connection":
+    get:
+      operationId: "connection"
+      tags:
+        - "Connection"
+      summary: "Get adapter connection information"
+      description: "No request body. Returns connection state, student-facing message, and extension detection flag. Current demo state remains 'demo' even if the UI independently detects an extension; detection alone does not enable live collection."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.connection"
+      x-http-mapping: "proposed"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ConnectionInfo"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/snapshot":
+    get:
+      operationId: "load"
+      tags:
+        - "Snapshot"
+      summary: "Load the complete dataset"
+      description: "No request body. Returns the complete Snapshot consumed by AppProvider. The current implementation loads local demo fixtures or saved localStorage data."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.load"
+      x-http-mapping: "proposed"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+    put:
+      operationId: "replaceAll"
+      tags:
+        - "Snapshot"
+      summary: "Atomically replace the dataset after restore validation"
+      description: "Request body is a bare Snapshot, not the Backup {app,version,exportedAt,note,data} wrapper. Backup generation, file parsing, version checks, preview, and confirmation are client-local; settings.tsx passes preview.backup.data. DemoAdapter validates Snapshot with Zod before writing and rejects invalid input before mutation."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.replaceAll"
+      x-http-mapping: "proposed"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/Snapshot"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/tracked-courses":
+    put:
+      operationId: "setTrackedCourses"
+      tags:
+        - "Courses"
+      summary: "Replace tracked course identifiers"
+      description: "Request body is a bare string array, not an object wrapper. Empty selection is allowed by the adapter. Returns the updated complete Snapshot."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.setTrackedCourses"
+      x-http-mapping: "proposed"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "array"
+              items:
+                type: "string"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/assessments/{assessmentId}/overlay":
+    patch:
+      operationId: "updateOverlay"
+      tags:
+        - "Assessments"
+      summary: "Update personal assessment overlay"
+      description: "Patches the personal layer without mutating source evidence. Current demo stores a source-date baseline when dateOverride is provided. JSON has no undefined value; clearing optional overrides through HTTP is unresolved and is not falsely modeled as nullable."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.updateOverlay"
+      x-http-mapping: "proposed"
+      parameters:
+        -
+          name: "assessmentId"
+          in: "path"
+          required: true
+          description: "Assessment identifier passed as the first adapter argument."
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/OverlayPatch"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/personal-events":
+    post:
+      operationId: "addPersonalEvent"
+      tags:
+        - "Assessments"
+      summary: "Add a personal assessment"
+      description: "Creates personal source evidence and returns the full updated Snapshot. The source contract requires courseId, title, type, and DateValue but does not impose a nonempty title or referential-integrity schema rule."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.addPersonalEvent"
+      x-http-mapping: "proposed"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/PersonalEventInput"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/personal-events/{id}":
+    delete:
+      operationId: "deletePersonalEvent"
+      tags:
+        - "Assessments"
+      summary: "Delete a personal assessment"
+      description: "No request body. The current demo removes a matching assessment only if personal is true and removes the overlay with this id; missing ids are a no-op rather than a declared 404. Return the full updated Snapshot, not 204."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.deletePersonalEvent"
+      x-http-mapping: "proposed"
+      parameters:
+        -
+          name: "id"
+          in: "path"
+          required: true
+          description: "Personal assessment identifier."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/sync":
+    post:
+      operationId: "syncAll"
+      tags:
+        - "Sync"
+      summary: "Run sync and return its final snapshot"
+      description: "No request body. In-process onProgress receives intermediate Snapshots; this proposed HTTP operation returns only the final Snapshot. A future HTTP adapter needs a separately agreed progress transport to preserve incremental UI updates. Course-level failures are recorded in Snapshot.sync and can coexist with a successful operation response. Current demo never contacts Moodle and simulates one failing course."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.syncAll"
+      x-http-mapping: "proposed"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/documents/import":
+    post:
+      operationId: "importDocument"
+      tags:
+        - "Documents"
+      summary: "Import a syllabus by its supplied filename"
+      description: "Filename-only JSON matching the current adapter, not a multipart file upload. The UI supplies File.name and never reads or passes file bytes. Current demo only checks the extension (PDF/DOCX), simulates extraction, and adds a mocked candidate. Unsupported formats return 200 with result.ok=false and reason, not a fabricated HTTP validation error. onProgress callbacks are not transmitted; the response contains the final snapshot and result."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.importDocument"
+      x-http-mapping: "proposed"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ImportDocumentInput"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ImportDocumentResponse"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/candidates/{candidateId}/review":
+    post:
+      operationId: "review"
+      tags:
+        - "Documents"
+      summary: "Confirm, reject, or correct an extraction candidate"
+      description: "Request is the ReviewDecision discriminated union. Corrections require title, date, and assessment type. Current demo treats an unknown candidate as a no-op returning the current Snapshot and can attach evidence to matchAssessmentId. The method currently has no idempotency guard; repeated confirm can append evidence or assessments, so no idempotency guarantee is invented."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.review"
+      x-http-mapping: "proposed"
+      parameters:
+        -
+          name: "candidateId"
+          in: "path"
+          required: true
+          description: "Extraction candidate identifier."
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ReviewDecision"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/materials/{id}/download":
+    post:
+      operationId: "downloadMaterial"
+      tags:
+        - "Materials"
+      summary: "Request a material download capability outcome"
+      description: "No request body. Return a JSON capability/result wrapper, not file bytes or a redirect. Current demo always returns supported=false, with a message distinguishing inaccessible resources from extension-required downloads; a missing resource follows the inaccessible result."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.downloadMaterial"
+      x-http-mapping: "proposed"
+      parameters:
+        -
+          name: "id"
+          in: "path"
+          required: true
+          description: "Material identifier."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DownloadMaterialResponse"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/alerts":
+    put:
+      operationId: "saveAlerts"
+      tags:
+        - "Alerts"
+      summary: "Replace the persisted alert collection"
+      description: "Request is a bare array of Alert records. It replaces the collection rather than appending one alert and returns the complete Snapshot. Eligibility calculations run in the frontend and are not another API operation."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.saveAlerts"
+      x-http-mapping: "proposed"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "array"
+              items:
+                "$ref": "#/components/schemas/Alert"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/settings":
+    patch:
+      operationId: "updateSettings"
+      tags:
+        - "Settings"
+      summary: "Shallow-update settings"
+      description: "Top-level settings fields are optional. Nested weights, thresholds, reminders, or AI objects, when supplied, must be complete because the source type is shallow Partial<Settings> and the current implementation shallow-merges. No extra positivity constraints are added to numbers that the source schema leaves unconstrained."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.updateSettings"
+      x-http-mapping: "proposed"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/SettingsPatch"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/local-data":
+    delete:
+      operationId: "deleteLocalData"
+      tags:
+        - "Local data"
+      summary: "Clear the local dataset"
+      description: "No request body. Return the post-deletion Snapshot. Current demo clears all record arrays and trackedCourseIds but retains the other settings; it does not delete Moodle records or disk files. No claim is made that the current demo implements background worker/alarm cleanup."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.deleteLocalData"
+      x-http-mapping: "proposed"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+  "/api/demo/reset":
+    post:
+      operationId: "resetDemo"
+      tags:
+        - "Demo"
+      summary: "Reset fictional demo data (optional capability)"
+      description: "No request body. This adapter method is optional and UI is shown only when it exists. It returns a fresh fictional demo Snapshot; it must not be assumed available on a production adapter. An HTTP implementation must agree how it advertises optional-method support before switching the current frontend; no capability-discovery endpoint is invented."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.resetDemo"
+      x-http-mapping: "proposed"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Snapshot"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+      x-optional-adapter-method: true
+      x-demo-only: true
+  "/api/ai/availability":
+    get:
+      operationId: "aiAvailability"
+      tags:
+        - "AI availability"
+      summary: "Get AI availability and policy information"
+      description: "No request body. An unavailable result requires reason; an available result requires provider and retention. Current demo always returns unavailable. There is no AI invocation/upload operation in this frontend, and settings.ai.enabled/consentGiven alone never send content."
+      security: []
+      x-frontend-method: "MoodleHelperAdapter.aiAvailability"
+      x-http-mapping: "proposed"
+      responses:
+        "200":
+          description: "Final adapter return value (proposed HTTP success status)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/AiAvailability"
+        default:
+          "$ref": "#/components/responses/ProposedHttpFailure"
+components:
+  schemas:
+    DateValue:
+      oneOf:
+        -
+          "$ref": "#/components/schemas/ExactDate"
+        -
+          "$ref": "#/components/schemas/CalendarDate"
+        -
+          "$ref": "#/components/schemas/TeachingWeek"
+        -
+          "$ref": "#/components/schemas/UnknownDate"
+      discriminator:
+        propertyName: "kind"
+        mapping:
+          exact: "#/components/schemas/ExactDate"
+          date: "#/components/schemas/CalendarDate"
+          week: "#/components/schemas/TeachingWeek"
+          unknown: "#/components/schemas/UnknownDate"
+      description: "The four frontend date forms. Do not replace date-only, teaching-week, or unknown values with invented exact timestamps."
+    ExactDate:
+      type: "object"
+      properties:
+        kind:
+          const: "exact"
+          type: "string"
+        iso:
+          type: "string"
+          description: "Exact-time string. The frontend schema accepts any string; this contract does not add date-time validation."
+        tz:
+          type: "string"
+          description: "Timezone string; not constrained to a particular registry by the frontend schema."
+      required:
+        - "kind"
+        - "iso"
+        - "tz"
+    CalendarDate:
+      type: "object"
+      properties:
+        kind:
+          const: "date"
+          type: "string"
+        date:
+          type: "string"
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+      required:
+        - "kind"
+        - "date"
+    TeachingWeek:
+      type: "object"
+      properties:
+        kind:
+          const: "week"
+          type: "string"
+        week:
+          type: "integer"
+          minimum: 1
+          maximum: 30
+      required:
+        - "kind"
+        - "week"
+    UnknownDate:
+      type: "object"
+      properties:
+        kind:
+          const: "unknown"
+          type: "string"
+        note:
+          type: "string"
+      required:
+        - "kind"
+    AssessmentType:
+      type: "string"
+      enum:
+        - "assignment"
+        - "quiz"
+        - "exam"
+        - "other"
+    SubmissionStatus:
+      type: "string"
+      enum:
+        - "submitted"
+        - "draft"
+        - "not_submitted"
+        - "reopened"
+        - "unknown"
+    ConnectionState:
+      type: "string"
+      enum:
+        - "demo"
+        - "connected"
+        - "disconnected"
+        - "error"
+    Course:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        code:
+          type: "string"
+        name:
+          type: "string"
+        color:
+          type: "integer"
+          minimum: 1
+          maximum: 6
+        current:
+          type: "boolean"
+      required:
+        - "id"
+        - "code"
+        - "name"
+        - "color"
+        - "current"
+    SourceEvidence:
+      type: "object"
+      properties:
+        source:
+          type: "string"
+          enum:
+            - "moodle"
+            - "syllabus"
+            - "personal"
+        date:
+          "$ref": "#/components/schemas/DateValue"
+        excerpt:
+          type: "string"
+        location:
+          type: "string"
+        url:
+          type: "string"
+        observedAt:
+          type: "string"
+      required:
+        - "source"
+        - "date"
+        - "observedAt"
+    SubmissionObservation:
+      type: "object"
+      properties:
+        status:
+          "$ref": "#/components/schemas/SubmissionStatus"
+        evidence:
+          type: "string"
+        observedAt:
+          type: "string"
+      required:
+        - "status"
+        - "observedAt"
+    Assessment:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        activityId:
+          type: "string"
+        courseId:
+          type: "string"
+        title:
+          type: "string"
+        type:
+          "$ref": "#/components/schemas/AssessmentType"
+        availableFrom:
+          type: "string"
+          description: "Moodle quiz or assignment opening time when known."
+        sources:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/SourceEvidence"
+          minItems: 1
+        submission:
+          "$ref": "#/components/schemas/SubmissionObservation"
+        personal:
+          type: "boolean"
+          default: false
+        firstObservedAt:
+          type: "string"
+        lastObservedAt:
+          type: "string"
+      required:
+        - "id"
+        - "courseId"
+        - "title"
+        - "type"
+        - "sources"
+        - "personal"
+        - "firstObservedAt"
+        - "lastObservedAt"
+    Overlay:
+      type: "object"
+      properties:
+        assessmentId:
+          type: "string"
+        titleOverride:
+          type: "string"
+        dateOverride:
+          "$ref": "#/components/schemas/DateValue"
+        overrideBase:
+          "$ref": "#/components/schemas/DateValue"
+          description: "Source date when the override was set; used for change detection."
+        hidden:
+          type: "boolean"
+          default: false
+        completed:
+          type: "boolean"
+          default: false
+      required:
+        - "assessmentId"
+        - "hidden"
+        - "completed"
+    OverlayPatch:
+      type: "object"
+      properties:
+        titleOverride:
+          type: "string"
+        dateOverride:
+          "$ref": "#/components/schemas/DateValue"
+        overrideBase:
+          "$ref": "#/components/schemas/DateValue"
+        hidden:
+          type: "boolean"
+        completed:
+          type: "boolean"
+      description: "Partial<Omit<Overlay, 'assessmentId'>>. Omitted fields are unchanged. JavaScript undefined used to clear overrides has no JSON equivalent; null is not accepted by the current frontend types. A clear/reset wire operation remains unresolved, so none is invented here."
+    Material:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        courseId:
+          type: "string"
+        section:
+          type: "string"
+        title:
+          type: "string"
+        fileType:
+          type: "string"
+          enum:
+            - "pdf"
+            - "docx"
+            - "pptx"
+            - "link"
+            - "video"
+            - "other"
+        url:
+          type: "string"
+        accessible:
+          type: "boolean"
+        stale:
+          type: "boolean"
+        lastCheckedAt:
+          type: "string"
+        downloadedAt:
+          type: "string"
+        syllabusSuggestion:
+          type: "boolean"
+          default: false
+      required:
+        - "id"
+        - "courseId"
+        - "section"
+        - "title"
+        - "fileType"
+        - "url"
+        - "accessible"
+        - "stale"
+        - "lastCheckedAt"
+        - "syllabusSuggestion"
+    ImportedDocument:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        courseId:
+          type: "string"
+        name:
+          type: "string"
+        format:
+          type: "string"
+          enum:
+            - "pdf"
+            - "docx"
+        status:
+          type: "string"
+          enum:
+            - "queued"
+            - "extracting"
+            - "done"
+            - "failed"
+            - "needs_ocr"
+        progress:
+          type: "number"
+          minimum: 0
+          maximum: 100
+        error:
+          type: "string"
+        importedAt:
+          type: "string"
+        mocked:
+          type: "boolean"
+      required:
+        - "id"
+        - "courseId"
+        - "name"
+        - "format"
+        - "status"
+        - "progress"
+        - "importedAt"
+        - "mocked"
+    ExtractionCandidate:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        documentId:
+          type: "string"
+        courseId:
+          type: "string"
+        title:
+          type: "string"
+        type:
+          "$ref": "#/components/schemas/AssessmentType"
+        date:
+          "$ref": "#/components/schemas/DateValue"
+        rawDateText:
+          type: "string"
+        language:
+          type: "string"
+          enum:
+            - "en"
+            - "ru"
+        confidence:
+          type: "number"
+          minimum: 0
+          maximum: 1
+        excerpt:
+          type: "string"
+        location:
+          type: "string"
+        status:
+          type: "string"
+          enum:
+            - "pending"
+            - "confirmed"
+            - "corrected"
+            - "rejected"
+            - "auto"
+        matchAssessmentId:
+          type: "string"
+        reason:
+          type: "string"
+      required:
+        - "id"
+        - "documentId"
+        - "courseId"
+        - "title"
+        - "type"
+        - "date"
+        - "rawDateText"
+        - "language"
+        - "confidence"
+        - "excerpt"
+        - "location"
+        - "status"
+    CourseSyncState:
+      type: "object"
+      properties:
+        courseId:
+          type: "string"
+        status:
+          type: "string"
+          enum:
+            - "ok"
+            - "partial"
+            - "failed"
+            - "never"
+            - "syncing"
+        coverage:
+          type: "string"
+          enum:
+            - "full"
+            - "partial"
+            - "none"
+        lastSuccessAt:
+          type: "string"
+        error:
+          type: "string"
+        progress:
+          type: "number"
+          minimum: 0
+          maximum: 100
+      required:
+        - "courseId"
+        - "status"
+        - "coverage"
+        - "progress"
+    DeadlineChange:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        assessmentId:
+          type: "string"
+        from:
+          "$ref": "#/components/schemas/DateValue"
+        to:
+          "$ref": "#/components/schemas/DateValue"
+        detectedAt:
+          type: "string"
+      required:
+        - "id"
+        - "assessmentId"
+        - "from"
+        - "to"
+        - "detectedAt"
+    Alert:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        kind:
+          type: "string"
+          enum:
+            - "deadline"
+            - "busy_week"
+            - "change"
+            - "sync"
+        message:
+          type: "string"
+        assessmentId:
+          type: "string"
+        deliveryKey:
+          type: "string"
+        createdAt:
+          type: "string"
+        read:
+          type: "boolean"
+      required:
+        - "id"
+        - "kind"
+        - "message"
+        - "deliveryKey"
+        - "createdAt"
+        - "read"
+    Weights:
+      type: "object"
+      properties:
+        exam:
+          type: "number"
+        assignment:
+          type: "number"
+        quiz:
+          type: "number"
+        other:
+          type: "number"
+      required:
+        - "exam"
+        - "assignment"
+        - "quiz"
+        - "other"
+    Thresholds:
+      type: "object"
+      properties:
+        maxOutstanding:
+          type: "number"
+        maxWeighted:
+          type: "number"
+      required:
+        - "maxOutstanding"
+        - "maxWeighted"
+    ReminderSettings:
+      type: "object"
+      properties:
+        enabled:
+          type: "boolean"
+        hoursBefore:
+          type: "number"
+        busyWeek:
+          type: "boolean"
+      required:
+        - "enabled"
+        - "hoursBefore"
+        - "busyWeek"
+    AiSettings:
+      type: "object"
+      properties:
+        enabled:
+          type: "boolean"
+        consentGiven:
+          type: "boolean"
+      required:
+        - "enabled"
+        - "consentGiven"
+    Settings:
+      type: "object"
+      properties:
+        trackedCourseIds:
+          type: "array"
+          items:
+            type: "string"
+        semesterStart:
+          type: "string"
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        semesterWeeks:
+          type: "integer"
+          minimum: 1
+          maximum: 30
+        timezone:
+          type: "string"
+        weights:
+          "$ref": "#/components/schemas/Weights"
+        thresholds:
+          "$ref": "#/components/schemas/Thresholds"
+        reminders:
+          "$ref": "#/components/schemas/ReminderSettings"
+        ai:
+          "$ref": "#/components/schemas/AiSettings"
+      required:
+        - "trackedCourseIds"
+        - "semesterStart"
+        - "semesterWeeks"
+        - "timezone"
+        - "weights"
+        - "thresholds"
+        - "reminders"
+        - "ai"
+    SettingsPatch:
+      type: "object"
+      properties:
+        trackedCourseIds:
+          type: "array"
+          items:
+            type: "string"
+        semesterStart:
+          type: "string"
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        semesterWeeks:
+          type: "integer"
+          minimum: 1
+          maximum: 30
+        timezone:
+          type: "string"
+        weights:
+          "$ref": "#/components/schemas/Weights"
+        thresholds:
+          "$ref": "#/components/schemas/Thresholds"
+        reminders:
+          "$ref": "#/components/schemas/ReminderSettings"
+        ai:
+          "$ref": "#/components/schemas/AiSettings"
+      description: "Shallow Partial<Settings>. When a nested object is present, all of its members are required. updateSettings merges top-level fields, not nested fields."
+    Snapshot:
+      type: "object"
+      properties:
+        courses:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Course"
+        assessments:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Assessment"
+        overlays:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Overlay"
+        materials:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Material"
+        documents:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/ImportedDocument"
+        candidates:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/ExtractionCandidate"
+        sync:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/CourseSyncState"
+        changes:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/DeadlineChange"
+        alerts:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Alert"
+        settings:
+          "$ref": "#/components/schemas/Settings"
+      required:
+        - "courses"
+        - "assessments"
+        - "overlays"
+        - "materials"
+        - "documents"
+        - "candidates"
+        - "sync"
+        - "changes"
+        - "alerts"
+        - "settings"
+    ConnectionInfo:
+      type: "object"
+      properties:
+        state:
+          "$ref": "#/components/schemas/ConnectionState"
+        message:
+          type: "string"
+          description: "Displayed verbatim to the student."
+        extensionDetected:
+          type: "boolean"
+      required:
+        - "state"
+        - "message"
+        - "extensionDetected"
+    PersonalEventInput:
+      type: "object"
+      properties:
+        courseId:
+          type: "string"
+        title:
+          type: "string"
+        type:
+          "$ref": "#/components/schemas/AssessmentType"
+        date:
+          "$ref": "#/components/schemas/DateValue"
+      required:
+        - "courseId"
+        - "title"
+        - "type"
+        - "date"
+    ReviewDecision:
+      oneOf:
+        -
+          "$ref": "#/components/schemas/ConfirmReview"
+        -
+          "$ref": "#/components/schemas/RejectReview"
+        -
+          "$ref": "#/components/schemas/CorrectReview"
+      discriminator:
+        propertyName: "kind"
+        mapping:
+          confirm: "#/components/schemas/ConfirmReview"
+          reject: "#/components/schemas/RejectReview"
+          correct: "#/components/schemas/CorrectReview"
+    ConfirmReview:
+      type: "object"
+      properties:
+        kind:
+          type: "string"
+          const: "confirm"
+      required:
+        - "kind"
+    RejectReview:
+      type: "object"
+      properties:
+        kind:
+          type: "string"
+          const: "reject"
+      required:
+        - "kind"
+    CorrectReview:
+      type: "object"
+      properties:
+        kind:
+          type: "string"
+          const: "correct"
+        title:
+          type: "string"
+        date:
+          "$ref": "#/components/schemas/DateValue"
+        type:
+          "$ref": "#/components/schemas/AssessmentType"
+      required:
+        - "kind"
+        - "title"
+        - "date"
+        - "type"
+    ImportDocumentInput:
+      type: "object"
+      properties:
+        courseId:
+          type: "string"
+        fileName:
+          type: "string"
+          description: "Only a file name is passed by the current frontend. File bytes, size, MIME type, and multipart upload are not part of its adapter contract."
+      required:
+        - "courseId"
+        - "fileName"
+    ImportResult:
+      oneOf:
+        -
+          "$ref": "#/components/schemas/ImportSuccess"
+        -
+          "$ref": "#/components/schemas/ImportFailure"
+    ImportSuccess:
+      type: "object"
+      properties:
+        ok:
+          type: "boolean"
+          const: true
+      required:
+        - "ok"
+    ImportFailure:
+      type: "object"
+      properties:
+        ok:
+          type: "boolean"
+          const: false
+        reason:
+          type: "string"
+      required:
+        - "ok"
+        - "reason"
+    ImportDocumentResponse:
+      type: "object"
+      properties:
+        snapshot:
+          "$ref": "#/components/schemas/Snapshot"
+        result:
+          "$ref": "#/components/schemas/ImportResult"
+      required:
+        - "snapshot"
+        - "result"
+    DownloadMaterialResponse:
+      type: "object"
+      properties:
+        snapshot:
+          "$ref": "#/components/schemas/Snapshot"
+        supported:
+          type: "boolean"
+        message:
+          type: "string"
+      required:
+        - "snapshot"
+        - "supported"
+        - "message"
+    AiAvailability:
+      oneOf:
+        -
+          "$ref": "#/components/schemas/AiUnavailable"
+        -
+          "$ref": "#/components/schemas/AiAvailable"
+    AiUnavailable:
+      type: "object"
+      properties:
+        available:
+          type: "boolean"
+          const: false
+        reason:
+          type: "string"
+      required:
+        - "available"
+        - "reason"
+    AiAvailable:
+      type: "object"
+      properties:
+        available:
+          type: "boolean"
+          const: true
+        provider:
+          type: "string"
+        retention:
+          type: "string"
+      required:
+        - "available"
+        - "provider"
+        - "retention"
+    ProposedHttpError:
+      type: "object"
+      properties:
+        message:
+          type: "string"
+          description: "Proposed human-readable HTTP error message. There is no current frontend HTTP error-envelope parser."
+      required:
+        - "message"
+  responses:
+    ProposedHttpFailure:
+      description: "Proposed HTTP failure convention only. The current frontend rejects promises or shows an Error.message; it does not define HTTP status codes or an error envelope. Inline domain outcomes such as unsupported imports/downloads remain successful 200 wrapper responses."
+      content:
+        "application/json":
+          schema:
+            "$ref": "#/components/schemas/ProposedHttpError"
