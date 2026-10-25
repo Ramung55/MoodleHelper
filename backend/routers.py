@@ -44,7 +44,7 @@ def tracked_courses(body: list[str], api: Service):
 
 @router.patch("/assessments/{assessmentId}/overlay", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="updateOverlay", tags=["Assessments"])
 def overlay(assessmentId: str, body: s.OverlayPatch, api: Service):
-    return api.update_overlay(assessmentId, wire(body))
+    return api.update_overlay(assessmentId, body.model_dump(by_alias=True, exclude_unset=True))
 
 
 @router.post("/personal-events", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="addPersonalEvent", tags=["Assessments"])
