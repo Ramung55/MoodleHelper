@@ -1,6 +1,6 @@
 # Milestone 2 integration issue
 
-Prepared against clean commit `b53373d`, 2026-10-25. The current full-stack objective is recorded in the user-supplied goal attachment. All 54 open canonical issues (#2–#56 except closed #57/#1) were searched; #2 explicitly excludes a frontend HTTP adapter, #9 owns extension messaging, and #57 owns backend behavior. None owns this integration. A focused nonduplicate follow-up is appropriate.
+Prepared against clean commit `b53373d`, 2026-10-25. The current full-stack objective is recorded in the user-supplied goal attachment. All 55 open canonical issues (#2–#56) were searched; #2 explicitly excludes a frontend HTTP adapter, #9 owns extension messaging, and closed #57 owns backend behavior. None owns this integration. A focused nonduplicate follow-up is appropriate.
 
 The first GitHub creation attempt was rejected because automatic review recognized only earlier backend-only authorization. The user subsequently explicitly selected “Authorize expanded scope” for frontend API integration, the documented override-clearing change, one nonduplicate integration issue and the remaining PM → Engineer → QA backlog. SQLAlchemy remains deferred.
 
