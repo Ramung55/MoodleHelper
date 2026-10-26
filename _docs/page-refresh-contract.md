@@ -109,6 +109,44 @@ real adapters yield no records. Require typed mock attemptInformation/date facts
 not permissive dictionaries. Original canonical DTO spelling from these linked
 contracts controls; document any ambiguity before implementation.
 
+#### Exact mock quiz/submission DTO amendment (before source OpenAPI)
+
+`RawQuizObservation` requires `sourceCourseId`, `sourceActivityId`,
+`sourceCourseModuleId`, `sourceUrl`, `title`, `observedAt`, `attemptInformation`;
+optional `opening` and `closing` are `{value: DateValue, rawText: string,
+location: "quiz.opening"|"quiz.closing"}` with location matching the field.
+The five attempt fields are `state|allowed|used|remaining|other`.
+`attemptInformation` is `{kind:"unknown"}` or
+`{kind:"known", facts: QuizAttemptFact[], unknownFields: QuizAttemptField[]}`.
+Known facts is nonempty. `QuizAttemptFact` is `{field: QuizAttemptField,
+rawText: string, location: QuizAttemptLocation}`; location is the exact matching
+literal `quiz.attemptInformation.state`, `.allowed`, `.used`, `.remaining` or
+`.other`. Preserve nonblank sanitized scoped wording, never derive a numeric
+count/state/grade from it. Multiple distinct facts for a field may survive;
+canonical duplicate facts deduplicate. unknownFields is sorted, unique, and exactly
+the complement of fields present in facts; the unknown branch means every field
+is unknown. No omitted category implies zero/unlimited/completed. Additional
+individual quiz date structures remain unavailable until an explicit typed
+extension is agreed; reject unrecognized facts, never strip them or claim support.
+
+`SubmissionSourceRecord` is exactly `{sourceCourseId, sourceActivityId,
+sourceCourseModuleId, sourceUrl, observation: SubmissionObservation}`.
+Ingestion accepts one such attempted record, without caller `confirmed` or `stale`.
+The retained submission observation variant is exactly
+`{attempted: SubmissionSourceRecord, confirmed?: SubmissionSourceRecord,
+stale: boolean}`. Identity validation requires attempted and confirmed wrappers
+to agree exactly. No duplicate top-level observedAt is added;
+attempted.observation.observedAt is the attempt time. Adapter mapping to the
+existing backend SubmissionRecord is explicit: sourceCourseId -> course_id,
+sourceActivityId -> activity_id, sourceCourseModuleId -> module_id,
+sourceUrl -> source_url, observation -> observation. Backend retain_submission
+alone computes confirmed/stale against the stored confirmation; contradictory
+equal-time states fail without replacing it. No caller reduction is trusted.
+Source record identity and timestamps read the attempted wrapper; a retained
+confirmation's original timestamp/wording remains intact. These exact names
+supersede the prose shorthand above and do not add any DOM classifier or live
+quiz/submission support. All five #18 acceptance criteria remain unchanged.
+
 Record identity is backend-generated canonical JSON namespace-prefixed tuple:
 assignment/quiz/submission = namespace + [kind, sourceCourseId, moduleType,
 sourceActivityId]; calendar = namespace + [calendar_event, sourceEventId,
