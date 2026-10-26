@@ -64,18 +64,25 @@ Dates are `time[data-date-field="opening|due|cutoff"][datetime]` inside the arti
 Base nodes have `data-date-scope="base"`; extensions have
 `data-date-scope="individual"` and nonblank `data-extension-evidence`.
 Exact nodes require `data-timezone` containing a known IANA name validated with
-existing Intl; date-only nodes omit timezone. Time text must be nonblank, retained
+existing Intl; UTC and Intl-recognized IANA aliases are allowed. Reject numeric
+fixed-offset timezone identifiers (including +05:00/-0500/Z), even if this Intl
+version accepts them; an ISO timestamp offset is distinct from an IANA identifier.
+Named IANA zones such as Etc/GMT+5 remain eligible if recognized by Intl.
+Date-only nodes omit timezone. Time text must be nonblank, retained
 as rawText. Unknown field/scope, invalid or blank datetime, duplicate same-scope
 field, nested assignment article, missing/duplicate identity/title/links, explicit
 data-incomplete/data-truncated on main/article all fail. Recognized unsupported or
 ambiguous date markup cannot produce an empty success. No natural-language date
 guessing, generic unscoped override inference or manifest/data-fact truth lookup.
 
-Exact syntax: YYYY-MM-DDTHH:mm:ss, optional 1..3 fractional digits, followed by Z
-or signed HH:MM. Validate real calendar (including leap years), clock 00..23 /
+Exact syntax: YYYY-MM-DDTHH:mm, optionally :ss and then optionally 1..3 fractional
+second digits, followed by Z or signed HH:MM. This preserves #5 minute precision
+alongside seconds/milliseconds; reject fractional minutes. Validate real calendar
+(including leap years), clock 00..23 /
 00..59 / 00..59, offset 00..23 / 00..59 before instant parsing; reject normalization,
 missing zone, impossible dates and unsupported precision. Preserve original exact
-string and timezone; instant comparison may use a validated epoch value without
+string and timezone, including minute-only input without adding seconds; instant
+comparison may use a validated epoch value without
 changing persisted precision. Date-only YYYY-MM-DD must be real; retain date branch
 without time/timezone. No inferred midnight, current year, local timezone or week.
 Ambiguous visible prose without a valid machine value fails with fixed reason.
@@ -92,6 +99,8 @@ Tests independently cover all five AC: all three semantics and distinct identiti
 base/effective extension and evidence; missing due plus extension-only due;
 offset-equivalent instants and date-only precision; malformed/access failures.
 Include leap/invalid calendar, bad clock/offset/zone, unzoned timestamps,
+minute/second/millisecond offset equivalence without changing stored precision,
+rejection of numeric fixed-offset timezone identifiers and accepted UTC/IANA names,
 duplicates, unknown scope/field, generic date, unsafe origin/credentials/query,
 identity mismatch, absent identity/heading, truncation, login/403/network/ambiguous
 envelopes, fact-only #4 inputs, private sentinel not reflected in diagnostics,
