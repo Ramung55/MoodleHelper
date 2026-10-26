@@ -154,7 +154,7 @@ Public codes: `VALIDATION`, `UNSUPPORTED_VERSION`, `UNSUPPORTED_OPERATION`,
 client-only `MISSING_EXTENSION` and `RECONNECT_REQUIRED` distinguish local failures.
 No caught browser/backend error text is copied into public messages.
 
-### Unresolved pre-code gate and honest handoff
+### Historical gate (superseded by the operative amendment below)
 
 **Status: not implementation-ready for the full bridge.** The current unauthenticated
 API exposes one configured namespace but provides no trusted identity attestation
@@ -196,3 +196,106 @@ correlation/dedup/capacity/timeouts/reload and UI retention/guidance; full front
 tests/build and `uv run pytest` only after integration changes. Then independent
 QA must inspect supported Chrome's built extension and real network/messages for
 the five original criteria. No tests were run for this Markdown-only grooming.
+
+### Operative amendment, 2026-10-26: engineer handoff READY
+
+This amendment supersedes every conflicting identity gate, deployment caveat,
+mandatory-manual-Chrome clause, and validator-only handoff above. It preserves
+all five original AC and the complete 16-operation catalog plus #12 discovery.
+It also supersedes the obsolete proposed identity gate in architecture/messages.md.
+
+The accepted #6 trust model lets any local client reaching one backend process
+share its startup-selected namespace. HttpAdapter already uses that model.
+Local repository CRUD therefore needs no verified Moodle browser identity.
+Live identity matching remains a prerequisite for future privileged collection
+#3/#18/#20; no such collection is introduced by the local facade. Partitioning
+is not authentication. No public deployment, JWT, account or new dependency.
+
+Use exactly http://127.0.0.1:8000 as compiled backend target. Operator selects
+dataset with existing startup environment, binds loopback and restarts to change
+it. Worker reads an opaque process binding from that fixed backend; neither
+page nor headers may select a namespace. No Moodle identity, profile, database
+path or credentials are exposed in handshake.
+
+Before implementation, amend source openapi.yaml with GET /api/bridge-context,
+operationId bridgeContext: no parameters/body, 200 closed BridgeContext
+{version:"1",binding:string}. Binding is a nonsecret UUID hex string created once
+per app lifespan after immutable store selection, changes at restart and is not
+persisted. Injected test apps initialize once before first use and replace at
+lifespan entry, never per request. Preserve /connection and its current schema.
+
+Document optional X-Moodle-Helper-Bridge-Binding header on all 17 catalog routes.
+Absent preserves legacy HTTP clients. Present must exactly match current app
+binding, checked before parsing/service work; mismatch returns 409 fixed
+{message:"Backend context changed. Reconnect."}, no data or mutation. Document
+reusable header and 409 in source OpenAPI, then mirror runtime/generated schema.
+This precondition binds a process to its selected dataset; it authenticates
+nobody and cannot select another dataset. No Snapshot revision scheme is added.
+
+Hello fetches this fixed context with credentials omit and redirect error. Closed
+hello result has protocol version, workerGeneration, fresh opaque sessionId,
+backend ready|unavailable, localRepository ready|unavailable and moodleCollection
+unavailable. Requests add sessionId to the envelope above. Worker keeps session
+to backend-binding association and adds its own precondition header. Page cannot
+supply that header/binding. On 409 invalidate sessions and return
+RECONNECT_REQUIRED; never silently refresh context and replay pending mutations.
+Worker loss rejects old sessions. Re-handshake is explicit. Unknown outcome after
+mutation timeout/reload requires refresh before manual retry, never blind replay.
+Backend failure yields BACKEND_UNAVAILABLE; missing/revoked local grant yields
+PERMISSION_DENIED. IDENTITY_REQUIRED/MISMATCH are not used for local CRUD.
+
+Manifest grants only dashboard matches http://127.0.0.1:5173/* and
+http://localhost:5173/*, and backend host http://127.0.0.1:8000/*; old 8080 and
+Lovable origins are retired for data access. Keep inert Moodle parser entry;
+add no Moodle fetch, cookies, tabs, scripting, webRequest, storage or external
+messaging permissions. Standard install/site-access controls grant/revoke local
+access; website handshake never requests permission. Internal isolated relay
+uses its own runtime.sendMessage: no page-selected extension ID or manifest key.
+Worker independently checks runtime ID, sender URL, tab origin and top frame;
+relay checks exact same-window/origin/top frame. Hello forgery can spoof page
+status but cannot authorize privileged work. Keep exact runtime origin checks
+regardless of manifest behavior. Current Chrome primary match-pattern docs
+explicitly support optional ports; current messaging docs support callback with
+literal true for asynchronous replies. Both linked sources were rechecked today.
+
+Implement all catalog operations with fixed method/path and recursively closed
+request/result schemas, including full Snapshot fields/unions and nullable overlay
+clears. Reject dot-segment-only IDs . and .. before URL construction; encode
+opaque IDs and test slash/query/hash inputs cannot alter target or route. Reject
+caller URL/method/header/namespace/unknown keys before fetch; reject redirects.
+No generic fetch, duplicate extension repository, fallback fixtures or adapter
+replacement. Schema checks cannot recognize secrets deliberately inserted in
+allowed free-text fields: privacy proof concerns transport never acquiring or
+forwarding credentials, headers, raw HTML responses or private exception text.
+
+Exact files: openapi.yaml; backend/main.py, routers.py, schemas.py;
+shared/src/index.ts and bridge.ts; extension/src/index.ts, content.ts,
+dashboard-bridge.ts; extension/manifest.json and build.ts if a separate dashboard
+relay bundle is needed; frontend/src/services/extension-adapter.ts. Reuse complete
+frontend/src/domain/types.ts inventory without adding dependencies. Add callable
+typed BridgeClient for all 17 operations while services/index.ts retains default
+HttpAdapter. Focus guidance edits in existing frontend/src/routes/settings.tsx
+and lib/app-store.tsx only as needed. Missing extension must leave working HTTP
+app and last successful Snapshot usable. Callbacks remain local final-result
+notifications, never serialized.
+
+Verification uses existing Bun builds, Vitest tests in browser-workspace/ and
+frontend/src/test/, frontend full tests/build and uv run pytest after integration.
+Drive production client/relay/worker through a clearly labeled Chrome API/window
+shim and real loopback FastAPI network with isolated SQLite. Inspect actual
+HTTP methods/paths/headers/bodies and both success/failure message envelopes;
+verify real mutation/read results for all 17 operations, binding restart races,
+409 before mutation and legacy HTTP compatibility. Exercise every rejection,
+origin/frame/sender, version, nested unknown key, redirect, encoded ID, private
+exception/cookie/header sentinel, dedup conflict/capacity, correlation, deadline,
+reload/revocation and unknown mutation outcome. No raw errors reach page.
+
+Original #9 expressly permits mocks and requires network/message inspection,
+but does not mandate manual Chrome. Production transport driven through a shim
+with real backend traffic can provide the original five AC evidence; label the
+shim precisely and do not claim installed Chrome was observed. Actual Chrome
+smoke/URL evidence remains #7/#8 and their current confidence-check blockage is
+not a pre-code block. Do not retry/bypass protected UI. Independent QA must
+identify any remaining runtime-specific evidence accurately, without dropping
+operations or silently waiving an original AC. No code, tests, grants or install
+were performed by this documentation grooming.
