@@ -166,3 +166,23 @@ def test_invalid_concurrency_configuration(monkeypatch):
     for value in ('0','5','1.0','true',''):
         monkeypatch.setenv('MOODLE_HELPER_QUEUE_CONCURRENCY',value)
         with pytest.raises(ValueError,match='integer from 1 to 4'): create_app()
+
+def test_global_cap_and_renewal_across_instances(tmp_path,monkeypatch):
+    monkeypatch.setenv('MOODLE_HELPER_QUEUE_CONCURRENCY','2')
+    url=URL.create('sqlite',database=str(tmp_path/'global.db'));a=SQLiteStore(url);b=SQLiteStore(url); clock=[1000]
+    try:
+        with TestClient(create_app(a,queue_clock=lambda:clock[0])) as one, TestClient(create_app(b,queue_clock=lambda:clock[0])) as two:
+            h1={'X-Moodle-Helper-Bridge-Binding':one.get('/api/bridge-context').json()['binding']};h2={'X-Moodle-Helper-Bridge-Binding':two.get('/api/bridge-context').json()['binding']}
+            run=start(one,h1,'global',['c-csc','c-math','c-phy']).json()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                replies=list(pool.map(lambda pair:post(pair[0],pair[1],'claim',{}).json(),[(one,h1),(two,h2),(one,h1)]))
+            claims=[x['claim'] for x in replies if 'claim' in x]
+            assert len(claims)==2 and all(x['unfinished'] for x in replies)
+            clock[0]+=30
+            assert post(one,h1,'renew',token(claims[0])).json()['expiresAt']==1090
+            clock[0]=1061
+            replacement=claim(two,h2)
+            assert replacement['job']['id']==claims[1]['job']['id']
+            assert post(one,h1,'renew',token(claims[1])).status_code==409
+            assert post(one,h1,'renew',token(claims[0])).status_code==200
+    finally: a.close(); b.close()

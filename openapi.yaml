@@ -943,6 +943,11 @@ paths:
 components:
   schemas:
     QueueStart:
+      description: >-
+        Start a run for 1-100 distinct existing course IDs in the trusted startup
+        namespace. IDs are sorted for idempotency comparison. Reusing a key with
+        a different set returns 409; unknown IDs return 422 without side effects.
+        Queue requests have a 1 MiB body limit.
       type: object
       additionalProperties: false
       properties:
@@ -982,6 +987,10 @@ components:
       - generation
       - token
     QueueFinish:
+      description: >-
+        Finish a current, unexpired claim. A failed outcome requires errorCode
+        mock_failure; a completed outcome must omit errorCode. Stale or fenced
+        claims return 409. Result insertion and completion commit atomically.
       type: object
       additionalProperties: false
       properties:
@@ -1095,6 +1104,10 @@ components:
       - progress
       - jobs
     QueueClaim:
+      description: >-
+        Claims expire after 60 seconds and may be renewed before expiry. A worker
+        should renew every 20 seconds. Execution may repeat after interruption;
+        completed results are committed once per job.
       type: object
       additionalProperties: false
       properties:
