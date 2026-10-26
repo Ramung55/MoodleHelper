@@ -20,13 +20,15 @@ export type MaterialReason = "access_error" | "invalid_selection" | "invalid_obs
   "unsupported_structure" | "identity_mismatch" | "missing_identity" | "unselected_course" |
   "malformed_candidate" | "unsafe_url" | "unsafe_external_url" | "missing_metadata" |
   "type_conflict" | "invalid_mime" | "unsafe_label" | "field_conflict" | "parent_conflict" | "pagination_pending" |
-  "incomplete_list" | "empty_unconfirmed" | "empty_conflict";
+  "incomplete_list" | "empty_unconfirmed" | "empty_conflict" | "folder_contents_uninspected";
 export interface MaterialReference {
   sourcePageUrl: string;
   sourceUrl: string;
   destinationUrl?: string;
   observedAt: string;
   location: "course.material" | "activity.material" | "folder.entry";
+  listingScope?: "reference_only" | "supplied_listing_only";
+  listingCoverage?: MaterialCoverage;
 }
 export interface RawMaterialObservation extends MaterialReference {
   sourceCourseId: string;
@@ -177,6 +179,7 @@ export function collectMoodleMaterials(
     const page: MaterialPage = { pageIndex, access: detectMoodleAccess(input), candidateCount: 0, coverage: "none", paginationPending: false };
     result.pages.push(page);
     let damaged = false;
+    let flush = () => {};
     const report = (reason: MaterialReason, recordIndex?: number, candidate?: RawMaterialObservation, exclude = false) => {
       damaged = true;
       const diagnostic: MaterialDiagnostic = { pageIndex, ...(recordIndex === undefined ? {} : { recordIndex }), reason };
@@ -206,9 +209,12 @@ export function collectMoodleMaterials(
       if (!course || course.type !== "course" || (coursePage && route.id !== course.id)) { report("identity_mismatch", undefined, undefined, true); return; }
       if (!selected.has(course.id)) { report("unselected_course", undefined, undefined, true); return; }
       page.coverage = "partial";
-      page.paginationPending = !!main.querySelector('nav[data-region="material-pagination"] a[href], nav[data-region="material-pagination"] button, nav[data-region="material-pagination"] [rel="next"]');
-      if (page.paginationPending) report("pagination_pending");
-      if (main.matches("[data-incomplete], [data-truncated]") || main.querySelector("[data-incomplete], [data-truncated]")) report("incomplete_list");
+      const pagination = Array.from(main.querySelectorAll('nav[data-region="material-pagination"]')).filter(node => node.querySelector('a[href], button, [rel="next"]'));
+      const incomplete = [...(main.matches("[data-incomplete], [data-truncated]") ? [main] : []), ...main.querySelectorAll("[data-incomplete], [data-truncated]")];
+      page.paginationPending = pagination.length > 0;
+      for (const node of pagination) if (coursePage || !node.closest("ul")) report("pagination_pending");
+      for (const node of incomplete) if (coursePage || !node.closest("ul")) report("incomplete_list");
+      const pending: { candidate: RawMaterialObservation; recordIndex: number; reasons: MaterialReason[] }[] = [];
       const add = (candidate: RawMaterialObservation, recordIndex: number, reasons: MaterialReason[]) => {
         reasons.forEach(reason => report(reason, recordIndex, candidate));
         const prior = byKey.get(candidate.resourceKey);
@@ -236,9 +242,13 @@ export function collectMoodleMaterials(
           delete prior.destinationUrl; blocked.add("destinationUrl"); report("field_conflict", recordIndex, prior);
         }
         if (prior.sourceContextId !== candidate.sourceContextId) delete prior.sourceContextId;
-        for (const ref of candidate.references) if (!prior.references.some(existing => JSON.stringify(existing) === JSON.stringify(ref))) prior.references.push(clone(ref));
+        // Keep contributor proof objects until listing coverage is finalized;
+        // public output is detached and identical references deduplicate below.
+        prior.references.push(...candidate.references);
       };
-      const metadata = (node: Element, title: Metadata<string>, section: Metadata<string>, destination: Element | undefined, isLink: boolean) => {
+      flush = () => { pending.splice(0).forEach(item => add(item.candidate, item.recordIndex, item.reasons)); };
+      const stage = (candidate: RawMaterialObservation, recordIndex: number, reasons: MaterialReason[]) => { pending.push({ candidate, recordIndex, reasons }); };
+      const metadata = (node: Element, title: Metadata<string>, section: Metadata<string>, destination: Element | undefined, isLink: boolean, isFolder = false) => {
         const reasons: MaterialReason[] = [];
         const explicit = node.getAttribute("data-file-type") ?? "";
         let fileType: Metadata<MaterialFileType> = types.has(explicit) ? known(explicit as MaterialFileType) : unknown();
@@ -249,7 +259,7 @@ export function collectMoodleMaterials(
         const evidence = [fileType.kind === "known" ? fileType.value : null, mime.kind === "known" ? mimeType(mime.value) : null, isLink ? "link" : null].filter(Boolean);
         if (new Set(evidence).size > 1) { fileType = unknown(); reasons.push("type_conflict"); }
         else if (evidence.length) fileType = known(evidence[0]! as MaterialFileType);
-        if ([title, section, fileType, mime].some(value => value.kind === "unknown") || !destination) reasons.push("missing_metadata");
+        if ([title, section, ...(isFolder ? [] : [fileType, mime])].some(value => value.kind === "unknown") || (!isFolder && !destination)) reasons.push("missing_metadata");
         return { title, section, fileType, mimeType: mime, reasons };
       };
       const parseRoot = (node: Element, section: Metadata<string>, recordIndex: number): RawMaterialObservation | undefined => {
@@ -266,15 +276,15 @@ export function collectMoodleMaterials(
         const destination = destinations[0]!;
         const safe = destination ? safeDestination(destination.getAttribute("href"), moduleType as ModuleType) : undefined;
         const title = coursePage ? readLabel(links[0]!, recordIndex) : readLabel(headings[0]!, recordIndex);
-        const facts = metadata(node, title, section, destination, moduleType === "url");
-        const reference: MaterialReference = { sourcePageUrl: route.href, sourceUrl, observedAt, location: coursePage ? "course.material" : "activity.material", ...(safe?.url ? { destinationUrl: safe.url } : {}) };
+        const facts = metadata(node, title, section, destination, moduleType === "url", moduleType === "folder");
+        const reference: MaterialReference = { sourcePageUrl: route.href, sourceUrl, observedAt, location: coursePage ? "course.material" : "activity.material", ...(safe?.url ? { destinationUrl: safe.url } : {}), ...(moduleType === "folder" ? { listingScope: "reference_only", listingCoverage: "none" } : {}) };
         const candidate: RawMaterialObservation = { ...reference, sourceCourseId: course.id, sourceCourseModuleId: moduleId, sourceModuleType: moduleType as ModuleType, ...(instance ? { sourceResourceId: instance } : {}), ...(safe?.contextId ? { sourceContextId: safe.contextId } : {}), resourceKey: key(course.id, moduleType, "module", moduleId), kind: moduleType === "url" ? "link" : moduleType === "folder" ? "folder" : "file", title: facts.title, section: facts.section, fileType: facts.fileType, mimeType: facts.mimeType, references: [{ ...reference }] };
         if (safe?.reason) facts.reasons.push(safe.reason);
         // A conflict within the first observation also stays unknown on repeats.
         if (facts.reasons.includes("type_conflict")) {
           const blocked = conflicts.get(candidate.resourceKey) ?? new Set<string>(); blocked.add("fileType"); conflicts.set(candidate.resourceKey, blocked);
         }
-        add(candidate, recordIndex, facts.reasons);
+        stage(candidate, recordIndex, facts.reasons);
         return candidate;
       };
       if (coursePage) {
@@ -298,47 +308,84 @@ export function collectMoodleMaterials(
         if (!root) return;
         if (root.kind === "folder") {
           const lists = main.querySelectorAll('ul[data-region="folder-contents"]');
-          if (lists.length !== 1) { report("unsupported_structure", undefined, undefined, true); return; }
+          if (lists.length !== 1) { report("unsupported_structure", undefined, undefined, true); flush(); return; }
           const list = lists[0]!;
-          for (const nestedList of list.querySelectorAll("ul")) {
-            if (!nestedList.parentElement?.matches('li[data-region="folder-entry"][data-entry-kind="folder"]')) report("malformed_candidate");
-          }
           const entries = Array.from(list.querySelectorAll('li[data-region="folder-entry"]'));
           page.candidateCount += entries.length;
           const local = new Map<Element, RawMaterialObservation>();
+          const entryIndices = new Map(entries.map((node, offset) => [node, offset + 1]));
+          const parents = new Map<number, number>();
+          const inspected = new Map<number, { candidate: RawMaterialObservation; list: Element }>([[0, { candidate: root, list }]]);
           entries.forEach((node, offset) => {
             const index = offset + 1;
             const kind = node.getAttribute("data-entry-kind");
             const entryId = node.getAttribute(kind === "folder" ? "data-folder-id" : "data-file-id");
             const parentNode = node.parentElement?.closest('li[data-region="folder-entry"]');
+            parents.set(index, parentNode ? entryIndices.get(parentNode) ?? 0 : 0);
             const parent = parentNode ? local.get(parentNode) : root;
             const anchors = direct(node, 'a[data-role="entry-link"]');
             const sublists = direct(node, "ul");
             if (!parent || parent.kind !== "folder" || !node.parentElement?.matches("ul") || (parentNode ? node.parentElement.parentElement !== parentNode : node.parentElement !== list) || anchors.length !== 1 || sublists.length > 1 || (kind !== "file" && kind !== "folder") || (kind === "file" && sublists.length)) { report("malformed_candidate", index, undefined, true); return; }
             if (!id(entryId)) { report("missing_identity", index, undefined, true); return; }
             const entryKey = key(course.id, "folder", root.sourceCourseModuleId, kind, entryId);
-            let ancestor: RawMaterialObservation | undefined = parent;
-            while (ancestor) {
-              if (ancestor.resourceKey === entryKey) { invalidKeys.add(entryKey); report("parent_conflict", index, undefined, true); return; }
-              ancestor = ancestor.parentResourceKey ? byKey.get(ancestor.parentResourceKey) : undefined;
+            let ancestorNode = parentNode;
+            while (ancestorNode) {
+              if (local.get(ancestorNode)?.resourceKey === entryKey) { invalidKeys.add(entryKey); report("parent_conflict", index, undefined, true); return; }
+              ancestorNode = ancestorNode.parentElement?.closest('li[data-region="folder-entry"]');
             }
             const safe = kind === "folder" ? safeFolder(anchors[0]!.getAttribute("href"), root.sourceCourseModuleId, entryId) : safeDestination(anchors[0]!.getAttribute("href"), "folder", true);
             if (!safe.url) { report(safe.reason ?? "unsafe_url", index, undefined, true); return; }
-            const facts = metadata(node, readLabel(anchors[0]!, index), root.section, anchors[0]!, false);
-            const reference: MaterialReference = { sourcePageUrl: route.href, sourceUrl: root.sourceUrl, destinationUrl: safe.url, observedAt, location: "folder.entry" };
+            const facts = metadata(node, readLabel(anchors[0]!, index), root.section, anchors[0]!, false, kind === "folder");
+            const reference: MaterialReference = { sourcePageUrl: route.href, sourceUrl: root.sourceUrl, destinationUrl: safe.url, observedAt, location: "folder.entry", ...(kind === "folder" ? { listingScope: "reference_only", listingCoverage: "none" } : {}) };
             const child: RawMaterialObservation = { ...reference, sourceCourseId: course.id, sourceCourseModuleId: root.sourceCourseModuleId, sourceModuleType: "folder", ...(root.sourceResourceId ? { sourceResourceId: root.sourceResourceId } : {}), ...(kind === "file" ? { sourceFileId: entryId } : { sourceFolderId: entryId }), ...(safe.contextId ? { sourceContextId: safe.contextId } : {}), resourceKey: entryKey, parentResourceKey: parent.resourceKey, kind, title: facts.title, section: facts.section, fileType: facts.fileType, mimeType: facts.mimeType, references: [{ ...reference }] };
             if (facts.reasons.includes("type_conflict")) {
               const blocked = conflicts.get(entryKey) ?? new Set<string>(); blocked.add("fileType"); conflicts.set(entryKey, blocked);
             }
-            add(child, index, facts.reasons); local.set(node, child);
+            stage(child, index, facts.reasons); local.set(node, child);
+            if (kind === "folder") {
+              if (sublists.length) inspected.set(index, { candidate: child, list: sublists[0]! });
+              else report("folder_contents_uninspected", index);
+            }
           });
-          const empties = list.querySelectorAll('[data-role="folder-empty"]');
-          if (!entries.length && empties.length !== 1) report("empty_unconfirmed");
-          if (entries.length && empties.length) report("empty_conflict");
+          const listIndices = new Map([...inspected].map(([index, item]) => [item.list, index]));
+          const ownerIndex = (node: Element): number => listIndices.get(node.closest("ul")!) ?? entryIndices.get(node.closest('li[data-region="folder-entry"]')!) ?? 0;
+          for (const nestedList of list.querySelectorAll("ul")) {
+            if (!nestedList.parentElement?.matches('li[data-region="folder-entry"][data-entry-kind="folder"]')) report("malformed_candidate", ownerIndex(nestedList));
+          }
+          for (const node of pagination) if (node.closest("ul")) report("pagination_pending", ownerIndex(node));
+          for (const node of incomplete) if (node.closest("ul")) report("incomplete_list", ownerIndex(node));
+          for (const [index, item] of inspected) {
+            const empties = Array.from(item.list.querySelectorAll('[data-role="folder-empty"]')).filter(node => node.closest("ul") === item.list);
+            const children = entries.filter(node => node.parentElement === item.list);
+            if (!children.length && empties.length !== 1) report("empty_unconfirmed", index);
+            if (children.length && empties.length) report("empty_conflict", index);
+          }
+          const affects = (issueIndex: number | undefined, folderIndex: number): boolean => {
+            if (issueIndex === undefined) return true;
+            let index: number | undefined = issueIndex;
+            while (index !== undefined) { if (index === folderIndex) return true; index = parents.get(index); }
+            return false;
+          };
+          const finalizeListings = () => {
+            const issues = result.diagnostics.filter(item => item.pageIndex === pageIndex);
+            for (const [index, item] of inspected) {
+              const hasIssue = issues.some(issue => affects(issue.recordIndex, index)) || pending.some(record => record.reasons.length > 0 && affects(record.recordIndex, index));
+              item.candidate.listingScope = "supplied_listing_only";
+              item.candidate.listingCoverage = hasIssue ? "partial" : "complete";
+              // First contributor reference belongs to this supplied candidate.
+              Object.assign(item.candidate.references[0]!, { listingScope: item.candidate.listingScope, listingCoverage: item.candidate.listingCoverage });
+            }
+          };
+          finalizeListings();
+          flush();
+          // Duplicate fact/identity conflicts are discovered by the merge above;
+          // they also affect this inspected contributor and its ancestors.
+          finalizeListings();
         }
       }
+      flush();
       page.coverage = damaged ? "partial" : "complete";
-    } catch { report("unsupported_structure", undefined, undefined, true); }
+    } catch { report("unsupported_structure", undefined, undefined, true); flush(); }
   });
   // Invalid parent associations invalidate the entire branch, even when the
   // conflicting duplicate appeared after its children or on another page.
@@ -347,9 +394,21 @@ export function collectMoodleMaterials(
     changed = false;
     for (const value of byKey.values()) if (value.parentResourceKey && invalidKeys.has(value.parentResourceKey) && !invalidKeys.has(value.resourceKey)) { invalidKeys.add(value.resourceKey); changed = true; }
   }
+  for (const value of byKey.values()) {
+    value.references = value.references.filter((reference, index, references) => references.findIndex(other => JSON.stringify(other) === JSON.stringify(reference)) === index);
+    if (value.kind === "folder") {
+      const inspected = value.references.filter(reference => reference.listingScope === "supplied_listing_only");
+      value.listingScope = inspected.length ? "supplied_listing_only" : "reference_only";
+      value.listingCoverage = inspected.length ? inspected.some(reference => reference.listingCoverage !== "complete") ? "partial" : "complete" : "none";
+    }
+  }
   result.observations = [...byKey.values()].filter(value => !invalidKeys.has(value.resourceKey)).map(clone);
   // Review records cannot retain associations rejected later in the batch.
   result.review = result.review.map(item => item.candidate && invalidKeys.has(item.candidate.resourceKey) ? { pageIndex: item.pageIndex, ...(item.recordIndex === undefined ? {} : { recordIndex: item.recordIndex }), reason: item.reason } : item);
+  for (const item of result.review) if (item.candidate?.kind === "folder") {
+    const merged = byKey.get(item.candidate.resourceKey);
+    if (merged) Object.assign(item.candidate, { listingScope: merged.listingScope, listingCoverage: merged.listingCoverage, references: clone(merged.references) });
+  }
   result.coverage = result.pages.length && result.pages.every(page => page.coverage === "complete") ? "complete" : result.pages.some(page => page.coverage !== "none") ? "partial" : "none";
   return result;
 }

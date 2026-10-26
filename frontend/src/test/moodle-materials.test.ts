@@ -253,6 +253,97 @@ describe("#17 synthetic material collection (live SDU unverified)", () => {
     reason(collect(folder(""), "/mod/folder/view.php?id=301"), "empty_unconfirmed");
     reason(collect(folder(entry(), "data-incomplete"), "/mod/folder/view.php?id=301"), "incomplete_list");
   });
+  it("QA regression: natural confirmed-empty folder is complete without invented file metadata", () => {
+    const result = collect(folder('<span data-role="folder-empty"></span>'), "/mod/folder/view.php?id=301");
+    expect(result.coverage).toBe("complete"); expect(result.pages[0]!.coverage).toBe("complete"); expect(result.diagnostics).toEqual([]);
+    expect(result.observations[0]!).toMatchObject({ kind: "folder", fileType: { kind: "unknown" }, mimeType: { kind: "unknown" }, listingScope: "supplied_listing_only", listingCoverage: "complete", references: [{ listingScope: "supplied_listing_only", listingCoverage: "complete" }] });
+    expect(result.observations[0]!).not.toHaveProperty("destinationUrl");
+  });
+  it("course folder inventory is complete while unfetched contents remain reference-only", () => {
+    const result = collect(course(moduleNode("301", "folder", "", "", "", "Fictional folder")));
+    expect(result.coverage).toBe("complete"); expect(result.diagnostics).toEqual([]);
+    expect(result.observations[0]!).toMatchObject({ listingScope: "reference_only", listingCoverage: "none", fileType: { kind: "unknown" }, mimeType: { kind: "unknown" }, references: [{ listingScope: "reference_only", listingCoverage: "none" }] });
+  });
+  it("uninspected nested folder is not an inspected empty listing", () => {
+    const result = collect(folder(entry("501", "folder", "", "", "")), "/mod/folder/view.php?id=301");
+    expect(result.observations[0]!).toMatchObject({ listingScope: "supplied_listing_only", listingCoverage: "partial" });
+    expect(result.observations[1]!).toMatchObject({ listingScope: "reference_only", listingCoverage: "none" });
+    reason(result, "folder_contents_uninspected"); expect(result.diagnostics.map(item => item.reason)).not.toContain("missing_metadata");
+  });
+  it("scopes nested empty markers to their own list and retains complete ancestors", () => {
+    const result = collect(folder(entry("501", "folder", '<span data-role="folder-empty"></span>', "", "") + entry("502", "folder", entry(), "", "")), "/mod/folder/view.php?id=301");
+    expect(result.coverage).toBe("complete"); expect(result.diagnostics).toEqual([]);
+    expect(result.observations.filter(item => item.kind === "folder").map(item => item.listingCoverage)).toEqual(["complete", "complete", "complete"]);
+    expect(result.observations.find(item => item.sourceFileId === "401")!.parentResourceKey).toBe(result.observations.find(item => item.sourceFolderId === "502")!.resourceKey);
+  });
+  it.each([
+    ['<ul></ul>', "empty_unconfirmed"],
+    ['<ul><span data-role="folder-empty"></span><span data-role="folder-empty"></span></ul>', "empty_unconfirmed"],
+    ['<ul data-truncated><span data-role="folder-empty"></span></ul>', "incomplete_list"],
+    ['<ul><span data-role="folder-empty"></span><nav data-region="material-pagination"><button>Next</button></nav></ul>', "pagination_pending"],
+    [`<ul>${entry().replace('data-file-id="401"', 'data-file-id="bad"')}</ul>`, "missing_identity"],
+    [`<ul><span data-role="folder-empty"></span>${entry()}</ul>`, "empty_conflict"],
+  ])("local nested listing errors affect its ancestors and preserve a healthy sibling: %s", (list, code) => {
+    const broken = entry("501", "folder", "", "", "").replace("</li>", list + "</li>");
+    const healthy = entry("502", "folder", '<span data-role="folder-empty"></span>', "", "");
+    const result = collect(folder(broken + healthy), "/mod/folder/view.php?id=301");
+    expect(result.coverage).toBe("partial"); reason(result, code);
+    expect(result.observations[0]!.listingCoverage).toBe("partial");
+    expect(result.observations.find(item => item.sourceFolderId === "501")!.listingCoverage).toBe("partial");
+    expect(result.observations.find(item => item.sourceFolderId === "502")!.listingCoverage).toBe("complete");
+    expect(result.pages[0]!.paginationPending).toBe(code === "pagination_pending");
+  });
+  it("global incomplete and pagination evidence affects all inspected nested listings", () => {
+    const nested = entry("501", "folder", '<span data-role="folder-empty"></span>', "", "") + entry("502", "folder", '<span data-role="folder-empty"></span>', "", "");
+    const html = folder(nested).replace('<main ', '<main data-incomplete ').replace('</main>', '<nav data-region="material-pagination"><a href="/mod/folder/view.php?id=301">Next</a></nav></main>');
+    const result = collect(html, "/mod/folder/view.php?id=301");
+    expect(result.observations.map(item => item.listingCoverage)).toEqual(["partial", "partial", "partial"]);
+    reason(result, "incomplete_list"); reason(result, "pagination_pending");
+  });
+  it("folder applicability does not hide missing labels or unsafe explicitly supplied metadata", () => {
+    const empty = folder('<span data-role="folder-empty"></span>');
+    const absentSection = collect(empty.replace('<span data-role="material-section">Week 2</span>', ""), "/mod/folder/view.php?id=301");
+    reason(absentSection, "missing_metadata"); expect(absentSection.observations[0]!.listingCoverage).toBe("partial");
+    const absentTitle = collect(course(moduleNode("301", "folder", "", "", "", "")));
+    reason(absentTitle, "missing_metadata"); expect(absentTitle.observations[0]!.title).toEqual({ kind: "unknown" });
+    const unsafe = collect(empty.replace('</main>', '<a data-role="destination" href="https://example.org/?token=private-sentinel-secret" type="application/secret">Open</a></main>'), "/mod/folder/view.php?id=301");
+    reason(unsafe, "unsafe_external_url"); reason(unsafe, "invalid_mime"); expect(unsafe.observations[0]!.listingCoverage).toBe("partial"); expect(JSON.stringify(unsafe)).not.toContain("private-sentinel-secret");
+    const conflict = collect(empty.replace('<main ', '<main data-file-type="pdf" ').replace('</main>', '<a data-role="destination" href="/mod/folder/view.php?id=301" type="video/mp4">Open</a></main>'), "/mod/folder/view.php?id=301");
+    reason(conflict, "type_conflict"); expect(conflict.observations[0]!.listingCoverage).toBe("partial");
+  });
+  it.each([false, true])("folder reference and separately inspected listing merge proof without field conflict, reversed=%s", reverse => {
+    const reference = input(course(moduleNode("301", "folder", "", "", "", "Fictional folder"), "Week 2"));
+    const inspected = input(folder('<span data-role="folder-empty"></span>'), "/mod/folder/view.php?id=301");
+    const result = collectMoodleMaterials(reverse ? [inspected, reference] : [reference, inspected], ["101"], time);
+    expect(result.coverage).toBe("complete"); expect(result.diagnostics).toEqual([]); expect(result.observations).toHaveLength(1);
+    expect(result.observations[0]!).toMatchObject({ listingScope: "supplied_listing_only", listingCoverage: "complete" });
+    expect(result.observations[0]!.references.map(item => [item.location, item.listingScope, item.listingCoverage]).sort()).toEqual([
+      ["activity.material", "supplied_listing_only", "complete"], ["course.material", "reference_only", "none"],
+    ]);
+  });
+  it.each([false, true])("partial inspected proof is sticky and later reference-only proof cannot override it, reversed=%s", reverse => {
+    const good = input(folder('<span data-role="folder-empty"></span>'), "/mod/folder/view.php?id=301");
+    const incomplete = input(folder('<span data-role="folder-empty"></span>', "data-truncated"), "/mod/folder/view.php?id=301");
+    const reference = input(course(moduleNode("301", "folder", "", "", "", "Fictional folder"), "Week 2"));
+    const result = collectMoodleMaterials(reverse ? [incomplete, good, reference] : [reference, good, incomplete], ["101"], time);
+    expect(result.observations[0]!.listingCoverage).toBe("partial"); expect(result.coverage).toBe("partial");
+    expect(result.observations[0]!.references.map(item => item.listingCoverage).sort()).toEqual(["complete", "none", "partial"]);
+    expect(result.diagnostics.map(item => item.reason)).not.toContain("field_conflict");
+  });
+  it("identical repeated inspected folder proof deduplicates without inventing conflicts", () => {
+    const page = input(folder('<span data-role="folder-empty"></span>'), "/mod/folder/view.php?id=301");
+    const result = collectMoodleMaterials([page, page], ["101"], time);
+    expect(result.coverage).toBe("complete"); expect(result.observations[0]!.references).toHaveLength(1); expect(result.diagnostics).toEqual([]);
+  });
+  it("duplicate applicable field conflicts also lower inspected ancestor proof", () => {
+    const first = input(folder(entry()), "/mod/folder/view.php?id=301");
+    const second = input(folder(entry("401", "file", "", folderFile, 'data-file-type="pptx"', "Changed title")), "/mod/folder/view.php?id=301");
+    const result = collectMoodleMaterials([first, second], ["101"], time);
+    reason(result, "field_conflict"); expect(result.coverage).toBe("partial");
+    expect(result.observations[0]!.listingCoverage).toBe("partial");
+    expect(result.observations[0]!.references.map(reference => reference.listingCoverage)).toEqual(["complete", "partial"]);
+    expect(result.observations.find(item => item.sourceFileId === "401")!.title).toEqual({ kind: "unknown" });
+  });
   it.each([
     course(moduleNode().replace('data-course-module-id="201"', 'data-course-module-id="0"')),
     course(moduleNode().replace('data-resource-id="1"', 'data-resource-id="bad"')).replace('<h2>Week 1</h2>', '<h2>A</h2><h2>B</h2>'),
