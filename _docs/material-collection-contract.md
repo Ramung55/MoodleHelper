@@ -284,6 +284,26 @@ must preserve every supplied page's errors/partial result even when duplicate
 records merge successfully; record-level merge is not evidence that an erroneous
 or incomplete input page was complete. No original criterion is weakened.
 
+Post-review contributor consistency clarification (before the coverage repair
+commit): for the same folder identity, compare canonical sets of validated direct
+child resourceKeys from individually complete inspected contributors. Different
+sets, including empty versus nonempty, are listing_conflict. Do not infer change
+chronology from input order or observedAt, and do not union sets into an asserted
+complete listing. Retain each safe reference's observed child keys as provenance;
+mark that folder's merged coverage and every conflicting inspected contributor
+partial with the fixed listing_conflict reason. Propagate to affected inspected
+ancestors and their pages; leave unrelated sibling listings unchanged. Incomplete
+contributors already remain sticky partial and cannot establish absence of child
+keys; their differing subsets alone do not establish listing_conflict.
+
+If a later cross-page identity/parent conflict invalidates a previously accepted
+child association, revise the earlier affected inspected ancestor proof and its
+page to partial as well as the current one. Internal contributor ancestry may
+support this downgrade; it must not invent public identities or retain a rejected
+parent association as fact. Unaffected sibling listing proofs remain unchanged.
+Evaluate final page/batch coverage after these downgrades. No temporal guessing or
+last-writer-wins can restore completeness within the conflicting supplied batch.
+
 Visible-label privacy clarification before label implementation: title and section
 normally preserve whitespace-normalized visible wording. Return explicit unknown
 instead, with fixed unsafe_label reason, if normalized text (a) contains a URI
