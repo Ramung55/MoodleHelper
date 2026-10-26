@@ -122,6 +122,26 @@ partial; never last-writer-wins. Review duplicates also dedup by tuple + retaine
 candidate facts, with fixed reasons merged. Distinct recurring occurrences never
 collapse by title/time/series alone. Explicit absent versus supplied facts conflict.
 
+Exclusion/privacy precedence across duplicate tuples: classification is an
+internal validated fact even when the record is excluded. Group the validated
+event/occurrence tuple before deciding whether an eligible selected assessment
+can remain in observations. A tuple seen as an eligible selected assessment and
+also site/personal/other, or with a different reliable course association
+(including an unselected course), is contradictory: remove the eligible
+observation, retain that eligible candidate in review as event_conflict, and mark
+all involved pages partial. The excluded candidate still produces ONLY its fixed
+exclusion reason/indices; never expose its title, dates, course/activity facts,
+URL, identity or other private raw data in review/diagnostics/observations.
+“All distinct validated candidates” above therefore means all otherwise eligible
+assessment/review candidates; it never overrides exclusion privacy. An unselected
+assessment remains fixed-reason-only when another selected candidate collides.
+Candidates already requiring missing/unreliable-course review retain their
+review facts and gain event_conflict on contradictory tuple evidence. Conflicting
+excluded-only tuples return exclusions only and partial coverage; no invented
+assessment review. Identical excluded tuples may retain per-record exclusions.
+No source kind/course claim silently wins by input ordering, and no title/time
+comparison establishes a collision without the reliable tuple.
+
 Page result includes access, valid inclusive range when available, coverage,
 candidateCount and paginationPending. main data-incomplete/data-truncated or
 nav[data-region="calendar-pagination"] a[href]/button signals partial/pending
