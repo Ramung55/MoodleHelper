@@ -219,6 +219,33 @@ no runnable extension or new collection/storage capability is introduced here.
 Generated `dist/`, `node_modules/`, caches and local environment files are ignored;
 the source entries, manifests, smoke configuration and test are tracked.
 
+Engineering verification on 2026-10-26 used a fresh local clone of commit
+`943afca`, Node.js v24.20.0, Bun 1.3.13, uv 0.13.1 and Python 3.13.14.
+The local uv-cache workaround documented in the toolchain guide was used.
+
+| Command (working directory) | Exit/result |
+| --- | --- |
+| `uv sync --locked` (root) | 0; existing lock installed |
+| `bun install --frozen-lockfile` (`frontend/`) | 0; 515 packages installed, lock unchanged |
+| `uv run pytest` (root) | 0; 297 passed, one existing TestClient deprecation warning |
+| `uv run pytest tests/test_home.py` (root) | 0; 1 passed, same warning |
+| `bun run test` (`frontend/`) | 0; 52 passed in 5 files |
+| `bun run build` (`frontend/`) | 0; client, SSR and Nitro build completed |
+| `bun run --cwd extension build` (root) | 0; emitted `extension/dist/index.js` |
+| `bun run --cwd shared build` (root) | 0; emitted `shared/dist/index.js` |
+| `bun ./frontend/node_modules/vitest/vitest.mjs run --config ./browser-workspace/vitest.config.mjs` (root) | 0; 2 passed |
+
+The smoke also exited 1 with ENOENT when the extension artifact was temporarily
+absent; rebuilding both restored 2 passing checks. Frontend build warnings about
+existing tsconfig-paths and inlineDynamicImports settings remain. No frontend
+files/configuration or existing lockfiles changed. Representative
+`extension/dist/index.js`, `shared/dist/index.js`,
+`extension/node_modules/example/index.js`, `shared/.env.local`,
+`browser-workspace/.cache/data`, `frontend/.env` and `.uv-cache/example` paths
+were verified ignored with `git check-ignore --no-index`; source/manifests,
+smoke files and existing locks were verified tracked with `git ls-files`.
+These are engineering results; independent QA has not been claimed.
+
 `http-live.test.ts` starts a real FastAPI child process on an available localhost
 port using the uv-managed `.venv` and an isolated temporary SQLite file, exercises
 the HTTP adapter, stops/restarts the process, and verifies complete persisted data.
