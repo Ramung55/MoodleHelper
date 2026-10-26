@@ -29,6 +29,44 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return <section className="rounded-lg border bg-card p-5"><h2 className="mb-3 text-lg font-semibold">{title}</h2>{children}</section>;
 }
 
+/** Confirmed saved values only; pending/error/retry live in the provider across navigation. */
+export function TrackedCourses() {
+  const { snap, selectionPending, selectionError, saveCourseSelection, retryCourseSelection } = useApp();
+  if (!snap) return null;
+  const selected = snap.settings.trackedCourseIds;
+  return <Section title="Tracked courses">
+    {!snap.courses.length && <p className="text-sm text-muted-foreground">No discovered courses are available yet.</p>}
+    {selected.length === 0 && <p className="mb-3 text-sm text-muted-foreground">No courses selected. No courses will be synced.</p>}
+    <ul className="space-y-3" aria-busy={selectionPending}>
+      {snap.courses.map((course) => {
+        const discovery = course.discovery;
+        const title = discovery ? discovery.title.kind === "known" ? discovery.title.value : "Title unavailable" : course.name;
+        const status = discovery
+          ? discovery.currentTermStatus === "unknown" ? "Current term uncertain" : discovery.currentTermStatus === "past" ? "Past course" : "Current course"
+          : course.current ? "Legacy suggestion: current (unverified)" : "Current term uncertain";
+        return <li key={course.id} className="flex items-start justify-between gap-3">
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" aria-label={`Track ${title}`} disabled={selectionPending}
+              checked={selected.includes(course.id)} onChange={(event) => void saveCourseSelection(event.target.checked
+                ? [...selected, course.id] : selected.filter((id) => id !== course.id))} />
+            <span className="space-y-1"><CourseTag course={course} /><span className="block font-medium">{title}</span>
+              {discovery?.termIndicators.kind === "known"
+                ? discovery.termIndicators.value.map((term, index) => <span key={index} className="block text-xs text-muted-foreground">{term}</span>)
+                : <span className="block text-xs text-muted-foreground">Term indicators unavailable</span>}
+            </span>
+          </label>
+          <span className="text-xs text-muted-foreground">{status}</span>
+        </li>;
+      })}
+    </ul>
+    {selectionPending && <p role="status" className="mt-3 text-sm">Saving course selection…</p>}
+    {selectionError && <div role="alert" className="mt-3 text-sm text-destructive">
+      <p>{selectionError} Previous saved selection is shown. Retry to save your intended selection.</p>
+      <Button variant="outline" className="mt-2" disabled={selectionPending} onClick={retryCourseSelection}>Retry course selection</Button>
+    </div>}
+  </Section>;
+}
+
 function SettingsPage() {
   const { snap, run, adapter, conn, syncAll, syncing } = useApp();
   const s = snap!;
@@ -61,19 +99,7 @@ function SettingsPage() {
     <>
       <PageHeader title="Settings" />
       <div className="grid gap-4 lg:grid-cols-2">
-        <Section title="Tracked courses">
-          <ul className="space-y-2">
-            {s.courses.map((c) => (
-              <li key={c.id} className="flex items-center justify-between">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={st.trackedCourseIds.includes(c.id)} onChange={(e) => run((a) => a.setTrackedCourses(e.target.checked ? [...st.trackedCourseIds, c.id] : st.trackedCourseIds.filter((x) => x !== c.id)))} />
-                  <CourseTag course={c} />
-                </label>
-                {c.current ? <span className="text-xs text-muted-foreground">Suggested: current</span> : <span className="text-xs text-muted-foreground">Past course</span>}
-              </li>
-            ))}
-          </ul>
-        </Section>
+        <TrackedCourses />
 
         <Section title="Connection & sync">
           <p className="text-sm"><strong>State:</strong> {conn?.state === "demo" ? "Demo mode (no extension)" : conn?.state}</p>

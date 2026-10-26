@@ -17,6 +17,7 @@ OPERATIONS = [
     ("get", "/api/snapshot", None),
     ("put", "/api/snapshot", "snapshot"),
     ("put", "/api/tracked-courses", []),
+    ("post", "/api/courses/discovery", {"observations": []}),
     ("patch", "/api/assessments/{assessmentId}/overlay", {"completed": True}),
     ("post", "/api/personal-events", {"courseId": "c-csc", "title": "Study", "type": "other", "date": {"kind": "unknown"}}),
     ("delete", "/api/personal-events/{id}", None),
@@ -86,7 +87,7 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
     expected_operations = {(method, path) for path, ops in contract["paths"].items() for method in ops}
     actual_operations = {(method, path) for path, ops in generated["paths"].items() for method in ops}
     assert actual_operations == expected_operations == {(method, path) for method, path, _ in OPERATIONS}
-    assert len(actual_operations) == 16
+    assert len(actual_operations) == 17
     assert not generated["components"].get("securitySchemes")
     for method, path in expected_operations:
         expected = contract["paths"][path][method]

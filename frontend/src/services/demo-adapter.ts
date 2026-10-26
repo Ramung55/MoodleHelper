@@ -1,3 +1,4 @@
+import type { RawCourseObservation } from "@/domain/types";
 import { reconciledSourceDate } from "@/domain/assessments";
 import { candidateToAssessment, checkFormat } from "@/domain/extraction";
 import { Snapshot as SnapshotSchema, type Snapshot } from "@/domain/types";
@@ -60,6 +61,10 @@ export class DemoAdapter implements MoodleHelperAdapter {
   }
   private stamp() {
     return new Date(this.now()).toISOString();
+  }
+
+  async ingestCourseDiscovery(_observations: RawCourseObservation[]): Promise<Snapshot> {
+    throw new Error("Course discovery persistence requires the local backend. Use the default HTTP adapter.");
   }
 
   async connection() {

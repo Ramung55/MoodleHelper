@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { viewAll, type AssessmentView } from "@/domain/assessments";
 import { eligibleAlerts } from "@/domain/alerts";
@@ -20,6 +20,10 @@ interface AppState {
   syncing: boolean;
   retryLoad: () => void;
   run: (fn: (a: MoodleHelperAdapter) => Promise<Snapshot>) => Promise<boolean>;
+  selectionPending: boolean;
+  selectionError: string | null;
+  saveCourseSelection: (ids: string[]) => Promise<void>;
+  retryCourseSelection: () => void;
   syncAll: () => Promise<void>;
   setSnap: (s: Snapshot) => void;
 }
@@ -32,6 +36,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [conn, setConn] = useState<ConnectionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [selectionPending, setSelectionPending] = useState(false);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const selectionBusy = useRef(false);
+  const failedSelection = useRef<string[] | null>(null);
+  // Serialize provider mutations, so older full-Snapshot responses cannot replace
+  // confirmed selections/source refreshes returned by a newer operation.
+  const mutationQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const enqueue = useCallback(<T,>(action: () => Promise<T>): Promise<T> => {
+    const result = mutationQueue.current.then(action, action);
+    mutationQueue.current = result.catch(() => undefined);
+    return result;
+  }, []);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const retryLoad = useCallback(() => {
     setError(null);
@@ -56,20 +72,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const run = useCallback(
     async (fn: (a: MoodleHelperAdapter) => Promise<Snapshot>) => {
       try {
-        setSnap(await fn(adapter));
+        await enqueue(async () => setSnap(await fn(adapter)));
         return true;
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Something went wrong. Your saved data was not changed.");
         return false;
       }
     },
-    [adapter],
+    [adapter, enqueue],
   );
+
+  const saveCourseSelection = useCallback(async (ids: string[]) => {
+    if (selectionBusy.current) return;
+    selectionBusy.current = true;
+    setSelectionPending(true);
+    setSelectionError(null);
+    const intended = [...ids];
+    failedSelection.current = null;
+    try {
+      await enqueue(async () => setSnap(await adapter.setTrackedCourses(intended)));
+    } catch (e) {
+      failedSelection.current = intended;
+      setSelectionError(`Course selection was not saved. ${e instanceof Error ? e.message : "Check the local backend and try again."}`);
+    } finally {
+      selectionBusy.current = false;
+      setSelectionPending(false);
+    }
+  }, [adapter, enqueue]);
+  const retryCourseSelection = useCallback(() => {
+    if (failedSelection.current !== null) void saveCourseSelection(failedSelection.current);
+  }, [saveCourseSelection]);
 
   const syncAll = useCallback(async () => {
     setSyncing(true);
     try {
-      const s = await adapter.syncAll(setSnap);
+      const s = await enqueue(() => adapter.syncAll(setSnap));
       setSnap(s);
       const failed = s.sync.filter((c) => c.status === "failed").length;
       if (failed) toast.warning(`${failed} course(s) failed to sync. Earlier data was kept.`);
@@ -79,7 +116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false);
     }
-  }, [adapter]);
+  }, [adapter, enqueue]);
 
   const derived = useMemo(() => {
     if (!snap) return { views: [], weeks: [], unallocated: [], currentWeek: null };
@@ -97,7 +134,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (fresh.length) void run((a) => a.saveAlerts([...fresh, ...snap.alerts]));
   }, [snap, derived, run]);
 
-  return <Ctx.Provider value={{ adapter, snap, conn, error, syncing, retryLoad, run, syncAll, setSnap, ...derived }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ adapter, snap, conn, error, syncing, retryLoad, run, syncAll, setSnap, selectionPending, selectionError, saveCourseSelection, retryCourseSelection, ...derived }}>{children}</Ctx.Provider>;
 }
 
 export function useApp() {

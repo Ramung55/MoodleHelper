@@ -5,6 +5,7 @@ from copy import deepcopy
 from threading import RLock
 from typing import Protocol
 
+from backend.identity import namespace_key
 from backend.sample_data import build_sample_snapshot
 from backend.schemas import Snapshot
 from backend import schemas
@@ -12,6 +13,7 @@ from backend.domain_validation import merge_source_evidence, validate_record
 
 
 class SnapshotStore(Protocol):
+    namespace: str
     def read(self) -> dict: ...
     def replace(self, snapshot: dict) -> dict: ...
     def mutate(self, operation: Callable[[dict], None]) -> dict: ...
@@ -49,6 +51,8 @@ class SourceUpserts:
 
 class InMemoryStore(SourceUpserts):
     """One isolated dataset per instance; no disk I/O or mutable references escape."""
+
+    namespace = namespace_key()  # Explicit synthetic memory fixture dataset.
 
     def __init__(self, snapshot: dict | None = None):
         self._lock = RLock()

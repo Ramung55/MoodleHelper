@@ -1,5 +1,10 @@
 """Local adapter behavior, independent of HTTP and the concrete repository."""
 
+from copy import deepcopy
+from hashlib import sha256
+import re
+
+from backend.identity import collector_entity_key
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -38,6 +43,55 @@ class BackendService:
 
     def replace_all(self, snapshot: dict) -> dict:
         return self.store.replace(snapshot)
+
+    def ingest_course_discovery(self, observations: list[dict]) -> dict:
+        # Validate the full batch before mutation; raw wire shape stays permissive
+        # for backwards-compatible Snapshot restore.
+        incoming = {}
+        for observation in observations:
+            source_id = observation["sourceCourseId"]
+            if not re.fullmatch(r"[1-9][0-9]*", source_id):
+                raise ValueError("sourceCourseId must be a canonical positive decimal string")
+            if observation["sourceUrl"] != f"https://moodle.sdu.edu.kz/course/view.php?id={source_id}":
+                raise ValueError("sourceUrl must exactly match the canonical course URL and sourceCourseId")
+            for field in ("title", "termIndicators"):
+                fact = observation[field]
+                if fact["kind"] == "known":
+                    values = [fact["value"]] if field == "title" else fact["value"]
+                    if not values or any(not value or " ".join(value.split()) != value for value in values):
+                        raise ValueError(f"{field} requires normalized nonblank known values")
+            if source_id in incoming and incoming[source_id] != observation:
+                raise ValueError("Conflicting duplicate observations for one sourceCourseId")
+            incoming[source_id] = observation
+
+        def apply(snapshot):
+            if not incoming:
+                return
+            mappings = {}
+            for course in snapshot["courses"]:
+                if "discovery" in course:
+                    source_id = course["discovery"]["sourceCourseId"]
+                    if source_id in mappings:
+                        raise ValueError("Ambiguous saved sourceCourseId mapping; no discovery was saved")
+                    mappings[source_id] = course
+            for source_id, observation in incoming.items():
+                identifier = collector_entity_key(self.store.namespace, "course", course_id=source_id)
+                mapped = mappings.get(source_id)
+                if mapped is not None and sum(c["id"] == mapped["id"] for c in snapshot["courses"]) != 1:
+                    raise ValueError("Ambiguous saved course identifier; no discovery was saved")
+                collision = next((c for c in snapshot["courses"] if c["id"] == identifier), None)
+                if collision is not None and collision is not mapped:
+                    raise ValueError("Course identity collision; no discovery was saved")
+                if mapped is not None and mapped["discovery"]["sourceUrl"] != observation["sourceUrl"]:
+                    raise ValueError("Saved source identity has conflicting URL; no discovery was saved")
+                if mapped is None:
+                    mapped = {"id": identifier, "code": f"Course {source_id}",
+                              "color": 1 + int(sha256(source_id.encode()).hexdigest(), 16) % 6}
+                    snapshot["courses"].append(mapped)
+                mapped.update(name=(observation["title"]["value"] if observation["title"]["kind"] == "known"
+                                    else "Title unavailable"), current=False,
+                              discovery={**deepcopy(observation), "currentTermStatus": "unknown"})
+        return self.store.mutate(apply)
 
     def set_tracked_courses(self, ids: list[str]) -> dict:
         return self.update_settings({"trackedCourseIds": ids})

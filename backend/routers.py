@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request, HTTPException
 
 from backend import schemas as s
 from backend.services import BackendService
@@ -35,6 +35,15 @@ def load(api: Service):
 @router.put("/snapshot", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="replaceAll", tags=["Snapshot"])
 def replace_all(body: s.Snapshot, api: Service):
     return api.replace_all(wire(body))
+
+
+@router.post("/courses/discovery", response_model=s.Snapshot, response_model_exclude_none=True,
+             operation_id="ingestCourseDiscovery", tags=["Courses"], responses={503: {"model": s.ProposedHttpError}})
+def ingest_course_discovery(body: s.CourseDiscoveryInput, api: Service):
+    try:
+        return api.ingest_course_discovery([wire(observation) for observation in body.observations])
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.put("/tracked-courses", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="setTrackedCourses", tags=["Courses"])

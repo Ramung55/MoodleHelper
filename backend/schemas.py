@@ -68,12 +68,42 @@ class UnknownDate(WireModel):
 DateValue = Annotated[ExactDate | CalendarDate | TeachingWeek | UnknownDate, Field(discriminator="kind")]
 
 
+class KnownString(WireModel):
+    kind: Literal["known"]
+    value: str
+
+
+class KnownStrings(WireModel):
+    kind: Literal["known"]
+    value: list[str]
+
+
+class UnknownFact(WireModel):
+    kind: Literal["unknown"]
+
+
+class RawCourseObservation(WireModel):
+    sourceCourseId: str
+    sourceUrl: str
+    title: Annotated[KnownString | UnknownFact, Field(discriminator="kind")]
+    termIndicators: Annotated[KnownStrings | UnknownFact, Field(discriminator="kind")]
+
+
+class CourseDiscovery(RawCourseObservation):
+    currentTermStatus: Literal["current", "past", "unknown"]
+
+
+class CourseDiscoveryInput(WireModel):
+    observations: list[RawCourseObservation]
+
+
 class Course(WireModel):
     id: str
     code: str
     name: str
     color: Integer = Field(ge=1, le=6)
     current: bool
+    discovery: CourseDiscovery = None
 
 
 class SourceEvidence(WireModel):

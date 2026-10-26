@@ -1,3 +1,4 @@
+import type { RawCourseObservation } from "@/domain/types";
 import { z } from "zod";
 import { ConnectionState, Snapshot, type Snapshot as SnapshotValue } from "@/domain/types";
 import type { MoodleHelperAdapter, OverlayPatch, PersonalEventInput, ReviewDecision } from "./adapter";
@@ -48,6 +49,7 @@ export class HttpAdapter implements MoodleHelperAdapter {
   connection() { return this.request("GET", "/connection", connectionSchema); }
   load() { return this.request("GET", "/snapshot", Snapshot); }
   replaceAll(snapshot: SnapshotValue) { return this.request("PUT", "/snapshot", Snapshot, snapshot); }
+  ingestCourseDiscovery(observations: RawCourseObservation[]) { return this.request("POST", "/courses/discovery", Snapshot, { observations }); }
   setTrackedCourses(ids: string[]) { return this.request("PUT", "/tracked-courses", Snapshot, ids); }
   updateOverlay(id: string, patch: OverlayPatch) {
     const wire = { ...patch };

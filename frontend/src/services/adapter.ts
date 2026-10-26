@@ -1,3 +1,4 @@
+import type { RawCourseObservation } from "@/domain/types";
 import type { AssessmentType, ConnectionState, DateValue, Overlay, Settings, Snapshot } from "@/domain/types";
 
 export interface ConnectionInfo {
@@ -41,6 +42,7 @@ export interface MoodleHelperAdapter {
   connection(): Promise<ConnectionInfo>;
   load(): Promise<Snapshot>;
 
+  ingestCourseDiscovery(observations: RawCourseObservation[]): Promise<Snapshot>;
   setTrackedCourses(ids: string[]): Promise<Snapshot>;
   updateOverlay(assessmentId: string, patch: OverlayPatch): Promise<Snapshot>;
   addPersonalEvent(input: PersonalEventInput): Promise<Snapshot>;

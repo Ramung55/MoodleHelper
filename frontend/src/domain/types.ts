@@ -15,12 +15,28 @@ export type AssessmentType = z.infer<typeof AssessmentType>;
 export const SubmissionStatus = z.enum(["submitted", "draft", "not_submitted", "reopened", "unknown"]);
 export type SubmissionStatus = z.infer<typeof SubmissionStatus>;
 
+export const KnownString = z.object({ kind: z.literal("known"), value: z.string() });
+export const KnownStrings = z.object({ kind: z.literal("known"), value: z.array(z.string()) });
+export const UnknownFact = z.object({ kind: z.literal("unknown") });
+export const RawCourseObservation = z.object({
+  sourceCourseId: z.string(),
+  sourceUrl: z.string(),
+  title: z.discriminatedUnion("kind", [KnownString, UnknownFact]),
+  termIndicators: z.discriminatedUnion("kind", [KnownStrings, UnknownFact]),
+});
+export type RawCourseObservation = z.infer<typeof RawCourseObservation>;
+export const CourseDiscovery = RawCourseObservation.extend({
+  currentTermStatus: z.enum(["current", "past", "unknown"]),
+});
+export const CourseDiscoveryInput = z.object({ observations: z.array(RawCourseObservation) });
+
 export const Course = z.object({
   id: z.string(),
   code: z.string(),
   name: z.string(),
   color: z.number().int().min(1).max(6),
   current: z.boolean(),
+  discovery: CourseDiscovery.optional(),
 });
 export type Course = z.infer<typeof Course>;
 
