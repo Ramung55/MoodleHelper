@@ -18,6 +18,7 @@ interface AppState {
   unallocated: AssessmentView[];
   currentWeek: number | null;
   syncing: boolean;
+  retryLoad: () => void;
   run: (fn: (a: MoodleHelperAdapter) => Promise<Snapshot>) => Promise<boolean>;
   syncAll: () => Promise<void>;
   setSnap: (s: Snapshot) => void;
@@ -31,12 +32,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [conn, setConn] = useState<ConnectionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const retryLoad = useCallback(() => {
+    setError(null);
+    setLoadAttempt((attempt) => attempt + 1);
+  }, []);
 
   useEffect(() => {
     let alive = true;
     Promise.all([adapter.load(), adapter.connection(), detectExtension()])
       .then(([s, c, detected]) => {
         if (!alive) return;
+        setError(null);
         setSnap(s);
         setConn(detected ? { ...c, extensionDetected: true, message: "Extension detected, but live sync is not implemented yet. Still showing demo data." } : c);
       })
@@ -44,7 +51,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [adapter]);
+  }, [adapter, loadAttempt]);
 
   const run = useCallback(
     async (fn: (a: MoodleHelperAdapter) => Promise<Snapshot>) => {
@@ -90,7 +97,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (fresh.length) void run((a) => a.saveAlerts([...fresh, ...snap.alerts]));
   }, [snap, derived, run]);
 
-  return <Ctx.Provider value={{ adapter, snap, conn, error, syncing, run, syncAll, setSnap, ...derived }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ adapter, snap, conn, error, syncing, retryLoad, run, syncAll, setSnap, ...derived }}>{children}</Ctx.Provider>;
 }
 
 export function useApp() {
