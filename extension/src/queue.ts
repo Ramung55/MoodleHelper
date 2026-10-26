@@ -12,23 +12,24 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
   const fetcher=options.fetcher??fetch, executor=options.executor??mockExecutor, base=options.base??BACKEND;
   const slots=Math.max(1,Math.min(4,options.slots??4));
   let disposed=false, current:Promise<void>|undefined;
+  const intervals=new Set<ReturnType<typeof setInterval>>();
+  const controllers=new Set<AbortController>();
   async function request(path:string, binding?:string, body?:unknown) {
-    const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),10_000);
+    const controller=new AbortController(); controllers.add(controller); const timer=setTimeout(()=>controller.abort(),10_000);
     try {
       const r=await fetcher(base+path,{method:body===undefined?'GET':'POST',credentials:'omit',redirect:'error',signal:controller.signal,
         headers:{Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':binding!})},
         ...(body===undefined?{}:{body:JSON.stringify(body)})});
       if (!r.ok) throw new Error('queue unavailable');
       return await r.json();
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); controllers.delete(controller); }
   }
-  async function work(binding:string, status:{unfinished:boolean}) {
+  async function work(binding:string):Promise<boolean> {
     while(!disposed) {
       const response=await request('/api/queue/claim',binding,{}) as ClaimReply;
       if(typeof response.unfinished!=='boolean') throw new Error('invalid response');
-      status.unfinished ||= response.unfinished;
       const claim=response.claim;
-      if(!claim) return;
+      if(!claim) return response.unfinished;
       let alive=true, renewing=false;
       const token={jobId:claim.job.id,generation:claim.generation,token:claim.token};
       const timer=setInterval(()=>{
@@ -36,12 +37,14 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
         renewing=true;
         void request('/api/queue/renew',binding,token).catch(()=>{alive=false;}).finally(()=>{renewing=false;});
       },options.renewMs??RENEW_MS);
+      intervals.add(timer);
       let outcome:'completed'|'failed'='completed';
       try { await executor(claim.job); } catch { outcome='failed'; }
-      clearInterval(timer);
-      if(disposed||!alive) return;
+      clearInterval(timer); intervals.delete(timer);
+      if(disposed||!alive) return true;
       await request('/api/queue/finish',binding,{...token,outcome,...(outcome==='failed'?{errorCode:'mock_failure'}:{})});
     }
+    return true;
   }
   async function wake() {
     if(disposed) return;
@@ -50,9 +53,13 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
       try {
         const context=await request('/api/bridge-context');
         if(typeof context.binding!=='string') throw new Error('invalid context');
-        const status={unfinished:false};
-        await Promise.all(Array.from({length:slots},()=>work(context.binding,status)));
-        if(!disposed) options.schedule(status.unfinished);
+        const results=await Promise.allSettled(Array.from({length:slots},()=>work(context.binding)));
+        if(disposed) return;
+        if(results.some(result=>result.status==='rejected')) { options.schedule(true); return; }
+        // All local work has settled. A final drain observes the current durable
+        // state, including claims held by another worker, without losing a claim.
+        const unfinished=await work(context.binding);
+        if(!disposed) options.schedule(unfinished);
       } catch { if(!disposed) options.schedule(true); }
     })().finally(()=>{current=undefined;});
     return current;
@@ -62,13 +69,12 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
     const run=await request('/api/queue/runs',context.binding,{idempotencyKey,courseIds});
     options.schedule(true); void wake(); return run;
   }
-  return {wake,start,dispose(){disposed=true;}};
+  return {wake,start,dispose(){disposed=true; for(const timer of intervals) clearInterval(timer); intervals.clear(); for(const controller of controllers) controller.abort(); controllers.clear();}};
 }
 
 type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} };
 export function installQueueWorker(chrome:QueueChrome) {
-  // A bounded one-shot alarm also discovers runs started through the local HTTP API.
-  const service=createQueueService({schedule:()=>chrome.alarms.create(ALARM_NAME,{delayInMinutes:1})});
+  const service=createQueueService({schedule:needed=>needed?chrome.alarms.create(ALARM_NAME,{delayInMinutes:1}):chrome.alarms.clear(ALARM_NAME)});
   chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name===ALARM_NAME) void service.wake();});
   chrome.runtime.onStartup.addListener(()=>{void service.wake();});
   chrome.runtime.onInstalled.addListener(()=>{void service.wake();});
