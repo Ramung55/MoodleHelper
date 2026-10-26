@@ -1,7 +1,7 @@
 """Small transactional SQLite migrations; caller owns BEGIN/COMMIT/ROLLBACK."""
 from sqlalchemy import Connection
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class MigrationError(RuntimeError):
@@ -14,7 +14,32 @@ def version_one_to_two(connection: Connection) -> None:
     connection.exec_driver_sql("ALTER TABLE snapshots ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
 
 
-MIGRATIONS = {1: version_one_to_two}
+def version_two_to_three(connection: Connection) -> None:
+    connection.exec_driver_sql("""CREATE TABLE queue_runs (
+        namespace TEXT NOT NULL, id TEXT NOT NULL, idem TEXT NOT NULL,
+        course_ids TEXT NOT NULL, created INTEGER NOT NULL, cancelled INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(namespace,id), UNIQUE(namespace,idem))""")
+    connection.exec_driver_sql("""CREATE TABLE queue_jobs (
+        namespace TEXT NOT NULL, id TEXT NOT NULL, course_id TEXT NOT NULL,
+        created INTEGER NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','running','completed','failed','cancelled')),
+        attempts INTEGER NOT NULL DEFAULT 0, generation INTEGER NOT NULL DEFAULT 0,
+        token TEXT, expires INTEGER, error_code TEXT,
+        PRIMARY KEY(namespace,id))""")
+    connection.exec_driver_sql("CREATE UNIQUE INDEX queue_active_course ON queue_jobs(namespace,course_id) WHERE state IN ('pending','running')")
+    connection.exec_driver_sql("CREATE INDEX queue_claim_order ON queue_jobs(namespace,state,created,id)")
+    connection.exec_driver_sql("""CREATE TABLE queue_links (
+        namespace TEXT NOT NULL, run_id TEXT NOT NULL, job_id TEXT NOT NULL,
+        PRIMARY KEY(namespace,run_id,job_id),
+        FOREIGN KEY(namespace,run_id) REFERENCES queue_runs(namespace,id),
+        FOREIGN KEY(namespace,job_id) REFERENCES queue_jobs(namespace,id))""")
+    connection.exec_driver_sql("CREATE INDEX queue_job_links ON queue_links(namespace,job_id,run_id)")
+    connection.exec_driver_sql("""CREATE TABLE queue_results (
+        namespace TEXT NOT NULL, job_id TEXT NOT NULL, id TEXT NOT NULL, summary TEXT NOT NULL,
+        PRIMARY KEY(namespace,job_id), UNIQUE(namespace,id),
+        FOREIGN KEY(namespace,job_id) REFERENCES queue_jobs(namespace,id))""")
+
+
+MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three}
 
 
 def upgrade(connection: Connection) -> None:

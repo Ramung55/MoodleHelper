@@ -750,7 +750,7 @@ paths:
       - Queue
       security: []
       parameters:
-      - &id007
+      - &queuepath007
         name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -765,31 +765,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueRun'
-        '404': &id002
+        '404': &queuepath002
           description: Run not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProposedHttpError'
-        '409': &id003
+        '409': &queuepath003
           description: Conflicting key, stale claim or process binding
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProposedHttpError'
-        '422': &id004
+        '422': &queuepath004
           description: Invalid request
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProposedHttpError'
-        '503': &id005
+        '503': &queuepath005
           description: Storage unavailable
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProposedHttpError'
-        default: &id006
+        default: &queuepath006
           description: Safe error
           content:
             application/json:
@@ -808,11 +808,11 @@ paths:
       - Queue
       security: []
       parameters:
-      - &id008
+      - &queuepath008
         name: runId
         in: path
         required: true
-        schema: &id001
+        schema: &queuepath001
           type: string
           minLength: 1
           maxLength: 128
@@ -820,7 +820,7 @@ paths:
       - name: cursor
         in: query
         required: false
-        schema: *id001
+        schema: *queuepath001
       - name: limit
         in: query
         required: false
@@ -836,11 +836,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueRun'
-        '404': *id002
-        '409': *id003
-        '422': *id004
-        '503': *id005
-        default: *id006
+        '404': *queuepath002
+        '409': *queuepath003
+        '422': *queuepath004
+        '503': *queuepath005
+        default: *queuepath006
   /api/queue/runs/{runId}/cancel:
     post:
       operationId: cancelQueueRun
@@ -848,8 +848,8 @@ paths:
       - Queue
       security: []
       parameters:
-      - *id007
-      - *id008
+      - *queuepath007
+      - *queuepath008
       responses:
         '200':
           description: Success
@@ -857,11 +857,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueRun'
-        '404': *id002
-        '409': *id003
-        '422': *id004
-        '503': *id005
-        default: *id006
+        '404': *queuepath002
+        '409': *queuepath003
+        '422': *queuepath004
+        '503': *queuepath005
+        default: *queuepath006
   /api/queue/claim:
     post:
       operationId: claimQueueJob
@@ -869,7 +869,7 @@ paths:
       - Queue
       security: []
       parameters:
-      - *id007
+      - *queuepath007
       responses:
         '200':
           description: Success
@@ -877,11 +877,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueClaimResponse'
-        '404': *id002
-        '409': *id003
-        '422': *id004
-        '503': *id005
-        default: *id006
+        '404': *queuepath002
+        '409': *queuepath003
+        '422': *queuepath004
+        '503': *queuepath005
+        default: *queuepath006
       requestBody:
         required: true
         content:
@@ -895,7 +895,7 @@ paths:
       - Queue
       security: []
       parameters:
-      - *id007
+      - *queuepath007
       responses:
         '200':
           description: Success
@@ -903,11 +903,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueRenewResponse'
-        '404': *id002
-        '409': *id003
-        '422': *id004
-        '503': *id005
-        default: *id006
+        '404': *queuepath002
+        '409': *queuepath003
+        '422': *queuepath004
+        '503': *queuepath005
+        default: *queuepath006
       requestBody:
         required: true
         content:
@@ -921,7 +921,7 @@ paths:
       - Queue
       security: []
       parameters:
-      - *id007
+      - *queuepath007
       responses:
         '200':
           description: Success
@@ -929,11 +929,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueJob'
-        '404': *id002
-        '409': *id003
-        '422': *id004
-        '503': *id005
-        default: *id006
+        '404': *queuepath002
+        '409': *queuepath003
+        '422': *queuepath004
+        '503': *queuepath005
+        default: *queuepath006
       requestBody:
         required: true
         content:
@@ -946,18 +946,18 @@ components:
       type: object
       additionalProperties: false
       properties:
-        idempotencyKey: &id001
+        idempotencyKey: &queueschema001
           type: string
           minLength: 1
           maxLength: 128
           pattern: ^[A-Za-z0-9._~-]+$
         courseIds:
           type: array
-          items: &id003
+          items: &queueschema003
             type: string
             minLength: 1
-            maxLength: 128
-            pattern: ^[A-Za-z0-9._:-]+$
+            maxLength: 8192
+            pattern: '\S'
           minItems: 1
           maxItems: 100
           uniqueItems: true
@@ -968,16 +968,15 @@ components:
       type: object
       additionalProperties: false
       properties: {}
-      required: []
     QueueClaimToken:
       type: object
       additionalProperties: false
       properties:
-        jobId: *id001
+        jobId: *queueschema001
         generation:
           type: integer
           minimum: 1
-        token: *id001
+        token: *queueschema001
       required:
       - jobId
       - generation
@@ -986,11 +985,11 @@ components:
       type: object
       additionalProperties: false
       properties:
-        jobId: *id001
+        jobId: *queueschema001
         generation:
           type: integer
           minimum: 1
-        token: *id001
+        token: *queueschema001
         outcome:
           type: string
           enum:
@@ -998,8 +997,7 @@ components:
           - failed
         errorCode:
           type: string
-          enum:
-          - mock_failure
+          const: mock_failure
       required:
       - jobId
       - generation
@@ -1009,14 +1007,14 @@ components:
       type: object
       additionalProperties: false
       properties:
-        pending: &id002
+        pending: &queueschema002
           type: integer
           minimum: 0
-        running: *id002
-        completed: *id002
-        failed: *id002
-        cancelled: *id002
-        total: *id002
+        running: *queueschema002
+        completed: *queueschema002
+        failed: *queueschema002
+        cancelled: *queueschema002
+        total: *queueschema002
       required:
       - pending
       - running
@@ -1028,7 +1026,7 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *id001
+        id: *queueschema001
         summary:
           type: string
           minLength: 1
@@ -1040,9 +1038,9 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *id001
-        courseId: *id003
-        state: &id004
+        id: *queueschema001
+        courseId: *queueschema003
+        state: &queueschema004
           type: string
           enum:
           - pending
@@ -1050,12 +1048,11 @@ components:
           - completed
           - failed
           - cancelled
-        attempts: *id002
-        generation: *id002
+        attempts: *queueschema002
+        generation: *queueschema002
         errorCode:
           type: string
-          enum:
-          - mock_failure
+          const: mock_failure
         result:
           $ref: '#/components/schemas/QueueResult'
       required:
@@ -1068,16 +1065,16 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *id001
-        idempotencyKey: *id001
+        id: *queueschema001
+        idempotencyKey: *queueschema001
         courseIds:
           type: array
-          items: *id003
+          items: *queueschema003
           minItems: 1
           maxItems: 100
           uniqueItems: true
-        createdAt: *id002
-        status: *id004
+        createdAt: *queueschema002
+        status: *queueschema004
         cancelled:
           type: boolean
         progress:
@@ -1087,7 +1084,7 @@ components:
           items:
             $ref: '#/components/schemas/QueueJob'
           maxItems: 100
-        nextCursor: *id001
+        nextCursor: *queueschema001
       required:
       - id
       - idempotencyKey
@@ -1103,11 +1100,11 @@ components:
       properties:
         job:
           $ref: '#/components/schemas/QueueJob'
-        token: *id001
+        token: *queueschema001
         generation:
           type: integer
           minimum: 1
-        expiresAt: *id002
+        expiresAt: *queueschema002
       required:
       - job
       - token
@@ -1127,7 +1124,7 @@ components:
       type: object
       additionalProperties: false
       properties:
-        expiresAt: *id002
+        expiresAt: *queueschema002
       required:
       - expiresAt
     DateValue:

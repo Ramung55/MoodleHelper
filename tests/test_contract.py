@@ -87,16 +87,16 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
     generated = client.get("/openapi.json").json()
     expected_operations = {(method, path) for path, ops in contract["paths"].items() for method in ops}
     actual_operations = {(method, path) for path, ops in generated["paths"].items() for method in ops}
-    internal = {('get','/api/collection-context'),('post','/api/collection/visits'),('post','/api/collection/refresh')}
+    internal = {('get','/api/collection-context'),('post','/api/collection/visits'),('post','/api/collection/refresh'), ('post','/api/queue/runs'), ('get','/api/queue/runs/{runId}'), ('post','/api/queue/runs/{runId}/cancel'), ('post','/api/queue/claim'), ('post','/api/queue/renew'), ('post','/api/queue/finish')}
     assert actual_operations == expected_operations == {(method, path) for method, path, _ in OPERATIONS} | internal
-    assert len(actual_operations) == 21
+    assert len(actual_operations) == 27
     assert not generated["components"].get("securitySchemes")
     for method, path in expected_operations:
         expected = contract["paths"][path][method]
         actual = generated["paths"][path][method]
         assert actual["operationId"] == expected["operationId"]
         assert not actual.get("security")
-        assert actual.get("parameters", []) == expected.get("parameters", []) or canonical(actual.get("parameters", []), generated) == canonical(expected.get("parameters", []), contract)
+        assert sorted(canonical(actual.get("parameters", []), generated), key=lambda p: (p["in"], p["name"])) == sorted(canonical(expected.get("parameters", []), contract), key=lambda p: (p["in"], p["name"]))
         assert ("requestBody" in actual) == ("requestBody" in expected)
         if "requestBody" in expected:
             assert actual["requestBody"]["required"] is True

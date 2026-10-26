@@ -8,7 +8,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from backend.routers import router, context_router, collection_router
+from backend.routers import router, context_router, collection_router, queue_router
+from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
 from backend.services import BackendService
 from backend.storage import SnapshotStore
 from backend.database_config import DatabaseConfig
@@ -16,7 +17,13 @@ from backend.sqlite_store import SQLiteStore, StorageError
 from backend.collection import CollectionService, CollectionRejected
 
 
-def create_app(store: SnapshotStore | None = None, *, collection_provider=None) -> FastAPI:
+def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None) -> FastAPI:
+    raw_concurrency = os.environ.get('MOODLE_HELPER_QUEUE_CONCURRENCY', '1')
+    if raw_concurrency not in ('1', '2', '3', '4'):
+        raise ValueError('MOODLE_HELPER_QUEUE_CONCURRENCY must be an integer from 1 to 4.')
+    concurrency = int(raw_concurrency)
+    def make_queue(selected):
+        return QueueService(selected, concurrency, **({'clock':queue_clock} if queue_clock else {}))
     @asynccontextmanager
     async def lifespan(app):
         selected = store
@@ -24,6 +31,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None) 
             configuration = DatabaseConfig.from_environment(os.environ)
             selected = SQLiteStore(configuration.url, configuration.namespace)
         app.state.service = BackendService(selected)
+        app.state.queue = make_queue(selected)
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(selected, app.state.bridge_binding, collection_provider)
         try:
@@ -36,6 +44,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None) 
                   description="Local fictional demo API; one process-local dataset, no authentication or live Moodle access.", lifespan=lifespan)
     if store is not None:
         app.state.service = BackendService(store)
+        app.state.queue = make_queue(store)
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(store, app.state.bridge_binding, collection_provider)
 
@@ -44,12 +53,13 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None) 
         # Runs before body parsing and service work, including malformed writes.
         binding = request.headers.get("X-Moodle-Helper-Bridge-Binding")
         collection_write = request.url.path in ['/api/collection/visits', '/api/collection/refresh']
-        if collection_write and binding != getattr(app.state, 'bridge_binding', None):
+        queue_write = request.url.path.startswith('/api/queue/') and request.method not in ['GET','HEAD','OPTIONS']
+        if (collection_write or queue_write) and binding != getattr(app.state, 'bridge_binding', None):
             return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
-        if request.url.path.startswith('/api/collection'):
+        if request.url.path.startswith('/api/collection') or request.url.path.startswith('/api/queue/'):
             body = await request.body()
             if len(body) > 1024 * 1024:
-                return JSONResponse(status_code=422, content={'message':'Collection message exceeds the size limit.'})
+                return JSONResponse(status_code=422, content={'message':'Request exceeds the size limit.'})
         elif request.url.path.startswith('/api/') and request.method not in ['GET','HEAD','OPTIONS']:
             app.state.collection.invalidate()
         if (request.url.path.startswith("/api/") and request.url.path != "/api/bridge-context"
@@ -63,8 +73,8 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None) 
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError):
-        if request.url.path.startswith('/api/collection'):
-            return JSONResponse(status_code=422, content={'message':'Invalid collection request.'})
+        if request.url.path.startswith('/api/collection') or request.url.path.startswith('/api/queue/'):
+            return JSONResponse(status_code=422, content={'message':'Invalid request.'})
         errors = [f"{'.'.join(str(p) for p in item['loc'])}: {item['msg']}" for item in error.errors()]
         return JSONResponse(status_code=422, content={"message": "Invalid request: " + "; ".join(errors)})
 
@@ -80,6 +90,19 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None) 
     async def collection_error(request: Request, error: CollectionRejected):
         return JSONResponse(status_code=409, content={'message':'Collection context or evidence is invalid. Reconnect.'})
 
+    @app.exception_handler(QueueConflict)
+    async def queue_conflict(request: Request, error: QueueConflict):
+        return JSONResponse(status_code=409, content={'message':'Queue key or claim conflicts with current state.'})
+
+    @app.exception_handler(QueueMissing)
+    async def queue_missing(request: Request, error: QueueMissing):
+        return JSONResponse(status_code=404, content={'message':'Queue run not found.'})
+
+    @app.exception_handler(QueueInvalid)
+    async def queue_invalid(request: Request, error: QueueInvalid):
+        return JSONResponse(status_code=422, content={'message':'Invalid queue request.'})
+
+    app.include_router(queue_router)
     app.include_router(router)
     app.include_router(context_router)
     app.include_router(collection_router)

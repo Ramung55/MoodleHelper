@@ -148,3 +148,28 @@ def reset_demo(api: Service):
 @router.get("/ai/availability", response_model=s.AiAvailability, operation_id="aiAvailability", tags=["AI availability"])
 def ai_availability(api: Service):
     return api.ai_availability()
+
+# Queue operations require the current process binding for writes.
+queue_router = APIRouter(prefix='/api/queue', responses={'default': {'model':s.ProposedHttpError}, 404:{'model':s.ProposedHttpError}, 409:{'model':s.ProposedHttpError}, 422:{'model':s.ProposedHttpError}, 503:{'model':s.ProposedHttpError}})
+
+def queue(request: Request): return request.app.state.queue
+
+def queue_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bridge-Binding', description='Required current backend process binding. A stale or absent binding returns 409 before processing.')]): pass
+
+@queue_router.post('/runs', response_model=s.QueueRun, response_model_exclude_none=True, operation_id='startQueueRun', tags=['Queue'], dependencies=[Depends(queue_binding)])
+def start_queue(body:s.QueueStart, request:Request): return queue(request).start(body.idempotencyKey,body.courseIds)
+
+@queue_router.get('/runs/{runId}', response_model=s.QueueRun, response_model_exclude_none=True, operation_id='readQueueRun', tags=['Queue'])
+def read_queue(runId:s.QueueId, request:Request, cursor:s.QueueId=None, limit:Annotated[int, __import__('fastapi').Query(ge=1,le=100)]=100): return queue(request).read(runId,cursor,limit)
+
+@queue_router.post('/runs/{runId}/cancel', response_model=s.QueueRun, response_model_exclude_none=True, operation_id='cancelQueueRun', tags=['Queue'], dependencies=[Depends(queue_binding)])
+def cancel_queue(runId:s.QueueId, request:Request): return queue(request).cancel(runId)
+
+@queue_router.post('/claim', response_model=s.QueueClaimResponse, response_model_exclude_none=True, operation_id='claimQueueJob', tags=['Queue'], dependencies=[Depends(queue_binding)])
+def claim_queue(body:s.QueueClaimInput, request:Request): return queue(request).claim()
+
+@queue_router.post('/renew', response_model=s.QueueRenewResponse, operation_id='renewQueueClaim', tags=['Queue'], dependencies=[Depends(queue_binding)])
+def renew_queue(body:s.QueueClaimToken, request:Request): return queue(request).renew(body.jobId,body.generation,body.token)
+
+@queue_router.post('/finish', response_model=s.QueueJob, response_model_exclude_none=True, operation_id='finishQueueClaim', tags=['Queue'], dependencies=[Depends(queue_binding)])
+def finish_queue(body:s.QueueFinish, request:Request): return queue(request).finish(body.jobId,body.generation,body.token,body.outcome,body.errorCode)

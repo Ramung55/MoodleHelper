@@ -692,3 +692,69 @@ class BridgeContext(BaseModel):
 class PageRefreshResponse(CollectionWire):
     snapshot: Snapshot
     receipt: PageRefreshReceipt
+
+# Mock queue models are closed and independent of Snapshot wire records.
+QueueId = Annotated[str, Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9._~-]+$')]
+QueueCourseId = Annotated[str, Field(min_length=1, max_length=8192, pattern=r'\S')]
+QueueState = Literal['pending', 'running', 'completed', 'failed', 'cancelled']
+QueueCount = Annotated[int, Field(ge=0)]
+QueueGeneration = Annotated[int, Field(ge=1)]
+
+class QueueModel(WireModel):
+    model_config = ConfigDict(strict=True, extra='forbid', allow_inf_nan=False, json_schema_extra=omit_absence_defaults)
+
+class QueueStart(QueueModel):
+    idempotencyKey: QueueId
+    courseIds: list[QueueCourseId] = Field(min_length=1, max_length=100, json_schema_extra={'uniqueItems':True})
+    @model_validator(mode='after')
+    def unique_courses(self):
+        if len(set(self.courseIds)) != len(self.courseIds): raise ValueError('Duplicate course ID')
+        return self
+
+class QueueClaimInput(QueueModel): pass
+class QueueClaimToken(QueueModel):
+    jobId: QueueId
+    generation: QueueGeneration
+    token: QueueId
+class QueueFinish(QueueClaimToken):
+    outcome: Literal['completed','failed']
+    errorCode: Literal['mock_failure'] = None
+class QueueProgress(QueueModel):
+    pending: QueueCount
+    running: QueueCount
+    completed: QueueCount
+    failed: QueueCount
+    cancelled: QueueCount
+    total: QueueCount
+class QueueResult(QueueModel):
+    id: QueueId
+    summary: str = Field(min_length=1,max_length=256)
+class QueueJob(QueueModel):
+    id: QueueId
+    courseId: QueueCourseId
+    state: QueueState
+    attempts: QueueCount
+    generation: QueueCount
+    errorCode: Literal['mock_failure'] = None
+    result: QueueResult = None
+class QueueRun(QueueModel):
+    id: QueueId
+    idempotencyKey: QueueId
+    courseIds: list[QueueCourseId] = Field(min_length=1,max_length=100,json_schema_extra={'uniqueItems':True})
+    createdAt: QueueCount
+    status: QueueState
+    cancelled: bool
+    progress: QueueProgress
+    jobs: list[QueueJob] = Field(max_length=100)
+    nextCursor: QueueId = None
+class QueueClaim(QueueModel):
+    job: QueueJob
+    token: QueueId
+    generation: QueueGeneration
+    expiresAt: QueueCount
+class QueueClaimResponse(QueueModel):
+    claim: QueueClaim = None
+    unfinished: bool
+class QueueRenewResponse(QueueModel):
+    expiresAt: QueueCount
+
