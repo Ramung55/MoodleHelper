@@ -25,7 +25,7 @@ explicitly approved SQLAlchemy dependency. Existing `AGENTS.md` commands apply.
 The frontend retains its own `package.json`, Bun/Vite/Vitest commands, and
 lockfile. Its design is preserved; `HttpAdapter` now binds its service contract
 to FastAPI. The old DemoAdapter remains available for focused fixture tests.
-The extension/shared browser package layout remains unimplemented.
+The approved empty `extension/` and `shared/` TypeScript packages compile browser ESM; #7 owns the runnable Chrome extension.
 
 The [toolchain decision](_docs/architecture/toolchain.md) records the implemented
 frontend/backend boundaries, verified commands and passing integration checkpoint;
@@ -155,7 +155,7 @@ tests pass using the approved httpx dependency without adding another package.
 
 ## Run the full application
 
-Use Python/uv as above and Node.js 22.12+ with Bun 1.3+ for the existing frontend.
+Use Python/uv as above. Node.js v24.20.0 and Bun 1.3.13 are verified versions for the existing frontend and browser packages, not an untested compatibility range.
 In terminal 1, from the repository root:
 
 ```powershell
@@ -184,6 +184,40 @@ Run frontend checks from `frontend/`:
 bun run test
 bun run build
 ```
+
+## Empty browser packages (#51)
+
+The human explicitly approved the two private, dependency-free manifests and
+bounded layout in #51; approval is no longer pending. `frontend/` remains the
+integrated dashboard, with its existing TypeScript, Vite, Vitest and lockfile.
+Backend uv/pytest remain unchanged. No package install or new lockfile is needed
+for `extension/` or `shared/`; both source entries contain only `export {}`.
+No unresolved layout blocker remains for this approved empty baseline.
+
+From a fresh repository-root checkout, with the verified runtimes installed:
+
+```powershell
+uv sync --locked
+cd frontend
+bun install --frozen-lockfile
+bun run test
+bun run build
+cd ..
+bun run --cwd extension build
+bun run --cwd shared build
+bun ./frontend/node_modules/vitest/vitest.mjs run --config ./browser-workspace/vitest.config.mjs
+```
+
+Always rebuild both artifacts before the smoke check, including after a clean
+checkout. It imports the actual `dist/index.js` files in Node, without Chrome
+globals or permissions, and checks that both modules are empty. Missing or
+unloadable artifacts fail; there is no source or mock fallback. This checks the
+browser build/import boundary only. Bun transpilation does not establish a clean
+standalone TypeScript check. #7 owns Manifest V3, permissions and Chrome loading;
+no runnable extension or new collection/storage capability is introduced here.
+
+Generated `dist/`, `node_modules/`, caches and local environment files are ignored;
+the source entries, manifests, smoke configuration and test are tracked.
 
 `http-live.test.ts` starts a real FastAPI child process on an available localhost
 port using the uv-managed `.venv` and an isolated temporary SQLite file, exercises

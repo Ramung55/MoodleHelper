@@ -1,0 +1,9 @@
+{
+  "name": "@moodle-helper/extension",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./src/index.ts --target browser --format esm --outdir ./dist"
+  }
+}

@@ -14,8 +14,8 @@ before adding dependencies. It approves no new package or installation.
 | --- | --- | --- | --- |
 | Python backend | Root `pyproject.toml`; `backend/` with FastAPI app, schemas, routers, services and storage | Root `uv.lock` | Root `tests/`; pytest. Declared Python range `>=3.12,<3.15`, `.python-version` selects 3.13. Python 3.13.14 verified in milestone checks. Other versions in the declared range have not been tested here. |
 | React dashboard | `frontend/`; `frontend/package.json`; TanStack Start/Router, TypeScript, Vite, React; `vite.config.ts`, `vitest.config.ts`, `tsconfig.json` | `frontend/bun.lock` | Vitest tests in `frontend/src/test/`; Vite production build. Node.js v24.20.0 and Bun 1.3.13 verified in this environment. The manifest has no `engines` or `packageManager` pin and no Node-version file; these observations are not a general compatibility guarantee. |
-| Chrome extension | Not yet scaffolded; no implemented extension package/manifest | None | Layout and build choice remain for #51/#7. No WXT or extension runtime is silently selected here. |
-| Shared browser package | Not yet scaffolded as a separate package | None | Existing frontend domain types/services are real code; do not invent a second incompatible model or recreate the dashboard as an empty package. |
+| Chrome extension | `extension/package.json`; empty `src/index.ts` | None needed (no dependencies) | Human-approved #51 private ESM package; Bun browser build to `dist/index.js`. Runnable Chrome shell remains #7. |
+| Shared browser package | `shared/package.json`; empty `src/index.ts` | None needed (no dependencies) | Human-approved #51 private ESM package; Bun browser build to `dist/index.js`. Existing frontend domain types/services remain intact. |
 
 uv 0.13.1 is the verified environment version. `.venv/`, frontend
 `node_modules/` and build output are generated artifacts, not source packages.
@@ -69,6 +69,23 @@ or an instruction to commit a cache. Restricted process execution also required
 tool approval in this environment; that is not an application dependency.
 
 ## Verified milestones and actual service selection
+
+The human explicitly approved #51's exact two dependency-free manifests and
+bounded layout on 2026-10-26; their approval is no longer pending. From the root,
+after the existing frontend frozen install, run:
+
+```powershell
+bun run --cwd extension build
+bun run --cwd shared build
+bun ./frontend/node_modules/vitest/vitest.mjs run --config ./browser-workspace/vitest.config.mjs
+```
+
+Rebuild both artifacts before every smoke verification, including fresh checkouts.
+The plain Node-environment configuration reuses frontend Vitest and imports actual
+built empty ESM modules; it has no source/mock fallback or Chrome globals. Bun
+transpilation is not a standalone TypeScript-check guarantee. No dependencies,
+new lockfile, root workspace or unresolved empty-package layout are introduced;
+future shared consumers and the runnable Chrome shell remain their owning issues.
 
 1. In-memory backend: #1/#57 passed independent QA. The
    [milestone-1 checkpoint](../milestone-1-checkpoint.md) records installation,

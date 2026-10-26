@@ -9,3 +9,9 @@ htmlcov/
 !.env.example
 data/
 .uv-cache/
+node_modules/
+dist/
+.cache/
+.vite/
+coverage/
+*.local
