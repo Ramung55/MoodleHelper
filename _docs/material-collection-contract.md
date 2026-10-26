@@ -150,11 +150,11 @@ explicit safe examples. Accepted external links retain their precise destination
 and are never fetched or followed for privileged collection.
 
 Exact external privacy boundary (PM clarification before code): accept root path
-or slash-separated nonempty literal segments matching [A-Za-z0-9._~-]+, with an
-optional trailing slash; reject repeated slashes, dot/dot-dot segments, ALL percent
+or slash-separated nonempty canonical filename segments defined below, with an
+optional trailing slash; reject repeated slashes, dot/dot-dot segments, unsafe
 escapes, empty query tokens/values, duplicate keys and even an empty trailing ?
 or #. Query keys are case-sensitive literal id,page,lang,v only. Fragment, query
-values and each path segment must additionally pass all three privacy checks:
+values and each decoded path segment must additionally pass all three privacy checks:
 (1) reject a case-insensitive sensitive word delimited by start/end or any of
 dot, underscore, tilde, hyphen: token, access, sesskey, auth, authorization, key,
 api, signature, secret, password, credential, bearer; this also rejects compound
@@ -171,7 +171,14 @@ empty explicit port and explicit default :443 too, so acceptance never normalize
 an input into a different destination. Absolute external href must already equal
 the URL serialization returned by the URL parser; return the original href.
 
-MIME safety boundary: inspect only an anchor's type attribute. Known MIME values
+MIME safety boundary: inspect only an anchor's type attribute. First accept these
+exact trusted literals, exempt from heuristic privacy checks:
+application/pdf,
+application/vnd.openxmlformats-officedocument.wordprocessingml.document,
+application/vnd.openxmlformats-officedocument.presentationml.presentation.
+Map them to pdf/docx/pptx respectively and retain the complete exact MIME string.
+This exact allowlist precedes the rules below; no prefix, alias or case-folded
+match receives the exemption. All other known MIME values
 must be literal lowercase ASCII type/subtype matching
 [a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*, total length <=127,
 with neither parameters nor whitespace; require the same three privacy checks
@@ -186,11 +193,36 @@ URLs only. DOM Moodle hrefs accept either canonical absolute HTTPS URLs or
 root-relative /course/..., /mod/... and /pluginfile.php/... forms; reject protocol
 relative, path-relative, query-only and fragment-only forms. Resolve accepted
 root-relative references against the validated SDU origin, then return canonical
-absolute references. Pluginfile pathSegments use the exact literal segment
-alphabet and three privacy checks above, with no percent escapes, dot segments,
-empty segments or trailing slash. No Unicode/encoded filename support is claimed
-by this bounded synthetic vocabulary. All Moodle URL spellings reject explicit
+absolute references. Pluginfile pathSegments use canonical filename segments
+below and the three privacy checks on their decoded values, with no dot segments,
+empty segments or trailing slash. All Moodle URL spellings reject explicit
 ports (including :443), encoded host aliases and noncanonical host spelling.
+
+Canonical filename segment policy (applies to external paths and pluginfile
+paths): strictly decode each segment once with decodeURIComponent; invalid UTF-8,
+malformed percent sequences or lone surrogates reject the reference. Decoded
+characters may be Unicode letters, Unicode combining marks, Unicode numbers,
+ordinary ASCII space, and literal filename punctuation . _ ~ ! $ & ' ( ) + , ; = @ -.
+The decoded segment must be nonempty, must not equal . or .., and must contain
+no slash, backslash, percent sign, control/format character or other character.
+Thus encoded separators, encoded dots constituting dot segments and double
+encoding are rejected, without attempting another decode. Encode the decoded
+segment using encodeURIComponent; require byte-for-byte equality with the supplied
+segment (including uppercase percent hex). This preserves literal characters that
+encodeURIComponent leaves unescaped and canonical percent-encodes spaces, Unicode
+and the other allowed punctuation. Do not Unicode-normalize accepted names or
+rewrite their spelling. Apply the existing sensitive-word/JWT/opaque-run privacy
+checks to decoded text; for the sensitive-word check, space and every allowed
+punctuation character count as delimiters. A matching unsafe decoded segment
+rejects the full reference without reflecting it. Query/fragment acceptance stays
+the narrower literal ASCII vocabulary above, with no percent escapes.
+
+Examples accepted precisely: /Week%201.pdf and /%D0%9B%D0%B5%D0%BA%D1%86%D0%B8%D1%8F%201.pdf,
+including the same filename segments under a canonical pluginfile prefix. Reject
+/%2E%2E/x, /a%2Fb.pdf, /a%5Cb.pdf, /a%252Fb.pdf, /a%00b.pdf, /a%20token.pdf,
+malformed/overlong UTF-8 and lowercase escape aliases. Tests must include ordinary
+encoded Russian filenames and encoded spaces for PDF/PPTX and safe external
+links, plus Office MIME allowlist positives and near-miss negatives.
 
 ## Verification and handoff
 
