@@ -80,6 +80,15 @@ Examples of useful domain failures: date `2027-02-29` → `date.date: must be a 
 
 ## Coverage checklist and extension owners
 
+#17 preimplementation [material contract](../material-collection-contract.md)
+defines the pure raw resource/folder observations, explicit known/unknown type and
+MIME, safe destination/source provenance, stable identities and parentResourceKey.
+The agreed future optional nonnullable Material.sourceDetails and separate safe
+review queue must preserve these facts before #18/#20 ingestion. Current known
+fileType=other is not unknown; Material.section cannot encode a folder tree. No
+wire/API change is claimed by this PM contract; this gap remains open pending
+coordinated schema, storage and backup round-trip support.
+
 #15 preimplementation [calendar contract](../calendar-collection-contract.md)
 records raw start/end/date precision, event/occurrence identities, review/coverage
 and future additive Assessment.calendarEvents plus raw review queue before #18/#20
