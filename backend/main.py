@@ -57,9 +57,22 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         if (collection_write or queue_write) and binding != getattr(app.state, 'bridge_binding', None):
             return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
         if request.url.path.startswith('/api/collection') or request.url.path.startswith('/api/queue/'):
-            body = await request.body()
-            if len(body) > 1024 * 1024:
-                return JSONResponse(status_code=422, content={'message':'Request exceeds the size limit.'})
+            chunks = []
+            size = 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > 1024 * 1024:
+                    return JSONResponse(status_code=422, content={'message':'Request exceeds the size limit.'})
+                chunks.append(chunk)
+            body = b''.join(chunks)
+            request._body = body
+            sent = False
+            async def replay():
+                nonlocal sent
+                if sent: return {'type':'http.request','body':b'','more_body':False}
+                sent = True
+                return {'type':'http.request','body':body,'more_body':False}
+            request._receive = replay
         elif request.url.path.startswith('/api/') and request.method not in ['GET','HEAD','OPTIONS']:
             app.state.collection.invalidate()
         if (request.url.path.startswith("/api/") and request.url.path != "/api/bridge-context"
@@ -110,3 +123,4 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
 
 
 app = create_app()
+

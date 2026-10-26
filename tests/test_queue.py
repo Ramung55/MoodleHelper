@@ -104,3 +104,65 @@ def test_namespace_and_restart(tmp_path):
         with TestClient(create_app(other)) as c:
             assert c.get('/api/queue/runs/'+run['id']).status_code==404
     finally: first.close(); other.close()
+
+def test_chunked_body_is_bounded_and_binding_precedes_read(env):
+    import asyncio
+    import httpx
+    c,store,clock,h=env
+    async def check():
+        transport=httpx.ASGITransport(app=c.app)
+        async with httpx.AsyncClient(transport=transport,base_url='http://test') as client:
+            reads=[]
+            async def chunks():
+                for i in range(20):
+                    reads.append(i)
+                    yield b'x' * 131072
+            response=await client.post('/api/queue/runs',headers=h,content=chunks())
+            assert response.status_code==422 and len(reads)==9
+            reads.clear()
+            response=await client.post('/api/queue/runs',content=chunks())
+            assert response.status_code==409 and reads==[]
+            response=await client.post('/api/queue/runs',headers=h,content=b'{')
+            assert response.status_code==422
+    asyncio.run(check())
+
+def test_version_two_migrates_snapshot_and_revision(tmp_path):
+    from backend.sample_data import build_sample_snapshot
+    import json
+    path=tmp_path/'old.db'; original=build_sample_snapshot()
+    with sqlite3.connect(path) as db:
+        db.execute('CREATE TABLE schema_version (id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL)')
+        db.execute('INSERT INTO schema_version VALUES(1,2)')
+        db.execute('CREATE TABLE snapshots (namespace TEXT PRIMARY KEY, snapshot TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)')
+        db.execute('INSERT INTO snapshots VALUES(?,?,?)',(namespace_key(),json.dumps(original),42))
+    store=SQLiteStore(URL.create('sqlite',database=str(path)))
+    try:
+        assert store.read()==original
+        with sqlite3.connect(path) as db:
+            assert db.execute('SELECT version FROM schema_version').fetchone()==(3,)
+            assert db.execute('SELECT revision FROM snapshots').fetchone()==(42,)
+    finally: store.close()
+
+def test_cancel_finish_race_and_paging(env):
+    c,store,clock,h=env
+    run=start(c,h,'race',['c-csc']).json(); active=claim(c,h)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        finish=pool.submit(post,c,h,'finish',{**token(active),'outcome':'completed'})
+        cancel=pool.submit(post,c,h,'runs/'+run['id']+'/cancel',{})
+        finish_result=finish.result(); cancel_result=cancel.result()
+    assert finish_result.status_code in (200,409)
+    result=c.get('/api/queue/runs/'+run['id']).json()
+    if finish_result.status_code==200:
+        assert result['jobs'][0]['result'] and result['status']=='completed'
+    else:
+        assert result['status']=='cancelled' and 'result' not in result['jobs'][0]
+    run=start(c,h,'paged',['c-csc','c-math','c-phy']).json()
+    page=c.get('/api/queue/runs/'+run['id'],params={'limit':1}).json()
+    second=c.get('/api/queue/runs/'+run['id'],params={'limit':1,'cursor':page['nextCursor']}).json()
+    assert page['jobs'][0]['id']!=second['jobs'][0]['id'] and page['progress']['total']==3
+    assert c.get('/api/queue/runs/'+run['id'],params={'limit':101}).status_code==422
+
+def test_invalid_concurrency_configuration(monkeypatch):
+    for value in ('0','5','1.0','true',''):
+        monkeypatch.setenv('MOODLE_HELPER_QUEUE_CONCURRENCY',value)
+        with pytest.raises(ValueError,match='integer from 1 to 4'): create_app()

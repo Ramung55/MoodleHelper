@@ -203,7 +203,7 @@ def test_executable_prior_version_migration_preserves_every_field_and_overlay(tm
     store = SQLiteStore(url(path))
     assert store.read() == original
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT version FROM schema_version").fetchone() == (2,)
+        assert connection.execute("SELECT version FROM schema_version").fetchone() == (3,)
         assert connection.execute("SELECT revision FROM snapshots").fetchone() == (0,)
     BackendService(store).update_settings({"semesterWeeks": 17})
     assert reopened(store).read()["settings"]["semesterWeeks"] == 17
@@ -405,3 +405,4 @@ def test_trusted_lifespan_configuration_and_request_identity_cannot_switch_datas
     with pytest.raises(ValueError, match="stable_user_id"):
         with TestClient(create_app()):
             pass
+

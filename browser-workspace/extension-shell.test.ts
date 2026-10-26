@@ -10,6 +10,7 @@ const expected = {
   action: { default_popup: "popup.html" },
   minimum_chrome_version: "106",
   host_permissions: ["http://127.0.0.1:8000/*"],
+  permissions: ["alarms"],
   content_scripts: [{ matches: ["https://moodle.sdu.edu.kz/*"], js: ["content.js"] },
     {matches:["http://127.0.0.1:5173/*","http://localhost:5173/*"],js:["dashboard-relay.js"]}],
 };
@@ -22,7 +23,9 @@ describe("emitted Chrome shell", () => {
   it("registers only an internal asynchronous callback worker listener", async () => {
     const source=await readFile(new URL("index.js",dist),"utf8");
     const listeners:any[]=[];
-    runInNewContext(source,{chrome:{runtime:{id:"test",onMessage:{addListener:(f:any)=>listeners.push(f)}},permissions:{contains:()=>{}}},fetch:()=>{throw Error("No fetch during registration");},crypto:{randomUUID:()=>"generation"},Map,Set,URL,TextEncoder,setTimeout,clearTimeout});
+    const lifecycle:any[]=[];
+    runInNewContext(source,{chrome:{runtime:{id:"test",onMessage:{addListener:(f:any)=>listeners.push(f)},onStartup:{addListener:(f:any)=>lifecycle.push(f)},onInstalled:{addListener:(f:any)=>lifecycle.push(f)}},alarms:{onAlarm:{addListener:(f:any)=>lifecycle.push(f)},create:()=>{},clear:()=>{}},permissions:{contains:()=>{}}},fetch:()=>Promise.reject(Error("Offline")),crypto:{randomUUID:()=>"generation"},Map,Set,URL,TextEncoder,AbortController,setTimeout,clearTimeout,setInterval,clearInterval});
+    expect(lifecycle).toHaveLength(3);
     expect(listeners).toHaveLength(2);
     for(const listener of listeners) expect(listener({}, {id:"bad"},()=>{})).toBeUndefined();
   });

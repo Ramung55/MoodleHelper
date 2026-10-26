@@ -31,5 +31,8 @@
   "minimum_chrome_version": "106",
   "host_permissions": [
     "http://127.0.0.1:8000/*"
+  ],
+  "permissions": [
+    "alarms"
   ]
 }

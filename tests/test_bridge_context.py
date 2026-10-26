@@ -19,7 +19,7 @@ def test_shared_closed_inventory_tracks_source_contract():
     expected = {}
     for path, operations in source['paths'].items():
         for method, operation in operations.items():
-            if operation['operationId'] in {'bridgeContext','collectionContext','beginPageVisit','ingestPageRefresh'}:
+            if path.startswith('/api/queue/') or operation['operationId'] in {'bridgeContext','collectionContext','beginPageVisit','ingestPageRefresh'}:
                 continue
             expected[operation['operationId']] = {
                 'method': method.upper(), 'path': path,
@@ -57,3 +57,4 @@ def test_binding_precedes_parsing_and_every_service_operation(client):
     binding = client.get('/api/bridge-context').json()['binding']
     assert client.patch('/api/settings', json={'semesterWeeks': 18}, headers={'X-Moodle-Helper-Bridge-Binding': binding}).json()['settings']['semesterWeeks'] == 18
     assert client.patch('/api/settings', json={'semesterWeeks': 19}).json()['settings']['semesterWeeks'] == 19
+
