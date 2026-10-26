@@ -119,3 +119,16 @@ unchanged input DOM/envelope and no side effects. Mutation tests of structural
 fixtures must prove input facts drive output. Existing #10/#11 and #4 hygiene
 checks remain green; run focused frontend tests, full frontend tests/build and
 backend suite as regression checks. No new dependencies or live/manual gate.
+
+## Engineer implementation checkpoint
+
+The pure parser and separate synthetic builders/assertions implement all five
+criteria. Diagnostic results use `status: error`, a fixed `reason` and the actual
+#10 access result; they never include partial observations or source text.
+Success uses `status: success` and one `observation`. Structural locations are
+`assignment.base.<field>` and `assignment.individual.<field>`.
+
+Verification and final counts are recorded in the engineer handoff on #13.
+These are offline synthetic checks; #3 compatibility and the coordinated future
+#18/#20 wire gap remain open. No shell consumer or existing Snapshot endpoint
+accepts the raw assignment DTO.

@@ -97,6 +97,19 @@ describe("pure synthetic assignment observations (SDU unverified)", () => {
     expect(parse(assignment(), { requestedUrl: `${origin}/mod/assign/view.php?id=303&x=1` }).status).toBe("error");
     expect(parse(assignment().replaceAll('href="/', 'href="https://moodle.sdu.edu.kz:443/')).status).toBe("success");
   });
+  it("rejects duplicate identity links and regions", () => {
+    for (const extra of ['<a data-role="course-link" href="/course/view.php?id=101">Duplicate</a>', '<a data-role="assignment-link" href="/mod/assign/view.php?id=303">Duplicate</a>']) {
+      expect(parse(assignment("", extra)).status).toBe("error");
+    }
+    expect(parse(assignment() + '<main data-region="activity"></main>').status).toBe("error");
+  });
+  it("preserves large canonical identity strings and derives identity from structure", () => {
+    const hugeId = "9007199254740993123456789";
+    const actual = observation(assignment().replaceAll("101", hugeId).replace('data-assignment-id="202"', 'data-assignment-id="404"'));
+    expect(actual.sourceCourseId).toBe(hugeId);
+    expect(actual.sourceActivityId).toBe("404");
+    expect(actual.sourceCourseModuleId).toBe("303");
+  });
   it.each([[login, {}], [denied, {}], ["", { httpStatus: 403 }], [assignment(), { networkFailure: true }], ["", {}], [assignment(), { httpStatus: 206 }]])("uses real access detector for inaccessible envelopes", (html, overrides) => {
     const result = parse(html as string, overrides);
     expect(result).toMatchObject({ status: "error", reason: "access_error" });
