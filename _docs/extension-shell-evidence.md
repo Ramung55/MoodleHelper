@@ -29,6 +29,14 @@ returned `isError: true` and stopped Computer Use for the turn because it
 to enforce policy." No browser input or unpacked loading occurred. UI work
 stopped immediately; the remaining actual-browser evidence is still blocked.
 
+The human subsequently opened `https://example.com/` manually and left Chrome
+open. On the next turn, `sky.list_apps` returned exactly one Chrome window,
+ID 1443794 titled `Example Domain - Google Chrome`. Its first
+`get_window_state` again returned the same URL-confidence policy stop. No input,
+extension loading or alternate inspection channel was attempted. A matching
+window title is not browser URL/content evidence; the blocker persists after
+this manual recovery attempt.
+
 ## Automated engineering verification, 2026-10-26
 
 Verified installed Bun 1.3.13 and Node v24.20.0. Both root build commands
