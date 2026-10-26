@@ -579,7 +579,7 @@ components:
         kind:
           type: string
           const: known
-        value: &id001
+        value: &model001
           type: string
       required:
       - kind
@@ -592,7 +592,7 @@ components:
           const: known
         value:
           type: array
-          items: *id001
+          items: *model001
       required:
       - kind
       - value
@@ -607,15 +607,15 @@ components:
     RawCourseObservation:
       type: object
       properties:
-        sourceCourseId: *id001
-        sourceUrl: *id001
-        title: &id002
+        sourceCourseId: *model001
+        sourceUrl: *model001
+        title: &model002
           oneOf:
           - $ref: '#/components/schemas/KnownString'
           - $ref: '#/components/schemas/UnknownFact'
           discriminator:
             propertyName: kind
-        termIndicators: &id003
+        termIndicators: &model003
           oneOf:
           - $ref: '#/components/schemas/KnownStrings'
           - $ref: '#/components/schemas/UnknownFact'
@@ -629,10 +629,10 @@ components:
     CourseDiscovery:
       type: object
       properties:
-        sourceCourseId: *id001
-        sourceUrl: *id001
-        title: *id002
-        termIndicators: *id003
+        sourceCourseId: *model001
+        sourceUrl: *model001
+        title: *model002
+        termIndicators: *model003
         currentTermStatus:
           type: string
           enum:
