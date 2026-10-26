@@ -624,6 +624,125 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BridgeContext'
+  /api/collection-context:
+    get:
+      operationId: collectionContext
+      tags:
+      - Collection
+      security: []
+      responses:
+        '200':
+          description: Collection result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionContext'
+        default:
+          description: Safe collection error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Safe collection error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Safe collection error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+  /api/collection/visits:
+    post:
+      operationId: beginPageVisit
+      tags:
+      - Collection
+      security: []
+      responses:
+        '200':
+          description: Collection result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageVisitToken'
+        default:
+          description: Safe collection error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Safe collection error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Safe collection error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BeginPageVisit'
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Required process binding for collection writes.
+  /api/collection/refresh:
+    post:
+      operationId: ingestPageRefresh
+      tags:
+      - Collection
+      security: []
+      responses:
+        '200':
+          description: Collection result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageRefreshResponse'
+        default:
+          description: Safe collection error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Safe collection error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Safe collection error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PageRefreshInput'
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Required process binding for collection writes.
 components:
   schemas:
     DateValue:
@@ -1312,6 +1431,8 @@ components:
             $ref: '#/components/schemas/Alert'
         settings:
           $ref: '#/components/schemas/Settings'
+        collection:
+          $ref: '#/components/schemas/SnapshotCollection'
       required:
       - courses
       - assessments
@@ -1506,6 +1627,1079 @@ components:
       required:
       - version
       - binding
+    CollectedDateObservation:
+      type: object
+      additionalProperties: false
+      properties:
+        value:
+          $ref: '#/components/schemas/DateValue'
+        rawText: &id005
+          type: string
+        location: *id005
+      required:
+      - value
+      - rawText
+      - location
+    AssignmentDates:
+      type: object
+      additionalProperties: false
+      properties:
+        opening:
+          $ref: '#/components/schemas/CollectedDateObservation'
+        due:
+          $ref: '#/components/schemas/CollectedDateObservation'
+        cutoff:
+          $ref: '#/components/schemas/CollectedDateObservation'
+      required: []
+    IndividualExtension:
+      type: object
+      additionalProperties: false
+      properties:
+        field:
+          type: string
+          enum:
+          - opening
+          - due
+          - cutoff
+        date:
+          $ref: '#/components/schemas/CollectedDateObservation'
+        evidence: *id005
+        scope:
+          type: string
+          const: individual
+      required:
+      - field
+      - date
+      - evidence
+      - scope
+    RawAssignmentObservation:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceCourseId: *id005
+        sourceActivityId: *id005
+        sourceCourseModuleId: *id005
+        sourceUrl: *id005
+        title: *id005
+        observedAt: *id005
+        baseDates:
+          $ref: '#/components/schemas/AssignmentDates'
+        individualExtensions:
+          type: array
+          items:
+            $ref: '#/components/schemas/IndividualExtension'
+        effectiveDates:
+          $ref: '#/components/schemas/AssignmentDates'
+      required:
+      - sourceCourseId
+      - sourceActivityId
+      - sourceCourseModuleId
+      - sourceUrl
+      - title
+      - observedAt
+      - baseDates
+      - individualExtensions
+      - effectiveDates
+    CalendarActivity:
+      type: object
+      additionalProperties: false
+      properties:
+        moduleType:
+          type: string
+          enum:
+          - assign
+          - quiz
+        sourceActivityId: *id005
+        sourceCourseModuleId: *id005
+        sourceUrl: *id005
+      required:
+      - moduleType
+      - sourceActivityId
+      - sourceCourseModuleId
+      - sourceUrl
+    CalendarCandidate:
+      type: object
+      additionalProperties: false
+      properties: &id006
+        sourceEventId: *id005
+        sourceOccurrenceId: *id005
+        sourceSeriesId: *id005
+        sourceCourseId: *id005
+        title: *id005
+        sourceUrl: *id005
+        observedAt: *id005
+        start:
+          $ref: '#/components/schemas/CollectedDateObservation'
+        end:
+          $ref: '#/components/schemas/CollectedDateObservation'
+        date:
+          $ref: '#/components/schemas/CollectedDateObservation'
+        activity:
+          $ref: '#/components/schemas/CalendarActivity'
+      required:
+      - sourceEventId
+      - title
+      - sourceUrl
+      - observedAt
+    RawCalendarObservation:
+      type: object
+      additionalProperties: false
+      properties: *id006
+      required:
+      - sourceEventId
+      - sourceCourseId
+      - title
+      - sourceUrl
+      - observedAt
+    CollectedKnownString:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: known
+        value: *id005
+      required:
+      - kind
+      - value
+    CollectedKnownFileType:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: known
+        value:
+          type: string
+          enum:
+          - pdf
+          - docx
+          - pptx
+          - link
+          - video
+          - other
+      required:
+      - kind
+      - value
+    CollectedUnknown:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: unknown
+      required:
+      - kind
+    MaterialReference:
+      type: object
+      additionalProperties: false
+      properties:
+        sourcePageUrl: *id005
+        sourceUrl: *id005
+        destinationUrl: *id005
+        observedAt: *id005
+        location: &id007
+          type: string
+          enum:
+          - course.material
+          - activity.material
+          - folder.entry
+        listingScope: &id008
+          type: string
+          enum:
+          - reference_only
+          - supplied_listing_only
+        listingCoverage: &id009
+          type: string
+          enum:
+          - complete
+          - partial
+          - none
+        listingChildResourceKeys: &id010
+          type: array
+          items: *id005
+      required:
+      - sourcePageUrl
+      - sourceUrl
+      - observedAt
+      - location
+    RawMaterialObservation:
+      type: object
+      additionalProperties: false
+      properties:
+        sourcePageUrl: *id005
+        sourceUrl: *id005
+        destinationUrl: *id005
+        observedAt: *id005
+        location: *id007
+        listingScope: *id008
+        listingCoverage: *id009
+        listingChildResourceKeys: *id010
+        sourceCourseId: *id005
+        sourceCourseModuleId: *id005
+        sourceModuleType:
+          type: string
+          enum:
+          - resource
+          - url
+          - folder
+        sourceResourceId: *id005
+        sourceFileId: *id005
+        sourceFolderId: *id005
+        sourceContextId: *id005
+        resourceKey: *id005
+        parentResourceKey: *id005
+        kind:
+          type: string
+          enum:
+          - file
+          - link
+          - folder
+        title: &id011
+          oneOf:
+          - $ref: '#/components/schemas/CollectedKnownString'
+          - $ref: '#/components/schemas/CollectedUnknown'
+        section: *id011
+        fileType:
+          oneOf:
+          - $ref: '#/components/schemas/CollectedKnownFileType'
+          - $ref: '#/components/schemas/CollectedUnknown'
+        mimeType: *id011
+        references:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaterialReference'
+      required:
+      - sourcePageUrl
+      - sourceUrl
+      - observedAt
+      - location
+      - sourceCourseId
+      - sourceCourseModuleId
+      - sourceModuleType
+      - resourceKey
+      - kind
+      - title
+      - section
+      - fileType
+      - mimeType
+      - references
+    QuizAttemptFact:
+      type: object
+      additionalProperties: false
+      properties:
+        field:
+          type: string
+          enum:
+          - state
+          - allowed
+          - used
+          - remaining
+          - other
+        rawText: *id005
+        location:
+          type: string
+          enum:
+          - quiz.attemptInformation.state
+          - quiz.attemptInformation.allowed
+          - quiz.attemptInformation.used
+          - quiz.attemptInformation.remaining
+          - quiz.attemptInformation.other
+      required:
+      - field
+      - rawText
+      - location
+    QuizKnownAttempts:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: known
+        facts:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuizAttemptFact'
+          minItems: 1
+        unknownFields:
+          type: array
+          items:
+            type: string
+            enum:
+            - state
+            - allowed
+            - used
+            - remaining
+            - other
+      required:
+      - kind
+      - facts
+      - unknownFields
+    RawQuizObservation:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceCourseId: *id005
+        sourceActivityId: *id005
+        sourceCourseModuleId: *id005
+        sourceUrl: *id005
+        title: *id005
+        observedAt: *id005
+        opening:
+          $ref: '#/components/schemas/CollectedDateObservation'
+        closing:
+          $ref: '#/components/schemas/CollectedDateObservation'
+        attemptInformation:
+          oneOf:
+          - $ref: '#/components/schemas/QuizKnownAttempts'
+          - $ref: '#/components/schemas/CollectedUnknown'
+      required:
+      - sourceCourseId
+      - sourceActivityId
+      - sourceCourseModuleId
+      - sourceUrl
+      - title
+      - observedAt
+      - attemptInformation
+    SubmissionSourceRecord:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceCourseId: *id005
+        sourceActivityId: *id005
+        sourceCourseModuleId: *id005
+        sourceUrl: *id005
+        observation:
+          $ref: '#/components/schemas/SubmissionObservation'
+      required:
+      - sourceCourseId
+      - sourceActivityId
+      - sourceCourseModuleId
+      - sourceUrl
+      - observation
+    RetainedSubmission:
+      type: object
+      additionalProperties: false
+      properties:
+        attempted:
+          $ref: '#/components/schemas/SubmissionSourceRecord'
+        confirmed:
+          $ref: '#/components/schemas/SubmissionSourceRecord'
+        stale: &id014
+          type: boolean
+      required:
+      - attempted
+      - stale
+    CalendarSafeReview:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: calendar
+        candidate:
+          $ref: '#/components/schemas/CalendarCandidate'
+        reasons: &id012
+          type: array
+          items:
+            type: string
+            enum:
+            - collector_unavailable
+            - collection_disabled
+            - envelope_unavailable
+            - access_error
+            - collector_failed
+            - persistence_failed
+            - invalid_context
+            - invalid_selection
+            - invalid_identity
+            - unsupported_page
+            - malformed_result
+            - invalid_observed_at
+            - invalid_batch_arguments
+            - invalid_page
+            - malformed_record
+            - empty_marker
+            - site_event
+            - personal_event
+            - non_assessment
+            - unselected_course
+            - unknown_kind
+            - missing_course
+            - unreliable_course
+            - unknown_date
+            - missing_dates
+            - event_conflict
+            - unsupported_structure
+            - identity_mismatch
+            - missing_identity
+            - malformed_candidate
+            - unsafe_url
+            - unsafe_external_url
+            - missing_metadata
+            - type_conflict
+            - invalid_mime
+            - unsafe_label
+            - field_conflict
+            - parent_conflict
+            - pagination_pending
+            - incomplete_list
+            - empty_unconfirmed
+            - empty_conflict
+            - folder_contents_uninspected
+            - listing_conflict
+            - invalid_date
+            - unsupported_date
+            - duplicate_date
+            - malformed_assignment
+            - incomplete_assignment
+      required:
+      - kind
+      - candidate
+      - reasons
+    MaterialSafeReview:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: material
+        candidate:
+          $ref: '#/components/schemas/RawMaterialObservation'
+        reasons: *id012
+      required:
+      - kind
+      - reasons
+    CollectionReview:
+      type: object
+      additionalProperties: false
+      properties:
+        id: *id005
+        visitId: *id005
+        collector:
+          type: string
+          enum:
+          - assignment
+          - calendar
+          - material
+          - quiz
+          - submission
+        reasons: *id012
+        candidate:
+          oneOf:
+          - $ref: '#/components/schemas/CalendarCandidate'
+          - $ref: '#/components/schemas/RawMaterialObservation'
+      required:
+      - id
+      - visitId
+      - collector
+      - reasons
+    CollectionDiagnostic:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          enum:
+          - collector_unavailable
+          - collection_disabled
+          - envelope_unavailable
+          - access_error
+          - collector_failed
+          - persistence_failed
+          - invalid_context
+          - invalid_selection
+          - invalid_identity
+          - unsupported_page
+          - malformed_result
+          - invalid_observed_at
+          - invalid_batch_arguments
+          - invalid_page
+          - malformed_record
+          - empty_marker
+          - site_event
+          - personal_event
+          - non_assessment
+          - unselected_course
+          - unknown_kind
+          - missing_course
+          - unreliable_course
+          - unknown_date
+          - missing_dates
+          - event_conflict
+          - unsupported_structure
+          - identity_mismatch
+          - missing_identity
+          - malformed_candidate
+          - unsafe_url
+          - unsafe_external_url
+          - missing_metadata
+          - type_conflict
+          - invalid_mime
+          - unsafe_label
+          - field_conflict
+          - parent_conflict
+          - pagination_pending
+          - incomplete_list
+          - empty_unconfirmed
+          - empty_conflict
+          - folder_contents_uninspected
+          - listing_conflict
+          - invalid_date
+          - unsupported_date
+          - duplicate_date
+          - malformed_assignment
+          - incomplete_assignment
+        pageIndex: &id013
+          type: integer
+        recordIndex: *id013
+      required:
+      - reason
+      - pageIndex
+    CollectionRange:
+      type: object
+      additionalProperties: false
+      properties:
+        start: *id005
+        end: *id005
+      required:
+      - start
+      - end
+    CollectionPage:
+      type: object
+      additionalProperties: false
+      properties:
+        coverage: *id009
+        candidateCount: *id013
+        paginationPending: *id014
+        range:
+          $ref: '#/components/schemas/CollectionRange'
+        pageIndex: *id013
+      required:
+      - coverage
+      - candidateCount
+      - paginationPending
+    AssignmentRefreshResult:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: assignment
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawAssignmentObservation'
+        reviews:
+          type: array
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/CalendarSafeReview'
+            - $ref: '#/components/schemas/MaterialSafeReview'
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionDiagnostic'
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionPage'
+        coverage: *id009
+        scope:
+          type: string
+          enum:
+          - visited_activity_only
+          - supplied_pages_only
+          - supplied_ranges_only
+      required:
+      - kind
+      - observations
+      - reviews
+      - diagnostics
+      - pages
+      - coverage
+      - scope
+    NormalizedAssignmentRecord:
+      type: object
+      additionalProperties: false
+      properties:
+        id: *id005
+        courseId: *id005
+        kind:
+          type: string
+          const: assignment
+        firstObservedAt: *id005
+        lastObservedAt: *id005
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawAssignmentObservation'
+          minItems: 1
+      required:
+      - id
+      - courseId
+      - kind
+      - firstObservedAt
+      - lastObservedAt
+      - observations
+    CalendarRefreshResult:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: calendar
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawCalendarObservation'
+        reviews:
+          type: array
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/CalendarSafeReview'
+            - $ref: '#/components/schemas/MaterialSafeReview'
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionDiagnostic'
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionPage'
+        coverage: *id009
+        scope:
+          type: string
+          enum:
+          - visited_activity_only
+          - supplied_pages_only
+          - supplied_ranges_only
+      required:
+      - kind
+      - observations
+      - reviews
+      - diagnostics
+      - pages
+      - coverage
+      - scope
+    NormalizedCalendarRecord:
+      type: object
+      additionalProperties: false
+      properties:
+        id: *id005
+        courseId: *id005
+        kind:
+          type: string
+          const: calendar
+        firstObservedAt: *id005
+        lastObservedAt: *id005
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawCalendarObservation'
+          minItems: 1
+      required:
+      - id
+      - courseId
+      - kind
+      - firstObservedAt
+      - lastObservedAt
+      - observations
+    MaterialRefreshResult:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: material
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawMaterialObservation'
+        reviews:
+          type: array
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/CalendarSafeReview'
+            - $ref: '#/components/schemas/MaterialSafeReview'
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionDiagnostic'
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionPage'
+        coverage: *id009
+        scope:
+          type: string
+          enum:
+          - visited_activity_only
+          - supplied_pages_only
+          - supplied_ranges_only
+      required:
+      - kind
+      - observations
+      - reviews
+      - diagnostics
+      - pages
+      - coverage
+      - scope
+    NormalizedMaterialRecord:
+      type: object
+      additionalProperties: false
+      properties:
+        id: *id005
+        courseId: *id005
+        kind:
+          type: string
+          const: material
+        firstObservedAt: *id005
+        lastObservedAt: *id005
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawMaterialObservation'
+          minItems: 1
+      required:
+      - id
+      - courseId
+      - kind
+      - firstObservedAt
+      - lastObservedAt
+      - observations
+    QuizRefreshResult:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: quiz
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawQuizObservation'
+        reviews:
+          type: array
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/CalendarSafeReview'
+            - $ref: '#/components/schemas/MaterialSafeReview'
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionDiagnostic'
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionPage'
+        coverage: *id009
+        scope:
+          type: string
+          enum:
+          - visited_activity_only
+          - supplied_pages_only
+          - supplied_ranges_only
+      required:
+      - kind
+      - observations
+      - reviews
+      - diagnostics
+      - pages
+      - coverage
+      - scope
+    NormalizedQuizRecord:
+      type: object
+      additionalProperties: false
+      properties:
+        id: *id005
+        courseId: *id005
+        kind:
+          type: string
+          const: quiz
+        firstObservedAt: *id005
+        lastObservedAt: *id005
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawQuizObservation'
+          minItems: 1
+      required:
+      - id
+      - courseId
+      - kind
+      - firstObservedAt
+      - lastObservedAt
+      - observations
+    SubmissionRefreshResult:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: submission
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubmissionSourceRecord'
+        reviews:
+          type: array
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/CalendarSafeReview'
+            - $ref: '#/components/schemas/MaterialSafeReview'
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionDiagnostic'
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionPage'
+        coverage: *id009
+        scope:
+          type: string
+          enum:
+          - visited_activity_only
+          - supplied_pages_only
+          - supplied_ranges_only
+      required:
+      - kind
+      - observations
+      - reviews
+      - diagnostics
+      - pages
+      - coverage
+      - scope
+    NormalizedSubmissionRecord:
+      type: object
+      additionalProperties: false
+      properties:
+        id: *id005
+        courseId: *id005
+        kind:
+          type: string
+          const: submission
+        firstObservedAt: *id005
+        lastObservedAt: *id005
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RetainedSubmission'
+          minItems: 1
+      required:
+      - id
+      - courseId
+      - kind
+      - firstObservedAt
+      - lastObservedAt
+      - observations
+    UnavailableRefreshResult:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: unavailable
+        reasons: *id012
+      required:
+      - kind
+      - reasons
+    FailedRefreshResult:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          const: failed
+        reasons: *id012
+      required:
+      - kind
+      - reasons
+    CollectorResult:
+      oneOf:
+      - $ref: '#/components/schemas/AssignmentRefreshResult'
+      - $ref: '#/components/schemas/CalendarRefreshResult'
+      - $ref: '#/components/schemas/MaterialRefreshResult'
+      - $ref: '#/components/schemas/QuizRefreshResult'
+      - $ref: '#/components/schemas/SubmissionRefreshResult'
+      - $ref: '#/components/schemas/UnavailableRefreshResult'
+      - $ref: '#/components/schemas/FailedRefreshResult'
+    NormalizedSourceRecord:
+      oneOf:
+      - $ref: '#/components/schemas/NormalizedAssignmentRecord'
+      - $ref: '#/components/schemas/NormalizedCalendarRecord'
+      - $ref: '#/components/schemas/NormalizedMaterialRecord'
+      - $ref: '#/components/schemas/NormalizedQuizRecord'
+      - $ref: '#/components/schemas/NormalizedSubmissionRecord'
+    PageRefreshReceipt:
+      type: object
+      additionalProperties: false
+      properties:
+        visitId: *id005
+        pageUrl: *id005
+        observedAt: *id005
+        collector:
+          type: string
+          enum:
+          - assignment
+          - calendar
+          - material
+          - quiz
+          - submission
+        sourceCourseIds:
+          type: array
+          items: *id005
+        sourceActivityId: *id005
+        sourceCourseModuleId: *id005
+        outcome:
+          type: string
+          enum:
+          - ok
+          - partial
+          - failed
+          - unavailable
+        coverage: *id009
+        scope:
+          type: string
+          enum:
+          - visited_activity_only
+          - supplied_pages_only
+          - supplied_ranges_only
+        reasons: *id012
+        evidenceMode:
+          type: string
+          enum:
+          - synthetic
+          - verified
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionPage'
+      required:
+      - visitId
+      - pageUrl
+      - observedAt
+      - collector
+      - sourceCourseIds
+      - outcome
+      - coverage
+      - scope
+      - reasons
+      - evidenceMode
+      - pages
+    SnapshotCollection:
+      type: object
+      additionalProperties: false
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/NormalizedSourceRecord'
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionReview'
+        refreshes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageRefreshReceipt'
+      required:
+      - records
+      - reviews
+      - refreshes
+    CollectionCourse:
+      type: object
+      additionalProperties: false
+      properties:
+        courseId: *id005
+        sourceCourseId: *id005
+      required:
+      - courseId
+      - sourceCourseId
+    CollectionContext:
+      type: object
+      additionalProperties: false
+      properties:
+        version:
+          type: string
+          const: '1'
+        binding: *id005
+        mode:
+          type: string
+          enum:
+          - disabled
+          - synthetic
+          - verified
+        selectionRevision: *id005
+        courses:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionCourse'
+        reason:
+          type: string
+          enum:
+          - collection_disabled
+          - invalid_context
+          - invalid_selection
+      required:
+      - version
+      - binding
+      - mode
+      - selectionRevision
+      - courses
+    BeginPageVisit:
+      type: object
+      additionalProperties: false
+      properties:
+        documentKey: *id005
+        visitId: *id005
+        pageUrl: *id005
+        selectionRevision: *id005
+      required:
+      - documentKey
+      - visitId
+      - pageUrl
+      - selectionRevision
+    PageVisitToken:
+      type: object
+      additionalProperties: false
+      properties:
+        visitToken: *id005
+      required:
+      - visitToken
+    PageRefreshInput:
+      type: object
+      additionalProperties: false
+      properties:
+        visitToken: *id005
+        observedAt: *id005
+        collector:
+          type: string
+          enum:
+          - assignment
+          - calendar
+          - material
+          - quiz
+          - submission
+        result:
+          $ref: '#/components/schemas/CollectorResult'
+      required:
+      - visitToken
+      - observedAt
+      - collector
+      - result
+    PageRefreshResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/Snapshot'
+        receipt:
+          $ref: '#/components/schemas/PageRefreshReceipt'
+      required:
+      - snapshot
+      - receipt
   responses:
     ProposedHttpFailure:
       description: Proposed HTTP failure convention only. The current frontend rejects

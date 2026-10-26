@@ -31,6 +31,32 @@ def bridge_context(request: Request):
     return {"version": "1", "binding": request.app.state.bridge_binding}
 
 
+@context_router.get('/collection-context', response_model=s.CollectionContext, response_model_exclude_none=True, operation_id='collectionContext', tags=['Collection'])
+def collection_context(request: Request):
+    return request.app.state.collection.context()
+
+
+def collection_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bridge-Binding', description='Required process binding for collection writes.')]):
+    pass
+
+
+collection_router = APIRouter(prefix='/api/collection', dependencies=[Depends(collection_binding)], responses={'default': {'model':s.ProposedHttpError},422:{'model':s.ProposedHttpError},409:{'model':s.ProposedHttpError}})
+
+
+@collection_router.post('/visits', response_model=s.PageVisitToken, operation_id='beginPageVisit', tags=['Collection'])
+def begin_page_visit(body: s.BeginPageVisit, request: Request):
+    return request.app.state.collection.begin(wire(body))
+
+
+@collection_router.post('/refresh', response_model=s.PageRefreshResponse, response_model_exclude_none=True, operation_id='ingestPageRefresh', tags=['Collection'])
+def ingest_page_refresh(body: s.PageRefreshInput, request: Request):
+    try:
+        return request.app.state.collection.refresh(wire(body))
+    except ValueError:
+        from backend.collection import CollectionRejected
+        raise CollectionRejected() from None
+
+
 def wire(model: s.WireModel) -> dict:
     return model.model_dump(by_alias=True, exclude_unset=True, exclude_none=True)
 

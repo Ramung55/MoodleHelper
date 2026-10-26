@@ -274,7 +274,329 @@ class Settings(SettingsPatch):
     ai: AiSettings
 
 
+# BEGIN GENERATED COLLECTION MODELS
+class CollectionWire(WireModel):
+    model_config = ConfigDict(strict=True, extra="forbid", allow_inf_nan=False, json_schema_extra=omit_absence_defaults)
+
+class CollectedDateObservation(CollectionWire):
+    value: DateValue
+    rawText: str
+    location: str
+
+class AssignmentDates(CollectionWire):
+    opening: CollectedDateObservation = None
+    due: CollectedDateObservation = None
+    cutoff: CollectedDateObservation = None
+
+class IndividualExtension(CollectionWire):
+    field: Literal['opening', 'due', 'cutoff']
+    date: CollectedDateObservation
+    evidence: str
+    scope: Literal['individual']
+
+class RawAssignmentObservation(CollectionWire):
+    sourceCourseId: str
+    sourceActivityId: str
+    sourceCourseModuleId: str
+    sourceUrl: str
+    title: str
+    observedAt: str
+    baseDates: AssignmentDates
+    individualExtensions: list[IndividualExtension]
+    effectiveDates: AssignmentDates
+
+class CalendarActivity(CollectionWire):
+    moduleType: Literal['assign', 'quiz']
+    sourceActivityId: str
+    sourceCourseModuleId: str
+    sourceUrl: str
+
+class CalendarCandidate(CollectionWire):
+    sourceEventId: str
+    sourceOccurrenceId: str = None
+    sourceSeriesId: str = None
+    sourceCourseId: str = None
+    title: str
+    sourceUrl: str
+    observedAt: str
+    start: CollectedDateObservation = None
+    end: CollectedDateObservation = None
+    date: CollectedDateObservation = None
+    activity: CalendarActivity = None
+
+class RawCalendarObservation(CollectionWire):
+    sourceEventId: str
+    sourceOccurrenceId: str = None
+    sourceSeriesId: str = None
+    sourceCourseId: str
+    title: str
+    sourceUrl: str
+    observedAt: str
+    start: CollectedDateObservation = None
+    end: CollectedDateObservation = None
+    date: CollectedDateObservation = None
+    activity: CalendarActivity = None
+
+class CollectedKnownString(CollectionWire):
+    kind: Literal['known']
+    value: str
+
+class CollectedKnownFileType(CollectionWire):
+    kind: Literal['known']
+    value: Literal['pdf', 'docx', 'pptx', 'link', 'video', 'other']
+
+class CollectedUnknown(CollectionWire):
+    kind: Literal['unknown']
+
+class MaterialReference(CollectionWire):
+    sourcePageUrl: str
+    sourceUrl: str
+    destinationUrl: str = None
+    observedAt: str
+    location: Literal['course.material', 'activity.material', 'folder.entry']
+    listingScope: Literal['reference_only', 'supplied_listing_only'] = None
+    listingCoverage: Literal['complete', 'partial', 'none'] = None
+    listingChildResourceKeys: list[str] = None
+
+class RawMaterialObservation(CollectionWire):
+    sourcePageUrl: str
+    sourceUrl: str
+    destinationUrl: str = None
+    observedAt: str
+    location: Literal['course.material', 'activity.material', 'folder.entry']
+    listingScope: Literal['reference_only', 'supplied_listing_only'] = None
+    listingCoverage: Literal['complete', 'partial', 'none'] = None
+    listingChildResourceKeys: list[str] = None
+    sourceCourseId: str
+    sourceCourseModuleId: str
+    sourceModuleType: Literal['resource', 'url', 'folder']
+    sourceResourceId: str = None
+    sourceFileId: str = None
+    sourceFolderId: str = None
+    sourceContextId: str = None
+    resourceKey: str
+    parentResourceKey: str = None
+    kind: Literal['file', 'link', 'folder']
+    title: CollectedKnownString | CollectedUnknown
+    section: CollectedKnownString | CollectedUnknown
+    fileType: CollectedKnownFileType | CollectedUnknown
+    mimeType: CollectedKnownString | CollectedUnknown
+    references: list[MaterialReference]
+
+class QuizAttemptFact(CollectionWire):
+    field: Literal['state', 'allowed', 'used', 'remaining', 'other']
+    rawText: str
+    location: Literal['quiz.attemptInformation.state', 'quiz.attemptInformation.allowed', 'quiz.attemptInformation.used', 'quiz.attemptInformation.remaining', 'quiz.attemptInformation.other']
+
+class QuizKnownAttempts(CollectionWire):
+    kind: Literal['known']
+    facts: list[QuizAttemptFact] = Field(min_length=1)
+    unknownFields: list[Literal['state', 'allowed', 'used', 'remaining', 'other']]
+
+class RawQuizObservation(CollectionWire):
+    sourceCourseId: str
+    sourceActivityId: str
+    sourceCourseModuleId: str
+    sourceUrl: str
+    title: str
+    observedAt: str
+    opening: CollectedDateObservation = None
+    closing: CollectedDateObservation = None
+    attemptInformation: QuizKnownAttempts | CollectedUnknown
+
+class SubmissionSourceRecord(CollectionWire):
+    sourceCourseId: str
+    sourceActivityId: str
+    sourceCourseModuleId: str
+    sourceUrl: str
+    observation: SubmissionObservation
+
+class RetainedSubmission(CollectionWire):
+    attempted: SubmissionSourceRecord
+    confirmed: SubmissionSourceRecord = None
+    stale: bool
+
+class CalendarSafeReview(CollectionWire):
+    kind: Literal['calendar']
+    candidate: CalendarCandidate
+    reasons: list[Literal['collector_unavailable', 'collection_disabled', 'envelope_unavailable', 'access_error', 'collector_failed', 'persistence_failed', 'invalid_context', 'invalid_selection', 'invalid_identity', 'unsupported_page', 'malformed_result', 'invalid_observed_at', 'invalid_batch_arguments', 'invalid_page', 'malformed_record', 'empty_marker', 'site_event', 'personal_event', 'non_assessment', 'unselected_course', 'unknown_kind', 'missing_course', 'unreliable_course', 'unknown_date', 'missing_dates', 'event_conflict', 'unsupported_structure', 'identity_mismatch', 'missing_identity', 'malformed_candidate', 'unsafe_url', 'unsafe_external_url', 'missing_metadata', 'type_conflict', 'invalid_mime', 'unsafe_label', 'field_conflict', 'parent_conflict', 'pagination_pending', 'incomplete_list', 'empty_unconfirmed', 'empty_conflict', 'folder_contents_uninspected', 'listing_conflict', 'invalid_date', 'unsupported_date', 'duplicate_date', 'malformed_assignment', 'incomplete_assignment']]
+
+class MaterialSafeReview(CollectionWire):
+    kind: Literal['material']
+    candidate: RawMaterialObservation = None
+    reasons: list[Literal['collector_unavailable', 'collection_disabled', 'envelope_unavailable', 'access_error', 'collector_failed', 'persistence_failed', 'invalid_context', 'invalid_selection', 'invalid_identity', 'unsupported_page', 'malformed_result', 'invalid_observed_at', 'invalid_batch_arguments', 'invalid_page', 'malformed_record', 'empty_marker', 'site_event', 'personal_event', 'non_assessment', 'unselected_course', 'unknown_kind', 'missing_course', 'unreliable_course', 'unknown_date', 'missing_dates', 'event_conflict', 'unsupported_structure', 'identity_mismatch', 'missing_identity', 'malformed_candidate', 'unsafe_url', 'unsafe_external_url', 'missing_metadata', 'type_conflict', 'invalid_mime', 'unsafe_label', 'field_conflict', 'parent_conflict', 'pagination_pending', 'incomplete_list', 'empty_unconfirmed', 'empty_conflict', 'folder_contents_uninspected', 'listing_conflict', 'invalid_date', 'unsupported_date', 'duplicate_date', 'malformed_assignment', 'incomplete_assignment']]
+
+class CollectionReview(CollectionWire):
+    id: str
+    visitId: str
+    collector: Literal['assignment', 'calendar', 'material', 'quiz', 'submission']
+    reasons: list[Literal['collector_unavailable', 'collection_disabled', 'envelope_unavailable', 'access_error', 'collector_failed', 'persistence_failed', 'invalid_context', 'invalid_selection', 'invalid_identity', 'unsupported_page', 'malformed_result', 'invalid_observed_at', 'invalid_batch_arguments', 'invalid_page', 'malformed_record', 'empty_marker', 'site_event', 'personal_event', 'non_assessment', 'unselected_course', 'unknown_kind', 'missing_course', 'unreliable_course', 'unknown_date', 'missing_dates', 'event_conflict', 'unsupported_structure', 'identity_mismatch', 'missing_identity', 'malformed_candidate', 'unsafe_url', 'unsafe_external_url', 'missing_metadata', 'type_conflict', 'invalid_mime', 'unsafe_label', 'field_conflict', 'parent_conflict', 'pagination_pending', 'incomplete_list', 'empty_unconfirmed', 'empty_conflict', 'folder_contents_uninspected', 'listing_conflict', 'invalid_date', 'unsupported_date', 'duplicate_date', 'malformed_assignment', 'incomplete_assignment']]
+    candidate: CalendarCandidate | RawMaterialObservation = None
+
+class CollectionDiagnostic(CollectionWire):
+    reason: Literal['collector_unavailable', 'collection_disabled', 'envelope_unavailable', 'access_error', 'collector_failed', 'persistence_failed', 'invalid_context', 'invalid_selection', 'invalid_identity', 'unsupported_page', 'malformed_result', 'invalid_observed_at', 'invalid_batch_arguments', 'invalid_page', 'malformed_record', 'empty_marker', 'site_event', 'personal_event', 'non_assessment', 'unselected_course', 'unknown_kind', 'missing_course', 'unreliable_course', 'unknown_date', 'missing_dates', 'event_conflict', 'unsupported_structure', 'identity_mismatch', 'missing_identity', 'malformed_candidate', 'unsafe_url', 'unsafe_external_url', 'missing_metadata', 'type_conflict', 'invalid_mime', 'unsafe_label', 'field_conflict', 'parent_conflict', 'pagination_pending', 'incomplete_list', 'empty_unconfirmed', 'empty_conflict', 'folder_contents_uninspected', 'listing_conflict', 'invalid_date', 'unsupported_date', 'duplicate_date', 'malformed_assignment', 'incomplete_assignment']
+    pageIndex: Integer
+    recordIndex: Integer = None
+
+class CollectionRange(CollectionWire):
+    start: str
+    end: str
+
+class CollectionPage(CollectionWire):
+    coverage: Literal['complete', 'partial', 'none']
+    candidateCount: Integer
+    paginationPending: bool
+    range: CollectionRange = None
+    pageIndex: Integer = None
+
+class AssignmentRefreshResult(CollectionWire):
+    kind: Literal['assignment']
+    observations: list[RawAssignmentObservation]
+    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    diagnostics: list[CollectionDiagnostic]
+    pages: list[CollectionPage]
+    coverage: Literal['complete', 'partial', 'none']
+    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+
+class NormalizedAssignmentRecord(CollectionWire):
+    id: str
+    courseId: str
+    kind: Literal['assignment']
+    firstObservedAt: str
+    lastObservedAt: str
+    observations: list[RawAssignmentObservation] = Field(min_length=1)
+
+class CalendarRefreshResult(CollectionWire):
+    kind: Literal['calendar']
+    observations: list[RawCalendarObservation]
+    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    diagnostics: list[CollectionDiagnostic]
+    pages: list[CollectionPage]
+    coverage: Literal['complete', 'partial', 'none']
+    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+
+class NormalizedCalendarRecord(CollectionWire):
+    id: str
+    courseId: str
+    kind: Literal['calendar']
+    firstObservedAt: str
+    lastObservedAt: str
+    observations: list[RawCalendarObservation] = Field(min_length=1)
+
+class MaterialRefreshResult(CollectionWire):
+    kind: Literal['material']
+    observations: list[RawMaterialObservation]
+    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    diagnostics: list[CollectionDiagnostic]
+    pages: list[CollectionPage]
+    coverage: Literal['complete', 'partial', 'none']
+    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+
+class NormalizedMaterialRecord(CollectionWire):
+    id: str
+    courseId: str
+    kind: Literal['material']
+    firstObservedAt: str
+    lastObservedAt: str
+    observations: list[RawMaterialObservation] = Field(min_length=1)
+
+class QuizRefreshResult(CollectionWire):
+    kind: Literal['quiz']
+    observations: list[RawQuizObservation]
+    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    diagnostics: list[CollectionDiagnostic]
+    pages: list[CollectionPage]
+    coverage: Literal['complete', 'partial', 'none']
+    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+
+class NormalizedQuizRecord(CollectionWire):
+    id: str
+    courseId: str
+    kind: Literal['quiz']
+    firstObservedAt: str
+    lastObservedAt: str
+    observations: list[RawQuizObservation] = Field(min_length=1)
+
+class SubmissionRefreshResult(CollectionWire):
+    kind: Literal['submission']
+    observations: list[SubmissionSourceRecord]
+    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    diagnostics: list[CollectionDiagnostic]
+    pages: list[CollectionPage]
+    coverage: Literal['complete', 'partial', 'none']
+    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+
+class NormalizedSubmissionRecord(CollectionWire):
+    id: str
+    courseId: str
+    kind: Literal['submission']
+    firstObservedAt: str
+    lastObservedAt: str
+    observations: list[RetainedSubmission] = Field(min_length=1)
+
+class UnavailableRefreshResult(CollectionWire):
+    kind: Literal['unavailable']
+    reasons: list[Literal['collector_unavailable', 'collection_disabled', 'envelope_unavailable', 'access_error', 'collector_failed', 'persistence_failed', 'invalid_context', 'invalid_selection', 'invalid_identity', 'unsupported_page', 'malformed_result', 'invalid_observed_at', 'invalid_batch_arguments', 'invalid_page', 'malformed_record', 'empty_marker', 'site_event', 'personal_event', 'non_assessment', 'unselected_course', 'unknown_kind', 'missing_course', 'unreliable_course', 'unknown_date', 'missing_dates', 'event_conflict', 'unsupported_structure', 'identity_mismatch', 'missing_identity', 'malformed_candidate', 'unsafe_url', 'unsafe_external_url', 'missing_metadata', 'type_conflict', 'invalid_mime', 'unsafe_label', 'field_conflict', 'parent_conflict', 'pagination_pending', 'incomplete_list', 'empty_unconfirmed', 'empty_conflict', 'folder_contents_uninspected', 'listing_conflict', 'invalid_date', 'unsupported_date', 'duplicate_date', 'malformed_assignment', 'incomplete_assignment']]
+
+class FailedRefreshResult(CollectionWire):
+    kind: Literal['failed']
+    reasons: list[Literal['collector_unavailable', 'collection_disabled', 'envelope_unavailable', 'access_error', 'collector_failed', 'persistence_failed', 'invalid_context', 'invalid_selection', 'invalid_identity', 'unsupported_page', 'malformed_result', 'invalid_observed_at', 'invalid_batch_arguments', 'invalid_page', 'malformed_record', 'empty_marker', 'site_event', 'personal_event', 'non_assessment', 'unselected_course', 'unknown_kind', 'missing_course', 'unreliable_course', 'unknown_date', 'missing_dates', 'event_conflict', 'unsupported_structure', 'identity_mismatch', 'missing_identity', 'malformed_candidate', 'unsafe_url', 'unsafe_external_url', 'missing_metadata', 'type_conflict', 'invalid_mime', 'unsafe_label', 'field_conflict', 'parent_conflict', 'pagination_pending', 'incomplete_list', 'empty_unconfirmed', 'empty_conflict', 'folder_contents_uninspected', 'listing_conflict', 'invalid_date', 'unsupported_date', 'duplicate_date', 'malformed_assignment', 'incomplete_assignment']]
+
+CollectorResult = AssignmentRefreshResult | CalendarRefreshResult | MaterialRefreshResult | QuizRefreshResult | SubmissionRefreshResult | UnavailableRefreshResult | FailedRefreshResult
+
+NormalizedSourceRecord = NormalizedAssignmentRecord | NormalizedCalendarRecord | NormalizedMaterialRecord | NormalizedQuizRecord | NormalizedSubmissionRecord
+
+class PageRefreshReceipt(CollectionWire):
+    visitId: str
+    pageUrl: str
+    observedAt: str
+    collector: Literal['assignment', 'calendar', 'material', 'quiz', 'submission']
+    sourceCourseIds: list[str]
+    sourceActivityId: str = None
+    sourceCourseModuleId: str = None
+    outcome: Literal['ok', 'partial', 'failed', 'unavailable']
+    coverage: Literal['complete', 'partial', 'none']
+    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+    reasons: list[Literal['collector_unavailable', 'collection_disabled', 'envelope_unavailable', 'access_error', 'collector_failed', 'persistence_failed', 'invalid_context', 'invalid_selection', 'invalid_identity', 'unsupported_page', 'malformed_result', 'invalid_observed_at', 'invalid_batch_arguments', 'invalid_page', 'malformed_record', 'empty_marker', 'site_event', 'personal_event', 'non_assessment', 'unselected_course', 'unknown_kind', 'missing_course', 'unreliable_course', 'unknown_date', 'missing_dates', 'event_conflict', 'unsupported_structure', 'identity_mismatch', 'missing_identity', 'malformed_candidate', 'unsafe_url', 'unsafe_external_url', 'missing_metadata', 'type_conflict', 'invalid_mime', 'unsafe_label', 'field_conflict', 'parent_conflict', 'pagination_pending', 'incomplete_list', 'empty_unconfirmed', 'empty_conflict', 'folder_contents_uninspected', 'listing_conflict', 'invalid_date', 'unsupported_date', 'duplicate_date', 'malformed_assignment', 'incomplete_assignment']]
+    evidenceMode: Literal['synthetic', 'verified']
+    pages: list[CollectionPage]
+
+class SnapshotCollection(CollectionWire):
+    records: list[NormalizedSourceRecord]
+    reviews: list[CollectionReview]
+    refreshes: list[PageRefreshReceipt]
+
+class CollectionCourse(CollectionWire):
+    courseId: str
+    sourceCourseId: str
+
+class CollectionContext(CollectionWire):
+    version: Literal['1']
+    binding: str
+    mode: Literal['disabled', 'synthetic', 'verified']
+    selectionRevision: str
+    courses: list[CollectionCourse]
+    reason: Literal['collection_disabled', 'invalid_context', 'invalid_selection'] = None
+
+class BeginPageVisit(CollectionWire):
+    documentKey: str
+    visitId: str
+    pageUrl: str
+    selectionRevision: str
+
+class PageVisitToken(CollectionWire):
+    visitToken: str
+
+class PageRefreshInput(CollectionWire):
+    visitToken: str
+    observedAt: str
+    collector: Literal['assignment', 'calendar', 'material', 'quiz', 'submission']
+    result: CollectorResult
+
+# END GENERATED COLLECTION MODELS
+
 class Snapshot(WireModel):
+    collection: SnapshotCollection = None
     courses: list[Course]
     assessments: list[Assessment]
     overlays: list[Overlay]
@@ -365,3 +687,8 @@ class BridgeContext(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     version: Literal["1"]
     binding: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class PageRefreshResponse(CollectionWire):
+    snapshot: Snapshot
+    receipt: PageRefreshReceipt

@@ -204,6 +204,7 @@ class BackendService:
 
     def delete_local_data(self) -> dict:
         def apply(s):
+            s.pop('collection', None)
             for key in s:
                 if key != "settings":
                     s[key] = []

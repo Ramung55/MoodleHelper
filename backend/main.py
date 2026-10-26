@@ -8,14 +8,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from backend.routers import router, context_router
+from backend.routers import router, context_router, collection_router
 from backend.services import BackendService
 from backend.storage import SnapshotStore
 from backend.database_config import DatabaseConfig
 from backend.sqlite_store import SQLiteStore, StorageError
+from backend.collection import CollectionService, CollectionRejected
 
 
-def create_app(store: SnapshotStore | None = None) -> FastAPI:
+def create_app(store: SnapshotStore | None = None, *, collection_provider=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         selected = store
@@ -24,6 +25,7 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
             selected = SQLiteStore(configuration.url, configuration.namespace)
         app.state.service = BackendService(selected)
         app.state.bridge_binding = uuid4().hex
+        app.state.collection = CollectionService(selected, app.state.bridge_binding, collection_provider)
         try:
             yield
         finally:
@@ -35,11 +37,21 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
     if store is not None:
         app.state.service = BackendService(store)
         app.state.bridge_binding = uuid4().hex
+        app.state.collection = CollectionService(store, app.state.bridge_binding, collection_provider)
 
     @app.middleware("http")
     async def bridge_precondition(request: Request, call_next):
         # Runs before body parsing and service work, including malformed writes.
         binding = request.headers.get("X-Moodle-Helper-Bridge-Binding")
+        collection_write = request.url.path in ['/api/collection/visits', '/api/collection/refresh']
+        if collection_write and binding != getattr(app.state, 'bridge_binding', None):
+            return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
+        if request.url.path.startswith('/api/collection'):
+            body = await request.body()
+            if len(body) > 1024 * 1024:
+                return JSONResponse(status_code=422, content={'message':'Collection message exceeds the size limit.'})
+        elif request.url.path.startswith('/api/') and request.method not in ['GET','HEAD','OPTIONS']:
+            app.state.collection.invalidate()
         if (request.url.path.startswith("/api/") and request.url.path != "/api/bridge-context"
                 and binding is not None and binding != getattr(app.state, "bridge_binding", None)):
             return JSONResponse(status_code=409, content={"message": "Backend context changed. Reconnect."})
@@ -51,6 +63,8 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError):
+        if request.url.path.startswith('/api/collection'):
+            return JSONResponse(status_code=422, content={'message':'Invalid collection request.'})
         errors = [f"{'.'.join(str(p) for p in item['loc'])}: {item['msg']}" for item in error.errors()]
         return JSONResponse(status_code=422, content={"message": "Invalid request: " + "; ".join(errors)})
 
@@ -62,8 +76,13 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
     async def unexpected_error(request: Request, error: Exception):
         return JSONResponse(status_code=500, content={"message": "Internal server error."})
 
+    @app.exception_handler(CollectionRejected)
+    async def collection_error(request: Request, error: CollectionRejected):
+        return JSONResponse(status_code=409, content={'message':'Collection context or evidence is invalid. Reconnect.'})
+
     app.include_router(router)
     app.include_router(context_router)
+    app.include_router(collection_router)
     return app
 
 
