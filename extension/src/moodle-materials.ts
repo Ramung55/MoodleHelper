@@ -20,7 +20,7 @@ export type MaterialReason = "access_error" | "invalid_selection" | "invalid_obs
   "unsupported_structure" | "identity_mismatch" | "missing_identity" | "unselected_course" |
   "malformed_candidate" | "unsafe_url" | "unsafe_external_url" | "missing_metadata" |
   "type_conflict" | "invalid_mime" | "unsafe_label" | "field_conflict" | "parent_conflict" | "pagination_pending" |
-  "incomplete_list" | "empty_unconfirmed" | "empty_conflict" | "folder_contents_uninspected";
+  "incomplete_list" | "empty_unconfirmed" | "empty_conflict" | "folder_contents_uninspected" | "listing_conflict";
 export interface MaterialReference {
   sourcePageUrl: string;
   sourceUrl: string;
@@ -29,6 +29,8 @@ export interface MaterialReference {
   location: "course.material" | "activity.material" | "folder.entry";
   listingScope?: "reference_only" | "supplied_listing_only";
   listingCoverage?: MaterialCoverage;
+  /** Validated direct children of this inspected reference, never a merged union. */
+  listingChildResourceKeys?: string[];
 }
 export interface RawMaterialObservation extends MaterialReference {
   sourceCourseId: string;
@@ -174,6 +176,8 @@ export function collectMoodleMaterials(
   const byKey = new Map<string, RawMaterialObservation>();
   const invalidKeys = new Set<string>();
   const conflicts = new Map<string, Set<string>>();
+  type Contributor = { candidate: RawMaterialObservation; reference: MaterialReference; pageIndex: number; recordIndex: number; ancestorKeys: string[] };
+  const contributors: Contributor[] = [];
   if (!Array.isArray(inputs as unknown)) return result;
   inputs.forEach((input, pageIndex) => {
     const page: MaterialPage = { pageIndex, access: detectMoodleAccess(input), candidateCount: 0, coverage: "none", paginationPending: false };
@@ -215,6 +219,7 @@ export function collectMoodleMaterials(
       for (const node of pagination) if (coursePage || !node.closest("ul")) report("pagination_pending");
       for (const node of incomplete) if (coursePage || !node.closest("ul")) report("incomplete_list");
       const pending: { candidate: RawMaterialObservation; recordIndex: number; reasons: MaterialReason[] }[] = [];
+      const pageRecords: (Contributor & { reasons: MaterialReason[] })[] = [];
       const add = (candidate: RawMaterialObservation, recordIndex: number, reasons: MaterialReason[]) => {
         reasons.forEach(reason => report(reason, recordIndex, candidate));
         const prior = byKey.get(candidate.resourceKey);
@@ -247,7 +252,11 @@ export function collectMoodleMaterials(
         prior.references.push(...candidate.references);
       };
       flush = () => { pending.splice(0).forEach(item => add(item.candidate, item.recordIndex, item.reasons)); };
-      const stage = (candidate: RawMaterialObservation, recordIndex: number, reasons: MaterialReason[]) => { pending.push({ candidate, recordIndex, reasons }); };
+      const stage = (candidate: RawMaterialObservation, recordIndex: number, reasons: MaterialReason[], ancestorKeys: string[] = []) => {
+        pending.push({ candidate, recordIndex, reasons });
+        const contributor = { candidate, reference: candidate.references[0]!, pageIndex, recordIndex, ancestorKeys, reasons };
+        pageRecords.push(contributor); contributors.push(contributor);
+      };
       const metadata = (node: Element, title: Metadata<string>, section: Metadata<string>, destination: Element | undefined, isLink: boolean, isFolder = false) => {
         const reasons: MaterialReason[] = [];
         const explicit = node.getAttribute("data-file-type") ?? "";
@@ -313,6 +322,7 @@ export function collectMoodleMaterials(
           const entries = Array.from(list.querySelectorAll('li[data-region="folder-entry"]'));
           page.candidateCount += entries.length;
           const local = new Map<Element, RawMaterialObservation>();
+          const localAncestry = new Map<Element, string[]>();
           const entryIndices = new Map(entries.map((node, offset) => [node, offset + 1]));
           const parents = new Map<number, number>();
           const inspected = new Map<number, { candidate: RawMaterialObservation; list: Element }>([[0, { candidate: root, list }]]);
@@ -341,7 +351,8 @@ export function collectMoodleMaterials(
             if (facts.reasons.includes("type_conflict")) {
               const blocked = conflicts.get(entryKey) ?? new Set<string>(); blocked.add("fileType"); conflicts.set(entryKey, blocked);
             }
-            stage(child, index, facts.reasons); local.set(node, child);
+            const ancestorKeys = [...(parentNode ? localAncestry.get(parentNode) ?? [] : []), parent.resourceKey];
+            stage(child, index, facts.reasons, ancestorKeys); local.set(node, child); localAncestry.set(node, ancestorKeys);
             if (kind === "folder") {
               if (sublists.length) inspected.set(index, { candidate: child, list: sublists[0]! });
               else report("folder_contents_uninspected", index);
@@ -369,11 +380,12 @@ export function collectMoodleMaterials(
           const finalizeListings = () => {
             const issues = result.diagnostics.filter(item => item.pageIndex === pageIndex);
             for (const [index, item] of inspected) {
-              const hasIssue = issues.some(issue => affects(issue.recordIndex, index)) || pending.some(record => record.reasons.length > 0 && affects(record.recordIndex, index));
+              const hasIssue = issues.some(issue => affects(issue.recordIndex, index)) || pageRecords.some(record => record.reasons.length > 0 && affects(record.recordIndex, index));
               item.candidate.listingScope = "supplied_listing_only";
               item.candidate.listingCoverage = hasIssue ? "partial" : "complete";
-              // First contributor reference belongs to this supplied candidate.
-              Object.assign(item.candidate.references[0]!, { listingScope: item.candidate.listingScope, listingCoverage: item.candidate.listingCoverage });
+              const contributor = pageRecords.find(record => record.candidate === item.candidate)!;
+              const children = [...new Set(pageRecords.filter(record => parents.get(record.recordIndex) === index).map(record => record.candidate.resourceKey))].sort();
+              Object.assign(contributor.reference, { listingScope: item.candidate.listingScope, listingCoverage: item.candidate.listingCoverage, listingChildResourceKeys: children });
             }
           };
           finalizeListings();
@@ -394,9 +406,37 @@ export function collectMoodleMaterials(
     changed = false;
     for (const value of byKey.values()) if (value.parentResourceKey && invalidKeys.has(value.parentResourceKey) && !invalidKeys.has(value.resourceKey)) { invalidKeys.add(value.resourceKey); changed = true; }
   }
+  // PM 3468e61: a later rejected association invalidates earlier proof too.
+  // Internal per-contributor ancestry never becomes a public rejected relation.
+  const downgrade = (contributor: Contributor, reason: "parent_conflict" | "listing_conflict") => {
+    const affected = new Set([...contributor.ancestorKeys, contributor.candidate.resourceKey]);
+    for (const target of contributors) if (target.pageIndex === contributor.pageIndex && affected.has(target.candidate.resourceKey) && target.reference.listingScope === "supplied_listing_only") {
+      target.reference.listingCoverage = "partial";
+      result.pages[target.pageIndex]!.coverage = "partial";
+      const diagnostic: MaterialDiagnostic = { pageIndex: target.pageIndex, recordIndex: target.recordIndex, reason };
+      if (!result.diagnostics.some(item => item.pageIndex === diagnostic.pageIndex && item.recordIndex === diagnostic.recordIndex && item.reason === reason)) {
+        result.diagnostics.push(diagnostic); result.review.push({ ...diagnostic });
+      }
+    }
+  };
+  for (const contributor of contributors) if (invalidKeys.has(contributor.candidate.resourceKey)) downgrade(contributor, "parent_conflict");
+  for (const contributor of contributors) if (contributor.reference.listingChildResourceKeys) {
+    contributor.reference.listingChildResourceKeys = contributor.reference.listingChildResourceKeys.filter(resourceKey => !invalidKeys.has(resourceKey));
+  }
+  // Compare complete direct-child SETS only. Partial subsets cannot establish
+  // absence; neither input order nor timestamp implies a replacement listing.
+  const completeListings = new Map<string, Contributor[]>();
+  for (const contributor of contributors) if (!invalidKeys.has(contributor.candidate.resourceKey) && contributor.reference.listingScope === "supplied_listing_only" && contributor.reference.listingCoverage === "complete") {
+    const group = completeListings.get(contributor.candidate.resourceKey) ?? [];
+    group.push(contributor); completeListings.set(contributor.candidate.resourceKey, group);
+  }
+  for (const group of completeListings.values()) if (new Set(group.map(item => JSON.stringify(item.reference.listingChildResourceKeys))).size > 1) {
+    group.forEach(contributor => downgrade(contributor, "listing_conflict"));
+  }
   for (const value of byKey.values()) {
     value.references = value.references.filter((reference, index, references) => references.findIndex(other => JSON.stringify(other) === JSON.stringify(reference)) === index);
     if (value.kind === "folder") {
+      delete value.listingChildResourceKeys;
       const inspected = value.references.filter(reference => reference.listingScope === "supplied_listing_only");
       value.listingScope = inspected.length ? "supplied_listing_only" : "reference_only";
       value.listingCoverage = inspected.length ? inspected.some(reference => reference.listingCoverage !== "complete") ? "partial" : "complete" : "none";

@@ -344,6 +344,53 @@ describe("#17 synthetic material collection (live SDU unverified)", () => {
     expect(result.observations[0]!.references.map(reference => reference.listingCoverage)).toEqual(["complete", "partial"]);
     expect(result.observations.find(item => item.sourceFileId === "401")!.title).toEqual({ kind: "unknown" });
   });
+  it.each([false, true])("conflicting complete child sets remain partial without guessing chronology, reversed=%s", reverse => {
+    const empty = input(folder('<span data-role="folder-empty"></span>'), "/mod/folder/view.php?id=301");
+    const populated = input(folder(entry()), "/mod/folder/view.php?id=301");
+    const result = collectMoodleMaterials(reverse ? [populated, empty] : [empty, populated], ["101"], time);
+    reason(result, "listing_conflict"); expect(result.coverage).toBe("partial"); expect(result.pages.map(page => page.coverage)).toEqual(["partial", "partial"]);
+    const root = result.observations[0]!;
+    expect(root.listingCoverage).toBe("partial"); expect(root.references.map(reference => reference.listingCoverage)).toEqual(["partial", "partial"]);
+    expect(root.references.map(reference => reference.listingChildResourceKeys).sort((a, b) => a!.length - b!.length)).toEqual([[], [JSON.stringify([origin, "101", "folder", "301", "file", "401"])]]);
+    expect(root).not.toHaveProperty("listingChildResourceKeys");
+  });
+  it("complete nested child-set conflicts affect ancestors and pages but preserve sibling proof", () => {
+    const sibling = entry("502", "folder", '<span data-role="folder-empty"></span>', "", "");
+    const first = input(folder(entry("501", "folder", '<span data-role="folder-empty"></span>', "", "") + sibling), "/mod/folder/view.php?id=301");
+    const second = input(folder(entry("501", "folder", entry(), "", "") + sibling), "/mod/folder/view.php?id=301");
+    const result = collectMoodleMaterials([first, second], ["101"], time);
+    reason(result, "listing_conflict"); expect(result.pages.map(page => page.coverage)).toEqual(["partial", "partial"]);
+    expect(result.observations[0]!.listingCoverage).toBe("partial");
+    expect(result.observations.find(item => item.sourceFolderId === "501")!.listingCoverage).toBe("partial");
+    expect(result.observations.find(item => item.sourceFolderId === "502")!.listingCoverage).toBe("complete");
+  });
+  it("partial child subsets cannot establish contradictory complete listings", () => {
+    const complete = input(folder(entry()), "/mod/folder/view.php?id=301");
+    const partial = input(folder('<span data-role="folder-empty"></span>', "data-incomplete"), "/mod/folder/view.php?id=301");
+    const result = collectMoodleMaterials([complete, partial], ["101"], time);
+    expect(result.observations[0]!.listingCoverage).toBe("partial");
+    expect(result.diagnostics.map(item => item.reason)).not.toContain("listing_conflict");
+    expect(result.pages.map(page => page.coverage)).toEqual(["complete", "partial"]);
+  });
+  it("direct child identity sets are independent of supplied order and duplicates", () => {
+    const first = input(folder(entry("401") + entry("402")), "/mod/folder/view.php?id=301");
+    const second = input(folder(entry("402") + entry("401") + entry("401")), "/mod/folder/view.php?id=301");
+    const result = collectMoodleMaterials([first, second], ["101"], time);
+    expect(result.coverage).toBe("complete"); expect(result.diagnostics).toEqual([]);
+    expect(result.observations[0]!.references).toHaveLength(1);
+    expect(result.observations[0]!.references[0]!.listingChildResourceKeys).toHaveLength(2);
+  });
+  it("later rejected parent association revises prior ancestor proof and removes rejected child provenance", () => {
+    const safeSibling = entry("503", "folder", '<span data-role="folder-empty"></span>', "", "");
+    const first = input(folder(entry("501", "folder", entry(), "", "") + safeSibling), "/mod/folder/view.php?id=301");
+    const second = input(folder(entry("502", "folder", entry(), "", "")), "/mod/folder/view.php?id=301");
+    const result = collectMoodleMaterials([first, second], ["101"], time);
+    reason(result, "parent_conflict"); expect(result.pages.map(page => page.coverage)).toEqual(["partial", "partial"]);
+    expect(result.observations.some(item => item.sourceFileId === "401")).toBe(false);
+    expect(result.observations.find(item => item.sourceFolderId === "501")!).toMatchObject({ listingCoverage: "partial", references: [{ listingCoverage: "partial", listingChildResourceKeys: [] }] });
+    expect(result.observations.find(item => item.sourceFolderId === "503")!.listingCoverage).toBe("complete");
+    expect(JSON.stringify(result)).not.toContain(JSON.stringify([origin, "101", "folder", "301", "file", "401"]).replaceAll('"', '\\"'));
+  });
   it.each([
     course(moduleNode().replace('data-course-module-id="201"', 'data-course-module-id="0"')),
     course(moduleNode().replace('data-resource-id="1"', 'data-resource-id="bad"')).replace('<h2>Week 1</h2>', '<h2>A</h2><h2>B</h2>'),

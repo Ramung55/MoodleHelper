@@ -284,8 +284,8 @@ must preserve every supplied page's errors/partial result even when duplicate
 records merge successfully; record-level merge is not evidence that an erroneous
 or incomplete input page was complete. No original criterion is weakened.
 
-Post-review contributor consistency clarification (before the coverage repair
-commit): for the same folder identity, compare canonical sets of validated direct
+Post-review contributor consistency clarification (before the contributor-consistency
+repair): for the same folder identity, compare canonical sets of validated direct
 child resourceKeys from individually complete inspected contributors. Different
 sets, including empty versus nonempty, are listing_conflict. Do not infer change
 chronology from input order or observedAt, and do not union sets into an asserted
@@ -294,7 +294,12 @@ mark that folder's merged coverage and every conflicting inspected contributor
 partial with the fixed listing_conflict reason. Propagate to affected inspected
 ancestors and their pages; leave unrelated sibling listings unchanged. Incomplete
 contributors already remain sticky partial and cannot establish absence of child
-keys; their differing subsets alone do not establish listing_conflict.
+keys; their differing subsets alone do not establish listing_conflict. The raw
+reference field is listingChildResourceKeys (sorted unique validated direct keys
+for that inspected reference). The merged observation must not expose a union or
+arbitrarily chosen contributor child set. Rejected parent associations are removed
+from child-key provenance as well as from observations; the remaining affected
+proof stays partial.
 
 If a later cross-page identity/parent conflict invalidates a previously accepted
 child association, revise the earlier affected inspected ancestor proof and its
@@ -352,7 +357,7 @@ string facts; context and instance IDs do not change stable identity. References
 retain validated alternate URLs; conflicting destination metadata is absent rather
 than chosen arbitrarily. Invalid parent associations invalidate their descendants.
 
-Offline engineer checks on 2026-10-26: focused **146 tests passed**; full frontend
+Initial offline engineer checks on 2026-10-26: focused **146 tests passed**; full frontend
 **599 tests / 12 files passed**, including #10/#11/#13/#15 regressions and live
 localhost API integration; production frontend and inert extension builds plus standalone strict
 collector TypeScript check passed. Backend **444 tests passed**, including all
@@ -361,3 +366,18 @@ non-failing Vite tsconfig-path plugin notice remain. The supplemental full front
 `tsc --noEmit` still reports pre-existing strict-index/optional-field errors in
 other files; neither new material file adds errors under that command. No package
 was added or installed. These invented fixtures do not verify live SDU behavior.
+
+QA repair verification on 2026-10-26: **170 material tests passed**, including
+24 new folder-coverage regressions, and full frontend **623 tests / 12 files
+passed**. Natural confirmed-empty folder listings now complete without invented
+file metadata. Every folder and reference distinguishes reference-only from
+inspected listing coverage. Local subtree errors preserve healthy sibling proof;
+page-wide signals affect every inspected list. Complete child-set contradictions
+and later-invalid parent associations downgrade affected proof/pages without
+chronology guessing or last-writer wins. Frontend production build, inert extension
+build, standalone strict collector TypeScript and diff checks passed. Supplemental
+project type checking adds no new material-file errors; existing other-file errors
+remain. Unchanged backend/fixture hygiene results remain **444 / 25 passed** from
+the initial engineer and independent QA runs; they were not rerun for this pure
+collector repair. Ready for repeat independent QA; this note does not supersede
+the [initial QA FAIL](https://github.com/Ramung55/MoodleHelper/issues/17#issuecomment-6419535538).

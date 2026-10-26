@@ -88,7 +88,11 @@ review queue must preserve these facts before #18/#20 ingestion. Current known
 fileType=other is not unknown; Material.section cannot encode a folder tree.
 The pure #17 collector now implements this raw DTO offline, including canonical
 UTF-8 filenames, distinct folder nodes, conflict-safe references and fixed-reason
-reviews/coverage. These are invented structural fixtures, not live SDU evidence.
+reviews/coverage. Folder listingScope/listingCoverage and per-reference inspected
+direct-child keys preserve which supplied lists were inspected, with sticky partial
+proof for incomplete/conflicting contributors. Future sourceDetails must retain
+these distinctions and all reference proof rather than asserting a union listing.
+These are invented structural fixtures, not live SDU evidence.
 No wire/API change is claimed; this gap remains open pending
 coordinated schema, storage and backup round-trip support.
 
