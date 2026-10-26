@@ -35,3 +35,37 @@ The #5 current SubmissionObservation wire contains status, observedAt and option
 Future independent fixture checks must cover all five states and retained wording; grade-only and checked/unchecked completion invariance; explicit reopened versus incidental title/body prose; inaccessible/unsupported-language/unrecognized/conflicting status; stale retention and temporal/identity mismatch; valid/invalid times; safe/unsafe links and exact IDs; privacy sentinels, immutable DOM and no side effects. Use #4 fact-only corpus as negative structural inputs, not expected mapper truth. Synthetic fixtures must be clearly labeled UNVERIFIED and cannot close the observed-wording gap.
 
 Evidence read: canonical #16 (all five AC), #4, local #3 compatibility report, #4 README/assignment/reopened/unknown fixtures, #5 data-model inventory, #13 contract, actual #10 access detector and existing frontend submission/completion semantics. No implementation or test pass is asserted by this PM review.
+
+## Evidence-independent partial engineering handoff
+
+The actual #6 implementation is `backend/storage.py:SourceUpserts.upsert_source`,
+not a separate source_upsert module. It merges SourceEvidence and retains first
+observation time and personal overlays, but replaces incoming submission facts;
+it has no unknown/older submission retention policy. Existing SQLite tests check
+replay and personal isolation, not this missing policy. A pure policy primitive
+therefore supplies useful partial progress without inventing Moodle wording.
+
+Engineer bounds: `extension/src/submission-retention.ts` and
+`frontend/src/test/submission-retention.test.ts`. Use existing typed
+SubmissionObservation values inside a detached identity/source wrapper, never
+claim raw enum inputs classify Moodle DOM. Define explicit success/error result;
+input is latest attempt plus optional previous confirmed record. Each carries
+exact course/activity/module string IDs and canonical safe assignment sourceUrl.
+Validate timestamps with existing shared zoned-instant helper and require exact
+identity/source agreement when previous exists. Invalid inputs return fixed
+diagnostics with no echoed values. Do not accept grade/completion/HTML inputs.
+
+Return latest attempted record separately from optional confirmed record and
+stale boolean. Unknown/inaccessible attempts cannot create a confirmation;
+newer unknown retains previous confirmation and sets stale=true. Known newer
+attempt replaces confirmation and sets stale=false. Older attempt cannot replace
+newer confirmation; identical replay is stable; equal-time contradictory states
+must be rejected rather than arbitrarily selecting truth. Unknown with no prior
+has no confirmation and is stale=false (there is no retained fact to mark stale).
+This is observation retention, not actionRequired classification; do not invent
+reopened semantics from a raw enum. No store, endpoint, Snapshot serialization,
+Moodle DOM classifier, shell, UI, network or dependency change. Tests cover
+time/identity/URL failure, known-to-unknown retention, inaccessible equivalent
+unknown, older attempts, contradictory ties, replay, detached outputs and input
+immutability. Overall #16 remains blocked until observed wording is supplied;
+QA may report only this partial primitive's checks, never overall issue PASS.
