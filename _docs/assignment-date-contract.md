@@ -14,6 +14,15 @@ the detector result and fixed diagnostic codes. Success contains one detached ra
 observation; failure contains no observation. Never accept caller access labels.
 No fetch, browser navigation, DOM mutation, storage, logging or shell wiring.
 
+After the actual #10 access gate, validate caller `observedAt` as a nonblank string
+using the exact zoned-instant syntax and real calendar/clock/offset rules below:
+minute, second or 1..3 fractional-second precision with explicit Z or signed HH:MM.
+It is an observation instant, so it needs no separate IANA timezone argument.
+Preserve the original string and precision. Invalid type, blank, unzoned or
+impossible values return a fixed safe parse error with no observation; never use
+an automatic current time, default timezone, normalization or inferred seconds.
+Access failure takes precedence over invalid observedAt and other parse failures.
+
 `RawAssignmentObservation` is explicitly NOT Assessment or Snapshot. Required:
 `sourceCourseId`, `sourceActivityId`, `sourceCourseModuleId`, `sourceUrl`, `title`,
 `observedAt`, `baseDates`, `individualExtensions`, `effectiveDates`.
@@ -101,6 +110,8 @@ offset-equivalent instants and date-only precision; malformed/access failures.
 Include leap/invalid calendar, bad clock/offset/zone, unzoned timestamps,
 minute/second/millisecond offset equivalence without changing stored precision,
 rejection of numeric fixed-offset timezone identifiers and accepted UTC/IANA names,
+invalid observedAt types/blank/unzoned/calendar/clock/offset and unchanged valid
+observedAt precision, including access-failure precedence when it is also invalid,
 duplicates, unknown scope/field, generic date, unsafe origin/credentials/query,
 identity mismatch, absent identity/heading, truncation, login/403/network/ambiguous
 envelopes, fact-only #4 inputs, private sentinel not reflected in diagnostics,
