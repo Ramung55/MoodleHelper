@@ -21,8 +21,8 @@ export class BridgeError extends Error { constructor(public code: ErrorCode) { s
 export const approved = (origin: string) => (APPROVED_ORIGINS as readonly string[]).includes(origin);
 export const idValid = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9-]{1,128}$/.test(v);
 export function fits(value: unknown): boolean { try { return new TextEncoder().encode(JSON.stringify(value)).length <= MAX_BYTES; } catch { return false; } }
-const object = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);
-export function closed(v: unknown, required: string[], optional: string[] = []): v is Record<string, any> {
+const object = (v: unknown): v is any => !!v && typeof v === "object" && !Array.isArray(v);
+export function closed(v: unknown, required: string[], optional: string[] = []): v is any {
   return object(v) && required.every(k => Object.hasOwn(v, k)) && Object.keys(v).every(k => required.includes(k) || optional.includes(k));
 }
 /** JSON-schema subset used by the authoritative inventory. Every object is closed recursively. */
@@ -37,7 +37,7 @@ function check(schema: any, value: any): boolean {
     case "object": return closed(value, schema.required || [], Object.keys(schema.properties || {})) && Object.entries(value).every(([k,v]) => check(schema.properties[k],v));
     case "array": return Array.isArray(value) && value.length >= (schema.minItems || 0) && value.every(v => check(schema.items,v));
     case "string": return typeof value === "string" && (!schema.pattern || new RegExp(schema.pattern).test(value));
-    case "integer": if (!Number.isInteger(value)) return false;
+    case "integer": return Number.isInteger(value) && check({...schema,type:"number"},value);
     case "number": return typeof value === "number" && Number.isFinite(value) && (schema.minimum === undefined || value >= schema.minimum) && (schema.maximum === undefined || value <= schema.maximum);
     case "boolean": return typeof value === "boolean";
     case "null": return value === null;

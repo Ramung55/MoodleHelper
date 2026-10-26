@@ -3,6 +3,30 @@ from fastapi.testclient import TestClient
 from backend.main import create_app
 from backend.storage import InMemoryStore
 from tests.test_contract import OPERATIONS
+import json
+import re
+from pathlib import Path
+import yaml
+
+
+def test_shared_closed_inventory_tracks_source_contract():
+    root = Path(__file__).parents[1]
+    source = yaml.safe_load((root / 'openapi.yaml').read_text(encoding='utf-8'))
+    bridge = (root / 'shared/src/bridge.ts').read_text(encoding='utf-8')
+    inventory = json.loads(re.search(r'const schemas: Record<string, any> = (.*?);\s*export const catalog', bridge, re.S)[1])
+    catalog = json.loads(re.search(r'export const catalog = (.*?) as const;', bridge, re.S)[1])
+    assert inventory == source['components']['schemas']
+    expected = {}
+    for path, operations in source['paths'].items():
+        for method, operation in operations.items():
+            if operation['operationId'] == 'bridgeContext':
+                continue
+            expected[operation['operationId']] = {
+                'method': method.upper(), 'path': path,
+                'body': operation.get('requestBody', {}).get('content', {}).get('application/json', {}).get('schema'),
+                'result': operation['responses']['200']['content']['application/json']['schema'],
+            }
+    assert catalog == expected
 
 
 def test_binding_initialization_and_restart():

@@ -338,3 +338,57 @@ or dedup records. These are planned tests, not Chrome observation.
 Primary documentation verified on this date:
 [MessageSender](https://developer.chrome.com/docs/extensions/reference/api/runtime#type-MessageSender)
 and [Tab / permissions](https://developer.chrome.com/docs/extensions/reference/api/tabs#type-Tab).
+
+### Engineering checkpoint, 2026-10-27 (#9; independent QA still required)
+
+Implemented the complete 17-operation local repository facade, source OpenAPI
+context/precondition, typed `BridgeClient`/`ExtensionAdapter`, isolated relay and
+internal callback worker. `services/index.ts` still selects `HttpAdapter`.
+Use the optional client by constructing it, explicitly awaiting `connect()`, then
+calling its typed methods; call `dispose()` when its owner unmounts. Sync/import
+callbacks receive only the final validated Snapshot locally.
+
+Sessions have a 60-second idle lease and maximum 128 entries. Idle sessions can
+be reclaimed after page navigation, client disposal or repeated Settings checks;
+in-flight work prevents lease reclamation. Expired clients receive
+RECONNECT_REQUIRED and must explicitly reconnect. Worker independently enforces
+32 in-flight requests per page/client, in addition to the client's pending limit.
+Dedup retains in-flight records and settled results for 60 seconds, max128,
+rejecting excess capacity and conflicting reuse. Neither lease expiry nor
+reconnection automatically repeats a mutation. This is bounded worker memory,
+not durable idempotency. Settings gives install/site-access/backend/reconnect
+and unknown-write-outcome guidance without changing the HTTP Snapshot.
+
+Verification at this checkpoint:
+
+- `uv run pytest -q`: **450 passed**, existing Starlette/httpx deprecation warning.
+- `bun run --cwd frontend test`: **629 passed**.
+- `node frontend/node_modules/vitest/vitest.mjs run --config browser-workspace/vitest.config.mjs`:
+  **53 passed**. This suite uses explicitly labeled window/Chrome API shims,
+  production client/relay/worker code, and real loopback FastAPI with isolated
+  file-backed SQLite. Test-only ASGI middleware supplies hostile responses and
+  sentinel headers; it is never imported by the production backend entry point.
+- Shared and extension Bun builds, frontend production build, and focused strict
+  TypeScript compilation of worker/protocol pass. Project-wide strict `tsc`
+  still reports pre-existing collector/domain/test errors; the bridge changes
+  have no diagnostics in the targeted compilation. No dependency was added.
+
+Network tests verify real results for all17 operations, explicit nullable clears,
+methods/paths/precondition headers, legacy HTTP compatibility, restart409 before
+mutation, and switching trusted startup partitions (demo and configured Moodle)
+without page-selected identity. They inspect actual redirect/error/HTML/extra-key
+responses with cookie/password/token sentinels, reject redirect following, and
+exercise slash/query/hash/encoded-dot opaque IDs against the real API. No request
+acquires Moodle cookies, credentials or HTML. Operation-specific recursive DTO
+validation rejects extra fields before website delivery and again in the client.
+A source-versus-shared inventory test detects drift in every operation/schema.
+
+Focused tests additionally cover sender URL/origin/optional tab.url/runtime/top
+frame/document ownership, new-document session/dedup denial, schema/version/URL
+injection, oversize, permissions/revocation, worker loss, correlation, late
+responses, capacity, in-flight dedup/conflicts, idle lease reclamation and deadlines.
+The existing UI error/retention suite remains green alongside new Settings
+guidance tests. These are automated shim/network observations, not evidence that
+an installed Chrome extension or live SDU collection was inspected. Protected UI
+was not retried or bypassed; #7/#8 retain their separately recorded runtime smoke
+limitations. No remote push, grant, installation or issue closure is performed.
