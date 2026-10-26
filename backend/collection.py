@@ -352,13 +352,16 @@ def safe_destination(url, *, module, cm, folder=None, file=None, context=None):
     from urllib.parse import urlsplit
     parsed=urlsplit(url)
     if parsed.port or not url.startswith('https://'+parsed.netloc+'/') or parsed.netloc!=parsed.netloc.lower(): reject()
+    # Child folders use #17's safeFolder boundary before any generic root/file
+    # handling. Even a valid mod_folder pluginfile URL cannot identify a folder.
+    if folder:
+        if file or module!='folder' or url!=f'{ORIGIN}/mod/folder/view.php?id={cm}&folder={folder}': reject()
+        return
     if parsed.hostname=='moodle.sdu.edu.kz':
         if parsed.fragment: reject()
         match=re.fullmatch(r'/pluginfile\.php/([1-9][0-9]*)/mod_(resource|folder)/content/[1-9][0-9]*/([^?#]+)',parsed.path)
         if match:
             if match[2]!=module or context and context!=match[1] or parsed.query not in ['', 'forcedownload=1'] or not all(filename(x) for x in match[3].split('/')): reject()
-        elif folder:
-            if url!=f'{ORIGIN}/mod/folder/view.php?id={cm}&folder={folder}': reject()
         else:
             # A destination is a link target, not the source module identity.
             # #17 accepts any canonical course/material activity target for a

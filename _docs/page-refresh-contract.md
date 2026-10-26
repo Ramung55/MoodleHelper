@@ -353,3 +353,25 @@ After repair: full backend **507 passed**, full frontend **669 passed / 14 files
 TypeScript, wire schemas and built browser modules are unchanged by this backend
 repair; prior build/strict-TypeScript/browser results above remain applicable.
 Independent repeat QA remains required; no live Moodle behavior is claimed.
+
+### Independent QA repair: folder-child branch ordering
+
+Repeat QA [6426026309](https://github.com/Ramung55/MoodleHelper/issues/18#issuecomment-6426026309)
+confirmed safe root destinations were fixed, then found that a folder child could
+incorrectly pass the generic pluginfile branch before its exact `safeFolder`
+association was checked. Folder-child validation now runs first, requiring exactly
+`/mod/folder/view.php?id=<module>&folder=<child>` before any root/file handling.
+Valid root and file pluginfile targets and safe internal root destinations remain
+accepted. A folder child can no longer supply a pluginfile target at either its
+observation or reference boundary, including inside review candidates.
+
+Four additional FastAPI/SQLite cases prove record/review × observation/reference
+rejection with unchanged snapshot and SQLite revision. Positive controls preserve
+root/file pluginfile destinations and exact folder-child targets. Two additional
+production coordinator/worker/actual-HTTP/SQLite cases first save the real #17
+folder collector output, then mutate only a child destination and prove atomic
+rejection without altering earlier records or receipts. Focused backend **62**
+and frontend collection **42** tests pass; full backend **512 passed**, full
+frontend **671 passed / 14 files**. `git diff --check` passes. This changes backend
+validation and tests only; prior unchanged browser/build/TypeScript results remain
+applicable. Issue remains open for repeat independent QA.

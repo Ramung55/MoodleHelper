@@ -257,6 +257,29 @@ def test_folder_child_destination_keeps_exact_module_and_plugin_only_constraints
         safe_destination(destination,module='folder',cm='301',**{child:'401'})
 
 
+@pytest.mark.parametrize('review',[False,True])
+@pytest.mark.parametrize('location',['observation','reference'])
+def test_folder_child_pluginfile_rejected_atomically_through_real_fastapi_sqlite(harness,review,location):
+    client,store,_=harness;token,h=begin(client,ORIGIN+'/course/view.php?id=101')
+    raw=material();raw.update(sourceModuleType='folder',sourceCourseModuleId='301',sourceUrl=ORIGIN+'/mod/folder/view.php?id=301',sourceFolderId='401',kind='folder',resourceKey=json.dumps([ORIGIN,'101','folder','301','folder','401'],separators=(',',':')),parentResourceKey=json.dumps([ORIGIN,'101','folder','module','301'],separators=(',',':')))
+    raw['destinationUrl']=ORIGIN+'/mod/folder/view.php?id=301&folder=401';raw['references'][0].update(sourceUrl=raw['sourceUrl'],destinationUrl=raw['destinationUrl'])
+    target=raw if location=='observation' else raw['references'][0]
+    target['destinationUrl']=ORIGIN+'/pluginfile.php/700/mod_folder/content/1/lecture.pdf'
+    r=result('material',[] if review else [raw])
+    if review:r['reviews']=[dict(kind='material',candidate=raw,reasons=['missing_metadata'])]
+    before=store.read();rev=revision(store)
+    assert refresh(client,token,h,r,'material').status_code==409
+    assert store.read()==before and revision(store)==rev
+
+
+def test_folder_root_and_file_plugin_destinations_remain_valid_but_folder_child_does_not():
+    url=ORIGIN+'/pluginfile.php/700/mod_folder/content/1/lecture.pdf'
+    safe_destination(url,module='folder',cm='301',context='700')
+    safe_destination(url,module='folder',cm='301',file='401',context='700')
+    safe_destination(ORIGIN+'/mod/folder/view.php?id=301&folder=401',module='folder',cm='301',folder='401')
+    with pytest.raises(CollectionRejected):safe_destination(url,module='folder',cm='301',folder='401',context='700')
+
+
 @pytest.mark.parametrize('field,value',[
     ('title',{'kind':'known','value':'https://private.example/token-sentinel'}),
     ('section',{'kind':'known','value':'javascript:private-sentinel'}),
