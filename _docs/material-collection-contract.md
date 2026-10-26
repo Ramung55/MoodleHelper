@@ -260,6 +260,30 @@ or unfetched folder completeness. These additive raw facts must also survive the
 future sourceDetails wire extension. All five original #17 criteria remain
 unchanged; this resolves N/A metadata versus missing applicable facts.
 
+Post-review aggregation clarification (before the coverage repair): each safe
+reference to a folder retains its own listingScope/listingCoverage proof facts,
+in addition to the merged folder observation. Merged folder scope is
+supplied_listing_only if any contributing reference inspected that folder's list;
+otherwise reference_only. Merged listing coverage ignores reference_only/none
+contributors; among inspected contributors it is partial if any is partial,
+otherwise complete if all are complete. Partial is sticky across repeated
+observations, never repaired by a later complete reference. An uninspected
+reference cannot negate a separately inspected listing or establish completeness.
+All references and their provenance must survive future sourceDetails ingestion.
+
+Folder candidate errors affect that candidate's own inspected listing/subtree and
+its inspected ancestors, not unrelated sibling folder listings. Main/page-level
+incomplete, truncation or pagination signals affect every inspected list on that
+page. A list-local incomplete/pagination signal affects that list and ancestors,
+not siblings. Empty markers are counted only for their nearest containing ul;
+a nested folder-empty marker cannot conflict with a nonempty ancestor listing.
+An empty marker alongside direct child candidates of that same list is a
+conflicting empty state and partial. The previously specified uninspected nested
+folder still makes its inspected ancestors partial. Aggregate page/batch coverage
+must preserve every supplied page's errors/partial result even when duplicate
+records merge successfully; record-level merge is not evidence that an erroneous
+or incomplete input page was complete. No original criterion is weakened.
+
 Visible-label privacy clarification before label implementation: title and section
 normally preserve whitespace-normalized visible wording. Return explicit unknown
 instead, with fixed unsafe_label reason, if normalized text (a) contains a URI
