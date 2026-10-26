@@ -330,3 +330,26 @@ and actual SQLite-lock failures, previous-state retention and unchanged course
 sync state. No install, live Moodle collection or externally blocked Chrome
 inspection is represented by these offline and loopback results. Existing
 Starlette/httpx deprecation and Vite tsconfig-path plugin notices remain nonfatal.
+
+### Independent QA repair: safe internal material destinations
+
+QA [6425930475](https://github.com/Ramung55/MoodleHelper/issues/18#issuecomment-6425930475)
+found that an accepted #17 destination could be distinct from its source module:
+an URL material linking to `/course/view.php?id=101` was incorrectly rejected by
+backend destination validation. Source identity and destination are now validated
+separately. Root materials retain any canonical course/resource/url/folder target
+accepted by #17, including its exact URL in every reference. Pluginfile targets
+still require matching module/context and safe filename segments. Folder file
+children remain pluginfile-only and folder children retain exact module/folder
+association. Credential/query/traversal/login/unsupported-module negatives remain
+rejected rather than stripped into a successful save.
+
+Four new actual pure-collector → production coordinator/worker → real HTTP/SQLite
+cases assert saved state, retained root/reference URLs and committed receipts for
+the four internal route types. Backend tests cover these targets in records and
+review candidates, additional unsafe forms, and child-specific restrictions.
+After repair: full backend **507 passed**, full frontend **669 passed / 14 files**
+(40 page-refresh integration cases). `git diff --check` passed. Production
+TypeScript, wire schemas and built browser modules are unchanged by this backend
+repair; prior build/strict-TypeScript/browser results above remain applicable.
+Independent repeat QA remains required; no live Moodle behavior is claimed.

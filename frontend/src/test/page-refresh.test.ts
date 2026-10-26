@@ -49,6 +49,12 @@ const materialInput=(html:string,path='/course/view.php?id=101')=>({document:new
 const course=(body='')=>`${account}<main data-region="course-content"><h1>Synthetic course</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><section data-region="course-section"><h2>Week 1</h2>${body||'<p data-region="materials-empty">No materials</p>'}</section></main>`;
 
 describe('#18 real pipeline AC1/AC2/AC5',()=>{
+  it.each(['/course/view.php?id=101','/mod/resource/view.php?id=402','/mod/url/view.php?id=403','/mod/folder/view.php?id=404'])('persists the real material collector safe internal destination %s through worker/HTTP/SQLite',async(destination)=>{
+    const html=course(`<article data-region="material" data-module-type="url" data-course-module-id="301"><a data-role="material-link" href="/mod/url/view.php?id=301">Synthetic internal link</a><a data-role="destination" href="${destination}">Open</a></article>`);
+    const registry=syntheticFixtureRegistry();registry.material.collect=vi.fn(registry.material.collect);const f=setup(fixture(materialInput(html)),registry);f.coordinator.notify();await until(()=>f.coordinator.state.receipts.length===1||f.coordinator.state.status==='failed');
+    expect(f.coordinator.state.status).toBe('saved');expect(registry.material.collect).toHaveBeenCalledTimes(1);
+    const saved:Snapshot=await json('/api/snapshot');expect(saved.collection!.records).toHaveLength(1);const observation=saved.collection!.records[0]!.observations[0];expect(observation).toMatchObject({sourceUrl:origin+'/mod/url/view.php?id=301',destinationUrl:origin+destination,references:[{destinationUrl:origin+destination}]});expect(saved.collection!.refreshes).toHaveLength(1);f.coordinator.stop();
+  });
   it('legacy demo deletion also removes the additive source layer',()=>{
     const base={...seed,collection:{records:[],reviews:[],refreshes:[]}};expect(emptySnapshot(base)).not.toHaveProperty('collection');expect(base).toHaveProperty('collection');
   });

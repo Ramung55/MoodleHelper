@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import URL, text
 from backend.collection import SyntheticCollectionContext
+from backend.collection import safe_destination, CollectionRejected
 from backend.main import create_app
 from backend.sqlite_store import SQLiteStore, StorageError
 from backend.sample_data import build_sample_snapshot
@@ -212,6 +213,8 @@ def material():
     'https://docs.example:443/lecture.pdf','https://docs.example/a/%74oken.pdf','https://docs.example/lecture.pdf?id='+'a'*32,
     'https://docs.example/lecture.pdf?id=a.b.c','https://docs.example/lecture.pdf?id=a&id=b','https://docs.example/lecture.pdf?sesskey=sentinel',
     ORIGIN+'/pluginfile.php/700/mod_folder/content/1/lecture.pdf',ORIGIN+'/pluginfile.php/999/mod_resource/content/1/lecture.pdf',ORIGIN+'/pluginfile.php/700/mod_resource/content/1/%74oken.pdf',
+    ORIGIN+'/course/view.php?id=101&sesskey=sentinel',ORIGIN+'/course/view.php?id=%31%30%31',ORIGIN+'/course/../course/view.php?id=101',
+    ORIGIN+'/login/logout.php',ORIGIN+'/mod/assign/view.php?id=303','https://student:password@moodle.sdu.edu.kz/course/view.php?id=101',
 ])
 def test_material_privacy_rejects_observations_and_review_candidates(harness,destination):
     client,store,_=harness
@@ -232,6 +235,26 @@ def test_material_unknowns_and_safe_unicode_office_preserved(harness):
     response=refresh(client,token,h,result('material',[raw]),'material')
     assert response.status_code==200,response.text
     assert store.read()['collection']['records'][0]['observations']==[raw]
+
+
+@pytest.mark.parametrize('destination',['/course/view.php?id=101','/mod/resource/view.php?id=402','/mod/url/view.php?id=403','/mod/folder/view.php?id=404'])
+def test_safe_internal_destination_is_distinct_from_source_identity_for_records_and_reviews(harness,destination):
+    client,store,_=harness
+    for review in [False,True]:
+        token,h=begin(client,ORIGIN+'/course/view.php?id=101',visit='safe-review' if review else 'safe-record')
+        raw=material();raw['destinationUrl']=ORIGIN+destination;raw['references'][0]['destinationUrl']=ORIGIN+destination;raw.pop('sourceContextId')
+        r=result('material',[] if review else [raw])
+        if review:r['reviews']=[dict(kind='material',candidate=raw,reasons=['missing_metadata'])]
+        response=refresh(client,token,h,r,'material');assert response.status_code==200,response.text
+    layer=store.read()['collection'];assert layer['records'][0]['observations']==[raw]
+    assert layer['reviews'][0]['candidate']==raw
+
+
+@pytest.mark.parametrize('child',['file','folder'])
+@pytest.mark.parametrize('destination',[ORIGIN+'/course/view.php?id=101',ORIGIN+'/mod/folder/view.php?id=999&folder=401','https://example.com/lecture.pdf'])
+def test_folder_child_destination_keeps_exact_module_and_plugin_only_constraints(child,destination):
+    with pytest.raises(CollectionRejected):
+        safe_destination(destination,module='folder',cm='301',**{child:'401'})
 
 
 @pytest.mark.parametrize('field,value',[

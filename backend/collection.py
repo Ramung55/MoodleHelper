@@ -219,7 +219,7 @@ class CollectionService:
             for r in [item]+item['references']:
                 if r['sourcePageUrl']!=item['sourcePageUrl'] or r['sourceUrl']!=item['sourceUrl']: reject()
                 validate_instant(r['observedAt'],'observedAt')
-                if 'destinationUrl' in r: safe_destination(r['destinationUrl'],module=module,cm=cm,folder=item.get('sourceFolderId'),context=item.get('sourceContextId'))
+                if 'destinationUrl' in r: safe_destination(r['destinationUrl'],module=module,cm=cm,folder=item.get('sourceFolderId'),file=item.get('sourceFileId'),context=item.get('sourceContextId'))
                 if 'listingChildResourceKeys' in r:
                     if r.get('listingScope')!='supplied_listing_only': reject()
                     if len(r['listingChildResourceKeys'])!=len(set(r['listingChildResourceKeys'])): reject()
@@ -346,7 +346,7 @@ def safe_mime(value):
     return value in trusted or len(value)<=127 and re.fullmatch(r'[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*',value) and all(not private_part(p) for p in value.split('/'))
 
 
-def safe_destination(url, *, module, cm, folder=None, context=None):
+def safe_destination(url, *, module, cm, folder=None, file=None, context=None):
     validate_url(url)
     if len(url)>4096 or re.search(r'[\s\\\x00-\x1f\x7f]',url): reject()
     from urllib.parse import urlsplit
@@ -359,8 +359,14 @@ def safe_destination(url, *, module, cm, folder=None, context=None):
             if match[2]!=module or context and context!=match[1] or parsed.query not in ['', 'forcedownload=1'] or not all(filename(x) for x in match[3].split('/')): reject()
         elif folder:
             if url!=f'{ORIGIN}/mod/folder/view.php?id={cm}&folder={folder}': reject()
-        elif url!=f'{ORIGIN}/mod/{module}/view.php?id={cm}': reject()
+        else:
+            # A destination is a link target, not the source module identity.
+            # #17 accepts any canonical course/material activity target for a
+            # root module. Folder file children remain pluginfile-only, and
+            # folder children above retain their exact parent-module binding.
+            if file or not re.fullmatch(re.escape(ORIGIN)+r'/(?:course|mod/(?:resource|url|folder))/view\.php\?id=[1-9][0-9]*',url): reject()
     else:
+        if file or folder: reject()
         if parsed.path!='/' and not all(filename(v) for v in parsed.path[1:].removesuffix('/').split('/')): reject()
         seen=set()
         if '?' in url.split('#')[0]:
