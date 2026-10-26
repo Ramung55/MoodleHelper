@@ -13,6 +13,7 @@ from backend import schemas
 
 
 OPERATIONS = [
+    ("get", "/api/bridge-context", None),
     ("get", "/api/connection", None),
     ("get", "/api/snapshot", None),
     ("put", "/api/snapshot", "snapshot"),
@@ -87,7 +88,7 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
     expected_operations = {(method, path) for path, ops in contract["paths"].items() for method in ops}
     actual_operations = {(method, path) for path, ops in generated["paths"].items() for method in ops}
     assert actual_operations == expected_operations == {(method, path) for method, path, _ in OPERATIONS}
-    assert len(actual_operations) == 17
+    assert len(actual_operations) == 18
     assert not generated["components"].get("securitySchemes")
     for method, path in expected_operations:
         expected = contract["paths"][path][method]

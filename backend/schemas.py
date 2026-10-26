@@ -359,3 +359,9 @@ AiAvailability = AiUnavailable | AiAvailable
 
 class ProposedHttpError(WireModel):
     message: str
+
+
+class BridgeContext(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    version: Literal["1"]
+    binding: str = Field(pattern=r"^[0-9a-f]{32}$")

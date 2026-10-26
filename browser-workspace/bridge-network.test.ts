@@ -1,0 +1,105 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import path from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { BridgeClient } from "../frontend/src/services/extension-adapter";
+import { createWorker, installRelay, BACKEND, type Sender } from "../extension/src/dashboard-bridge";
+import { catalog, requestError, route, success, validReply, validResult, type Request } from "../shared/src/bridge";
+
+// Explicit Chrome API/window SHIM: no installed Chrome or live Moodle is observed.
+// Production client + relay + worker use real loopback FastAPI and isolated SQLite.
+export class WindowShim {
+  location={origin:"http://127.0.0.1:5173"}; top:any=this;
+  listeners=new Set<(event:any)=>void>(); messages:any[]=[];
+  addEventListener(_name:string,listener:any){this.listeners.add(listener);}
+  removeEventListener(_name:string,listener:any){this.listeners.delete(listener);}
+  postMessage(data:any,target:string){if(target !== this.location.origin)throw Error("wrong target");this.messages.push(structuredClone(data));queueMicrotask(() => this.emit(data));}
+  emit(data:any,origin=this.location.origin,source:any=this){for(const listener of this.listeners)listener({data,origin,source});}
+}
+const sender:Sender={id:"extension-test",frameId:0,tab:{id:1},documentId:"document-1",url:"http://127.0.0.1:5173/settings"};
+let child:ChildProcess, temporaryDirectory:string;
+let traffic:{url:string;method:string;headers:Record<string,string>;body?:string;status:number}[]=[];
+let worker:ReturnType<typeof createWorker>, win:WindowShim, client:BridgeClient;
+let allowed=true;
+let removeRelay:()=>void;
+const root=path.resolve(import.meta.dirname,"..");
+const python=path.join(root,process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+async function stop(){if(child && child.exitCode === null)await new Promise<void>(resolve => {child.once("exit",()=>resolve());child.kill();});}
+async function start(){
+  const env={...process.env,MOODLE_HELPER_DATABASE_URL:`sqlite:///${path.join(temporaryDirectory,"bridge.sqlite3").replaceAll("\\","/")}`,MOODLE_HELPER_DATASET:"demo"};
+  for(const k of ["MOODLE_HELPER_MOODLE_ORIGIN","MOODLE_HELPER_PROFILE_LABEL","MOODLE_HELPER_STABLE_USER_ID"])delete env[k];
+  child=spawn(python,["-m","uvicorn","backend.main:app","--host","127.0.0.1","--port","8000"],{cwd:root,env,windowsHide:true,stdio:"pipe"});
+  let logs="";child.stderr?.on("data",d=>logs+=d);child.on("error",e=>logs+=e.message);
+  for(let n=0;n<150;n++){
+    if(child.exitCode !== null)throw Error(`Isolated FastAPI could not start: ${logs}`);
+    try{if((await fetch(BACKEND+"/docs")).ok)return;}catch{}
+    await new Promise(resolve=>setTimeout(resolve,50));
+  }throw Error(`No FastAPI: ${logs}`);
+}
+function setup(){
+  worker=createWorker({runtimeId:"extension-test",grant:async()=>allowed,fetcher:async(url,init)=>{
+    const response=await fetch(url,init);
+    traffic.push({url:String(url),method:init?.method || "GET",headers:Object.fromEntries(new Headers(init?.headers).entries()),body:init?.body as string|undefined,status:response.status});
+    return response;
+  }});
+  win=new WindowShim();
+  removeRelay=installRelay(win as any,{id:"extension-test",onMessage:{addListener:()=>{}},sendMessage:(r,cb)=>void worker(r,sender).then(cb)});
+  client=new BridgeClient(win as any);
+}
+beforeAll(async()=>{
+  // Do not attach to or disturb a developer backend using the fixed production target.
+  try{await fetch(BACKEND+"/docs");throw Error("Port 8000 occupied; stop the developer backend before this isolated test.");}catch(e){if(e instanceof Error && e.message.includes("occupied"))throw e;}
+  temporaryDirectory=await mkdtemp(path.join(tmpdir(),"moodle-bridge-"));await start();setup();
+},20000);
+afterAll(async()=>{client?.dispose();removeRelay?.();await stop();if(temporaryDirectory)await rm(temporaryDirectory,{recursive:true,force:true});});
+
+describe("production bridge through labeled Chrome/window shim and real SQLite network",()=>{
+  it("executes and inspects all 17 operations with actual mutation/read results",async()=>{
+    expect((await client.connect()).moodleCollection).toBe("unavailable");
+    expect((await client.connection()).state).toBe("demo");
+    const original=await client.load();expect(original.courses.length).toBeGreaterThan(0);
+    const discovered=await client.ingestCourseDiscovery([{sourceCourseId:"777",sourceUrl:"https://moodle.sdu.edu.kz/course/view.php?id=777",title:{kind:"known",value:"Bridge course"},termIndicators:{kind:"unknown"}}]);
+    const course=discovered.courses.find(c=>c.discovery?.sourceCourseId === "777")!;expect(course.name).toBe("Bridge course");
+    expect((await client.setTrackedCourses([course.id])).settings.trackedCourseIds).toEqual([course.id]);
+    expect((await client.updateOverlay("a1",{titleOverride:"Bridge override",completed:true})).overlays.find(o=>o.assessmentId === "a1")?.titleOverride).toBe("Bridge override");
+    expect((await client.updateOverlay("a1",{titleOverride:undefined,dateOverride:null,overrideBase:null})).overlays.find(o=>o.assessmentId === "a1")?.titleOverride).toBeUndefined();
+    const created=await client.addPersonalEvent({courseId:course.id,title:"Bridge event",type:"other",date:{kind:"week",week:2}});
+    const id=created.assessments.find(a=>a.title === "Bridge event")!.id;
+    expect((await client.deletePersonalEvent(id)).assessments.some(a=>a.id === id)).toBe(false);
+    expect((await client.updateSettings({semesterWeeks:19})).settings.semesterWeeks).toBe(19);
+    const imported=await client.importDocument("c-csc","bridge.pdf",s=>expect(s.documents.at(-1)?.mocked).toBe(true));
+    expect(imported.result.ok).toBe(true);
+    const candidate=imported.snapshot.candidates.at(-1)!;
+    expect((await client.review(candidate.id,{kind:"correct",title:"Bridge reviewed",type:"exam",date:{kind:"unknown"}})).candidates.at(-1)?.status).toBe("corrected");
+    expect((await client.downloadMaterial("m1")).supported).toBe(false);
+    expect((await client.aiAvailability()).available).toBe(false);
+    const alerts=[{id:"bridge-alert",kind:"sync" as const,message:"Local test",deliveryKey:"bridge",createdAt:"2026-10-26",read:false}];
+    expect((await client.saveAlerts(alerts)).alerts).toEqual(alerts);
+    const sync=await client.syncAll(s=>expect(s.sync.length).toBeGreaterThan(0));expect(sync.sync.every(c=>c.status !== "syncing")).toBe(true);
+    expect(await client.replaceAll(original)).toEqual(original);
+    expect((await client.deleteLocalData()).courses).toEqual([]);
+    expect((await client.resetDemo()).courses.length).toBeGreaterThan(0);
+    const operations=win.messages.filter(m=>m.source === "moodle-helper-web").map(m=>m.operation);
+    expect(new Set(operations.filter(o=>o !== "hello"))).toEqual(new Set(Object.keys(catalog)));
+    for(const t of traffic){expect(t.url.startsWith(BACKEND+"/api/")).toBe(true);expect(t.headers.cookie).toBeUndefined();expect(t.headers.authorization).toBeUndefined();if(!t.url.endsWith("bridge-context"))expect(t.headers["x-moodle-helper-bridge-binding"]).toMatch(/^[a-f0-9]{32}$/);}
+    for(const m of win.messages.filter(m=>m.source === "moodle-helper-extension")){expect(JSON.stringify(m)).not.toMatch(/Set-Cookie|password-sentinel|token-sentinel|private-exception/);}
+  });
+  it("rejects process restart before a mutation; explicit reconnect and legacy HTTP still work",async()=>{
+    const before=await client.load();await stop();await start();
+    await expect(client.updateSettings({semesterWeeks:27})).rejects.toMatchObject({code:"RECONNECT_REQUIRED"});
+    expect(traffic.at(-1)?.status).toBe(409);
+    const direct=await (await fetch(BACKEND+"/api/snapshot")).json();expect(direct).toEqual(before);
+    await client.connect();expect(await client.load()).toEqual(before);
+    const legacy=await fetch(BACKEND+"/api/settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({semesterWeeks:18})});expect(legacy.ok).toBe(true);
+    expect((await client.load()).settings.semesterWeeks).toBe(18);
+  });
+  it("revoked grant rejects without fetch; reload loses sessions and never replays a mutation",async()=>{
+    const count=traffic.length;allowed=false;await expect(client.load()).rejects.toMatchObject({code:"PERMISSION_DENIED"});expect(traffic).toHaveLength(count);allowed=true;
+    await client.connect();const old=win.messages.findLast(m=>m.operation === "hello");
+    const session=win.messages.findLast(m=>m.ok && m.result?.sessionId).result.sessionId;
+    const replacement=createWorker({runtimeId:"extension-test",grant:async()=>true});
+    const reply=await replacement({...old,operation:"deleteLocalData",requestId:"reload-write",sessionId:session,payload:{}},sender);
+    expect(reply?.error?.code).toBe("RECONNECT_REQUIRED");
+  });
+});

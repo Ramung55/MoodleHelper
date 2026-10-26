@@ -12,6 +12,8 @@ import { CourseTag, PageHeader } from "@/components/mh/bits";
 import { makeBackup, previewRestore, type RestorePreview } from "@/domain/backup";
 import type { AiAvailability } from "@/services/adapter";
 import { useApp } from "@/lib/app-store";
+import { BridgeClient } from "@/services/extension-adapter";
+import { BridgeError } from "../../../shared/src/bridge";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -27,6 +29,26 @@ export const Route = createFileRoute("/settings")({
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return <section className="rounded-lg border bg-card p-5"><h2 className="mb-3 text-lg font-semibold">{title}</h2>{children}</section>;
+}
+
+export function BridgeConnection() {
+  const [guidance, setGuidance] = useState("Check the optional extension connection. The local HTTP app remains available.");
+  const [busy, setBusy] = useState(false);
+  const check = async () => {
+    setBusy(true);
+    const client = new BridgeClient();
+    try {
+      await client.connect();
+      setGuidance("Local repository bridge ready. Moodle collection is unavailable. The dashboard continues using the local HTTP backend.");
+    } catch (e) {
+      setGuidance(e instanceof BridgeError ? e.message : "Reload the dashboard and reconnect.");
+    } finally {client.dispose();setBusy(false);}
+  };
+  return <div className="my-3 space-y-2">
+    <p role="status" className="text-sm">{guidance}</p>
+    <p className="text-xs text-muted-foreground">Use Chrome 106 or newer on localhost:5173 or 127.0.0.1:5173. Enable the extension and allow local site access. Start the backend on 127.0.0.1:8000. After a timeout, reload or backend restart, a write may have completed: reconnect and refresh saved data before manually retrying. Live Moodle identity and collection setup are separate and unavailable here.</p>
+    <Button variant="outline" disabled={busy} onClick={() => void check()}>{busy ? "Checking extension…" : "Check / reconnect extension"}</Button>
+  </div>;
 }
 
 /** Confirmed saved values only; pending/error/retry live in the provider across navigation. */
@@ -102,6 +124,7 @@ function SettingsPage() {
         <TrackedCourses />
 
         <Section title="Connection & sync">
+          <BridgeConnection />
           <p className="text-sm"><strong>State:</strong> {conn?.state === "demo" ? "Demo mode (no extension)" : conn?.state}</p>
           <p className="mb-3 text-sm text-muted-foreground">{conn?.message}</p>
           <ul className="mb-3 space-y-1 text-sm">

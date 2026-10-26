@@ -2,13 +2,14 @@ import { access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 describe("emitted browser modules", () => {
-  for (const name of ["extension", "shared"]) {
+  for (const name of ["shared"]) {
     it(`loads the actual ${name} ESM build without Chrome APIs`, async () => {
       expect("chrome" in globalThis).toBe(false);
       const artifact = new URL(`../${name}/dist/index.js`, import.meta.url);
       await access(fileURLToPath(artifact));
       const module = await import(/* @vite-ignore */ artifact.href);
-      expect(Object.keys(module)).toEqual([]);
+      expect(module.catalog).toBeDefined();
+      expect(Object.keys(module.catalog)).toHaveLength(17);
     });
   }
 });

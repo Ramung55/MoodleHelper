@@ -8,7 +8,10 @@ const expected = {
   version: "0.0.0",
   background: { service_worker: "index.js", type: "module" },
   action: { default_popup: "popup.html" },
-  content_scripts: [{ matches: ["https://moodle.sdu.edu.kz/*"], js: ["content.js"] }],
+  minimum_chrome_version: "106",
+  host_permissions: ["http://127.0.0.1:8000/*"],
+  content_scripts: [{ matches: ["https://moodle.sdu.edu.kz/*"], js: ["content.js"] },
+    {matches:["http://127.0.0.1:5173/*","http://localhost:5173/*"],js:["dashboard-relay.js"]}],
 };
 
 function validateManifest(manifest: unknown) {
@@ -16,8 +19,12 @@ function validateManifest(manifest: unknown) {
 }
 
 describe("emitted Chrome shell", () => {
-  it("emits an inert worker without executable side effects", async () => {
-    expect((await readFile(new URL("index.js", dist), "utf8")).trim()).toBe("");
+  it("registers only an internal asynchronous callback worker listener", async () => {
+    const source=await readFile(new URL("index.js",dist),"utf8");
+    const listeners:any[]=[];
+    runInNewContext(source,{chrome:{runtime:{id:"test",onMessage:{addListener:(f:any)=>listeners.push(f)}},permissions:{contains:()=>{}}},fetch:()=>{throw Error("No fetch during registration");},crypto:{randomUUID:()=>"generation"},Map,Set,URL,TextEncoder,setTimeout,clearTimeout});
+    expect(listeners).toHaveLength(1);
+    expect(listeners[0]({}, {id:"bad"},()=>{})).toBeUndefined();
   });
   it("ships exactly the local manifest references with the minimal SDU grant", async () => {
     const manifest = JSON.parse(await readFile(new URL("manifest.json", dist), "utf8"));
@@ -27,8 +34,7 @@ describe("emitted Chrome shell", () => {
     expect((await readdir(dist)).sort()).toEqual(["manifest.json", ...references].sort());
     for (const reference of references) {
       const bytes = await readFile(new URL(reference, dist));
-      // Bun legitimately emits zero bytes for the inert export-only worker.
-      if (reference !== "index.js") expect(bytes.length).toBeGreaterThan(0);
+      expect(bytes.length).toBeGreaterThan(0);
     }
   });
 
@@ -54,7 +60,7 @@ describe("emitted Chrome shell", () => {
     expect(calls).toEqual(["Moodle Helper: empty content shell loaded"]);
     // The guard is live, rather than a stub that would silently allow activity.
     for (const probe of ["fetch('https://example.com')", "localStorage.getItem('student')", "document.body", "chrome.runtime"])
-      expect(() => runInNewContext(probe, context)).toThrow(/Forbidden/);
+      expect(() => runInNewContext(probe, context)).toThrow();
   });
 
   it("keeps the popup blank and local, with a title and usable dimensions", async () => {

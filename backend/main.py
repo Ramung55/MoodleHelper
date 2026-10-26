@@ -1,13 +1,14 @@
 """ASGI application entry point."""
 
 import os
+from uuid import uuid4
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from backend.routers import router
+from backend.routers import router, context_router
 from backend.services import BackendService
 from backend.storage import SnapshotStore
 from backend.database_config import DatabaseConfig
@@ -22,6 +23,7 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
             configuration = DatabaseConfig.from_environment(os.environ)
             selected = SQLiteStore(configuration.url, configuration.namespace)
         app.state.service = BackendService(selected)
+        app.state.bridge_binding = uuid4().hex
         try:
             yield
         finally:
@@ -32,6 +34,16 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
                   description="Local fictional demo API; one process-local dataset, no authentication or live Moodle access.", lifespan=lifespan)
     if store is not None:
         app.state.service = BackendService(store)
+        app.state.bridge_binding = uuid4().hex
+
+    @app.middleware("http")
+    async def bridge_precondition(request: Request, call_next):
+        # Runs before body parsing and service work, including malformed writes.
+        binding = request.headers.get("X-Moodle-Helper-Bridge-Binding")
+        if (request.url.path.startswith("/api/") and request.url.path != "/api/bridge-context"
+                and binding is not None and binding != getattr(app.state, "bridge_binding", None)):
+            return JSONResponse(status_code=409, content={"message": "Backend context changed. Reconnect."})
+        return await call_next(request)
 
     @app.exception_handler(StorageError)
     async def storage_error(request: Request, error: StorageError):
@@ -51,6 +63,7 @@ def create_app(store: SnapshotStore | None = None) -> FastAPI:
         return JSONResponse(status_code=500, content={"message": "Internal server error."})
 
     app.include_router(router)
+    app.include_router(context_router)
     return app
 
 

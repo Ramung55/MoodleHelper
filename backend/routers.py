@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Request, HTTPException
+from fastapi import APIRouter, Body, Depends, Request, HTTPException, Header
 
 from backend import schemas as s
 from backend.services import BackendService
@@ -13,9 +13,22 @@ def service(request: Request) -> BackendService:
 
 
 Service = Annotated[BackendService, Depends(service)]
+
+
+def bridge_header(binding: Annotated[str, Header(alias="X-Moodle-Helper-Bridge-Binding", description="Optional process binding precondition. Absence preserves legacy clients; mismatch rejects before parsing or service work.")] = None):
+    # Enforcement is middleware, before parsing; dependency documents the wire.
+    pass
 # Each operation declares response models; documentation is generated from the
 # actual handlers/models rather than returning a copy of the source document.
-router = APIRouter(prefix="/api", responses={"default": {"model": s.ProposedHttpError}, 422: {"model": s.ProposedHttpError}})
+router = APIRouter(prefix="/api", dependencies=[Depends(bridge_header)], responses={"default": {"model": s.ProposedHttpError}, 422: {"model": s.ProposedHttpError}, 409: {"model": s.ProposedHttpError}})
+
+
+context_router = APIRouter(prefix="/api", responses={"default": {"model": s.ProposedHttpError}, 422: {"model": s.ProposedHttpError}})
+
+
+@context_router.get("/bridge-context", response_model=s.BridgeContext, operation_id="bridgeContext", tags=["Connection"])
+def bridge_context(request: Request):
+    return {"version": "1", "binding": request.app.state.bridge_binding}
 
 
 def wire(model: s.WireModel) -> dict:
