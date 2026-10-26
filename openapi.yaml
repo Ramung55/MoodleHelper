@@ -2,53 +2,15 @@ openapi: 3.1.0
 info:
   title: Moodle Helper - proposed backend contract
   version: 0.1.0
-  description: 'PROPOSED HTTP MAPPING, NOT AN EXISTING API. The frontend has no HTTP
-    API client: frontend/src/services/index.ts always returns DemoAdapter, which stores
-    data in localStorage. frontend/src/services/extension-adapter.ts implements only
-    an origin-checked window.postMessage ping/hello handshake, not HTTP transport
-    or a data-capable ExtensionAdapter.
-
-
-    This document maps every method in MoodleHelperAdapter to a proposed method/path.
-    Paths, HTTP verbs, 200 success status codes, and the generic error envelope are
-    design choices for a future HTTP adapter. No frontend request is currently sent
-    to these URLs. Implementing a backend alone will not connect the frontend; a matching
-    HTTP adapter is still required.
-
-
-    Authentication: no adapter request carries credentials, an Authorization header,
-    or a session cookie. Every operation therefore has security: []. This describes
-    the current credential-free local/demo boundary, not permission to expose student
-    data publicly. Authentication, authorization, user isolation, trusted-origin policy,
-    and deployment must be designed before any internet-facing backend; no login flow
-    or auth scheme is invented.
-
-
-    All successful return values follow the TypeScript adapter contract. Data operations
-    return the complete Snapshot, not a partial entity, unless the adapter explicitly
-    declares a wrapper. Readonly adapter.kind (''demo'' | ''extension'') is metadata,
-    not an endpoint. File export/backup preview, derived workload, filtering, and
-    eligible-alert calculations are frontend-local and have no backend endpoint.
-
-
-    syncAll and importDocument accept in-process progress callbacks. This proposed
-    HTTP mapping returns only the final result; it cannot carry a JavaScript callback.
-    Progress transport and any cancellation contract remain unspecified. No invented
-    SSE, polling, websocket, or job endpoint is claimed.
-
-
-    Schemas mirror frontend/src/domain/types.ts and frontend/src/services/adapter.ts.
-    String timestamps, timezones, and URLs are intentionally not given stricter formats
-    than the source schemas. Defaulted booleans are present in the inferred Snapshot
-    output; parsing a restore may materialize the source Zod defaults. Unknown object
-    fields are not made invalid here because the source Zod objects strip extras where
-    parsed rather than universally rejecting them.
-
-
-    Current adapter failures are rejected JavaScript promises and inline ImportResult/download
-    capability responses, not HTTP errors. The shared default response below is a
-    proposed HTTP convention only; no 401/403 or not-found behavior is inferred.'
-x-contract-status: proposed-http-projection-of-local-adapter
+  description: >-
+    Local loopback API. Snapshot operations support the existing adapter; the
+    durable synthetic queue is separate from Snapshot and does not access Moodle.
+    The backend selects its namespace at startup. Queue mutations require the
+    current process binding from /api/bridge-context; a stale or absent binding
+    returns 409. A queue run reports counts and job states, not Moodle progress.
+    Queue execution may repeat after interruption, while the result and completed
+    state commit together. Requests and responses contain no credentials.
+x-contract-status: implemented-local-api
 x-source-files:
 - frontend/src/services/adapter.ts
 - frontend/src/services/index.ts
