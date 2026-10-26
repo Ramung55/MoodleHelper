@@ -263,3 +263,23 @@ in ANY output. Verify all #10/#11/#13/#15 regressions and run existing fixture
 hygiene checks; no new tests are claimed by this PM decision. Local testability
 is READY; live compatibility is separately blocked by #3 evidence, not an invented
 UI requirement or a reason to skip this bounded pure parser.
+
+## Implementation and offline verification (#17)
+
+`collectMoodleMaterials(inputs, selectedSourceCourseIds, observedAt)` implements
+this boundary in `extension/src/moodle-materials.ts`. The output is detached raw
+evidence only and remains absent from runtime entry points, storage, backend and
+Snapshot ingestion. Context/module-instance/file/folder identifiers remain distinct
+string facts; context and instance IDs do not change stable identity. References
+retain validated alternate URLs; conflicting destination metadata is absent rather
+than chosen arbitrarily. Invalid parent associations invalidate their descendants.
+
+Offline engineer checks on 2026-10-26: focused **146 tests passed**; full frontend
+**599 tests / 12 files passed**, including #10/#11/#13/#15 regressions and live
+localhost API integration; production frontend and inert extension builds plus standalone strict
+collector TypeScript check passed. Backend **444 tests passed**, including all
+**25** #4 fixture hygiene checks. Existing Starlette/httpx deprecation warning and
+non-failing Vite tsconfig-path plugin notice remain. The supplemental full frontend
+`tsc --noEmit` still reports pre-existing strict-index/optional-field errors in
+other files; neither new material file adds errors under that command. No package
+was added or installed. These invented fixtures do not verify live SDU behavior.

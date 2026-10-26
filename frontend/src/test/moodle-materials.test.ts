@@ -139,7 +139,7 @@ describe("#17 synthetic material collection (live SDU unverified)", () => {
     expect(result.observations[0]!).not.toHaveProperty("destinationUrl");
     expect(JSON.stringify(result)).not.toContain(href); reason(result, "unsafe_external_url");
   });
-  it.each(["https://example.org/", "https://example.org/lecture/", "https://example.org/watch?v=abc123", "https://127.0.0.1/notes?page=2", "https://[::1]/notes#part-2"])("preserves accepted bounded external example %s", href => {
+  it.each(["https://example.org/", "https://example.org/lecture/", "https://example.org/watch?v=abc123", "https://127.0.0.1/notes?page=2", "https://[::1]/notes#part-2", "https://example.org/notes?id=.#.."])("preserves accepted bounded external example %s", href => {
     expect(one(course(moduleNode("201", "url", href, "", ""))).destinationUrl).toBe(href);
   });
   it.each(["Week%201.pdf", "%D0%9B%D0%B5%D0%BA%D1%86%D0%B8%D1%8F%201.pdf", "%D0%A1%D0%BB%D0%B0%D0%B9%D0%B4%D1%8B%202.pptx"])("preserves canonical Unicode/space filename paths precisely %s", filename => {
@@ -222,8 +222,26 @@ describe("#17 synthetic material collection (live SDU unverified)", () => {
     const mismatch = collectMoodleMaterials([input(course(), "/course/view.php?id=101", { requestedUrl: origin + "/course/view.php?id=102" })], ["101"], time);
     expect(mismatch.observations).toEqual([]); reason(mismatch, "unsafe_url");
   });
+  it.each(["0", "01", "-1", "1.0", "1e3", "private-sentinel-secret"])("does not coerce source IDs %s", value => {
+    const badModule = collect(course(moduleNode(value)));
+    expect(badModule.observations).toEqual([]); reason(badModule, "missing_identity");
+    const badInstance = collect(course(moduleNode("201", "resource", pdf, `data-resource-id="${value}"`)));
+    expect(badInstance.observations).toEqual([]); reason(badInstance, "missing_identity");
+    const badChild = collect(folder(entry(value)), "/mod/folder/view.php?id=301");
+    expect(badChild.observations).toHaveLength(1); reason(badChild, "missing_identity");
+    if (value.includes("private")) for (const result of [badModule, badInstance, badChild]) expect(JSON.stringify(result)).not.toContain(value);
+  });
   it.each(["?id=101&id=101", "?%69d=101", "?id=101&", "?id=101&sesskey=secret", "?id=01", "?id=0", "?id=101#x"])("rejects noncanonical source course query %s", query => {
     const result = collect(course(), "/course/view.php" + query); expect(result.observations).toEqual([]); reason(result, "unsafe_url");
+  });
+  it.each([origin + "/course/./view.php?id=101", origin + "/x/../course/view.php?id=101", origin + "/course/%76iew.php?id=101", "https://moodle.sdu.edu.kz:443/course/view.php?id=101", "https://MOODLE.sdu.edu.kz/course/view.php?id=101"])("rejects normalized source URL aliases %s", finalUrl => {
+    const result = collectMoodleMaterials([input(course(), "/course/view.php?id=101", { finalUrl, requestedUrl: finalUrl })], ["101"], time);
+    expect(result.observations).toEqual([]); expect(result.coverage).toBe("none"); expect(JSON.stringify(result)).not.toContain(finalUrl);
+  });
+  it("rejects malformed DNS labels without returning their URLs", () => {
+    const href = `https://${"a".repeat(64)}.example/lecture`;
+    const result = collect(course(moduleNode("201", "url", href, "", "")));
+    expect(result.observations[0]!).not.toHaveProperty("destinationUrl"); reason(result, "unsafe_external_url"); expect(JSON.stringify(result)).not.toContain(href);
   });
   it("reports empty, conflicting, paginated and truncated lists explicitly", () => {
     expect(collect(course('<span data-role="materials-empty"></span>')).coverage).toBe("complete");

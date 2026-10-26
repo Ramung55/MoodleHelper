@@ -95,7 +95,7 @@ const mimeType = (mime: string): MaterialFileType => {
 const privatePart = (value: string): boolean =>
   /(?:^|[._~-])(?:token|access|sesskey|auth|authorization|key|api|signature|secret|password|credential|bearer)(?:$|[._~-])/i.test(value) ||
   /[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(value) || /[A-Za-z0-9_-]{32}/.test(value);
-const segment = (value: string): boolean => /^[A-Za-z0-9._~-]+$/.test(value) && value !== "." && value !== ".." && !privatePart(value);
+const literalValue = (value: string): boolean => /^[A-Za-z0-9._~-]+$/.test(value) && !privatePart(value);
 const trustedMime = new Set(["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.presentationml.presentation"]);
 const safeMime = (value: string): boolean => trustedMime.has(value) || (value.length <= 127 &&
   /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(value) && value.split("/").every(part => !privatePart(part)));
@@ -143,11 +143,11 @@ function safeDestination(value: string | null, moduleType: ModuleType, pluginOnl
     const url = new URL(value);
     if (url.protocol !== "https:" || url.href !== value || url.username || url.password ||
       !/^https:\/\/(?:\[[0-9a-f:]+\]|[a-z0-9.-]+)(?:\/)/.test(value) || url.port ||
-      (!url.hostname.startsWith("[") && !url.hostname.split(".").every(part => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(part)))) return { reason: "unsafe_external_url" };
+      (!url.hostname.startsWith("[") && (url.hostname.length > 253 || !url.hostname.split(".").every(part => part.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(part))))) return { reason: "unsafe_external_url" };
     const path = url.pathname;
     if (path !== "/" && (!path.startsWith("/") || !path.slice(1).replace(/\/$/, "").split("/").every(filenameSegment))) return { reason: "unsafe_external_url" };
     const hashAt = value.indexOf("#");
-    if (hashAt !== -1 && !segment(value.slice(hashAt + 1))) return { reason: "unsafe_external_url" };
+    if (hashAt !== -1 && !literalValue(value.slice(hashAt + 1))) return { reason: "unsafe_external_url" };
     const queryAt = value.indexOf("?");
     if (queryAt !== -1 && (hashAt === -1 || queryAt < hashAt)) {
       const query = value.slice(queryAt + 1, hashAt === -1 ? undefined : hashAt);
