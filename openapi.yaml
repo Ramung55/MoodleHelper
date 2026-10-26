@@ -2195,6 +2195,7 @@ components:
             oneOf:
             - $ref: '#/components/schemas/CalendarSafeReview'
             - $ref: '#/components/schemas/MaterialSafeReview'
+          maxItems: 0
         diagnostics:
           type: array
           items:
@@ -2206,10 +2207,7 @@ components:
         coverage: *id009
         scope:
           type: string
-          enum:
-          - visited_activity_only
-          - supplied_pages_only
-          - supplied_ranges_only
+          const: visited_activity_only
       required:
       - kind
       - observations
@@ -2255,9 +2253,7 @@ components:
         reviews:
           type: array
           items:
-            oneOf:
-            - $ref: '#/components/schemas/CalendarSafeReview'
-            - $ref: '#/components/schemas/MaterialSafeReview'
+            $ref: '#/components/schemas/CalendarSafeReview'
         diagnostics:
           type: array
           items:
@@ -2269,10 +2265,7 @@ components:
         coverage: *id009
         scope:
           type: string
-          enum:
-          - visited_activity_only
-          - supplied_pages_only
-          - supplied_ranges_only
+          const: supplied_ranges_only
       required:
       - kind
       - observations
@@ -2318,9 +2311,7 @@ components:
         reviews:
           type: array
           items:
-            oneOf:
-            - $ref: '#/components/schemas/CalendarSafeReview'
-            - $ref: '#/components/schemas/MaterialSafeReview'
+            $ref: '#/components/schemas/MaterialSafeReview'
         diagnostics:
           type: array
           items:
@@ -2332,10 +2323,7 @@ components:
         coverage: *id009
         scope:
           type: string
-          enum:
-          - visited_activity_only
-          - supplied_pages_only
-          - supplied_ranges_only
+          const: supplied_pages_only
       required:
       - kind
       - observations
@@ -2384,6 +2372,7 @@ components:
             oneOf:
             - $ref: '#/components/schemas/CalendarSafeReview'
             - $ref: '#/components/schemas/MaterialSafeReview'
+          maxItems: 0
         diagnostics:
           type: array
           items:
@@ -2395,10 +2384,7 @@ components:
         coverage: *id009
         scope:
           type: string
-          enum:
-          - visited_activity_only
-          - supplied_pages_only
-          - supplied_ranges_only
+          const: visited_activity_only
       required:
       - kind
       - observations
@@ -2447,6 +2433,7 @@ components:
             oneOf:
             - $ref: '#/components/schemas/CalendarSafeReview'
             - $ref: '#/components/schemas/MaterialSafeReview'
+          maxItems: 0
         diagnostics:
           type: array
           items:
@@ -2458,10 +2445,7 @@ components:
         coverage: *id009
         scope:
           type: string
-          enum:
-          - visited_activity_only
-          - supplied_pages_only
-          - supplied_ranges_only
+          const: visited_activity_only
       required:
       - kind
       - observations

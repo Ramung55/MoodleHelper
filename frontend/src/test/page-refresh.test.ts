@@ -10,6 +10,7 @@ import { createCollectionWorker, runtimeCollectionRepository, type CollectionRep
 import type { Runtime, Sender } from '../../../extension/src/dashboard-bridge';
 import type { CollectorResult, Snapshot } from '@/domain/types';
 import { makeBackup,previewRestore } from '@/domain/backup';
+import { emptySnapshot } from '@/services/demo-adapter';
 import { assignment,assignmentInput,dateNode } from './moodle-assignments-fixtures';
 import { calendarInput,calendarPage,calendarEvent,calendarDate } from './moodle-calendar-fixtures';
 import { account,origin,login } from './moodle-access-fixtures';
@@ -48,6 +49,9 @@ const materialInput=(html:string,path='/course/view.php?id=101')=>({document:new
 const course=(body='')=>`${account}<main data-region="course-content"><h1>Synthetic course</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><section data-region="course-section"><h2>Week 1</h2>${body||'<p data-region="materials-empty">No materials</p>'}</section></main>`;
 
 describe('#18 real pipeline AC1/AC2/AC5',()=>{
+  it('legacy demo deletion also removes the additive source layer',()=>{
+    const base={...seed,collection:{records:[],reviews:[],refreshes:[]}};expect(emptySnapshot(base)).not.toHaveProperty('collection');expect(base).toHaveProperty('collection');
+  });
   it('dispatches real assignment DOM once per visit, retains complete dates, updates identity and survives backup/restart/deletion',async()=>{
     const registry=syntheticFixtureRegistry();registry.assignment.collect=vi.fn(registry.assignment.collect);
     const f=setup(fixture(assignmentInput(assignment(dateNode()+dateNode('due','2026-10-29','individual','data-extension-evidence="Synthetic extension"')))),registry);
@@ -144,6 +148,36 @@ describe('#18 lifecycle AC3/AC4',()=>{
     const source=fixture();const b=bridge(()=>source);const repo:CollectionRepository={...b.repository,refresh:async()=>{throw Error('private-sentinel');}};
     const c=createPageRefresh({source:()=>source,repository:repo,registry:syntheticFixtureRegistry(),clock:()=>time});c.notify();await until(()=>c.state.status==='failed');expect(c.state.reason).toBe('persistence_failed');expect(JSON.stringify(c.state)).not.toContain('private-sentinel');expect(await json('/api/snapshot')).toEqual(saved);c.stop();initial.coordinator.stop();
   });
+  it('real SQLite writer lock returns a visible fixed failure through actual HTTP without erasing earlier facts',async()=>{
+    const initial=setup();initial.coordinator.notify();await until(()=>initial.coordinator.state.receipts.length===2);const saved=await json('/api/snapshot');initial.coordinator.stop();
+    const python=path.join(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
+    const locker=spawn(python,['-u','-c',"import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN IMMEDIATE'); print('locked',flush=True); sys.stdin.read(); c.rollback(); c.close()",database],{cwd:root,windowsHide:true,stdio:'pipe'});
+    let ready=false;locker.stdout?.on('data',v=>{if(String(v).includes('locked'))ready=true;});await until(()=>ready);
+    try {const f=setup();f.coordinator.notify();await until(()=>f.coordinator.state.status==='failed');expect(f.coordinator.state.reason).toBe('backend_unavailable');expect(await json('/api/snapshot')).toEqual(saved);f.coordinator.stop();}
+    finally {await new Promise<void>(resolve=>{locker.once('exit',()=>resolve());locker.stdin?.end();});}
+  });
+  it('process restart during a deferred collector invalidates the old result',async()=>{
+    let release!:(v:CollectorResult)=>void;const registry=syntheticFixtureRegistry();const real=registry.assignment.collect;registry.assignment.collect=()=>new Promise(resolve=>{release=resolve;});const f=setup(fixture(),registry);f.coordinator.notify();await until(()=>!!release);
+    await stop();await start();release(await real(f.source.input!,['101'],time));await until(()=>f.coordinator.state.status==='cancelled');expect((await json('/api/snapshot')).collection).toBeUndefined();f.coordinator.stop();
+  });
+  it('in-place document activity identity changes invalidate pending results',async()=>{
+    let release!:(v:CollectorResult)=>void;const registry=syntheticFixtureRegistry();const real=registry.assignment.collect;const input=assignmentInput();const parsed=await real(input,['101'],time);registry.assignment.collect=()=>new Promise(resolve=>{release=resolve;});const f=setup(fixture(input),registry);f.coordinator.notify();await until(()=>!!release);
+    input.document.querySelector('[data-assignment-id]')!.setAttribute('data-assignment-id','999');release(parsed);await until(()=>f.coordinator.state.status==='cancelled');expect((await json('/api/snapshot')).collection).toBeUndefined();f.coordinator.stop();
+  });
+  it('unassociated calendar reviews cannot guess the sole tracked course',async()=>{
+    const registry=syntheticFixtureRegistry();registry.calendar.collect=vi.fn(registry.calendar.collect);const f=setup(fixture(calendarInput(calendarPage(calendarEvent({course:null})))),registry);f.coordinator.notify();await until(()=>f.coordinator.state.status==='unavailable');expect(registry.calendar.collect).not.toHaveBeenCalled();expect((await json('/api/snapshot')).collection).toBeUndefined();f.coordinator.stop();
+  });
+  it('delayed begin response from A cannot launch a collector after observed B',async()=>{
+    const a=fixture();let source=a;const b=bridge(()=>source);let release!:()=>void;let hold=true;const repo:CollectionRepository={...b.repository,begin:async(...args)=>{const token=await b.repository.begin(...args);if(hold){hold=false;await new Promise<void>(r=>{release=r;});}return token;}};
+    const registry=syntheticFixtureRegistry();registry.assignment.collect=vi.fn(registry.assignment.collect);const c=createPageRefresh({source:()=>source,repository:repo,registry,clock:()=>time});c.notify();await until(()=>!!release);
+    source=fixture(assignmentInput(assignment().replaceAll('303','304'),{requestedUrl:origin+'/mod/assign/view.php?id=304',finalUrl:origin+'/mod/assign/view.php?id=304'}));c.notify();await until(()=>c.state.receipts.length===2);release();await tick();expect(registry.assignment.collect).toHaveBeenCalledTimes(1);expect((await json('/api/snapshot')).collection.refreshes).toHaveLength(2);c.stop();
+  });
+  it('retains separate complete empty and changed child listings on folder revisit without unioning proof',async()=>{
+    const folder=(children:string,attrs='')=>materialInput(`${account}<main data-region="activity" data-module-type="folder" data-course-module-id="301"><h1>Synthetic folder</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><span data-role="material-section">Week 2</span><ul data-region="folder-contents" ${attrs}>${children}</ul></main>`,'/mod/folder/view.php?id=301');
+    const f=setup(fixture(folder('<span data-role="folder-empty"></span>')));f.coordinator.notify();await until(()=>f.coordinator.state.receipts.length===1);
+    f.set(fixture(folder('<li data-region="folder-entry" data-entry-kind="file" data-file-id="401" data-file-type="pdf"><a data-role="entry-link" type="application/pdf" href="/pluginfile.php/701/mod_folder/content/2/lecture.pdf">Lecture</a></li>')));await until(()=>f.coordinator.state.receipts.length===2);
+    const records=(await json('/api/snapshot')).collection.records;const root=records.find((r:any)=>r.observations[0].kind==='folder');expect(root.observations).toHaveLength(2);expect(root.observations.map((v:any)=>v.references[0].listingChildResourceKeys)).toEqual([[],[records.find((r:any)=>r.observations[0].kind==='file').observations[0].resourceKey]]);expect(root.observations.every((v:any)=>v.listingCoverage==='complete')).toBe(true);f.coordinator.stop();
+  });
 });
 
 describe('internal worker sender/message bounds',()=>{
@@ -156,5 +190,12 @@ describe('internal worker sender/message bounds',()=>{
       const r=await f.worker({source:'moodle-helper-collection',version:'1',requestId:crypto.randomUUID(),operation:'beginPageVisit',binding:context.binding,payload},f.sender());expect(r).toMatchObject({ok:false,reason:'invalid_request'});
     }
     const r=await f.worker({source:'moodle-helper-web',version:'1',requestId:'dashboard',operation:'ingestPageRefresh',payload:{}},f.sender());expect(r).toMatchObject({ok:false});expect((await json('/api/snapshot')).collection).toBeUndefined();f.coordinator.stop();
+  });
+  it('deduplicates identical internal refresh requests, rejects conflicts and uses browser-derived document keys',async()=>{
+    const f=setup();const context=await f.repository.context();const begin={source:'moodle-helper-collection',version:'1',requestId:'begin-once',operation:'beginPageVisit',binding:context.binding,payload:{visitId:'worker-visit',pageUrl:f.source.url,selectionRevision:context.selectionRevision}};
+    const [a,b]=await Promise.all([f.worker(begin,f.sender()),f.worker(begin,f.sender())]);expect(a).toEqual(b);expect(f.calls.filter(c=>c.url.endsWith('/visits'))).toHaveLength(1);const body=JSON.parse(f.calls.find(c=>c.url.endsWith('/visits'))!.init!.body as string);expect(body.documentKey).toBe('7:synthetic-document');
+    const registry=syntheticFixtureRegistry();const result=await registry.assignment.collect(f.source.input!,['101'],time);const refresh={source:'moodle-helper-collection',version:'1',requestId:'refresh-once',operation:'ingestPageRefresh',binding:context.binding,payload:{visitToken:(a as any).result.visitToken,collector:'assignment',observedAt:time,result}};
+    const [one,two]=await Promise.all([f.worker(refresh,f.sender()),f.worker(refresh,f.sender())]);expect(one).toEqual(two);expect(f.calls.filter(c=>c.url.endsWith('/refresh'))).toHaveLength(1);
+    expect(await f.worker({...refresh,payload:{...refresh.payload,observedAt:'2026-10-28T12:00Z'}},f.sender())).toMatchObject({ok:false,reason:'duplicate_conflict'});expect((await json('/api/snapshot')).collection.refreshes).toHaveLength(1);f.coordinator.stop();
   });
 });

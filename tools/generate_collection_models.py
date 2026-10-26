@@ -20,7 +20,7 @@ def zod(s):
     if 'oneOf' in s: return 'z.union(['+', '.join(zod(v) for v in s['oneOf'])+'])'
     if 'const' in s: return 'z.literal('+json.dumps(s['const'])+')'
     if 'enum' in s: return 'z.enum('+json.dumps(s['enum'])+')'
-    if s['type']=='array': return 'z.array('+zod(s['items'])+')'+('.min('+str(s['minItems'])+')' if 'minItems' in s else '')
+    if s['type']=='array': return 'z.array('+zod(s['items'])+')'+('.min('+str(s['minItems'])+')' if 'minItems' in s else '')+('.max('+str(s['maxItems'])+')' if 'maxItems' in s else '')
     return {'string':'z.string()','integer':'z.number().int()','boolean':'z.boolean()'}[s['type']]
 python=['# BEGIN GENERATED COLLECTION MODELS', 'class CollectionWire(WireModel):', '    model_config = ConfigDict(strict=True, extra="forbid", allow_inf_nan=False, json_schema_extra=omit_absence_defaults)', '']
 ts=['// BEGIN GENERATED COLLECTION MODELS']
@@ -34,7 +34,10 @@ for name in names:
             optional=k not in s.get('required',[])
             p=py(v)
             minimum=v.get('minItems')
-            default=' = None' if optional else (' = Field(min_length='+str(minimum)+')' if minimum else '')
+            bounds=[]
+            if minimum: bounds.append('min_length='+str(minimum))
+            if 'maxItems' in v: bounds.append('max_length='+str(v['maxItems']))
+            default=' = None' if optional else (' = Field('+','.join(bounds)+')' if bounds else '')
             python+=['    '+k+': '+p+default]
             ts+=['  '+k+': '+zod(v)+('.optional()' if optional else '')+',']
         ts+=['}).strict();']

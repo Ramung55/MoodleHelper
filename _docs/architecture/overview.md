@@ -1,5 +1,36 @@
 # Architecture and ownership
 
+## Visited-page collection (#18)
+
+`extension/src/page-refresh.ts` owns one production lifecycle coordinator. Its
+read-only page-source, collector registry, repository and clock interfaces permit
+labeled synthetic envelopes without creating a second algorithm. `content.ts`
+installs initial/popstate/hashchange/MutationObserver lifecycle and disposal.
+Ordinary runtime is disabled: it has neither trustworthy live response metadata
+nor a verified signed-in identity. It does not fabricate HTTP 200 from a Document.
+
+`collection-repository.ts` supplies the isolated runtime adapter and separately
+installed internal worker. It accepts only exact SDU HTTPS top-frame extension
+senders with browser document/tab identity, derives document keys internally,
+serializes bounded per-document work, and fetches three fixed loopback routes.
+The dashboard's existing 17-operation catalog and origin list remain unchanged.
+No page message or HTTP body can turn on synthetic or verified mode.
+
+`backend/collection.py` owns trusted context, bounded process tokens and domain
+validation. Only the explicit test harness service-injects a synthetic provider
+against isolated SQLite. Backend active tokens, process binding, current course
+selection/mapping and document generation prevent late results from writing.
+The existing repository `mutate` transaction merges typed source records, safe
+reviews and page receipts together. Submission confirmation/staleness comes only
+from the existing backend retention primitive. No course-wide sync state is set.
+The additive optional `Snapshot.collection` survives existing Snapshot/backups;
+deletion removes it and explicit restore/reset retain their replacement meaning.
+
+See [the complete contract and harness](../page-refresh-contract.md). Actual SDU
+identity/envelopes, quiz/submission classifiers and Chrome installation inspection
+remain unverified under their existing issues. This introduces no fetch queue,
+course traversal, document transfer or Moodle write.
+
 This records the implemented local boundary after [#57](https://github.com/Ramung55/MoodleHelper/issues/57) and [#58 QA PASS](https://github.com/Ramung55/MoodleHelper/issues/58#issuecomment-6397890196), and the explicitly proposed extension boundary for [#2](https://github.com/Ramung55/MoodleHelper/issues/2). See the [backend checkpoint](../milestone-1-checkpoint.md), [integration checkpoint](../milestone-2-checkpoint.md), [message catalog](messages.md), and [#50 toolchain decision](toolchain.md). Package paths, commands and dependency approvals come from #50 and AGENTS.md; this document approves no packages.
 
 ## Implemented local application

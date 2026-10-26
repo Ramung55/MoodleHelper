@@ -30,7 +30,8 @@ export const browserKV = (): KV =>
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function emptySnapshot(base: Snapshot): Snapshot {
-  return { ...base, courses: [], assessments: [], overlays: [], materials: [], documents: [], candidates: [], sync: [], changes: [], alerts: [], settings: { ...base.settings, trackedCourseIds: [] } };
+  const { collection: _collection, ...retained } = base;
+  return { ...retained, courses: [], assessments: [], overlays: [], materials: [], documents: [], candidates: [], sync: [], changes: [], alerts: [], settings: { ...base.settings, trackedCourseIds: [] } };
 }
 
 /** Demo implementation of the services layer. Persists interactions locally. Never contacts Moodle. */

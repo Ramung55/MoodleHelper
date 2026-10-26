@@ -50,6 +50,8 @@ export function previewRestore(raw: string, current: Snapshot): RestorePreview {
       { label: "Personal changes", current: current.overlays.length, incoming: d.overlays.length },
       { label: "Materials", current: current.materials.length, incoming: d.materials.length },
       { label: "Review candidates", current: current.candidates.length, incoming: d.candidates.length },
+      { label: "Collected source records", current: current.collection?.records.length ?? 0, incoming: d.collection?.records.length ?? 0 },
+      { label: "Page refresh receipts", current: current.collection?.refreshes.length ?? 0, incoming: d.collection?.refreshes.length ?? 0 },
     ],
   };
 }

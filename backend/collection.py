@@ -101,7 +101,7 @@ class CollectionService:
                 if all_sources.count(source)!=1: reject()
                 if any(c['sourceCourseId']==source for c in mapping): reject()
                 mapping.append(dict(courseId=course['id'],sourceCourseId=source))
-        revision = sha256(canonical([self.epoch, snapshot['settings']['trackedCourseIds'],mapping]).encode()).hexdigest()
+        revision = sha256(canonical([self.epoch,id(self.provider),snapshot['settings']['trackedCourseIds'],mapping]).encode()).hexdigest()
         return dict(version='1',binding=self.binding,mode='synthetic' if self._enabled() else 'disabled',selectionRevision=revision,courses=mapping,
                     **({} if self._enabled() else {'reason':'collection_disabled'}))
 
@@ -111,7 +111,8 @@ class CollectionService:
 
     def begin(self, body):
         with self.lock:
-            context = self.context()
+            snapshot=self.store.read()
+            context = self._context(snapshot)
             if context['mode']=='disabled' or body['selectionRevision']!=context['selectionRevision'] or not context['courses']: reject()
             for field in ['documentKey','visitId']:
                 if not re.fullmatch(r'[A-Za-z0-9:._-]{1,256}',body[field]): reject()
@@ -120,6 +121,7 @@ class CollectionService:
             old = self.active.get(body['documentKey'])
             if old and self.tokens[old]['body']==body:
                 return {'visitToken':old}
+            if any(e['body']['visitId']==body['visitId'] for e in self.tokens.values()) or any(r['visitId']==body['visitId'] for r in snapshot.get('collection',{}).get('refreshes',[])): reject()
             token = uuid4().hex
             self.tokens[token] = dict(body=deepcopy(body),revision=context['selectionRevision'],receipts={})
             self.active[body['documentKey']]=token
@@ -161,7 +163,7 @@ class CollectionService:
                 if info['kind']=='known':
                     info['facts']=list({canonical(f):f for f in info['facts']}.values())
                     for fact in info['facts']:
-                        if fact['location']!='quiz.attemptInformation.'+fact['field'] or not fact['rawText'].strip(): reject()
+                        if fact['location']!='quiz.attemptInformation.'+fact['field'] or not fact['rawText'].strip() or re.search(r'[<>\x00-\x1f]',fact['rawText']) or unsafe_label(fact['rawText']): reject()
                     complement=sorted(set(['state','allowed','used','remaining','other'])-{f['field'] for f in info['facts']})
                     if info['unknownFields']!=complement: reject()
         elif kind=='calendar':
@@ -173,6 +175,14 @@ class CollectionService:
             if item['sourceUrl']!=expected or pagekind!='calendar': reject()
             if not any(k in item for k in ['start','end','date']): reject()
             if 'date' in item and ('start' in item or 'end' in item): reject()
+            for field in ['start','end','date']:
+                if field in item:
+                    d=item[field]
+                    if d['location']!='calendar.'+field or d['value']['kind'] not in ['exact','date'] or field=='date' and d['value']['kind']!='date': reject()
+            if 'start' in item and 'end' in item:
+                start,end=item['start']['value'],item['end']['value']
+                if start['kind']==end['kind']=='exact' and _instant(end['iso'])<_instant(start['iso']): reject()
+                if start['kind']==end['kind']=='date' and end['date']<start['date']: reject()
             identity=['calendar_event',item['sourceEventId'],item.get('sourceOccurrenceId')]
             if 'activity' in item:
                 validate_calendar_activity(item['activity'])
@@ -186,6 +196,14 @@ class CollectionService:
             for key in ['title','section']:
                 if item[key]['kind']=='known' and (not item[key]['value'].strip() or unsafe_label(item[key]['value'])): reject()
             if item['mimeType']['kind']=='known' and not safe_mime(item['mimeType']['value']): reject()
+            type_evidence=[]
+            if item['fileType']['kind']=='known': type_evidence.append(item['fileType']['value'])
+            if item['mimeType']['kind']=='known':
+                mime=item['mimeType']['value']
+                inferred={'application/pdf':'pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document':'docx','application/vnd.openxmlformats-officedocument.presentationml.presentation':'pptx'}.get(mime,'video' if mime.startswith('video/') else 'other')
+                type_evidence.append(inferred)
+            if item['kind']=='link': type_evidence.append('link')
+            if item['fileType']['kind']=='known' and len(set(type_evidence))>1: reject()
             parts=[ORIGIN,source,module,'module',cm]
             if 'sourceFileId' in item: parts=[ORIGIN,source,'folder',cm,'file',item['sourceFileId']]
             if 'sourceFolderId' in item: parts=[ORIGIN,source,'folder',cm,'folder',item['sourceFolderId']]
@@ -204,6 +222,7 @@ class CollectionService:
                 if 'destinationUrl' in r: safe_destination(r['destinationUrl'],module=module,cm=cm,folder=item.get('sourceFolderId'),context=item.get('sourceContextId'))
                 if 'listingChildResourceKeys' in r:
                     if r.get('listingScope')!='supplied_listing_only': reject()
+                    if len(r['listingChildResourceKeys'])!=len(set(r['listingChildResourceKeys'])): reject()
                     for child in r['listingChildResourceKeys']:
                         parsed=json.loads(child)
                         if len(parsed)!=6 or parsed[:4]!=[ORIGIN,source,'folder',cm] or parsed[4] not in ['file','folder']: reject()
@@ -235,6 +254,11 @@ class CollectionService:
                 current=self._context(snapshot)
                 if current['selectionRevision']!=entry['revision'] or not self._enabled() or self.active.get(entry['body']['documentKey'])!=token: reject()
                 mapping={c['sourceCourseId']:c['courseId'] for c in current['courses']}
+                from datetime import date
+                for page_facts in result.get('pages',[]):
+                    if 'range' in page_facts:
+                        start=date.fromisoformat(page_facts['range']['start']); end=date.fromisoformat(page_facts['range']['end'])
+                        if end<start or collector!='calendar': reject()
                 layer=snapshot.setdefault('collection',dict(records=[],reviews=[],refreshes=[]))
                 observations=result.get('observations',[])
                 courseids=set(); activity=None; cm=None
@@ -287,6 +311,9 @@ class CollectionService:
                 if activity: receipt['sourceActivityId']=activity
                 if cm: receipt['sourceCourseModuleId']=cm
                 layer['refreshes'].append(receipt)
+                # Fail inside the transaction, never commit a reply the fixed
+                # worker transport cannot acknowledge without truncating facts.
+                if len(canonical({'snapshot':snapshot,'receipt':receipt}).encode())>1024*1024: reject()
             snapshot=self.store.mutate(apply)
             entry['receipts'][collector]=(signature,deepcopy(receipt))
             return dict(snapshot=snapshot,receipt=receipt)

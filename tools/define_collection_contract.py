@@ -53,7 +53,8 @@ obj('CollectionDiagnostic',dict(reason=enum(*dict.fromkeys(reason_values)),pageI
 obj('CollectionRange',dict(start=text,end=text))
 obj('CollectionPage',dict(coverage=coverage,candidateCount=integer,paginationPending=boolean,range=ref('CollectionRange'),pageIndex=integer),['range','pageIndex'])
 for kind,raw in zip(collectors,['RawAssignmentObservation','RawCalendarObservation','RawMaterialObservation','RawQuizObservation','SubmissionSourceRecord']):
-    obj(kind.title()+'RefreshResult',dict(kind=lit(kind),observations=arr(ref(raw)),reviews=arr(union('CalendarSafeReview','MaterialSafeReview')),diagnostics=arr(ref('CollectionDiagnostic')),pages=arr(ref('CollectionPage')),coverage=coverage,scope=enum('visited_activity_only','supplied_pages_only','supplied_ranges_only')))
+    reviews=arr(ref(kind.title()+'SafeReview')) if kind in ['calendar','material'] else {**arr(union('CalendarSafeReview','MaterialSafeReview')),'maxItems':0}
+    obj(kind.title()+'RefreshResult',dict(kind=lit(kind),observations=arr(ref(raw)),reviews=reviews,diagnostics=arr(ref('CollectionDiagnostic')),pages=arr(ref('CollectionPage')),coverage=coverage,scope=lit('supplied_ranges_only' if kind=='calendar' else 'supplied_pages_only' if kind=='material' else 'visited_activity_only')))
     persisted='RetainedSubmission' if kind=='submission' else raw
     obj('Normalized'+kind.title()+'Record',dict(id=text,courseId=text,kind=lit(kind),firstObservedAt=text,lastObservedAt=text,observations=arr(ref(persisted),1)))
 obj('UnavailableRefreshResult',dict(kind=lit('unavailable'),reasons=reasons))

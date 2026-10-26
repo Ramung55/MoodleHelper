@@ -264,3 +264,69 @@ suite, shared/extension/frontend builds and focused strict TypeScript. Inventory
 source/generated OpenAPI operation/schema parity and legacy snapshot compatibility.
 Report labeled shims versus real HTTP/SQLite honestly. Do not retry blocked Chrome
 UI, fabricate SDU selectors or make an installed-browser smoke a new #18 gate.
+
+## Implementation and reproducible local harness (#18)
+
+Production implementation is `extension/src/page-refresh.ts`, internal
+`collection-repository.ts`, `shared/src/collection.ts`, backend `collection.py`
+and the existing FastAPI/SQLite repository. `content.ts` installs the lifecycle,
+but default context and live envelope remain explicitly unavailable. The real
+#13/#15/#17 pure parsers are registered only through the explicitly injected
+synthetic registry; real quiz/submission adapters remain unavailable. Typed mocks
+exercise their dispatch without implementing a wording/variant classifier.
+
+Run from repository root using existing installed dependencies (no installs):
+
+```powershell
+$env:UV_CACHE_DIR = "$PWD/.uv-cache"
+uv run pytest tests/test_page_refresh.py tests/test_contract.py tests/test_bridge_context.py
+bun run --cwd frontend test -- src/test/page-refresh.test.ts
+```
+
+The frontend integration file starts `tests.collection_network_app:app` on an
+ephemeral loopback port with a temporary `synthetic-collection.sqlite3` file.
+That test-only host requires its explicit isolated path and service-injects the
+synthetic trusted provider. Browser/runtime/document and response envelopes are
+labeled shims; coordinator, worker, fixed loopback transport rules, actual HTTP,
+FastAPI domain logic, real collectors and SQLite transactions are production code.
+Only the test fetch seam maps the fixed configured port to its ephemeral port.
+The harness restarts the real server/database and verifies backup restore and
+deletion. A real competing SQLite writer proves visible HTTP persistence failure.
+
+All collection failure outcomes can persist receipts without replacing facts.
+When storage itself cannot commit, the coordinator instead receives a fixed
+visible failure and previous committed state survives; no durable receipt is
+fabricated for an uncommitted write. Scope is the visited activity or supplied
+pages/ranges, never a full course scan. Pending stale/cancelled visits produce no
+completed receipt. Live SDU account comparison, trustworthy response envelope,
+quiz variants/submission wording and actual Chrome inspection remain unverified;
+the harness does not resolve or bypass #3/#4/#7/#8/#14/#16 blockers.
+
+Engineer verification (2026-10-27; independent QA still required):
+
+- Backend `uv run pytest -q`: **491 passed** (including 41 new collection cases).
+- Frontend `bun run test`: **665 passed / 14 files** (including 36 collection
+  integration/lifecycle/transport cases).
+- Browser workspace `node frontend/node_modules/vitest/vitest.mjs run --config
+  browser-workspace/vitest.config.mjs`: **53 passed / 4 files**. Its emitted
+  classic-script check now exercises disabled lifecycle registration and disposal.
+- `bun run --cwd shared build`, `bun run --cwd extension build`, frontend
+  `bun run build`, focused strict TypeScript for page-refresh/collection-repository/
+  shared collection protocol, and `git diff --check`: passed.
+- API parity covers all **21 HTTP operations** including three internal collection
+  routes; dashboard catalog remains **17**. Named collection schema parity and
+  legacy Snapshot behavior are checked against source/generated models.
+
+AC1 evidence runs the actual assignment/calendar/material parsers through the
+production coordinator and worker into real HTTP/SQLite, plus typed mock quiz and
+submission dispatch/unavailable adapters. AC2 checks stable replay/revisit IDs,
+full facts/personal preservation, actual restart, backup restore and backend/demo
+deletion. AC3 checks deferred A/B/A, duplicate notifications, late begin replies,
+disposal, process/selection/mapping/grant/document identity changes and stale tokens.
+AC4 checks unsupported hosts/routes/access/unmapped/unselected cases, internal
+sender/command restrictions, safe review authorization and no sole-course guess.
+AC5 checks persisted ranges/listings/fixed outcomes, visible collector/unavailable
+and actual SQLite-lock failures, previous-state retention and unchanged course
+sync state. No install, live Moodle collection or externally blocked Chrome
+inspection is represented by these offline and loopback results. Existing
+Starlette/httpx deprecation and Vite tsconfig-path plugin notices remain nonfatal.

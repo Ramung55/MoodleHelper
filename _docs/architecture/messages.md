@@ -1,5 +1,29 @@
 # Integration catalog
 
+## Internal collection protocol (#18)
+
+The public dashboard catalog remains 17 operations. Three additional fixed API
+operations are isolated content-world commands, never dashboard postMessages:
+
+| Operation | HTTP | Request | Response |
+| --- | --- | --- | --- |
+| collectionContext | GET `/api/collection-context` | none | CollectionContext (binding, mode, selection revision, safe selected mappings) |
+| beginPageVisit | POST `/api/collection/visits` | BeginPageVisit (browser-derived documentKey, visitId, pageUrl, selectionRevision) | PageVisitToken |
+| ingestPageRefresh | POST `/api/collection/refresh` | PageRefreshInput (visitToken, observedAt, collector, closed kind-specific result) | PageRefreshResponse (Snapshot, receipt) |
+
+New write routes require `X-Moodle-Helper-Bridge-Binding` before parsing. Missing
+or changed binding rejects; old CRUD keeps its optional precondition. The internal
+worker derives documentKey from sender tab/document, checks extension ID/top frame/
+exact SDU HTTPS origin and URL consistency, and uses credentials omit, redirect
+error, fixed paths and fixed safe failures. Messages cap at 1 MiB; incoming facts
+cap strings at 8192 characters, arrays at 512 and nesting at 24, with no truncation.
+Per-document pending work caps at 32, global request cache at 256 and contexts at
+128. Backend process tokens cap at 128; restart invalidates every token. Collector
+replay returns its original receipt; conflicting payloads reject. No automatic
+retry of uncertain writes, namespace selector, credential field or generic fetch
+operation exists. Synthetic context requires service injection in the explicit
+isolated test harness, with ordinary runtime disabled.
+
 Read with [ownership and trust boundaries](overview.md), [#50 toolchain](toolchain.md), and root [`openapi.yaml`](../../openapi.yaml). The source YAML still contains historical “proposed/no HTTP client” narrative and extension metadata; its method/path/schema bindings are now implemented by #57/#58. Current behavior is evidenced by `backend/{main,routers,schemas,services,storage}.py`, `frontend/src/services/{adapter,http-adapter,index,extension-adapter}.ts`, `frontend/src/lib/app-store.tsx`, the [backend checkpoint](../milestone-1-checkpoint.md), [integration checkpoint](../milestone-2-checkpoint.md), and [final #58 QA PASS](https://github.com/Ramung55/MoodleHelper/issues/58#issuecomment-6397890196). This documentation does not alter the YAML.
 
 ## Current HTTP binding: all adapter operations

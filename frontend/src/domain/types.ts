@@ -397,11 +397,11 @@ export type CollectionPage = z.infer<typeof CollectionPage>;
 export const AssignmentRefreshResult = z.object({
   kind: z.literal("assignment"),
   observations: z.array(RawAssignmentObservation),
-  reviews: z.array(z.union([CalendarSafeReview, MaterialSafeReview])),
+  reviews: z.array(z.union([CalendarSafeReview, MaterialSafeReview])).max(0),
   diagnostics: z.array(CollectionDiagnostic),
   pages: z.array(CollectionPage),
   coverage: z.enum(["complete", "partial", "none"]),
-  scope: z.enum(["visited_activity_only", "supplied_pages_only", "supplied_ranges_only"]),
+  scope: z.literal("visited_activity_only"),
 }).strict();
 export type AssignmentRefreshResult = z.infer<typeof AssignmentRefreshResult>;
 
@@ -418,11 +418,11 @@ export type NormalizedAssignmentRecord = z.infer<typeof NormalizedAssignmentReco
 export const CalendarRefreshResult = z.object({
   kind: z.literal("calendar"),
   observations: z.array(RawCalendarObservation),
-  reviews: z.array(z.union([CalendarSafeReview, MaterialSafeReview])),
+  reviews: z.array(CalendarSafeReview),
   diagnostics: z.array(CollectionDiagnostic),
   pages: z.array(CollectionPage),
   coverage: z.enum(["complete", "partial", "none"]),
-  scope: z.enum(["visited_activity_only", "supplied_pages_only", "supplied_ranges_only"]),
+  scope: z.literal("supplied_ranges_only"),
 }).strict();
 export type CalendarRefreshResult = z.infer<typeof CalendarRefreshResult>;
 
@@ -439,11 +439,11 @@ export type NormalizedCalendarRecord = z.infer<typeof NormalizedCalendarRecord>;
 export const MaterialRefreshResult = z.object({
   kind: z.literal("material"),
   observations: z.array(RawMaterialObservation),
-  reviews: z.array(z.union([CalendarSafeReview, MaterialSafeReview])),
+  reviews: z.array(MaterialSafeReview),
   diagnostics: z.array(CollectionDiagnostic),
   pages: z.array(CollectionPage),
   coverage: z.enum(["complete", "partial", "none"]),
-  scope: z.enum(["visited_activity_only", "supplied_pages_only", "supplied_ranges_only"]),
+  scope: z.literal("supplied_pages_only"),
 }).strict();
 export type MaterialRefreshResult = z.infer<typeof MaterialRefreshResult>;
 
@@ -460,11 +460,11 @@ export type NormalizedMaterialRecord = z.infer<typeof NormalizedMaterialRecord>;
 export const QuizRefreshResult = z.object({
   kind: z.literal("quiz"),
   observations: z.array(RawQuizObservation),
-  reviews: z.array(z.union([CalendarSafeReview, MaterialSafeReview])),
+  reviews: z.array(z.union([CalendarSafeReview, MaterialSafeReview])).max(0),
   diagnostics: z.array(CollectionDiagnostic),
   pages: z.array(CollectionPage),
   coverage: z.enum(["complete", "partial", "none"]),
-  scope: z.enum(["visited_activity_only", "supplied_pages_only", "supplied_ranges_only"]),
+  scope: z.literal("visited_activity_only"),
 }).strict();
 export type QuizRefreshResult = z.infer<typeof QuizRefreshResult>;
 
@@ -481,11 +481,11 @@ export type NormalizedQuizRecord = z.infer<typeof NormalizedQuizRecord>;
 export const SubmissionRefreshResult = z.object({
   kind: z.literal("submission"),
   observations: z.array(SubmissionSourceRecord),
-  reviews: z.array(z.union([CalendarSafeReview, MaterialSafeReview])),
+  reviews: z.array(z.union([CalendarSafeReview, MaterialSafeReview])).max(0),
   diagnostics: z.array(CollectionDiagnostic),
   pages: z.array(CollectionPage),
   coverage: z.enum(["complete", "partial", "none"]),
-  scope: z.enum(["visited_activity_only", "supplied_pages_only", "supplied_ranges_only"]),
+  scope: z.literal("visited_activity_only"),
 }).strict();
 export type SubmissionRefreshResult = z.infer<typeof SubmissionRefreshResult>;
 

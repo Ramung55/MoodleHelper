@@ -19,7 +19,7 @@ def test_shared_closed_inventory_tracks_source_contract():
     expected = {}
     for path, operations in source['paths'].items():
         for method, operation in operations.items():
-            if operation['operationId'] == 'bridgeContext':
+            if operation['operationId'] in {'bridgeContext','collectionContext','beginPageVisit','ingestPageRefresh'}:
                 continue
             expected[operation['operationId']] = {
                 'method': method.upper(), 'path': path,
@@ -27,6 +27,8 @@ def test_shared_closed_inventory_tracks_source_contract():
                 'result': operation['responses']['200']['content']['application/json']['schema'],
             }
     assert catalog == expected
+    assert len(catalog)==17
+    assert not {'collectionContext','beginPageVisit','ingestPageRefresh'} & catalog.keys()
 
 
 def test_binding_initialization_and_restart():

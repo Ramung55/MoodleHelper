@@ -452,11 +452,11 @@ class CollectionPage(CollectionWire):
 class AssignmentRefreshResult(CollectionWire):
     kind: Literal['assignment']
     observations: list[RawAssignmentObservation]
-    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    reviews: list[CalendarSafeReview | MaterialSafeReview] = Field(max_length=0)
     diagnostics: list[CollectionDiagnostic]
     pages: list[CollectionPage]
     coverage: Literal['complete', 'partial', 'none']
-    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+    scope: Literal['visited_activity_only']
 
 class NormalizedAssignmentRecord(CollectionWire):
     id: str
@@ -469,11 +469,11 @@ class NormalizedAssignmentRecord(CollectionWire):
 class CalendarRefreshResult(CollectionWire):
     kind: Literal['calendar']
     observations: list[RawCalendarObservation]
-    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    reviews: list[CalendarSafeReview]
     diagnostics: list[CollectionDiagnostic]
     pages: list[CollectionPage]
     coverage: Literal['complete', 'partial', 'none']
-    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+    scope: Literal['supplied_ranges_only']
 
 class NormalizedCalendarRecord(CollectionWire):
     id: str
@@ -486,11 +486,11 @@ class NormalizedCalendarRecord(CollectionWire):
 class MaterialRefreshResult(CollectionWire):
     kind: Literal['material']
     observations: list[RawMaterialObservation]
-    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    reviews: list[MaterialSafeReview]
     diagnostics: list[CollectionDiagnostic]
     pages: list[CollectionPage]
     coverage: Literal['complete', 'partial', 'none']
-    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+    scope: Literal['supplied_pages_only']
 
 class NormalizedMaterialRecord(CollectionWire):
     id: str
@@ -503,11 +503,11 @@ class NormalizedMaterialRecord(CollectionWire):
 class QuizRefreshResult(CollectionWire):
     kind: Literal['quiz']
     observations: list[RawQuizObservation]
-    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    reviews: list[CalendarSafeReview | MaterialSafeReview] = Field(max_length=0)
     diagnostics: list[CollectionDiagnostic]
     pages: list[CollectionPage]
     coverage: Literal['complete', 'partial', 'none']
-    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+    scope: Literal['visited_activity_only']
 
 class NormalizedQuizRecord(CollectionWire):
     id: str
@@ -520,11 +520,11 @@ class NormalizedQuizRecord(CollectionWire):
 class SubmissionRefreshResult(CollectionWire):
     kind: Literal['submission']
     observations: list[SubmissionSourceRecord]
-    reviews: list[CalendarSafeReview | MaterialSafeReview]
+    reviews: list[CalendarSafeReview | MaterialSafeReview] = Field(max_length=0)
     diagnostics: list[CollectionDiagnostic]
     pages: list[CollectionPage]
     coverage: Literal['complete', 'partial', 'none']
-    scope: Literal['visited_activity_only', 'supplied_pages_only', 'supplied_ranges_only']
+    scope: Literal['visited_activity_only']
 
 class NormalizedSubmissionRecord(CollectionWire):
     id: str

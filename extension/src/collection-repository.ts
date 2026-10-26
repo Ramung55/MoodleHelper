@@ -21,6 +21,7 @@ export function createCollectionWorker(options:{runtimeId:string;grant:()=>Promi
     const key=owner+':'+r.requestId; const signature=normalized(r);
     const old=pending.get(key);
     if(old) return old.signature===signature?old.reply:{requestId:r.requestId,ok:false,reason:'duplicate_conflict'};
+    if([...pending.entries()].filter(([key,value])=>key.startsWith(owner+':')&&!value.done).length>=32)return {requestId:r.requestId,ok:false,reason:'busy'};
     if(pending.size>=256) {
       for(const [key,entry] of pending) if(entry.done) pending.delete(key);
       if(pending.size>=256) return {requestId:r.requestId,ok:false,reason:'busy'};
@@ -75,7 +76,8 @@ export function runtimeCollectionRepository(runtime:Runtime,uuid=()=>crypto.rand
       if(runtime.lastError)return reject(new CollectionTransportError('context_changed'));
       if(!fits(reply)||!closed(reply,['requestId','ok'],['result','reason'])||reply.requestId!==request.requestId)return reject(new CollectionTransportError('invalid_response'));
       if(reply.ok===true&&closed(reply,['requestId','ok','result'])&&collectionResponse(operation,reply.result))resolve(reply.result);
-      else reject(new CollectionTransportError('context_changed'));
+      else if(reply.ok===false&&closed(reply,['requestId','ok','reason'])&&['invalid_request','permission_denied','context_changed','backend_unavailable','invalid_response','busy','duplicate_conflict','timeout'].includes(reply.reason))reject(new CollectionTransportError(reply.reason));
+      else reject(new CollectionTransportError('invalid_response'));
     });}catch{clearTimeout(timer);reject(new CollectionTransportError('context_changed'));}
   });
   return {context:()=>send('collectionContext',{}) as Promise<CollectionContext>,begin:(body,binding)=>send('beginPageVisit',body,binding) as Promise<PageVisitToken>,refresh:(body,binding)=>send('ingestPageRefresh',body,binding) as Promise<RefreshResponse>};

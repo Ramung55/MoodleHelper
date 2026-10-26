@@ -23,8 +23,8 @@ describe("emitted Chrome shell", () => {
     const source=await readFile(new URL("index.js",dist),"utf8");
     const listeners:any[]=[];
     runInNewContext(source,{chrome:{runtime:{id:"test",onMessage:{addListener:(f:any)=>listeners.push(f)}},permissions:{contains:()=>{}}},fetch:()=>{throw Error("No fetch during registration");},crypto:{randomUUID:()=>"generation"},Map,Set,URL,TextEncoder,setTimeout,clearTimeout});
-    expect(listeners).toHaveLength(1);
-    expect(listeners[0]({}, {id:"bad"},()=>{})).toBeUndefined();
+    expect(listeners).toHaveLength(2);
+    for(const listener of listeners) expect(listener({}, {id:"bad"},()=>{})).toBeUndefined();
   });
   it("ships exactly the local manifest references with the minimal SDU grant", async () => {
     const manifest = JSON.parse(await readFile(new URL("manifest.json", dist), "utf8"));
@@ -48,18 +48,27 @@ describe("emitted Chrome shell", () => {
     expect(() => validateManifest({ ...expected, ...change })).toThrow();
   });
 
-  it("executes the emitted classic script with no page, Chrome, network or storage access", async () => {
+  it("installs the emitted lifecycle but disabled context causes zero collection, DOM parsing, network or storage", async () => {
     const source = await readFile(new URL("content.js", dist), "utf8");
-    const calls: string[] = [];
+    const calls: any[] = [];
     const context = Object.create(null);
-    for (const name of ["chrome", "document", "window", "fetch", "XMLHttpRequest", "WebSocket",
-      "indexedDB", "localStorage", "sessionStorage", "navigator", "setTimeout", "setInterval"])
+    for (const name of ["fetch", "XMLHttpRequest", "WebSocket",
+      "indexedDB", "localStorage", "sessionStorage", "navigator", "setInterval"])
       Object.defineProperty(context, name, { get() { throw new Error(`Forbidden ${name}`); } });
-    context.console = { debug: (message: string) => calls.push(message) };
+    const events=new Map<string,()=>void>();let disconnected=false;
+    const win:any={location:{origin:'https://moodle.sdu.edu.kz',href:'https://moodle.sdu.edu.kz/mod/assign/view.php?id=303'},addEventListener:(event:string,listener:()=>void)=>events.set(event,listener),removeEventListener:(event:string)=>events.delete(event)};win.top=win;
+    const doc={querySelectorAll(){throw Error('Disabled context must never parse a page');}};win.document=doc;
+    context.window=win;context.document=doc;context.location=win.location;
+    context.chrome={runtime:{sendMessage:(message:any,reply:(r:any)=>void)=>{calls.push(message);reply({requestId:message.requestId,ok:true,result:{version:'1',binding:'a'.repeat(32),mode:'disabled',selectionRevision:'revision',courses:[],reason:'collection_disabled'}});}}};
+    context.crypto={randomUUID:()=>'synthetic-uuid'};context.structuredClone=structuredClone;context.TextEncoder=TextEncoder;context.setTimeout=setTimeout;context.clearTimeout=clearTimeout;
+    context.MutationObserver=class {observe(){}disconnect(){disconnected=true;}};
     runInNewContext(source, context, { timeout: 1000 });
-    expect(calls).toEqual(["Moodle Helper: empty content shell loaded"]);
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(calls.map(c=>c.operation)).toEqual(['collectionContext']);
+    events.get('popstate')?.();events.get('hashchange')?.();
+    expect(calls).toHaveLength(1);events.get('pagehide')?.();expect(disconnected).toBe(true);
     // The guard is live, rather than a stub that would silently allow activity.
-    for (const probe of ["fetch('https://example.com')", "localStorage.getItem('student')", "document.body", "chrome.runtime"])
+    for (const probe of ["fetch('https://example.com')", "localStorage.getItem('student')", "document.querySelectorAll('main')"])
       expect(() => runInNewContext(probe, context)).toThrow();
   });
 

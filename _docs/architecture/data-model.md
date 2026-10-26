@@ -1,5 +1,32 @@
 # Shared data model and ingestion decision (#5)
 
+## Additive typed source layer (#18)
+
+Snapshot optionally contains nonnullable `collection:SnapshotCollection` with
+`records:NormalizedSourceRecord[]`, `reviews:CollectionReview[]` and
+`refreshes:PageRefreshReceipt[]`. Missing means no collected data. Its strict named
+schemas are authoritative in root OpenAPI; `tools/generate_collection_models.py`
+derives coordinated Python/Zod declarations and the shared source inventory.
+Legacy fields keep their existing permissive wire semantics.
+
+Normalized records discriminate assignment/calendar/material/quiz/submission and
+carry backend-generated canonical namespace tuple ID, selected local course ID,
+first/last observation time and nonempty kind-specific evidence arrays. Complete
+raw assignment dates/extensions, calendar recurrence/activity/range facts and
+material unknown metadata/references/listing proof remain typed and lossless.
+Separate contradictory complete listing observations never union child sets.
+Quiz mocks retain opening/closing and explicit known/unknown attempt categories;
+submission mocks send an attempted source wrapper only, with backend-computed
+confirmed/stale wrappers persisted. No legacy assessment/material projection is
+claimed. Personal overlays and other source/personal records are unchanged by
+source ingestion. Exact names, identity tuples and reduction rules are in
+[the page refresh contract](../page-refresh-contract.md).
+
+Safe unresolved reviews cannot invent a course. Page receipts preserve fixed
+outcomes/reasons, actual page/activity, observed time, synthetic/verified mode,
+supplied range/listing pages and complete/partial/none scope. Receipts never mean
+`CourseSyncState.coverage=full`. Stale tokens write neither facts nor receipts.
+
 ## Decision recorded before helper implementation
 
 `openapi.yaml` is the HTTP authority; `frontend/src/domain/types.ts` is the Zod baseline and `backend/schemas.py` implements the wire. Keep all 16 endpoints permissive. Wire timestamp, timezone and URL strings are arbitrary strings; date strings check shape only. Domain helpers in `backend/domain_validation.py` are opt-in ingestion checks, never installed in HTTP, restore or storage. They do not fetch URLs. No schema changes or dependencies are required here.

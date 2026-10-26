@@ -127,6 +127,12 @@ def test_binding_required_before_body_parsing_and_no_HTTP_enable(harness):
         assert response.status_code==409
 
 
+def test_oversized_observation_batch_fails_atomically_without_truncation(harness):
+    client,store,_=harness;token,h=begin(client);rev=revision(store)
+    r=result(observations=[assignment() for _ in range(513)])
+    assert refresh(client,token,h,r).status_code==409 and revision(store)==rev
+
+
 @pytest.mark.parametrize('path',['https://other.example/mod/assign/view.php?id=303',ORIGIN+'/my/',ORIGIN+'/course/view.php?id=999',ORIGIN+'/mod/assign/view.php?id=303&sesskey=sentinel'])
 def test_unsupported_routes_have_zero_writes(harness,path):
     client,store,_=harness;context=client.get('/api/collection-context').json();rev=revision(store)
@@ -228,6 +234,35 @@ def test_material_unknowns_and_safe_unicode_office_preserved(harness):
     assert store.read()['collection']['records'][0]['observations']==[raw]
 
 
+@pytest.mark.parametrize('field,value',[
+    ('title',{'kind':'known','value':'https://private.example/token-sentinel'}),
+    ('section',{'kind':'known','value':'javascript:private-sentinel'}),
+    ('mimeType',{'kind':'known','value':'application/private-token-sentinel'}),
+    ('parentResourceKey','["wrong","parent"]'),
+    ('sourceContextId','999'),
+])
+def test_material_metadata_parent_and_context_revalidated_for_records_and_reviews(harness,field,value):
+    client,store,_=harness
+    for review in [False,True]:
+        token,h=begin(client,ORIGIN+'/course/view.php?id=101',visit='bad-review' if review else 'bad-record')
+        raw=material();raw[field]=value;r=result('material',[] if review else [raw])
+        if review:r['reviews']=[dict(kind='material',candidate=raw,reasons=['missing_metadata'])]
+        rev=revision(store);response=refresh(client,token,h,r,'material')
+        assert response.status_code==409 and revision(store)==rev
+        assert 'sentinel' not in response.text
+
+
+def test_committed_visit_uuid_cannot_be_reused_after_replacement_or_restart(harness):
+    client,store,path=harness;token,h=begin(client);assert refresh(client,token,h).status_code==200
+    begin(client,visit='other-visit')
+    context=client.get('/api/collection-context').json()
+    body=dict(documentKey='tab:document',visitId='visit-A',pageUrl=PAGE,selectionRevision=context['selectionRevision'])
+    assert client.post('/api/collection/visits',headers=h,json=body).status_code==409
+    with TestClient(create_app(store,collection_provider=SyntheticCollectionContext(store.namespace))) as restarted:
+        c=restarted.get('/api/collection-context').json();body['selectionRevision']=c['selectionRevision']
+        assert restarted.post('/api/collection/visits',headers={'X-Moodle-Helper-Bridge-Binding':c['binding']},json=body).status_code==409
+
+
 def test_calendar_review_activity_privacy_and_cross_kind_review_reject(harness):
     client,store,_=harness
     candidate=dict(sourceEventId='501',sourceUrl=ORIGIN+'/calendar/view.php?event=501',observedAt=TIME,title='Synthetic unresolved event',activity=dict(moduleType='assign',sourceActivityId='202',sourceCourseModuleId='303',sourceUrl=PAGE+'&sesskey=sentinel'))
@@ -239,7 +274,7 @@ def test_calendar_review_activity_privacy_and_cross_kind_review_reject(harness):
     assert store.read()['collection']['records']==[]
     token,h=begin(client,visit='assignment-with-calendar');r=result();r['reviews']=[dict(kind='calendar',candidate=candidate,reasons=['missing_course'])]
     rev=revision(store)
-    assert refresh(client,token,h,r).status_code==409 and revision(store)==rev
+    assert refresh(client,token,h,r).status_code in [409,422] and revision(store)==rev
 
 
 def test_quiz_attempt_unknown_complement_precision_and_canonical_fact_replay(harness):
