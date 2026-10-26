@@ -21,6 +21,14 @@ not evidence of successful loading.
 Read-only revalidation on 2026-10-26 again returned no Chrome app from
 `sky.list_apps`; no alternative channel was used to bypass the earlier denial.
 
+After the human explicitly approved Chrome access and loading this exact built
+extension, a supported `sky.launch_app` retry succeeded. `sky.list_apps` returned
+one Chrome window (ID 67410, title `Google Chrome`). The first state capture
+returned `isError: true` and stopped Computer Use for the turn because it
+"could not determine the current browser URL on Windows with enough confidence
+to enforce policy." No browser input or unpacked loading occurred. UI work
+stopped immediately; the remaining actual-browser evidence is still blocked.
+
 ## Automated engineering verification, 2026-10-26
 
 Verified installed Bun 1.3.13 and Node v24.20.0. Both root build commands
