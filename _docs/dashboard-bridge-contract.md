@@ -299,3 +299,42 @@ not a pre-code block. Do not retry/bypass protected UI. Independent QA must
 identify any remaining runtime-specific evidence accurately, without dropping
 operations or silently waiving an original AC. No code, tests, grants or install
 were performed by this documentation grooming.
+
+### Chrome sender metadata clarification (operative, 2026-10-26)
+
+This replaces the mandatory tab URL check above; it adds no permissions and
+preserves all original AC and all 17 operations. Chrome documents `tabs.Tab.url`
+as permission-sensitive, so content_scripts.matches is not a guarantee it exists.
+Use browser-supplied MessageSender fields, never payload copies: require
+sender.id === chrome.runtime.id, sender.frameId === 0, sender.tab with a
+nonnegative integer tab.id, and a parseable sender.url whose exact origin is one
+of the two approved dashboard origins. Reject missing URL, opaque/non-HTTP URL,
+userinfo, or unsupported origin. If sender.origin is present, require that it
+exactly equals the parsed approved origin; reject opaque or conflicting values.
+If sender.tab.url is present, parse and require the same approved origin as
+sender.url; absence alone is valid. Do not fetch tab metadata or add tabs,
+activeTab, webNavigation, or dashboard host grants merely to populate this field.
+Top-frame sender.url is authoritative for this content-script request. Relay
+continues checking event.source/window/origin and top-level window independently.
+
+MessageSender.documentId is optional and documented from Chrome 106 onward.
+For this bridge, require a nonempty browser-supplied documentId on hello and
+operations; declare minimum_chrome_version 106 in the manifest. Missing documentId
+fails closed with fixed RECONNECT_REQUIRED guidance to update/reload Chrome; no
+student data or fetch follows. Minimum version does not prove the field exists:
+the runtime check remains required. Never substitute a page-supplied document ID
+or use only tab.id/frameId across navigation. Bind sessions and dedup ownership
+to tuple (sender.tab.id, sender.frameId, sender.documentId), plus clientId and
+requestId for dedup. Require exact owner on every operation before backend work.
+A new document must handshake for its own session; an old document's session
+cannot authorize the replacement document. Preserve 60-second bounded dedup and
+unknown-mutation-outcome handling; no durable replay guarantee is implied.
+
+Add focused checks for absent tab.url accepted, present conflicting tab.url
+rejected, absent/conflicting origin behavior, missing sender.url/documentId
+rejected, and same tab/frame with different documentId unable to reuse session
+or dedup records. These are planned tests, not Chrome observation.
+
+Primary documentation verified on this date:
+[MessageSender](https://developer.chrome.com/docs/extensions/reference/api/runtime#type-MessageSender)
+and [Tab / permissions](https://developer.chrome.com/docs/extensions/reference/api/tabs#type-Tab).
