@@ -6,12 +6,21 @@ from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 
 from backend.main import create_app
+from backend.storage import InMemoryStore
+from backend.sqlite_store import SQLiteStore
+from sqlalchemy import URL
 
 
-@pytest.fixture
-def client():
-    with TestClient(create_app()) as client:
-        yield client
+@pytest.fixture(params=["memory", "sqlite"])
+def client(request, tmp_path):
+    store = (InMemoryStore() if request.param == "memory" else
+             SQLiteStore(URL.create("sqlite", database=str(tmp_path / "api.sqlite3"))))
+    try:
+        with TestClient(create_app(store)) as client:
+            yield client
+    finally:
+        if isinstance(store, SQLiteStore):
+            store.close()
 
 
 @pytest.fixture(scope="session")

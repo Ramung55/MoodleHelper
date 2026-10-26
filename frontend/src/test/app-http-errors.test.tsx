@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider, useApp } from "@/lib/app-store";
 import { buildDemoSnapshot } from "@/services/fixtures";
 import { Route as SettingsRoute } from "@/routes/settings";
+import { HttpAdapter } from "@/services/http-adapter";
 
 const mocks = vi.hoisted(() => ({
   adapter: { load: vi.fn(), connection: vi.fn(), updateSettings: vi.fn(), syncAll: vi.fn(), resetDemo: vi.fn(), aiAvailability: vi.fn(), saveAlerts: vi.fn() },
@@ -42,6 +43,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("HTTP-backed UI failures", () => {
+  it("displays the storage 503 envelope and retains the last successful dashboard data", async () => {
+    const message = "Database is locked. Stop other writers and retry. No save was confirmed.";
+    const http = new HttpAdapter("", async () => new Response(JSON.stringify({ message }), { status: 503, headers: { "Content-Type": "application/json" } }));
+    mocks.adapter.updateSettings.mockImplementationOnce(() => http.updateSettings({ semesterWeeks: 17 }));
+    render(<AppProvider><Probe /></AppProvider>);
+    await screen.findByText("Tracked courses");
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() => expect(screen.getByTestId("result")).toHaveTextContent("false"));
+    expect(screen.getByTestId("snapshot")).toHaveTextContent(String(data.settings.semesterWeeks));
+    expect(mocks.toast.error).toHaveBeenCalledWith(message);
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+  });
+
   it("shows load failures without substituting fixture data", async () => {
     mocks.adapter.load.mockRejectedValueOnce(new Error("Backend unavailable"));
     render(<AppProvider><Probe /></AppProvider>);

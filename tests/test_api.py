@@ -309,7 +309,7 @@ def test_app_and_store_instances_are_independent_and_return_copies(client):
     original["courses"].clear()
     assert store.read()["courses"]
     client.delete("/api/local-data")
-    with TestClient(create_app()) as other:
+    with TestClient(create_app(InMemoryStore())) as other:
         assert snapshot(other)["courses"]
     with TestClient(create_app(store)) as injected:
         assert snapshot(injected) == store.read()
