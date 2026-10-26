@@ -31,7 +31,7 @@ for name in names:
         python+=['class '+name+'(CollectionWire):']
         ts+=['export const '+name+' = z.object({']
         for k,v in s['properties'].items():
-            optional=k not in s['required']
+            optional=k not in s.get('required',[])
             p=py(v)
             minimum=v.get('minItems')
             default=' = None' if optional else (' = Field(min_length='+str(minimum)+')' if minimum else '')
@@ -59,7 +59,8 @@ value=bridge.read_text(encoding='utf-8')
 start=value.index('const schemas:')
 stop=value.index('\nexport const catalog')
 value=value[:start]+'const schemas: Record<string, any> = '+json.dumps(schemas)+';'+value[stop:]
-value=value.replace('function check(schema:', 'export function check(schema:')
+value=value.replace('export export function check(schema:', 'export function check(schema:')
+value=value.replace('\nfunction check(schema:', '\nexport function check(schema:')
 if 'export function validSchema(' not in value:
     value+='\nexport function validSchema(name: string, value: unknown): boolean { return !!schemas[name] && fits(value) && check(schemas[name],value); }\n'
 bridge.write_text(value,encoding='utf-8')

@@ -15,6 +15,7 @@ arr = lambda v, minimum=0: {'type':'array','items':v, **({'minItems':minimum} if
 union = lambda *v: {'oneOf': [ref(x) for x in v]}
 def obj(name, fields, optional=()):
     S[name] = {'type':'object','additionalProperties':False,'properties':fields,'required':[k for k in fields if k not in optional]}
+    if not S[name]['required']: S[name].pop('required')
     return ref(name)
 
 obj('CollectedDateObservation',dict(value=ref('DateValue'),rawText=text,location=text))

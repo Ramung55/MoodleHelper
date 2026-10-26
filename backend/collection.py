@@ -93,10 +93,12 @@ class CollectionService:
 
     def _context(self, snapshot):
         mapping = []
+        all_sources=[c.get('discovery',{}).get('sourceCourseId') for c in snapshot['courses']]
         for course in snapshot['courses']:
             source = course.get('discovery',{}).get('sourceCourseId')
             if course['id'] in snapshot['settings']['trackedCourseIds'] and source:
                 decimal(source)
+                if all_sources.count(source)!=1: reject()
                 if any(c['sourceCourseId']==source for c in mapping): reject()
                 mapping.append(dict(courseId=course['id'],sourceCourseId=source))
         revision = sha256(canonical([self.epoch, snapshot['settings']['trackedCourseIds'],mapping]).encode()).hexdigest()
@@ -157,6 +159,7 @@ class CollectionService:
                     if field in item and item[field]['location']!='quiz.'+field: reject()
                 info=item['attemptInformation']
                 if info['kind']=='known':
+                    info['facts']=list({canonical(f):f for f in info['facts']}.values())
                     for fact in info['facts']:
                         if fact['location']!='quiz.attemptInformation.'+fact['field'] or not fact['rawText'].strip(): reject()
                     complement=sorted(set(['state','allowed','used','remaining','other'])-{f['field'] for f in info['facts']})
@@ -172,8 +175,7 @@ class CollectionService:
             if 'date' in item and ('start' in item or 'end' in item): reject()
             identity=['calendar_event',item['sourceEventId'],item.get('sourceOccurrenceId')]
             if 'activity' in item:
-                a=item['activity']; decimal(a['sourceActivityId']); decimal(a['sourceCourseModuleId'])
-                if a['sourceUrl']!=f"{ORIGIN}/mod/{a['moduleType']}/view.php?id={a['sourceCourseModuleId']}": reject()
+                validate_calendar_activity(item['activity'])
         else:
             module=item['sourceModuleType']; cm=item['sourceCourseModuleId']; decimal(cm)
             if pagekind not in ['course',module] or pagekind!='course' and pageid!=cm: reject()
@@ -181,14 +183,25 @@ class CollectionService:
             if item['sourcePageUrl']!=page.split('#')[0]: reject()
             for key in ['sourceResourceId','sourceFileId','sourceFolderId','sourceContextId']:
                 if key in item: decimal(item[key])
+            for key in ['title','section']:
+                if item[key]['kind']=='known' and (not item[key]['value'].strip() or unsafe_label(item[key]['value'])): reject()
+            if item['mimeType']['kind']=='known' and not safe_mime(item['mimeType']['value']): reject()
             parts=[ORIGIN,source,module,'module',cm]
             if 'sourceFileId' in item: parts=[ORIGIN,source,'folder',cm,'file',item['sourceFileId']]
             if 'sourceFolderId' in item: parts=[ORIGIN,source,'folder',cm,'folder',item['sourceFolderId']]
             if item['resourceKey']!=json.dumps(parts,separators=(',',':')): reject()
+            if 'parentResourceKey' in item:
+                parent=json.loads(item['parentResourceKey'])
+                root=[ORIGIN,source,'folder','module',cm]
+                if module!='folder' or not (parent==root or len(parent)==6 and parent[:4]==[ORIGIN,source,'folder',cm] and parent[4]=='folder'): reject()
+                if len(parent)==6: decimal(parent[5])
+            if ('sourceFileId' in item or 'sourceFolderId' in item)!=('parentResourceKey' in item): reject()
+            expected_kind='file' if 'sourceFileId' in item else 'folder' if 'sourceFolderId' in item or module=='folder' else 'link' if module=='url' else 'file'
+            if item['kind']!=expected_kind: reject()
             for r in [item]+item['references']:
                 if r['sourcePageUrl']!=item['sourcePageUrl'] or r['sourceUrl']!=item['sourceUrl']: reject()
                 validate_instant(r['observedAt'],'observedAt')
-                if 'destinationUrl' in r: safe_destination(r['destinationUrl'])
+                if 'destinationUrl' in r: safe_destination(r['destinationUrl'],module=module,cm=cm,folder=item.get('sourceFolderId'),context=item.get('sourceContextId'))
                 if 'listingChildResourceKeys' in r:
                     if r.get('listingScope')!='supplied_listing_only': reject()
                     for child in r['listingChildResourceKeys']:
@@ -251,6 +264,7 @@ class CollectionService:
                     if canonical(item) not in [canonical(x) for x in record['observations']]: record['observations'].append(deepcopy(item))
                     if _instant(time)>_instant(record['lastObservedAt']): record['lastObservedAt']=time
                 for index,review in enumerate(result.get('reviews',[])):
+                    if review['kind']!=collector or collector not in ['calendar','material']: reject()
                     candidate=review.get('candidate')
                     if candidate:
                         # Unassociated calendar reviews stay separate; never guess a course.
@@ -260,6 +274,10 @@ class CollectionService:
                             expected=f"{ORIGIN}/calendar/view.php?event={candidate['sourceEventId']}"+('&occurrence='+candidate['sourceOccurrenceId'] if 'sourceOccurrenceId' in candidate else '')
                             if candidate['sourceUrl']!=expected: reject()
                             if candidate.get('sourceCourseId') and candidate['sourceCourseId'] not in mapping: reject()
+                            if 'activity' in candidate: validate_calendar_activity(candidate['activity'])
+                            for field in ['sourceOccurrenceId','sourceSeriesId']:
+                                if field in candidate: decimal(candidate[field])
+                            if ('sourceOccurrenceId' in candidate)!=('sourceSeriesId' in candidate): reject()
                         else: self._validate_observation('material',candidate,page,mapping)
                     r=dict(id=canonical([entry['body']['visitId'],collector,index]),visitId=entry['body']['visitId'],collector=collector,reasons=review['reasons'])
                     if candidate: r['candidate']=deepcopy(candidate)
@@ -274,12 +292,53 @@ class CollectionService:
             return dict(snapshot=snapshot,receipt=receipt)
 
 
-def safe_destination(url):
+def validate_calendar_activity(a):
+    decimal(a['sourceActivityId']); decimal(a['sourceCourseModuleId'])
+    if a['moduleType'] not in ['assign','quiz'] or a['sourceUrl']!=f"{ORIGIN}/mod/{a['moduleType']}/view.php?id={a['sourceCourseModuleId']}": reject()
+
+
+def unsafe_label(value):
+    return bool(re.search(r'[A-Za-z][A-Za-z0-9+.-]*://|(?:^|\s)(?:javascript:|data:|file:|mailto:|//|/course/|/mod/|/pluginfile\.php/)',value,re.I))
+
+
+def private_part(value):
+    return bool(re.search(r'(?:^|[._~-])(?:token|access|sesskey|auth|authorization|key|api|signature|secret|password|credential|bearer)(?:$|[._~-])|[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|[A-Za-z0-9_-]{32}',value,re.I))
+
+
+def filename(value):
+    import unicodedata
+    from urllib.parse import unquote,quote
+    decoded=unquote(value,errors='strict')
+    if not decoded or decoded in ['.','..'] or quote(decoded,safe="~!*'()-._")!=value or private_part(decoded): return False
+    if any(unicodedata.category(c)[0] not in ['L','M','N'] and c not in " ._~!$&'()+,;=@-" for c in decoded): return False
+    return not re.search(r'(?:^|[ ._~!$&\'()+,;=@-])(?:token|access|sesskey|auth|authorization|key|api|signature|secret|password|credential|bearer)(?:$|[ ._~!$&\'()+,;=@-])',decoded,re.I)
+
+
+def safe_mime(value):
+    trusted=['application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.openxmlformats-officedocument.presentationml.presentation']
+    return value in trusted or len(value)<=127 and re.fullmatch(r'[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*',value) and all(not private_part(p) for p in value.split('/'))
+
+
+def safe_destination(url, *, module, cm, folder=None, context=None):
     validate_url(url)
-    if len(url)>4096 or re.search(r'(?:token|sesskey|password|authorization|signature|secret|credential)',url,re.I): reject()
-    from urllib.parse import urlsplit, parse_qsl
+    if len(url)>4096 or re.search(r'[\s\\\x00-\x1f\x7f]',url): reject()
+    from urllib.parse import urlsplit
     parsed=urlsplit(url)
+    if parsed.port or not url.startswith('https://'+parsed.netloc+'/') or parsed.netloc!=parsed.netloc.lower(): reject()
     if parsed.hostname=='moodle.sdu.edu.kz':
-        if not (re.fullmatch(r'/pluginfile\.php/[1-9][0-9]*/mod_(?:resource|folder)/content/[1-9][0-9]*/[^?#]+',parsed.path) and parsed.query in ['', 'forcedownload=1'] or
-                re.fullmatch(r'/mod/(?:resource|url|folder)/view\.php',parsed.path) and re.fullmatch(r'id=[1-9][0-9]*(?:&folder=[1-9][0-9]*)?',parsed.query)): reject()
-    elif any(k not in ['id','page','lang','v'] for k,v in parse_qsl(parsed.query)): reject()
+        if parsed.fragment: reject()
+        match=re.fullmatch(r'/pluginfile\.php/([1-9][0-9]*)/mod_(resource|folder)/content/[1-9][0-9]*/([^?#]+)',parsed.path)
+        if match:
+            if match[2]!=module or context and context!=match[1] or parsed.query not in ['', 'forcedownload=1'] or not all(filename(x) for x in match[3].split('/')): reject()
+        elif folder:
+            if url!=f'{ORIGIN}/mod/folder/view.php?id={cm}&folder={folder}': reject()
+        elif url!=f'{ORIGIN}/mod/{module}/view.php?id={cm}': reject()
+    else:
+        if parsed.path!='/' and not all(filename(v) for v in parsed.path[1:].removesuffix('/').split('/')): reject()
+        seen=set()
+        if '?' in url.split('#')[0]:
+            for part in parsed.query.split('&'):
+                m=re.fullmatch(r'(id|page|lang|v)=([A-Za-z0-9._~-]+)',part)
+                if not m or m[1] in seen or private_part(m[2]): reject()
+                seen.add(m[1])
+        if '#' in url and (not re.fullmatch(r'[A-Za-z0-9._~-]+',parsed.fragment) or private_part(parsed.fragment)): reject()

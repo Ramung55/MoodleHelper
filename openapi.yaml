@@ -1650,7 +1650,6 @@ components:
           $ref: '#/components/schemas/CollectedDateObservation'
         cutoff:
           $ref: '#/components/schemas/CollectedDateObservation'
-      required: []
     IndividualExtension:
       type: object
       additionalProperties: false
