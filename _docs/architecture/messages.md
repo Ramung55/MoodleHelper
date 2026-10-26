@@ -100,3 +100,20 @@ POST `/api/sync` has no body. This complete illustrative 200 response demonstrat
 ```
 
 All examples are JSON data contracts. None authorizes persistence, account isolation, document-byte upload, external AI, or a live extension. The [contract-gap checklist](overview.md#contract-gaps-and-owners) records the unresolved owners and required inputs.
+
+
+## Course discovery command (#12 contract checkpoint)
+
+POST /api/courses/discovery (ingestCourseDiscovery) accepts
+{observations:RawCourseObservation[]} and returns 200 Snapshot; 422 validation/identity
+conflict and 503 storage failures use existing {message:string}. No namespace, Course.id,
+tracking, credentials or current flag in command. Empty batch is a no-op; partial batches
+retain absent courses. ONE latest-Snapshot store.mutate prevents stale snapshot replacement.
+Data-model.md defines raw facts, trusted identity, ownership and presentation rules.
+
+Existing PUT /api/tracked-courses persists personal whitelist, including empty selection.
+Discovery never changes choices. UI keeps confirmed checkboxes pending/on failure,
+prevents overlapping saves and stale responses, retains actionable error and Retry for
+intended selection; new intent replaces obsolete retry. Refresh/save reconciliation
+cannot restore stale client choices. Production uses real HttpAdapter/SQLite, no fallback;
+collector transport may remain explicitly mocked until #9. No fixture/discovery button.

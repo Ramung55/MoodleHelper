@@ -19,7 +19,7 @@ Zod input accepts omission and inserts `false` for Assessment.personal, Overlay.
 | CalendarDate (date branch) | R kind:literal date, date:string pattern `^\d{4}-\d{2}-\d{2}$` |
 | TeachingWeek (week branch) | R kind:literal week, week:integer 1..30 |
 | UnknownDate (unknown branch) | R kind:literal unknown; O note:string |
-| Course | R id:string, code:string, name:string, color:integer 1..6, current:boolean |
+| Course | R id:string, code:string, name:string, color:integer 1..6, current:boolean; O discovery:CourseDiscovery (nonnull) |
 | SourceEvidence | R source:enum moodle/syllabus/personal, date:DateValue, observedAt:string; O excerpt:string, location:string, url:string |
 | SubmissionObservation | R status:enum submitted/draft/not_submitted/reopened/unknown, observedAt:string; O evidence:string |
 | Assessment | R id:string, courseId:string, title:string, type:enum assignment/quiz/exam/other, sources:SourceEvidence[] minItems 1, personal:boolean (default discrepancy above), firstObservedAt:string, lastObservedAt:string; O activityId:string, availableFrom:string, submission:SubmissionObservation |
@@ -98,3 +98,35 @@ Verification at engineer handoff: `uv run pytest -q` passed **154 tests** includ
 Exact-instant offset syntax is Z or signed HH:MM with offset hours 00..23 and minutes 00..59. Clock hours/minutes/seconds also require valid datetime ranges (no leap-second normalization). Offset components are checked before datetime parsing so invalid +05:99/+00:60 cannot be normalized into accepted instants. Original valid timestamp precision and offset strings are retained.
 
 QA repair verification: focused model/identity/domain checks pass **84 tests**, and `uv run pytest -q` passes **175 tests**. Added offset and clock boundaries plus invalid exact calendar dates; wire models continue to accept these arbitrary strings. Only the existing Starlette/httpx warning remains.
+
+
+## Course discovery and selection (#12 contract checkpoint)
+
+Inventory additions (all shown keys required): KnownString={kind:known,value:string},
+KnownStrings={kind:known,value:string[]}, UnknownFact={kind:unknown}.
+RawCourseObservation={sourceCourseId:string,sourceUrl:string,title:KnownString|UnknownFact,
+termIndicators:KnownStrings|UnknownFact}. CourseDiscovery adds required
+currentTermStatus:current|past|unknown. CourseDiscoveryInput={observations:RawCourseObservation[]}.
+Course.discovery is optional nonnullable; legacy metadata-free Snapshots stay unchanged.
+
+Only the new ingestion boundary requires normalized nonblank known strings, nonempty
+known arrays, canonical positive decimal STRING sourceCourseId and sourceUrl exactly
+https://moodle.sdu.edu.kz/course/view.php?id=<sourceCourseId> (no credentials/query extras/fragment).
+Legacy wire strings/URLs and unrelated operations remain permissive. Reuse #11 parser
+exports unchanged, submitting observations only; keep coverage/pages/diagnostics separate.
+
+Merge in ONE store.mutate transaction against latest saved Snapshot. Namespace comes
+only from trusted selected store/startup; explicit memory fixture namespace is ["demo"].
+NEW IDs use collector_entity_key(namespace,'course',course_id=sourceCourseId).
+Preserve opaque existing IDs via exact discovery.sourceCourseId mapping, never title/code.
+Ambiguous duplicate source mappings or deterministic-ID collision with missing/conflicting
+provenance reject the batch atomically. Retain absent courses, tracking IDs, other
+settings/collections/overlays/materials. Every new course starts untracked.
+
+Ingestion always sets currentTermStatus=unknown and current=false. Metadata current
+is compatibility projection status===current, independent of tracking. No term/title/date
+classifier. Legacy true displays a legacy current suggestion; legacy false is uncertain.
+New name is observed known title or clearly labeled 'Title unavailable'; code is
+presentation label 'Course <sourceCourseId>'; color=1+int(SHA256(UTF8(sourceCourseId)),16)%6.
+Preserve exact mapped existing code/color. Presentation defaults never become raw facts.
+Optional metadata round-trips through HTTP, aggregate SQLite JSON and backup.

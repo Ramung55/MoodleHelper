@@ -122,6 +122,37 @@ paths:
                 "$ref": "#/components/schemas/Snapshot"
         default:
           "$ref": "#/components/responses/ProposedHttpFailure"
+  /api/courses/discovery:
+    post:
+      operationId: ingestCourseDiscovery
+      tags:
+      - Courses
+      summary: Atomically merge observed course facts
+      description: Validate normalized nonblank known strings and nonempty known arrays,
+        canonical positive decimal STRING IDs, exact canonical https://moodle.sdu.edu.kz/course/view.php?id=<sourceCourseId>
+        URL at this ingestion boundary only. One latest-Snapshot store.mutate; trusted
+        store namespace; no caller identity/tracking/current flag. Retain missing courses
+        and all personal choices. New courses untracked with current=false, currentTermStatus=unknown.
+        Reject ambiguous source mappings and deterministic identity collisions atomically.
+        No coverage claim.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseDiscoveryInput'
+      responses:
+        '200':
+          description: Confirmed Snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+        '422': &id001
+          $ref: '#/components/responses/ProposedHttpFailure'
+        '503': *id001
+        default: *id001
   "/api/tracked-courses":
     put:
       operationId: "setTrackedCourses"
@@ -542,6 +573,87 @@ components:
         - "connected"
         - "disconnected"
         - "error"
+    KnownString:
+      type: object
+      properties:
+        kind:
+          type: string
+          const: known
+        value: &id001
+          type: string
+      required:
+      - kind
+      - value
+    KnownStrings:
+      type: object
+      properties:
+        kind:
+          type: string
+          const: known
+        value:
+          type: array
+          items: *id001
+      required:
+      - kind
+      - value
+    UnknownFact:
+      type: object
+      properties:
+        kind:
+          type: string
+          const: unknown
+      required:
+      - kind
+    RawCourseObservation:
+      type: object
+      properties:
+        sourceCourseId: *id001
+        sourceUrl: *id001
+        title: &id002
+          oneOf:
+          - $ref: '#/components/schemas/KnownString'
+          - $ref: '#/components/schemas/UnknownFact'
+          discriminator:
+            propertyName: kind
+        termIndicators: &id003
+          oneOf:
+          - $ref: '#/components/schemas/KnownStrings'
+          - $ref: '#/components/schemas/UnknownFact'
+          discriminator:
+            propertyName: kind
+      required:
+      - sourceCourseId
+      - sourceUrl
+      - title
+      - termIndicators
+    CourseDiscovery:
+      type: object
+      properties:
+        sourceCourseId: *id001
+        sourceUrl: *id001
+        title: *id002
+        termIndicators: *id003
+        currentTermStatus:
+          type: string
+          enum:
+          - current
+          - past
+          - unknown
+      required:
+      - sourceCourseId
+      - sourceUrl
+      - title
+      - termIndicators
+      - currentTermStatus
+    CourseDiscoveryInput:
+      type: object
+      properties:
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawCourseObservation'
+      required:
+      - observations
     Course:
       type: "object"
       properties:
@@ -555,6 +667,8 @@ components:
           type: "integer"
           minimum: 1
           maximum: 6
+        discovery:
+          "$ref": "#/components/schemas/CourseDiscovery"
         current:
           type: "boolean"
       required:
