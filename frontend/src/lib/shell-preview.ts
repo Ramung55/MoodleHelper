@@ -6,6 +6,6 @@ export function shellPreview(value: unknown, development = import.meta.env.DEV):
 }
 
 export function shellSearch(search: Record<string, unknown>): { shellState?: ShellState } {
-  const shellState = shellPreview(search.shellState);
+  const shellState = shellPreview(search["shellState"]);
   return shellState ? { shellState } : {};
 }

@@ -319,3 +319,76 @@ The root repository tracks frontend source as ordinary files so a fresh root
 checkout contains the full application. The pre-existing nested frontend Git
 history is preserved locally, and its unrelated remote is never pushed by this
 integration. Future application work should be committed from the root.
+
+## Dashboard shell previews (#8)
+
+Use the existing approved setup (`uv sync --locked` at root, then
+`bun install --frozen-lockfile` in `frontend/` on a fresh checkout). For shell
+previews, only the frontend needs to run; stop the backend to inspect them without
+any saved student data. No Moodle login, account or extension is required.
+From `frontend/`, run `bun run dev --host 127.0.0.1 --port 5173`.
+
+Each link below is a fresh direct URL. Navigation retains the chosen preview,
+including Weekly planner and Alerts, while each page retains its own heading.
+
+| Page | Loading | Empty | Recoverable error |
+| --- | --- | --- | --- |
+| Overview | [loading](http://127.0.0.1:5173/?shellState=loading) | [empty](http://127.0.0.1:5173/?shellState=empty) | [error](http://127.0.0.1:5173/?shellState=error) |
+| Deadlines | [loading](http://127.0.0.1:5173/deadlines?shellState=loading) | [empty](http://127.0.0.1:5173/deadlines?shellState=empty) | [error](http://127.0.0.1:5173/deadlines?shellState=error) |
+| Syllabus review | [loading](http://127.0.0.1:5173/syllabus?shellState=loading) | [empty](http://127.0.0.1:5173/syllabus?shellState=empty) | [error](http://127.0.0.1:5173/syllabus?shellState=error) |
+| Materials | [loading](http://127.0.0.1:5173/materials?shellState=loading) | [empty](http://127.0.0.1:5173/materials?shellState=empty) | [error](http://127.0.0.1:5173/materials?shellState=error) |
+| Settings | [loading](http://127.0.0.1:5173/settings?shellState=loading) | [empty](http://127.0.0.1:5173/settings?shellState=empty) | [error](http://127.0.0.1:5173/settings?shellState=error) |
+
+**Retry** on a simulated error replaces the query with `shellState=empty` on the
+same route without reloading or calling the API. **Exit preview** removes the
+switch and mounts the normal HTTP application on the same route. Removing the
+query manually also exits. Values are case-sensitive; invalid, missing, empty
+or repeated-array values select normal mode. Production ignores the switch.
+There is no automatic preview after backend failure or missing extension.
+
+The explicitly labeled preview renders only the shell and placeholder, outside
+`AppProvider`. It mounts no real route controls (including Settings availability
+checks), adapter, extension detection, storage or alert-persistence effects.
+No persistent DemoAdapter/browserKV is involved. Normal mode retains
+HttpAdapter, the existing integrated screens and SQLite backend ownership.
+A real startup error offers Retry, which performs initialization again; repeated
+failure retains feedback and successful recovery clears it without fixtures.
+
+Main navigation uses native links with a current-page marker. The skip link
+focuses main content, which is named for the selected section. Route navigation
+focuses main; the narrow-screen toggle exposes its expanded state and controlled
+navigation. Existing focus-visible outlines are retained. Actual browser
+keyboard order, painted focus, layout and hydration still require the manual
+verification described in the [evidence note](_docs/issue-8-verification.md).
+
+For the supported local production shell server, from `frontend/`:
+
+```powershell
+bun run build
+$env:HOST = '127.0.0.1'
+$env:PORT = '4174'
+node .output/server/index.mjs
+```
+
+The existing Nitro integration now selects its Node server preset for this local
+entry. Lovable's configured production preset override remains owned by its
+existing plugin. The inherited `bun run preview` command currently asks TanStack
+for `dist/server/server.js`, which Nitro does not emit; use the Node entry above.
+This verifies a local production shell, not a deployed public site. The Vite
+development `/api` proxy remains unchanged; this standalone production server
+has no configured backend proxy, so full production API operation is not claimed.
+A deployment still needs its own same-origin `/api` routing.
+
+With both servers running in separate terminals, repeat the HTTP checks from
+`frontend/` (no backend is needed):
+
+```powershell
+node src/test/verify-shell-http.mjs http://127.0.0.1:5173 http://127.0.0.1:4174
+bun run test
+```
+
+The HTTP checker makes 100 real direct/refresh route requests, checks headings,
+selected links, development/production state boundaries, unknown-route 404s and
+production client entry assets. Router DOM tests separately exercise actual
+shell/provider/router rendering and handlers. Neither establishes real browser
+hydration, Tab/Shift+Tab order, Enter activation, painted focus or mobile layout.

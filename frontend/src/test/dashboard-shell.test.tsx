@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { routeTree } from "@/routeTree.gen";
 import { shellPreview } from "@/lib/shell-preview";
@@ -9,9 +10,9 @@ import { buildDemoSnapshot } from "@/services/fixtures";
 const mocks = vi.hoisted(() => ({ getAdapter: vi.fn(), load: vi.fn(), connection: vi.fn(), aiAvailability: vi.fn(), saveAlerts: vi.fn(), detect: vi.fn() }));
 vi.mock("@/services", () => ({ getAdapter: mocks.getAdapter }));
 vi.mock("@/services/extension-adapter", () => ({ detectExtension: mocks.detect }));
-// The HTML document wrapper belongs to SSR; the router/provider/shell and actual
-// route components below are unchanged. jsdom does not load external CSS/fonts.
-routeTree.update({ shellComponent: ({ children }) => <>{children}</> });
+// Replace only Start's HTML document wrapper: jsdom does not load external
+// stylesheets. Actual root wiring, shell/provider and route components render.
+Object.assign(routeTree.options, { shellComponent: ({ children }: { children: ReactNode }) => <>{children}</> });
 const routes = [["/", "Overview"], ["/deadlines", "Deadlines"], ["/syllabus", "Syllabus review"], ["/materials", "Materials"], ["/settings", "Settings"]] as const;
 const snapshot = buildDemoSnapshot();
 snapshot.changes = [];
@@ -29,7 +30,7 @@ beforeEach(() => {
   mocks.detect.mockResolvedValue(false);
   mocks.aiAvailability.mockResolvedValue({ available: false, reason: "No provider configured" });
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllEnvs(); });
 
 describe("real router dashboard shell", () => {
   for (const [path, title] of routes) for (const state of ["loading", "empty", "error"] as const) {
@@ -121,6 +122,34 @@ describe("real router dashboard shell", () => {
   it("production ignores every valid preview state", () => {
     for (const state of ["loading", "empty", "error"]) expect(shellPreview(state, false)).toBeUndefined();
   });
+  for (const [path, title] of routes) for (const state of ["loading", "empty", "error"]) it(`production ${path}?shellState=${state} mounts the real provider`, async () => {
+    vi.stubEnv("DEV", false);
+    mocks.load.mockRejectedValueOnce(new Error("Real production backend unavailable"));
+    mount(`${path}?shellState=${state}`);
+    await screen.findByText("Real production backend unavailable");
+    expect(screen.getByRole("heading", { name: title, level: 1 })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Exit preview" })).not.toBeInTheDocument();
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+  });
+  for (const state of ["loading", "empty", "error"]) it(`keeps ${state} preview while navigating every required section`, async () => {
+    const router = mount(`/?shellState=${state}`);
+    await screen.findByRole("heading", { name: "Overview", level: 1 });
+    for (const [path, title] of routes) {
+      fireEvent.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: title }));
+      await screen.findByRole("heading", { name: title, level: 1 });
+      expect(router.state.location.pathname).toBe(path);
+      expect(router.state.location.search).toEqual({ shellState: state });
+      expect(within(screen.getByRole("navigation", { name: "Main" })).getAllByRole("link", { current: "page" })).toHaveLength(1);
+    }
+    expect(mocks.getAdapter).not.toHaveBeenCalled();
+  });
+  for (const [path, title] of [["/planner", "Weekly planner"], ["/alerts", "Alerts"]] as const) it(`preserves integrated ${title}`, async () => {
+    mount(path);
+    await screen.findByRole("heading", { name: title, level: 1 });
+    await waitFor(() => expect(screen.queryByRole("status", { name: `Loading ${title}` })).not.toBeInTheDocument());
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("link", { name: new RegExp(`^${title}`) })).toHaveAttribute("aria-current", "page");
+  });
   it("an invalid query uses the normal provider and shows a real failure", async () => {
     mocks.load.mockRejectedValueOnce(new Error("Actual HTTP failure"));
     mount("/materials?shellState=invalid");
@@ -129,4 +158,3 @@ describe("real router dashboard shell", () => {
     expect(screen.queryByRole("button", { name: "Exit preview" })).not.toBeInTheDocument();
   });
 });
-

@@ -23,11 +23,13 @@ export function AppShell({ preview }: { preview?: ShellState }) {
 }
 
 function PreviewShell({ state }: { state: ShellState }) {
-  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const from = NAV.find((item) => item.to === pathname)?.to ?? "/";
+  const navigate = useNavigate({ from });
   return <ShellFrame state={state} preview notice="Development preview. No student data is loaded or saved."
     connection="Preview — no connections" storage="Preview uses no saved data."
-    retry={() => void navigate({ search: { shellState: "empty" }, replace: true })}
-    exit={() => void navigate({ search: {}, replace: true })} />;
+    retry={() => void navigate({ search: () => ({ shellState: "empty" as const }), replace: true })}
+    exit={() => void navigate({ search: () => ({}), replace: true })} />;
 }
 
 function ConnectedShell() {
@@ -44,8 +46,8 @@ function ConnectedShell() {
 }
 
 function ShellFrame({ state, preview, notice, connection, storage, retry, exit, error, unread = 0, pending = 0, children }: {
-  state?: ShellState; preview?: boolean; notice: string; connection: string; storage: string;
-  retry: () => void; exit?: () => void; error?: string; unread?: number; pending?: number; children?: ReactNode;
+  state?: ShellState | undefined; preview?: boolean; notice: string; connection: string; storage: string;
+  retry: () => void; exit?: () => void; error?: string | undefined; unread?: number | undefined; pending?: number | undefined; children?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
