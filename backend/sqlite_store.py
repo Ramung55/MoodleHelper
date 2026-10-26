@@ -60,6 +60,8 @@ class SQLiteStore(SourceUpserts):
                     upgrade(connection)
                 except MigrationError:
                     raise
+                except (SQLAlchemyError, sqlite3.Error, OSError):
+                    raise
                 except Exception as exc:
                     raise MigrationError("Database migration failed and was rolled back. Stop the backend, keep a backup of the unchanged prior database, and retry with the previous application or select a new database location.") from exc
                 saved = connection.execute(text("SELECT snapshot FROM snapshots WHERE namespace=:namespace"), self._key).scalar_one_or_none()

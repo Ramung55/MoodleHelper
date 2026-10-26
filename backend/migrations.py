@@ -29,6 +29,8 @@ def upgrade(connection: Connection) -> None:
     if len(rows) != 1 or rows[0][0] != 1:
         raise MigrationError("Invalid schema version metadata. Stop and restore a known backup; no reset was performed.")
     version = rows[0][1]
+    if not isinstance(version, int):
+        raise MigrationError("Invalid schema version metadata. Stop and restore a known backup; no reset was performed.")
     if version > SCHEMA_VERSION:
         raise MigrationError("Database schema is newer than this application. Use the matching newer application or restore a compatible backup; no downgrade was performed.")
     if version < 1:

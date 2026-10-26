@@ -1,5 +1,9 @@
 # Milestone 2 — frontend/backend integration checkpoint
 
+Historical checkpoint: its in-memory and dependency-deferral statements describe
+milestone 2. SQLAlchemy was subsequently approved and SQLite is implemented under
+#6; current behavior and verification are in [milestone 3](milestone-3-checkpoint.md).
+
 2026-10-25. Implementation: `579ad6f`, with the approved nullable overlay reset
 addition in `d3884b2`. `dfa85f2` subsequently changes only a frontend README line.
 The follow-up fix committed with this record addresses QA failure

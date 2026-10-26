@@ -116,6 +116,12 @@ def test_stable_source_upsert_replays_evidence_without_touching_personal_data(ki
     assert [a for a in replayed["assessments"] if a["personal"]] == original_personal
     incoming["sources"][-1]["observedAt"] = "2028-03-02T00:00:00Z"
     assert len(repository.upsert_source("assessments", incoming)["assessments"][0]["sources"]) == 3
+    new_source = deepcopy(incoming)
+    new_source["id"] = "stable/new / Пример"
+    repository.upsert_source("assessments", new_source)
+    inserted = repository.upsert_source("assessments", new_source)
+    assert len([a for a in inserted["assessments"] if a["id"] == new_source["id"]]) == 1
+    assert inserted["overlays"] == original_overlay
     for collection in ("courses", "materials"):
         record = deepcopy(data[collection][0])
         record["name" if collection == "courses" else "title"] = "Updated source"
@@ -263,6 +269,8 @@ def test_namespace_isolation_for_reads_writes_source_reset_delete_and_restart(tm
     assert repositories[1].read() == second_before
     assert repositories[2].read() == third_before
     BackendService(first).reset_demo()
+    assert repositories[1].read() == second_before
+    assert repositories[2].read() == third_before
     BackendService(first).delete_local_data()
     for repository in repositories:
         repository.close()
@@ -317,6 +325,44 @@ def test_startup_unavailable_path_and_unwritable_parent_are_actionable(tmp_path)
     with pytest.raises(StorageError, match="permissions"):
         SQLiteStore(url(parent_file / "state.sqlite3"))
     assert parent_file.read_text() == "keep this content"
+
+
+def test_startup_lock_is_actionable_and_recoverable(store):
+    original = store.read()
+    with sqlite3.connect(store.url.database) as connection:
+        connection.execute("BEGIN EXCLUSIVE")
+        with pytest.raises(StorageError, match="locked"):
+            SQLiteStore(store.url, timeout=0.01)
+        connection.rollback()
+    assert reopened(store).read() == original
+
+
+def test_readonly_migration_keeps_prior_schema_and_records(tmp_path, monkeypatch):
+    from backend import sqlite_store
+    path = tmp_path / "readonly-prior.sqlite3"
+    original = full_snapshot()
+    prior_database(path, original)
+    real_create_engine = sqlite_store.create_engine
+    def readonly_engine(*args, **kwargs):
+        engine = real_create_engine(*args, **kwargs)
+        event.listen(engine, "connect", lambda dbapi, _: dbapi.execute("PRAGMA query_only=ON"))
+        return engine
+    monkeypatch.setattr(sqlite_store, "create_engine", readonly_engine)
+    with pytest.raises(StorageError, match="read-only"):
+        SQLiteStore(url(path))
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT version FROM schema_version").fetchone() == (1,)
+        assert json.loads(connection.execute("SELECT snapshot FROM snapshots").fetchone()[0]) == original
+        assert "revision" not in [r[1] for r in connection.execute("PRAGMA table_info(snapshots)")]
+
+
+def test_corrupt_saved_snapshot_fails_without_reseeding(store):
+    with sqlite3.connect(store.url.database) as connection:
+        connection.execute("UPDATE snapshots SET snapshot='invalid JSON' WHERE namespace=?", (store.namespace,))
+    with pytest.raises(StorageError, match="backup"):
+        reopened(store)
+    with sqlite3.connect(store.url.database) as connection:
+        assert connection.execute("SELECT snapshot FROM snapshots WHERE namespace=?", (store.namespace,)).fetchone() == ("invalid JSON",)
 
 
 def test_config_predictable_default_relative_path_nested_parent_and_immutable_namespace(tmp_path, monkeypatch):

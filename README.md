@@ -20,8 +20,8 @@ No Moodle login, extension, frontend process, or external account is needed.
 
 ## Toolchain decision and outstanding documentation
 
-The user's backend instruction selects FastAPI with uv/pytest and in-memory
-storage. Existing `AGENTS.md` commands remain applicable to the backend.
+The backend uses FastAPI with uv/pytest and file-backed SQLite through the
+explicitly approved SQLAlchemy dependency. Existing `AGENTS.md` commands apply.
 The frontend retains its own `package.json`, Bun/Vite/Vitest commands, and
 lockfile. Its design is preserved; `HttpAdapter` now binds its service contract
 to FastAPI. The old DemoAdapter remains available for focused fixture tests.
@@ -29,9 +29,10 @@ The extension/shared browser package layout remains unimplemented.
 
 The [toolchain decision](_docs/architecture/toolchain.md) records the implemented
 frontend/backend boundaries, verified commands and passing integration checkpoint;
-the project plan now agrees with those facts. SQLAlchemy dependency approval
-remains deferred, so persistence has not begun. See [#50](https://github.com/Ramung55/MoodleHelper/issues/50)
-for its independent documentation-review status.
+the project plan agrees with those facts. SQLite persistence is implemented
+under [#6](https://github.com/Ramung55/MoodleHelper/issues/6), awaiting independent
+QA. See the [storage operations guide](_docs/architecture/sqlite-storage.md)
+and [milestone-3 checkpoint](_docs/milestone-3-checkpoint.md).
 
 ## API operations
 
@@ -67,7 +68,7 @@ PATCH omits unchanged properties; nested settings objects must be complete.
 Only the three optional overlay fields accept null as a clear command;
 all other explicit nulls are invalid. Unknown properties are ignored. Invalid requests
 return 422 with `{"message":"..."}` and preserve the previous dataset.
-HTTP 404, 405, and 500 responses also use the message envelope. Missing personal
+HTTP 404, 405, 500 and storage-unavailable 503 responses also use the message envelope. Missing personal
 delete/review ids are successful no-ops; unsupported imports/downloads remain
 HTTP 200 domain outcomes. Personal deletion preserves imported assessments.
 
@@ -75,26 +76,60 @@ HTTP 200 domain outcomes. Personal deletion preserves imported assessments.
 
 Use the localhost command above. The API follows the specification's
 `security: []`: no login, tokens, accounts, authorization, or user isolation.
-Each application instance owns one shared process-local fictional dataset.
-Every client of that instance sees the same data. Restarting clears changes;
-multiple workers have independent datasets, so run the default single worker.
-No database, filesystem persistence, external AI, or live Moodle access is used.
+Each process selects one immutable dataset namespace at startup. Every client
+reaching that process sees its selected data. Restarting with the same database
+and identity preserves changes. Run one worker bound to localhost. The default
+reserved demo namespace initializes fictional samples only once. Explicit Moodle
+namespaces start empty, with default settings. No live Moodle collection or
+external AI is implemented; configured identity is partitioning, not authentication.
 No CORS permissions are enabled; the frontend development server proxies `/api`
 to FastAPI on the same browser origin. Hosted deployment and authentication remain
 undecided in #2; this implementation does not resolve that deployment design.
 
-`backend/storage.py` defines a repository protocol and copy-on-write,
-lock-protected implementation. Replacing this boundary can add persistence in
-a future task. `create_app(store=...)` allows an isolated repository per test.
-Services implement adapter behavior; routers only bind HTTP to services.
+`backend/storage.py` defines the repository protocol and explicit memory store;
+`backend/sqlite_store.py` implements SQLAlchemy transactions and namespace-scoped
+persistence. `create_app(store=InMemoryStore())` retains isolated memory injection.
+Services implement adapter behavior; routers bind HTTP to services.
+
+Without configuration, the SQLite file is `data/moodle-helper.sqlite3` under the
+repository root, independent of the current working directory. Missing parent
+directories are created; permission or path failures stop startup. Set an explicit
+file URL before the production/local startup command to choose another location:
+
+```powershell
+$env:MOODLE_HELPER_DATABASE_URL = 'sqlite:///C:/Users/hpram/MoodleHelperData/local.sqlite3'
+uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Use a writable local path of your choice. Relative SQLite paths resolve against
+the repository root. Non-SQLite, memory, credential-bearing or query-option URLs
+are rejected; there is no silent memory fallback and no automatic `.env` loading.
+Omit `MOODLE_HELPER_DATASET` or set it to `demo`, with all Moodle identity variables
+unset. For a separately configured identity, set all four values before startup:
+
+```powershell
+$env:MOODLE_HELPER_DATASET = 'moodle'
+$env:MOODLE_HELPER_MOODLE_ORIGIN = 'https://moodle.sdu.edu.kz'
+$env:MOODLE_HELPER_PROFILE_LABEL = 'personal'
+$env:MOODLE_HELPER_STABLE_USER_ID = '42'
+```
+
+These are labeled fixture/example identifiers, not discovered browser identity.
+Switch accounts/profiles by stopping, configuring and restarting. Partial identity
+configuration fails; request headers/bodies cannot select a namespace. All records,
+settings, overlays, reset and local-data deletion remain in the selected partition.
+See [migration, backup and failure recovery](_docs/architecture/sqlite-storage.md)
+before changing applications or database locations. Save failures return actionable
+503 errors; the dashboard retains its last successful data and displays the error.
 
 ## Contract limitations and verification
 
 The root OpenAPI remains authoritative, with the documented reset addition. Broader issue #5 asks
-for invalid-date/unsafe-URL validation, but the current wire contract explicitly
+for invalid-date/unsafe-URL validation, and the current wire contract explicitly
 permits arbitrary timestamp/timezone/URL strings and only a date-shaped regex.
 This backend implements those exact constraints, including date-shaped strings
-that are not calendar dates. It does not claim to complete #5.
+that are not calendar dates. #5 completed separate opt-in ingestion checks and
+identity helpers; HTTP and full-Snapshot restore retain wire compatibility.
 
 The justified #53/#58 contract addition preserves overlay reset over JSON:
 omission means unchanged; `titleOverride: null` removes the title, and
@@ -138,8 +173,8 @@ bun run dev --host 127.0.0.1 --port 5173
 
 Open http://127.0.0.1:5173. The Vite server forwards `/api` to
 http://127.0.0.1:8000; requests need no credentials. Keep both processes running.
-Browser reload reads server state. Backend restart restores fictional sample
-data until the separately approved persistence milestone is implemented.
+Browser reload reads server state. Backend restart reloads the same selected
+namespace from SQLite without reseeding saved or deliberately emptied data.
 Do not expose either development server publicly. A production build succeeds,
 but a deployed host must separately proxy `/api`; no hosting is configured here.
 
@@ -151,9 +186,15 @@ bun run build
 ```
 
 `http-live.test.ts` starts a real FastAPI child process on an available localhost
-port using the uv-managed `.venv`, exercises the HTTP adapter, and stops it.
+port using the uv-managed `.venv` and an isolated temporary SQLite file, exercises
+the HTTP adapter, stops/restarts the process, and verifies complete persisted data.
 Run `uv sync` first. Other frontend tests cover all 16 mappings and UI error
 preservation. No mocked request is used for the live integration tests.
+
+Backend API/contract tests run against both explicit memory and temporary SQLite
+stores. `uv run pytest tests/test_sqlite_store.py` additionally checks migration
+rollback/retry, future versions, all current fields, source replay, namespaces,
+atomic writes and real SQLite locked/read-only/full failures.
 
 The root repository tracks frontend source as ordinary files so a fresh root
 checkout contains the full application. The pre-existing nested frontend Git

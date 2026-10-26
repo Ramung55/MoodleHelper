@@ -1,4 +1,4 @@
-"""Replaceable storage boundary and process-local transactional implementation."""
+"""Replaceable Snapshot boundary, source upserts and explicit memory fixture store."""
 
 from collections.abc import Callable
 from copy import deepcopy

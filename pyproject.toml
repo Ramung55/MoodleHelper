@@ -1,7 +1,7 @@
 [project]
 name = "moodle-helper-backend"
 version = "0.1.0"
-description = "Local in-memory Moodle Helper API"
+description = "Local SQLite-backed Moodle Helper API"
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi>=0.115,<1",

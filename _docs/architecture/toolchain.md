@@ -41,7 +41,7 @@ uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000
 usable without resolving a replacement. Swagger UI is at
 `http://127.0.0.1:8000/docs`; generated OpenAPI is at
 `http://127.0.0.1:8000/openapi.json`. The application exports
-`backend.main:app`. Use one backend worker while storage is process-local.
+`backend.main:app`. Use one localhost worker with the selected SQLite namespace.
 
 In another terminal, starting from the root:
 
@@ -82,8 +82,10 @@ tool approval in this environment; that is not an application dependency.
    legacy standalone TypeScript-check errors and one backend TestClient warning
    are documented; a passing build is not a claim that every optional static
    check is clean.
-3. SQLite/SQLAlchemy persistence: requested next, **not implemented**.
-   SQLAlchemy approval was expressly deferred by the user.
+3. SQLite/SQLAlchemy persistence: implemented under #6, awaiting independent QA.
+   The human approved SQLAlchemy>=2,<3 on 2026-10-25, superseding the earlier
+   deferral. See [storage operations](sqlite-storage.md) and the
+   [milestone-3 checkpoint](../milestone-3-checkpoint.md).
 4. Remaining feature implementation: follows a passing persistence checkpoint;
    independent prerequisite documentation/triage can proceed during the gate.
 
@@ -102,32 +104,32 @@ or claim account isolation. Sync/import remain final-result simulations,
 imports receive filenames rather than bytes, downloads are unsupported, and
 AI remains unavailable. Broader feature issues remain open.
 
-## Storage and identity decisions still needed
+## Storage and remaining identity boundary
 
-The current FastAPI process is authoritative for its single shared fictional
-Snapshot. Restarting it discards changes; different processes have independent
-datasets. This is observable current behavior, not durable storage or a Moodle
-identity namespace. No Moodle passwords, cookies or session tokens belong in
-dashboard messages, snapshots or the future database.
+The FastAPI backend owns the durable Snapshot. Environment configuration selects
+one immutable demo or Moodle origin/profile/stable-user namespace at startup;
+restart reloads the selected partition. All local clients reaching that process
+share it. No Moodle passwords, cookies or session tokens belong in dashboard
+messages, snapshots or the database. Live identity discovery/handoff remains #9/#3.
 
-The product's original extension-owned IndexedDB/Dexie proposal and the latest
-requested local backend SQLite stage need an explicit coexistence decision in
+The product's original extension-owned IndexedDB/Dexie proposal is superseded by
+the explicit backend-authority and trusted startup namespace decisions in
 [#2](https://github.com/Ramung55/MoodleHelper/issues/2) and
-[#6](https://github.com/Ramung55/MoodleHelper/issues/6): which local component
-owns durable data, how the extension contributes observations, how a dataset is
-selected, and how separate Moodle identities are isolated. This document does
-not silently make the website authoritative for extension credentials or weaken
-#6's restart, stable upsert, migration-failure, storage-failure and identity
-isolation guarantees. No persistent implementation starts merely because the
-frameworks have been named.
+[#6](https://github.com/Ramung55/MoodleHelper/issues/6). SQLite now tests restart,
+stable upsert, migration rollback, storage failures and namespace isolation.
+Future extension caches/queues cannot be a competing data authority; permission,
+collector transport and verified identity discovery remain #9/#3/#19. Website
+storage never becomes authoritative for extension credentials. Public hosting
+and authenticated accounts remain outside this local partitioning decision.
 
 ## Dependency approvals and issue boundaries
 
 The user explicitly approved the backend's FastAPI and Uvicorn, with pytest,
 httpx, PyYAML and jsonschema for verification. Existing frontend dependencies
-and its lockfile are preserved. SQLAlchemy, WXT/Dexie or other extension
-tooling, PDF/DOCX/OCR libraries/assets, and additional browser-test packages
-remain provisional and require explicit approval before addition. A proposed
+and its lockfile are preserved. SQLAlchemy>=2,<3 plus ordinary locked transitive
+dependencies is explicitly approved and installed through uv. WXT/Dexie or other
+extension tooling, PDF/DOCX/OCR libraries/assets, and additional browser-test
+packages still require explicit approval before addition. A proposed
 stack, this document or a green test is not dependency approval.
 
 - #1 is the completed historical backend bootstrap; its criteria and closed
