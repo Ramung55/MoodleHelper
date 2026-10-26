@@ -181,6 +181,17 @@ malformed/unsafe MIME is unknown with fixed invalid_mime reason, and its origina
 string is never returned in observations, review or diagnostics. This syntax is
 a deliberately narrow collector vocabulary, not a claim to recognize every MIME.
 
+Exact Moodle reference spelling: requestedUrl/finalUrl are absolute canonical
+URLs only. DOM Moodle hrefs accept either canonical absolute HTTPS URLs or
+root-relative /course/..., /mod/... and /pluginfile.php/... forms; reject protocol
+relative, path-relative, query-only and fragment-only forms. Resolve accepted
+root-relative references against the validated SDU origin, then return canonical
+absolute references. Pluginfile pathSegments use the exact literal segment
+alphabet and three privacy checks above, with no percent escapes, dot segments,
+empty segments or trailing slash. No Unicode/encoded filename support is claimed
+by this bounded synthetic vocabulary. All Moodle URL spellings reject explicit
+ports (including :443), encoded host aliases and noncanonical host spelling.
+
 ## Verification and handoff
 
 Engineer must make this documented vocabulary exact in source comments/tests
