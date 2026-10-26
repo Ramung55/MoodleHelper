@@ -226,6 +226,40 @@ links, plus Office MIME allowlist positives and near-miss negatives.
 
 ## Verification and handoff
 
+Post-review clarification, 2026-10-26 (after initial implementation; prompted by
+QA's confirmed-empty-folder probe): missing_metadata applies only to facts that
+are applicable to that source kind. Folder root and child-folder records naturally
+have unknown fileType and mimeType and may have no destinationUrl; absence of
+these file-only fields is not missing_metadata and must not itself lower coverage.
+Keep their explicit unknown values; never invent a MIME/type/destination to pass
+coverage. Missing title or section remains missing_metadata for folders, just as
+for other records. Explicitly supplied unsafe destination/MIME or contradictory
+type metadata still produces the existing privacy/conflict reason and prevents
+complete coverage; the N/A exception cannot hide malformed supplied evidence.
+
+Coverage describes the supplied source kind and inspected structure. A course
+page folder reference establishes only that module reference, not its unseen
+contents. Record listing coverage for such a folder as none, with scope
+reference_only; this does not itself make a structurally complete course-page
+reference inventory partial. A folder module with an inspected valid contents
+list uses scope supplied_listing_only; exactly one folder-empty marker in a
+genuinely empty list, known title/section, valid access/identity and no other
+error/pagination is complete for that listing, even with unknown type/MIME and
+absent destination. A nested child folder with an actual child ul similarly has
+listing coverage complete only if every supplied candidate is valid, no
+incomplete/pagination signal exists, and either children are present or that
+empty ul contains exactly one folder-empty marker. A nested folder without an
+inspected child ul is reference_only/none, not an empty complete listing; mark
+its enclosing folder listing partial with folder_contents_uninspected. Root
+folder references on course pages do not trigger this enclosing-folder rule.
+Represent these distinctions as per-folder listing metadata in the raw record
+(listingScope: reference_only|supplied_listing_only and listingCoverage:
+complete|partial|none). Page/aggregate supplied-page coverage continues to report
+candidate errors and incomplete inspected listings; no combination proves live
+or unfetched folder completeness. These additive raw facts must also survive the
+future sourceDetails wire extension. All five original #17 criteria remain
+unchanged; this resolves N/A metadata versus missing applicable facts.
+
 Visible-label privacy clarification before label implementation: title and section
 normally preserve whitespace-normalized visible wording. Return explicit unknown
 instead, with fixed unsafe_label reason, if normalized text (a) contains a URI
