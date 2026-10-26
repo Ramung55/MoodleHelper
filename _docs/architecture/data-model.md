@@ -80,6 +80,12 @@ Examples of useful domain failures: date `2027-02-29` → `date.date: must be a 
 
 ## Coverage checklist and extension owners
 
+#15 preimplementation [calendar contract](../calendar-collection-contract.md)
+records raw start/end/date precision, event/occurrence identities, review/coverage
+and future additive Assessment.calendarEvents plus raw review queue before #18/#20
+backend ingestion. Existing SourceEvidence.date alone cannot retain these facts;
+no calendar wire support is claimed by the pure parser decision.
+
 #14 preimplementation [quiz decision](../quiz-collection-contract.md) records the
 explicit verified-variant blocker, raw opening/quiz-close/attempt wording model and
 future additive Assessment.quizDetails boundary before #18/#20 backend ingestion.
