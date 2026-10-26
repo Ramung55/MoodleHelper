@@ -743,8 +743,393 @@ paths:
         schema:
           type: string
         description: Required process binding for collection writes.
+  /api/queue/runs:
+    post:
+      operationId: startQueueRun
+      tags:
+      - Queue
+      security: []
+      parameters:
+      - &id007
+        name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        description: Required current backend process binding. A stale or absent binding
+          returns 409 before processing.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueRun'
+        '404': &id002
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409': &id003
+          description: Conflicting key, stale claim or process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422': &id004
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503': &id005
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default: &id006
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueStart'
+  /api/queue/runs/{runId}:
+    get:
+      operationId: readQueueRun
+      tags:
+      - Queue
+      security: []
+      parameters:
+      - &id008
+        name: runId
+        in: path
+        required: true
+        schema: &id001
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+      - name: cursor
+        in: query
+        required: false
+        schema: *id001
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueRun'
+        '404': *id002
+        '409': *id003
+        '422': *id004
+        '503': *id005
+        default: *id006
+  /api/queue/runs/{runId}/cancel:
+    post:
+      operationId: cancelQueueRun
+      tags:
+      - Queue
+      security: []
+      parameters:
+      - *id007
+      - *id008
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueRun'
+        '404': *id002
+        '409': *id003
+        '422': *id004
+        '503': *id005
+        default: *id006
+  /api/queue/claim:
+    post:
+      operationId: claimQueueJob
+      tags:
+      - Queue
+      security: []
+      parameters:
+      - *id007
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueClaimResponse'
+        '404': *id002
+        '409': *id003
+        '422': *id004
+        '503': *id005
+        default: *id006
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueClaimInput'
+  /api/queue/renew:
+    post:
+      operationId: renewQueueClaim
+      tags:
+      - Queue
+      security: []
+      parameters:
+      - *id007
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueRenewResponse'
+        '404': *id002
+        '409': *id003
+        '422': *id004
+        '503': *id005
+        default: *id006
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueClaimToken'
+  /api/queue/finish:
+    post:
+      operationId: finishQueueClaim
+      tags:
+      - Queue
+      security: []
+      parameters:
+      - *id007
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueJob'
+        '404': *id002
+        '409': *id003
+        '422': *id004
+        '503': *id005
+        default: *id006
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueFinish'
 components:
   schemas:
+    QueueStart:
+      type: object
+      additionalProperties: false
+      properties:
+        idempotencyKey: &id001
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+        courseIds:
+          type: array
+          items: &id003
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: ^[A-Za-z0-9._:-]+$
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+      required:
+      - idempotencyKey
+      - courseIds
+    QueueClaimInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      required: []
+    QueueClaimToken:
+      type: object
+      additionalProperties: false
+      properties:
+        jobId: *id001
+        generation:
+          type: integer
+          minimum: 1
+        token: *id001
+      required:
+      - jobId
+      - generation
+      - token
+    QueueFinish:
+      type: object
+      additionalProperties: false
+      properties:
+        jobId: *id001
+        generation:
+          type: integer
+          minimum: 1
+        token: *id001
+        outcome:
+          type: string
+          enum:
+          - completed
+          - failed
+        errorCode:
+          type: string
+          enum:
+          - mock_failure
+      required:
+      - jobId
+      - generation
+      - token
+      - outcome
+    QueueProgress:
+      type: object
+      additionalProperties: false
+      properties:
+        pending: &id002
+          type: integer
+          minimum: 0
+        running: *id002
+        completed: *id002
+        failed: *id002
+        cancelled: *id002
+        total: *id002
+      required:
+      - pending
+      - running
+      - completed
+      - failed
+      - cancelled
+      - total
+    QueueResult:
+      type: object
+      additionalProperties: false
+      properties:
+        id: *id001
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+      - id
+      - summary
+    QueueJob:
+      type: object
+      additionalProperties: false
+      properties:
+        id: *id001
+        courseId: *id003
+        state: &id004
+          type: string
+          enum:
+          - pending
+          - running
+          - completed
+          - failed
+          - cancelled
+        attempts: *id002
+        generation: *id002
+        errorCode:
+          type: string
+          enum:
+          - mock_failure
+        result:
+          $ref: '#/components/schemas/QueueResult'
+      required:
+      - id
+      - courseId
+      - state
+      - attempts
+      - generation
+    QueueRun:
+      type: object
+      additionalProperties: false
+      properties:
+        id: *id001
+        idempotencyKey: *id001
+        courseIds:
+          type: array
+          items: *id003
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+        createdAt: *id002
+        status: *id004
+        cancelled:
+          type: boolean
+        progress:
+          $ref: '#/components/schemas/QueueProgress'
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueJob'
+          maxItems: 100
+        nextCursor: *id001
+      required:
+      - id
+      - idempotencyKey
+      - courseIds
+      - createdAt
+      - status
+      - cancelled
+      - progress
+      - jobs
+    QueueClaim:
+      type: object
+      additionalProperties: false
+      properties:
+        job:
+          $ref: '#/components/schemas/QueueJob'
+        token: *id001
+        generation:
+          type: integer
+          minimum: 1
+        expiresAt: *id002
+      required:
+      - job
+      - token
+      - generation
+      - expiresAt
+    QueueClaimResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        claim:
+          $ref: '#/components/schemas/QueueClaim'
+        unfinished:
+          type: boolean
+      required:
+      - unfinished
+    QueueRenewResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        expiresAt: *id002
+      required:
+      - expiresAt
     DateValue:
       oneOf:
       - $ref: '#/components/schemas/ExactDate'
