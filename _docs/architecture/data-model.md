@@ -94,3 +94,7 @@ Timezone availability: the standard-library ZoneInfo database is absent on this 
 
 
 Verification at engineer handoff: `uv run pytest -q` passed **154 tests** including 63 new focused checks and all existing API/source-generated contract tests. Existing Starlette/httpx deprecation warning remains. The cross-language probe requires the already approved Node/TypeScript/Zod frontend dependencies installed by the documented toolchain; no package was added. Strict helpers are not connected to HTTP/storage and no SQLAlchemy/SQLite code or dependency was introduced. Independent QA must verify all expanded #5 criteria before closure.
+
+Exact-instant offset syntax is Z or signed HH:MM with offset hours 00..23 and minutes 00..59. Clock hours/minutes/seconds also require valid datetime ranges (no leap-second normalization). Offset components are checked before datetime parsing so invalid +05:99/+00:60 cannot be normalized into accepted instants. Original valid timestamp precision and offset strings are retained.
+
+QA repair verification: focused model/identity/domain checks pass **84 tests**, and `uv run pytest -q` passes **175 tests**. Added offset and clock boundaries plus invalid exact calendar dates; wire models continue to accept these arbitrary strings. Only the existing Starlette/httpx warning remains.

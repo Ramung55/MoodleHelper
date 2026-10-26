@@ -116,3 +116,24 @@ def test_timezone_data_failure_is_actionable_without_mislabeling_known_names(mon
     domain_validation.validate_timezone("Asia/Almaty", "tz")
     with pytest.raises(ValueError, match="validation data unavailable locally"):
         domain_validation.validate_timezone("Europe/Paris", "tz")
+
+@pytest.mark.parametrize("instant", ["2028-02-29T23:59:59Z", "2028-02-29T00:00+00:00",
+    "2028-02-29T09:00:00-00:00", "2028-02-29T09:00:00+05:30",
+    "2028-02-29T09:00:00-03:45", "2028-02-29T09:00:00+23:59",
+    "2028-02-29T09:00:00-23:59"])
+def test_exact_instant_valid_offset_boundaries_preserve_input(instant):
+    value = {"kind": "exact", "iso": instant, "tz": "UTC"}
+    assert validate_date(value) == value
+
+
+@pytest.mark.parametrize("instant", ["2028-02-29T09:00:00+05:99", "2028-02-29T09:00:00+00:60",
+    "2028-02-29T09:00:00-00:60", "2028-02-29T09:00:00+24:00",
+    "2028-02-29T09:00:00-24:00", "2028-02-29T09:00:00+99:00",
+    "2027-02-29T09:00:00Z", "2028-04-31T09:00:00Z", "2028-00-01T09:00:00Z",
+    "2028-02-29T24:00:00Z", "2028-02-29T09:60:00Z", "2028-02-29T09:00:60Z",
+    "2028-02-29T09:00:00+05:00:30", "2028-02-29T09:00:00+0500"])
+def test_exact_instant_rejects_component_overflow_without_tightening_wire(instant):
+    value = {"kind": "exact", "iso": instant, "tz": "UTC"}
+    assert schemas.ExactDate.model_validate(value).iso == instant
+    with pytest.raises(ValueError, match="date.iso: must be a valid ISO instant"):
+        validate_date(value)

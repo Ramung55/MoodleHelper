@@ -15,8 +15,14 @@ from backend.identity import MOODLE_ORIGIN, stable_identifier
 
 def validate_instant(value: str, field: str) -> None:
     try:
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})", value):
+        if not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]"
+            r"(?::[0-5][0-9](?:\.[0-9]+)?)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
+            value,
+        ):
             raise ValueError
+        # Enforce offset components before parsing: fromisoformat normalizes
+        # invalid minutes such as +05:99 into a different valid offset.
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.utcoffset() is None:
             raise ValueError
@@ -129,5 +135,3 @@ def merge_source_evidence(existing: list[dict], incoming: list[dict]) -> list[di
             result.append(deepcopy(evidence))
             seen.add(key)
     return result
-
-
