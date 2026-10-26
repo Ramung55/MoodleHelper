@@ -226,6 +226,21 @@ links, plus Office MIME allowlist positives and near-miss negatives.
 
 ## Verification and handoff
 
+Visible-label privacy clarification before label implementation: title and section
+normally preserve whitespace-normalized visible wording. Return explicit unknown
+instead, with fixed unsafe_label reason, if normalized text (a) contains a URI
+scheme token matching [A-Za-z][A-Za-z0-9+.-]*: followed by //, (b) contains a token
+starting javascript:, data:, file: or mailto: case-insensitively, (c) contains a
+protocol-relative token starting //, or (d) contains a whitespace-delimited token
+starting /course/, /mod/ or /pluginfile.php/. This applies equally to successful
+observations, safe review candidates, folder entries, inherited section text and
+duplicate/reference metadata. Do not include rejected label text in diagnostics.
+This deliberately suppresses URL-shaped labels even if their displayed URL could
+be safe, avoiding a second URL acceptance path through titles. Ordinary prose is
+not scanned for speculative secrets; no generic personal-text filtering is
+required. All URL/MIME/label validation must occur before copying candidate facts
+to ANY returned collection, including conflict reviews and alternate references.
+
 Engineer must make this documented vocabulary exact in source comments/tests
 before implementation (if any ambiguity requires a small contract correction,
 record it before code; preserve all original criteria). Fixtures are inert DOM
