@@ -176,3 +176,19 @@ unsafe/mismatching identities/links, malformed siblings, fact-only #4 negatives,
 fixed private-safe diagnostics, unchanged inputs and no effects. Run focused
 calendar tests, #10/#11/#13 regressions, full frontend tests/build, #4 hygiene and
 backend suite. These are offline checks; no claim of live SDU compatibility.
+
+## Implementation and offline verification (#15)
+
+`collectMoodleCalendar` now returns the detached raw calendar DTO and bounded
+per-page results above. It is deliberately absent from extension entry points,
+Snapshot serialization and backend ingestion. The conflict grouping includes
+excluded kind/course evidence internally while public exclusions retain only
+fixed reasons and indices. Selection always uses caller source course strings.
+
+Offline checks on 2026-10-26: focused calendar **106 tests passed**; existing
+access/course/assignment regressions **239 passed**, including all **97** assignment
+tests after the shared date-helper extraction. Full frontend **453 tests / 11
+files passed**; frontend and inert extension production builds passed; standalone
+calendar parser TypeScript check passed. Backend **364 tests passed**, including
+#4 fixture hygiene. The existing Starlette/httpx deprecation warning remains.
+These invented structural fixtures do not establish live SDU compatibility.

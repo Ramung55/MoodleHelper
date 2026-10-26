@@ -84,7 +84,10 @@ Examples of useful domain failures: date `2027-02-29` → `date.date: must be a 
 records raw start/end/date precision, event/occurrence identities, review/coverage
 and future additive Assessment.calendarEvents plus raw review queue before #18/#20
 backend ingestion. Existing SourceEvidence.date alone cannot retain these facts;
-no calendar wire support is claimed by the pure parser decision.
+the pure parser now implements this raw DTO offline, with fixed-reason exclusions
+and conflict-safe eligible reviews. No calendar wire support is claimed. The
+verified local checks are recorded in the calendar contract; live SDU remains
+unverified. #33 still owns calendar/activity matching.
 
 #14 preimplementation [quiz decision](../quiz-collection-contract.md) records the
 explicit verified-variant blocker, raw opening/quiz-close/attempt wording model and
@@ -148,3 +151,4 @@ New name is observed known title or clearly labeled 'Title unavailable'; code is
 presentation label 'Course <sourceCourseId>'; color=1+int(SHA256(UTF8(sourceCourseId)),16)%6.
 Preserve exact mapped existing code/color. Presentation defaults never become raw facts.
 Optional metadata round-trips through HTTP, aggregate SQLite JSON and backup.
+
