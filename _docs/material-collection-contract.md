@@ -149,6 +149,38 @@ bounded vocabulary intentionally rejects some benign URLs; expand only with
 explicit safe examples. Accepted external links retain their precise destination
 and are never fetched or followed for privileged collection.
 
+Exact external privacy boundary (PM clarification before code): accept root path
+or slash-separated nonempty literal segments matching [A-Za-z0-9._~-]+, with an
+optional trailing slash; reject repeated slashes, dot/dot-dot segments, ALL percent
+escapes, empty query tokens/values, duplicate keys and even an empty trailing ?
+or #. Query keys are case-sensitive literal id,page,lang,v only. Fragment, query
+values and each path segment must additionally pass all three privacy checks:
+(1) reject a case-insensitive sensitive word delimited by start/end or any of
+dot, underscore, tilde, hyphen: token, access, sesskey, auth, authorization, key,
+api, signature, secret, password, credential, bearer; this also rejects compound
+access_token and api_key; (2) reject a string containing three nonempty dot-separated
+segments each matching [A-Za-z0-9_-]+ (a conservative JWT-like pattern, even if
+otherwise ordinary text); (3) reject any contiguous [A-Za-z0-9_-] run of length
+32 or more. No extra entropy guess or secret-name synonym heuristic is required.
+These are intentionally bounded privacy checks, not a guarantee that arbitrary
+human-authored text cannot contain a secret. Examples: /lectures/week-1.pdf?id=42
+#part-2 and /watch?v=abc123 are accepted precisely; /access_token/abc,
+/notes?lang=secret, /a.b.c, /<32-letter-run>, /notes%2Fprivate, /notes?ID=42 and
+/notes# are rejected. Reject noncanonical host spelling, encoded host aliases,
+empty explicit port and explicit default :443 too, so acceptance never normalizes
+an input into a different destination. Absolute external href must already equal
+the URL serialization returned by the URL parser; return the original href.
+
+MIME safety boundary: inspect only an anchor's type attribute. Known MIME values
+must be literal lowercase ASCII type/subtype matching
+[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*, total length <=127,
+with neither parameters nor whitespace; require the same three privacy checks
+above independently on type and subtype. Safe syntactically valid unsupported
+MIME remains known other and retained known MIME. Missing is unknown MIME;
+malformed/unsafe MIME is unknown with fixed invalid_mime reason, and its original
+string is never returned in observations, review or diagnostics. This syntax is
+a deliberately narrow collector vocabulary, not a claim to recognize every MIME.
+
 ## Verification and handoff
 
 Engineer must make this documented vocabulary exact in source comments/tests
