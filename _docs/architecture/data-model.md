@@ -80,6 +80,13 @@ Examples of useful domain failures: date `2027-02-29` → `date.date: must be a 
 
 ## Coverage checklist and extension owners
 
+#13 preimplementation decision: [assignment-date-contract.md](../assignment-date-contract.md)
+defines the pure raw assignment observation, separate base/effective opening/due/cutoff
+and individual evidence. It also records the agreed future additive
+Assessment.assignmentDates wire shape before assignment backend ingestion (#18/#20).
+The parser DTO is not Snapshot; this gap stays open until coordinated wire and
+round-trip support exists. No unsupported fact may be dropped by ingestion.
+
 - [x] All current Snapshot and nested fields above are representable; opt-in semantic validation/namespace/replay helpers are tested.
 - [ ] Separate cutoff dates: #13; current sources dates do not distinguish due/cutoff.
 - [ ] Quiz attempt count/state details: #14; submission status alone is insufficient.
