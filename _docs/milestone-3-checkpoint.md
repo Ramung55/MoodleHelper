@@ -110,6 +110,20 @@ one process share its selected namespace. No live Moodle identity discovery, col
 transport, queue, cross-source matching, public hosting, document bytes/downloads or
 external AI is claimed. Those original feature issues remain open.
 
-Engineering handoff is complete. **Independent QA must verify all 11 canonical #6
-criteria, including actual restart, before the orchestrator closes #6 or starts
-milestone-4 features.** This record is not a QA PASS verdict.
+## Independent QA PASS
+
+Independent QA verified commit `10ca3ce` and recorded **PASS for all 11 canonical
+#6 criteria**, including actual server restart, in the
+[authoritative verdict](https://github.com/Ramung55/MoodleHelper/issues/6#issuecomment-6406089710).
+Its independently executed checks were:
+
+- `UV_CACHE_DIR=<repo>/.uv-cache uv run pytest -q`: **297 passed**, one existing
+  Starlette/httpx warning, **12.06 seconds**.
+- `bun run test` from `frontend/`: **52 passed across 5 files**, **5.75 seconds**,
+  including actual server restart and locked-database workflow.
+- `uv run python -c <independent temporary-storage probe>`: **PASS** for a separate
+  full-record/optional-field actual Uvicorn PUT/stop/start/GET equality check and
+  safe driver-error classification without SQL-parameter leakage/misclassification.
+
+QA changed no implementation files and did not close the issue. The persistence
+QA gate is passed; the orchestrator may now close #6 and proceed in backlog order.
