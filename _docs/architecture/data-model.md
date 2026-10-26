@@ -80,6 +80,11 @@ Examples of useful domain failures: date `2027-02-29` → `date.date: must be a 
 
 ## Coverage checklist and extension owners
 
+#14 preimplementation [quiz decision](../quiz-collection-contract.md) records the
+explicit verified-variant blocker, raw opening/quiz-close/attempt wording model and
+future additive Assessment.quizDetails boundary before #18/#20 backend ingestion.
+No quiz wire support or verified variant is claimed; the #14 gap remains open.
+
 #13 preimplementation decision: [assignment-date-contract.md](../assignment-date-contract.md)
 defines the pure raw assignment observation, separate base/effective opening/due/cutoff
 and individual evidence. It also records the agreed future additive
