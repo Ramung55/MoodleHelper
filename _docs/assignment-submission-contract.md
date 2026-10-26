@@ -45,22 +45,33 @@ it has no unknown/older submission retention policy. Existing SQLite tests check
 replay and personal isolation, not this missing policy. A pure policy primitive
 therefore supplies useful partial progress without inventing Moodle wording.
 
-Engineer bounds: `extension/src/submission-retention.ts` and
-`frontend/src/test/submission-retention.test.ts`. Use existing typed
-SubmissionObservation values inside a detached identity/source wrapper, never
+Engineer bounds: `backend/submission_retention.py` and
+`tests/test_submission_retention.py`. Retention is authoritative backend domain
+policy under #2/#6; the extension supplies raw attempts rather than owning a
+second merge policy. Use actual `backend.schemas.SubmissionObservation` values
+inside a detached identity/source wrapper, never
 claim raw enum inputs classify Moodle DOM. Define explicit success/error result;
 input is latest attempt plus optional previous confirmed record. Each carries
 exact course/activity/module string IDs and canonical safe assignment sourceUrl.
-Validate timestamps with existing shared zoned-instant helper and require exact
+Validate timestamps with existing #5 backend domain timestamp validation using
+the standard library, without globally tightening legacy wire fields. Require exact
 identity/source agreement when previous exists. Invalid inputs return fixed
 diagnostics with no echoed values. Do not accept grade/completion/HTML inputs.
 
 Return latest attempted record separately from optional confirmed record and
 stale boolean. Unknown/inaccessible attempts cannot create a confirmation;
-newer unknown retains previous confirmation and sets stale=true. Known newer
+newer unknown retains previous confirmation and sets stale=true. An older unknown
+attempt never marks a more recent confirmed observation stale. At an equal instant,
+unknown cannot disprove a confirmed fact: retain confirmation with stale=false.
+Known newer
 attempt replaces confirmation and sets stale=false. Older attempt cannot replace
 newer confirmation; identical replay is stable; equal-time contradictory states
-must be rejected rather than arbitrarily selecting truth. Unknown with no prior
+must be rejected rather than arbitrarily selecting truth; return a fixed safe
+error without replacing or mutating the supplied current confirmation. Compare
+validated instants only; preserve original timestamp strings and source wording,
+including offset-equivalent values. Equal-time same-state input is an idempotent
+replay: retain the existing confirmation and its original wording/precision.
+Unknown with no prior
 has no confirmation and is stale=false (there is no retained fact to mark stale).
 This is observation retention, not actionRequired classification; do not invent
 reopened semantics from a raw enum. No store, endpoint, Snapshot serialization,
