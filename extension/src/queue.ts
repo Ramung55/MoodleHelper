@@ -72,9 +72,12 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
   return {wake,start,dispose(){disposed=true; for(const timer of intervals) clearInterval(timer); intervals.clear(); for(const controller of controllers) controller.abort(); controllers.clear();}};
 }
 
-type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} };
-export function installQueueWorker(chrome:QueueChrome) {
-  const service=createQueueService({schedule:needed=>needed?chrome.alarms.create(ALARM_NAME,{delayInMinutes:1}):chrome.alarms.clear(ALARM_NAME)});
+type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number;periodInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} };
+export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Parameters<typeof createQueueService>[0], 'schedule'>>={}) {
+  // One periodic alarm discovers runs created directly through the local API.
+  // Register it and all listeners before any asynchronous worker activity.
+  chrome.alarms.create(ALARM_NAME,{delayInMinutes:1,periodInMinutes:1});
+  const service=createQueueService({...options,schedule:()=>{}});
   chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name===ALARM_NAME) void service.wake();});
   chrome.runtime.onStartup.addListener(()=>{void service.wake();});
   chrome.runtime.onInstalled.addListener(()=>{void service.wake();});

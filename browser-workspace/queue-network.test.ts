@@ -53,3 +53,24 @@ it('enforces global concurrency while a failed executor does not stop other jobs
  await waitFor(()=>active===0&&entered===3);await waitFor(()=>!active);await pause(100);
  const done=await read(run.id);expect(done.status).toBe('failed');expect(done.progress.failed).toBe(1);expect(done.progress.completed).toBe(2);expect(max).toBe(2);expect(JSON.stringify(done)).not.toContain('private failure');one.dispose();
 });
+
+it('installed MV3 listener discovers direct HTTP starts after idle and after worker recreation',async()=>{
+ const {installQueueWorker,ALARM_NAME}=await import('../extension/src/queue');
+ function chromeShim(){
+   const alarmCallbacks:((a:{name:string})=>void)[]=[],startup:(()=>void)[]=[],installed:(()=>void)[]=[],created:any[]=[];
+   return {created,alarmCallbacks,startup,installed,api:{alarms:{create:(name:string,info:any)=>created.push({name,info}),clear:()=>{},onAlarm:{addListener:(f:any)=>alarmCallbacks.push(f)}},runtime:{onStartup:{addListener:(f:any)=>startup.push(f)},onInstalled:{addListener:(f:any)=>installed.push(f)}}}};
+ }
+ const shim=chromeShim();const calls:string[]=[];
+ const first=installQueueWorker(shim.api,{base,slots:1,executor:async j=>{calls.push(j.id);}});
+ expect(shim.created).toEqual([{name:ALARM_NAME,info:{delayInMinutes:1,periodInMinutes:1}}]);
+ expect(shim.alarmCallbacks).toHaveLength(1);expect(shim.startup).toHaveLength(1);expect(shim.installed).toHaveLength(1);
+ await first.wake();
+ const binding=(await (await fetch(base+'/api/bridge-context')).json()).binding;
+ const response=await fetch(base+'/api/queue/runs',{method:'POST',headers:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':binding},body:JSON.stringify({idempotencyKey:'direct-idle',courseIds:['c-csc']})});
+ const run=await response.json();expect((await read(run.id)).status).toBe('pending');
+ shim.alarmCallbacks[0]({name:ALARM_NAME});
+ for(let i=0;i<100&&(await read(run.id)).status!=='completed';i++)await pause(20);
+ expect((await read(run.id)).status).toBe('completed');expect(calls).toHaveLength(1);first.dispose();
+ const next=chromeShim();const second=installQueueWorker(next.api,{base,slots:1});
+ expect(next.created).toEqual([{name:ALARM_NAME,info:{delayInMinutes:1,periodInMinutes:1}}]);next.startup[0]();await second.wake();second.dispose();
+});
