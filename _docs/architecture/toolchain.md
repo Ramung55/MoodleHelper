@@ -14,7 +14,7 @@ before adding dependencies. It approves no new package or installation.
 | --- | --- | --- | --- |
 | Python backend | Root `pyproject.toml`; `backend/` with FastAPI app, schemas, routers, services and storage | Root `uv.lock` | Root `tests/`; pytest. Declared Python range `>=3.12,<3.15`, `.python-version` selects 3.13. Python 3.13.14 verified in milestone checks. Other versions in the declared range have not been tested here. |
 | React dashboard | `frontend/`; `frontend/package.json`; TanStack Start/Router, TypeScript, Vite, React; `vite.config.ts`, `vitest.config.ts`, `tsconfig.json` | `frontend/bun.lock` | Vitest tests in `frontend/src/test/`; Vite production build. Node.js v24.20.0 and Bun 1.3.13 verified in this environment. The manifest has no `engines` or `packageManager` pin and no Node-version file; these observations are not a general compatibility guarantee. |
-| Chrome extension | `extension/package.json`; empty `src/index.ts` | None needed (no dependencies) | Human-approved #51 private ESM package; Bun browser build to `dist/index.js`. Runnable Chrome shell remains #7. |
+| Chrome extension | `extension/package.json`; inert worker/content entries, MV3 manifest, blank popup, `build.ts` | None needed (no dependencies) | #7 native Bun build emits `dist/manifest.json`, `index.js`, `content.js`, `popup.html`; actual Chrome verification remains blocked. |
 | Shared browser package | `shared/package.json`; empty `src/index.ts` | None needed (no dependencies) | Human-approved #51 private ESM package; Bun browser build to `dist/index.js`. Existing frontend domain types/services remain intact. |
 
 uv 0.13.1 is the verified environment version. `.venv/`, frontend
@@ -86,6 +86,12 @@ built empty ESM modules; it has no source/mock fallback or Chrome globals. Bun
 transpilation is not a standalone TypeScript-check guarantee. No dependencies,
 new lockfile, root workspace or unresolved empty-package layout are introduced;
 future shared consumers and the runnable Chrome shell remain their owning issues.
+
+#7 evolves the extension build into the inert MV3 shell without changing the
+shared baseline or commands above. The browser-workspace command now runs 13
+checks across two files, including emitted manifest/assets, narrow SDU scope and
+classic-script capability guards. See [shell evidence](../extension-shell-evidence.md)
+for actual results and the Chrome access/installation verification blocker.
 
 1. In-memory backend: #1/#57 passed independent QA. The
    [milestone-1 checkpoint](../milestone-1-checkpoint.md) records installation,

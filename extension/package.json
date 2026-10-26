@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build ./src/index.ts --target browser --format esm --outdir ./dist"
+    "build": "bun ./build.ts"
   }
 }

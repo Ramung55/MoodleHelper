@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Moodle Helper",
+  "version": "0.0.0",
+  "background": { "service_worker": "index.js", "type": "module" },
+  "action": { "default_popup": "popup.html" },
+  "content_scripts": [
+    { "matches": ["https://moodle.sdu.edu.kz/*"], "js": ["content.js"] }
+  ]
+}

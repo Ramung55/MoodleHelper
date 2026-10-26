@@ -25,7 +25,8 @@ explicitly approved SQLAlchemy dependency. Existing `AGENTS.md` commands apply.
 The frontend retains its own `package.json`, Bun/Vite/Vitest commands, and
 lockfile. Its design is preserved; `HttpAdapter` now binds its service contract
 to FastAPI. The old DemoAdapter remains available for focused fixture tests.
-The approved empty `extension/` and `shared/` TypeScript packages compile browser ESM; #7 owns the runnable Chrome extension.
+The dependency-free `extension/` package builds the #7 Chrome shell; `shared/`
+retains its empty browser ESM baseline. Chrome verification status is recorded below.
 
 The [toolchain decision](_docs/architecture/toolchain.md) records the implemented
 frontend/backend boundaries, verified commands and passing integration checkpoint;
@@ -185,13 +186,13 @@ bun run test
 bun run build
 ```
 
-## Empty browser packages (#51)
+## Empty browser packages (#51 historical checkpoint)
 
 The human explicitly approved the two private, dependency-free manifests and
 bounded layout in #51; approval is no longer pending. `frontend/` remains the
 integrated dashboard, with its existing TypeScript, Vite, Vitest and lockfile.
-Backend uv/pytest remain unchanged. No package install or new lockfile is needed
-for `extension/` or `shared/`; both source entries contain only `export {}`.
+Backend uv/pytest remain unchanged. No package install or new lockfile was needed
+for `extension/` or `shared/`; at that checkpoint both entries contained only `export {}`.
 No unresolved layout blocker remains for this approved empty baseline.
 
 From a fresh repository-root checkout, with the verified runtimes installed:
@@ -244,7 +245,64 @@ files/configuration or existing lockfiles changed. Representative
 `browser-workspace/.cache/data`, `frontend/.env` and `.uv-cache/example` paths
 were verified ignored with `git check-ignore --no-index`; source/manifests,
 smoke files and existing locks were verified tracked with `git ls-files`.
-These are engineering results; independent QA has not been claimed.
+These are historical engineering results; #51 subsequently passed independent
+[QA](https://github.com/Ramung55/MoodleHelper/issues/51#issuecomment-6406195559).
+
+## Chrome shell (#7)
+
+The extension now builds a Manifest V3 module worker (`index.js`), classic
+isolated content script (`content.js`), blank `popup.html`, and `manifest.json`
+into `extension/dist/`. The only static match is exactly
+`https://moodle.sdu.edu.kz/*`, with default top-frame, document-idle injection.
+There are no privileged API permissions or additional host grants. The content
+script prints only the fixed diagnostic `Moodle Helper: empty content shell loaded`.
+The worker is inert. There is no collection, page reading, credential handling,
+network request, storage, timer or dashboard bridge. Existing dashboard detection
+does not establish compatibility with this shell.
+
+Use verified Bun 1.3.13 and Node v24.20.0. From the root, install existing test
+dependencies with `bun install --frozen-lockfile` in `frontend/`, then return
+to the root and run:
+
+```powershell
+bun run --cwd extension build
+bun run --cwd shared build
+bun ./frontend/node_modules/vitest/vitest.mjs run --config ./browser-workspace/vitest.config.mjs
+```
+
+No extension/shared dependency installation, new dependency or lockfile is needed.
+The extension build replaces only its resolved `extension/dist/`, removes stale
+assets and removes partial output on build/copy failure. Both builds must run
+before tests: they import the actual built worker/shared ESM modules without
+Chrome globals, validate exact emitted assets/scope, and run the classic script
+with forbidden page/network/storage capabilities. These tests do not prove Chrome loading.
+
+To load manually in Chrome, open `chrome://extensions`, enable Developer mode,
+choose **Load unpacked**, and select the absolute directory
+`C:\Users\hpram\Desktop\MoodleHelper\extension\dist` for this checkout
+(use your own checkout's absolute `extension/dist/` elsewhere). Record the Chrome
+version at `chrome://version`, extension card/ID and any Errors. Open Extensions
+in the toolbar, optionally pin Moodle Helper, and click its action to open the
+empty popup. Right-click the popup and Inspect to check Console, Network and
+Application storage. On the extension card inspect the service worker; an inactive
+idle worker is normal, but inspecting it must wake it without errors.
+
+Visit `https://moodle.sdu.edu.kz/login/index.php` without signing in. In page
+DevTools Sources → Content scripts and the Console execution-context selector,
+identify this extension's `content.js` and its fixed diagnostic. Visit
+`https://example.com/` and verify the extension's content source/context is absent.
+Inspect extension Details → Site access and record that only the exact SDU scope
+is available. Do not broaden access or bypass a certificate warning to finish a check.
+
+Rebuild, click Reload on `chrome://extensions`, reopen the popup and inspect
+extension, worker and popup errors again. Observe extension-context Network with
+preserve log while reopening/reloading, and Application storage for absence of
+saved records. Distinguish page-owned requests/storage from extension activity.
+Record no new permission prompt/grant on reload. Keep version, URLs, actions,
+extension ID and precise observations/screenshots in the
+[#7 evidence note](_docs/extension-shell-evidence.md). An unreachable public SDU
+page or unavailable browser inspection blocks browser acceptance; automated
+checks cannot substitute for it.
 
 `http-live.test.ts` starts a real FastAPI child process on an available localhost
 port using the uv-managed `.venv` and an isolated temporary SQLite file, exercises
