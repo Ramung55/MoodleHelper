@@ -1,11 +1,28 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { HttpAdapter } from "@/services/http-adapter";
+import { createElement } from "react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { AppProvider, useApp } from "@/lib/app-store";
+import { TrackedCourses } from "@/routes/settings";
+import { collectMoodleCourses } from "../../../extension/src/moodle-courses";
+import { card, list, page } from "./moodle-courses-fixtures";
+import { makeBackup, previewRestore } from "@/domain/backup";
+
+// Only the service locator/extension handshake are injected; all data operations
+// below use production HttpAdapter, FastAPI and a real file SQLite database.
+vi.mock("@/services", () => ({ getAdapter: () => api }));
+vi.mock("@/services/extension-adapter", () => ({ detectExtension: async () => false }));
+function SelectionHarness() {
+  const { snap } = useApp();
+  return snap ? createElement(TrackedCourses) : createElement("p", null, "Loading");
+}
+const openSelection = () => render(createElement(AppProvider, { children: createElement(SelectionHarness) }));
 
 let child: ChildProcess;
 let api: HttpAdapter;
@@ -68,6 +85,127 @@ afterAll(async () => {
 });
 
 describe("actual FastAPI HTTP integration", () => {
+  it("saves actual Settings choices, ingests real parser observations, refreshes and reopens across process restart", async () => {
+    const original = await api.load();
+    try {
+      await api.updateSettings({ reminders: { enabled: false, hoursBefore: 24, busyWeek: false } });
+      await api.saveAlerts([]);
+      const largeId = "90071992547409931234567890123456789";
+      const parsed = collectMoodleCourses([page(list(card(largeId, "Полное название курса", ["Осень 2026", "Term B"]) + card("42", "Same title") + card("43", "Same title")))]);
+      expect(parsed.observations).toHaveLength(3);
+      const ingested = await api.ingestCourseDiscovery(parsed.observations);
+      const course = ingested.courses.find((c) => c.discovery?.sourceCourseId === largeId)!;
+      const exclude = ingested.courses.find((c) => ingested.settings.trackedCourseIds.includes(c.id))!;
+      expect(course.discovery?.sourceCourseId).toBe(largeId);
+      expect(ingested.courses.filter((c) => c.name === "Same title")).toHaveLength(2);
+      expect(ingested.settings.trackedCourseIds).not.toContain(course.id);
+      expect(await api.ingestCourseDiscovery(parsed.observations)).toEqual(ingested);
+      let view = openSelection();
+      fireEvent.click(await screen.findByRole("checkbox", { name: "Track Полное название курса" }));
+      await waitFor(() => expect(screen.getByRole("checkbox", { name: "Track Полное название курса" })).toBeChecked());
+      fireEvent.click(screen.getByRole("checkbox", { name: `Track ${exclude.name}` }));
+      await waitFor(() => expect(screen.getByRole("checkbox", { name: `Track ${exclude.name}` })).not.toBeChecked());
+      const selected = (await api.load()).settings.trackedCourseIds;
+      view.unmount();
+      const refresh = collectMoodleCourses([page(list(card(largeId, "Changed full title", ["Весна 2027", "Term C"]) + card("99", "", [])), { finalUrl: "https://moodle.sdu.edu.kz/my/" })]);
+      const refreshed = await api.ingestCourseDiscovery(refresh.observations);
+      expect(refreshed.settings.trackedCourseIds).toEqual(selected);
+      expect(refreshed.courses.find((c) => c.discovery?.sourceCourseId === "99")?.discovery).toMatchObject({ title: { kind: "unknown" }, termIndicators: { kind: "unknown" }, currentTermStatus: "unknown" });
+      expect(refreshed.courses.find((c) => c.id === course.id)).toMatchObject({ code: course.code, color: course.color });
+      expect(await api.ingestCourseDiscovery([])).toEqual(refreshed);
+      for (const key of ["assessments", "overlays", "materials", "documents", "candidates", "sync", "changes"] as const) expect(refreshed[key]).toEqual(ingested[key]);
+      const preview = previewRestore(JSON.stringify(makeBackup(refreshed)), refreshed);
+      expect(preview.ok && preview.backup.data).toEqual(refreshed);
+      expect(await api.replaceAll(refreshed)).toEqual(refreshed);
+      await stopServer();
+      await startServer();
+      expect(await new HttpAdapter(base).load()).toEqual(refreshed);
+      view = openSelection();
+      expect(await screen.findByRole("checkbox", { name: "Track Changed full title" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: `Track ${exclude.name}` })).not.toBeChecked();
+      expect(screen.getByText("Весна 2027")).toBeVisible();
+      expect(screen.getByText("Term C")).toBeVisible();
+      expect(screen.getByRole("checkbox", { name: "Track Title unavailable" })).not.toBeChecked();
+      // Exercise saved-empty through actual UI, one confirmed request at a time.
+      while (screen.getAllByRole("checkbox").some((input) => (input as HTMLInputElement).checked)) {
+        const checkbox = screen.getAllByRole("checkbox").find((input) => (input as HTMLInputElement).checked)!;
+        fireEvent.click(checkbox);
+        await waitFor(() => expect(checkbox).not.toBeChecked());
+      }
+      expect(screen.getByText("No courses selected. No courses will be synced.")).toBeVisible();
+      view.unmount();
+      const emptySelection = await api.load();
+      expect(await api.syncAll(() => {})).toEqual(emptySelection);
+      await stopServer();
+      await startServer();
+      expect((await api.load()).settings.trackedCourseIds).toEqual([]);
+      view = openSelection();
+      await screen.findByText("No courses selected. No courses will be synced.");
+      view.unmount();
+    } finally {
+      cleanup();
+      await api.replaceAll(original);
+    }
+  }, 50_000);
+
+  it("rolls back an actual locked-file Settings save, reopens confirmed choices, and retries the failed intended selection", async () => {
+    const original = await api.load();
+    let locker: ChildProcess | undefined;
+    async function unlock() {
+      if (!locker || locker.exitCode !== null) return;
+      const stopped = new Promise<void>((resolve) => locker!.once("exit", () => resolve()));
+      locker.stdin?.end();
+      await stopped;
+    }
+    try {
+      await api.updateSettings({ reminders: { enabled: false, hoursBefore: 24, busyWeek: false } });
+      await api.saveAlerts([]);
+      const before = await api.load();
+      let view = openSelection();
+      const target = before.courses[0];
+      const confirmed = before.settings.trackedCourseIds.includes(target.id);
+      const checkbox = await screen.findByRole("checkbox", { name: `Track ${target.name}` });
+      // BEGIN IMMEDIATE permits independent readers while blocking writers.
+      locker = spawn(python, ["-u", "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN IMMEDIATE'); print('locked',flush=True); sys.stdin.read(); c.rollback(); c.close()", databasePath], { cwd: root, windowsHide: true, stdio: "pipe" });
+      await new Promise<void>((resolve, reject) => { locker!.stdout?.once("data", () => resolve()); locker!.once("error", reject); });
+      fireEvent.click(checkbox);
+      await waitFor(() => expect(checkbox).toBeDisabled());
+      expect((checkbox as HTMLInputElement).checked).toBe(confirmed);
+      const alert = await screen.findByRole("alert", {}, { timeout: 5000 });
+      expect(alert).toHaveTextContent("Database is locked");
+      expect((checkbox as HTMLInputElement).checked).toBe(confirmed);
+      expect(await new HttpAdapter(base).load()).toEqual(before);
+      // A second provider opens the previous saved values before retry.
+      view.unmount();
+      view = openSelection();
+      expect(((await screen.findByRole("checkbox", { name: `Track ${target.name}` })) as HTMLInputElement).checked).toBe(confirmed);
+      await unlock();
+      view.unmount();
+      // Reproduce the failure and keep this provider mounted for intended Retry.
+      view = openSelection();
+      await screen.findByRole("checkbox", { name: `Track ${target.name}` });
+      locker = spawn(python, ["-u", "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN IMMEDIATE'); print('locked',flush=True); sys.stdin.read(); c.rollback(); c.close()", databasePath], { cwd: root, windowsHide: true, stdio: "pipe" });
+      await new Promise<void>((resolve, reject) => { locker!.stdout?.once("data", () => resolve()); locker!.once("error", reject); });
+      fireEvent.click(screen.getByRole("checkbox", { name: `Track ${target.name}` }));
+      await screen.findByRole("alert", {}, { timeout: 5000 });
+      await unlock();
+      fireEvent.click(screen.getByText("Retry course selection"));
+      await waitFor(() => expect((screen.getByRole("checkbox", { name: `Track ${target.name}` }) as HTMLInputElement).checked).toBe(!confirmed));
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      const committed = await api.load();
+      expect(committed.settings.trackedCourseIds.includes(target.id)).toBe(!confirmed);
+      expect({ ...committed, settings: before.settings }).toEqual(before);
+      view.unmount();
+      await stopServer();
+      await startServer();
+      expect(await api.load()).toEqual(committed);
+    } finally {
+      cleanup();
+      await unlock();
+      await api.replaceAll(original);
+    }
+  }, 30_000);
+
   it("persists complete edited state across actual backend stop/start against the same file", async () => {
     const original = await api.load();
     const created = await api.addPersonalEvent({ title: "Survives process restart / Пример", courseId: "c-csc", type: "other", date: { kind: "date", date: "2028-02-29" } });

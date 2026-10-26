@@ -59,7 +59,7 @@ export function TrackedCourses() {
         </li>;
       })}
     </ul>
-    {selectionPending && <p role="status" className="mt-3 text-sm">Saving course selection…</p>}
+    {selectionPending && <p role="status" className="mt-3 text-sm">Saving course selectionâ€¦</p>}
     {selectionError && <div role="alert" className="mt-3 text-sm text-destructive">
       <p>{selectionError} Previous saved selection is shown. Retry to save your intended selection.</p>
       <Button variant="outline" className="mt-2" disabled={selectionPending} onClick={retryCourseSelection}>Retry course selection</Button>

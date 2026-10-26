@@ -86,3 +86,58 @@ def test_patch_omission_clear_and_alias_are_separate_from_snapshot():
     assert parsed.model_dump(by_alias=True, exclude_unset=True) == value
     assert zod("DeadlineChange", value)["value"] == value
 
+
+@pytest.mark.parametrize("status", ["current", "past", "unknown"])
+def test_course_discovery_metadata_discriminators_round_trip_all_languages(status, contract, contract_validator):
+    value = deepcopy(build_sample_snapshot())
+    course = value["courses"][0]
+    course["discovery"] = {"sourceCourseId": "9007199254740993123456789",
+                           "sourceUrl": "https://moodle.sdu.edu.kz/course/view.php?id=9007199254740993123456789",
+                           "title": {"kind": "known", "value": "Полное название курса"},
+                           "termIndicators": {"kind": "known", "value": ["Осень 2026", "Term B"]},
+                           "currentTermStatus": status}
+    course["current"] = status == "current"
+    for unknown in (False, True):
+        if unknown:
+            course["discovery"].update(title={"kind": "unknown"}, termIndicators={"kind": "unknown"})
+        contract_validator(contract["components"]["schemas"]["Snapshot"], value)
+        assert schemas.Snapshot.model_validate(value).model_dump(by_alias=True, exclude_none=True) == value
+        assert zod("Snapshot", value) == {"success": True, "value": value}
+    course["discovery"] = None
+    with pytest.raises(ValidationError):
+        schemas.Snapshot.model_validate(value)
+    assert not zod("Snapshot", value)["success"]
+    with pytest.raises(SchemaError):
+        contract_validator(contract["components"]["schemas"]["Snapshot"], value)
+
+
+@pytest.mark.parametrize("title,terms", [
+    ({"kind": "known", "value": "Название"}, {"kind": "known", "value": ["Осень", "Term B"]}),
+    ({"kind": "unknown"}, {"kind": "unknown"}),
+])
+def test_discovery_input_parity(title, terms, contract, contract_validator):
+    value = {"observations": [{"sourceCourseId": "9007199254740993123456789",
+        "sourceUrl": "https://moodle.sdu.edu.kz/course/view.php?id=9007199254740993123456789",
+        "title": title, "termIndicators": terms}]}
+    contract_validator(contract["components"]["schemas"]["CourseDiscoveryInput"], value)
+    assert schemas.CourseDiscoveryInput.model_validate(value).model_dump() == value
+    assert zod("CourseDiscoveryInput", value) == {"success": True, "value": value}
+
+
+@pytest.mark.parametrize("patch", [
+    {"title": None}, {"title": {"kind": "known"}},
+    {"title": {"kind": "conflicting"}},
+    {"termIndicators": {"kind": "known", "value": "Осень"}},
+    {"termIndicators": {"kind": "known", "value": [3]}},
+    {"currentTermStatus": "maybe"},
+])
+def test_invalid_discovery_discriminators_rejected_by_all_three(patch, contract, contract_validator):
+    value = {"sourceCourseId": "1", "sourceUrl": "https://moodle.sdu.edu.kz/course/view.php?id=1",
+             "title": {"kind": "unknown"}, "termIndicators": {"kind": "unknown"},
+             "currentTermStatus": "unknown", **patch}
+    assert not zod("CourseDiscovery", value)["success"]
+    with pytest.raises(ValidationError):
+        schemas.CourseDiscovery.model_validate(value)
+    with pytest.raises(SchemaError):
+        contract_validator(contract["components"]["schemas"]["CourseDiscovery"], value)
+
