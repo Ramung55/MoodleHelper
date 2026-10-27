@@ -251,72 +251,80 @@ class CollectionService:
             receipt={}
             def apply(snapshot):
                 nonlocal receipt
-                current=self._context(snapshot)
-                if current['selectionRevision']!=entry['revision'] or not self._enabled() or self.active.get(entry['body']['documentKey'])!=token: reject()
-                mapping={c['sourceCourseId']:c['courseId'] for c in current['courses']}
-                from datetime import date
-                for page_facts in result.get('pages',[]):
-                    if 'range' in page_facts:
-                        start=date.fromisoformat(page_facts['range']['start']); end=date.fromisoformat(page_facts['range']['end'])
-                        if end<start or collector!='calendar': reject()
-                layer=snapshot.setdefault('collection',dict(records=[],reviews=[],refreshes=[]))
-                observations=result.get('observations',[])
-                courseids=set(); activity=None; cm=None
-                for raw in observations:
-                    identity,course,time=self._validate_observation(collector,raw,page,mapping)
-                    item=raw
-                    record=next((r for r in layer['records'] if r['id']==identity),None)
-                    if collector=='submission':
-                        def wrapper(v):
-                            return SubmissionRecord(v['sourceCourseId'],v['sourceActivityId'],v['sourceCourseModuleId'],v['sourceUrl'],s.SubmissionObservation.model_validate(v['observation']))
-                        previous=None
-                        if record:
-                            for evidence in record['observations']:
-                                confirmed=evidence.get('confirmed')
-                                if confirmed and (previous is None or _instant(confirmed['observation']['observedAt'])>_instant(previous['observation']['observedAt'])): previous=confirmed
-                        reduced=retain_submission(wrapper(raw),wrapper(previous) if previous else None)
-                        if not reduced.ok: reject()
-                        item={'attempted':raw,'stale':reduced.stale}
-                        if reduced.confirmed:
-                            c=reduced.confirmed
-                            item['confirmed']=dict(sourceCourseId=c.course_id,sourceActivityId=c.activity_id,sourceCourseModuleId=c.module_id,sourceUrl=c.source_url,observation=c.observation.model_dump(exclude_none=True))
-                    courseids.add(raw['sourceCourseId'])
-                    activity=raw.get('sourceActivityId',activity); cm=raw.get('sourceCourseModuleId',cm)
-                    if record is None:
-                        record=dict(id=identity,courseId=course,kind=collector,firstObservedAt=time,lastObservedAt=time,observations=[])
-                        layer['records'].append(record)
-                    if canonical(item) not in [canonical(x) for x in record['observations']]: record['observations'].append(deepcopy(item))
-                    if _instant(time)>_instant(record['lastObservedAt']): record['lastObservedAt']=time
-                for index,review in enumerate(result.get('reviews',[])):
-                    if review['kind']!=collector or collector not in ['calendar','material']: reject()
-                    candidate=review.get('candidate')
-                    if candidate:
-                        # Unassociated calendar reviews stay separate; never guess a course.
-                        if review['kind']=='calendar':
-                            validate_instant(candidate['observedAt'],'observedAt'); dates(candidate)
-                            decimal(candidate['sourceEventId'])
-                            expected=f"{ORIGIN}/calendar/view.php?event={candidate['sourceEventId']}"+('&occurrence='+candidate['sourceOccurrenceId'] if 'sourceOccurrenceId' in candidate else '')
-                            if candidate['sourceUrl']!=expected: reject()
-                            if candidate.get('sourceCourseId') and candidate['sourceCourseId'] not in mapping: reject()
-                            if 'activity' in candidate: validate_calendar_activity(candidate['activity'])
-                            for field in ['sourceOccurrenceId','sourceSeriesId']:
-                                if field in candidate: decimal(candidate[field])
-                            if ('sourceOccurrenceId' in candidate)!=('sourceSeriesId' in candidate): reject()
-                        else: self._validate_observation('material',candidate,page,mapping)
-                    r=dict(id=canonical([entry['body']['visitId'],collector,index]),visitId=entry['body']['visitId'],collector=collector,reasons=review['reasons'])
-                    if candidate: r['candidate']=deepcopy(candidate)
-                    layer['reviews'].append(r)
-                outcome='unavailable' if result['kind']=='unavailable' else 'failed' if result['kind']=='failed' else 'ok' if result['coverage']=='complete' else 'partial'
-                receipt=dict(visitId=entry['body']['visitId'],pageUrl=page,observedAt=body['observedAt'],collector=collector,sourceCourseIds=sorted(courseids),outcome=outcome,coverage=result.get('coverage','none'),scope=result.get('scope','visited_activity_only'),reasons=result.get('reasons',[d['reason'] for d in result.get('diagnostics',[])]),evidenceMode='synthetic',pages=result.get('pages',[]))
-                if activity: receipt['sourceActivityId']=activity
-                if cm: receipt['sourceCourseModuleId']=cm
-                layer['refreshes'].append(receipt)
-                # Fail inside the transaction, never commit a reply the fixed
-                # worker transport cannot acknowledge without truncating facts.
-                if len(canonical({'snapshot':snapshot,'receipt':receipt}).encode())>1024*1024: reject()
+                if self.active.get(entry['body']['documentKey'])!=token: reject()
+                receipt=self._merge_refresh(snapshot, entry, body)
             snapshot=self.store.mutate(apply)
             entry['receipts'][collector]=(signature,deepcopy(receipt))
             return dict(snapshot=snapshot,receipt=receipt)
+
+    def _merge_refresh(self, snapshot, entry, body):
+        """Apply collector evidence within the caller-owned transaction."""
+        collector=body['collector']; result=body['result']
+        page=entry['body']['pageUrl']
+        current=self._context(snapshot)
+        if current['selectionRevision']!=entry['revision'] or not self._enabled(): reject()
+        mapping={c['sourceCourseId']:c['courseId'] for c in current['courses']}
+        from datetime import date
+        for page_facts in result.get('pages',[]):
+            if 'range' in page_facts:
+                start=date.fromisoformat(page_facts['range']['start']); end=date.fromisoformat(page_facts['range']['end'])
+                if end<start or collector!='calendar': reject()
+        layer=snapshot.setdefault('collection',dict(records=[],reviews=[],refreshes=[]))
+        observations=result.get('observations',[])
+        courseids=set(); activity=None; cm=None
+        for raw in observations:
+            identity,course,time=self._validate_observation(collector,raw,page,mapping)
+            item=raw
+            record=next((r for r in layer['records'] if r['id']==identity),None)
+            if collector=='submission':
+                def wrapper(v):
+                    return SubmissionRecord(v['sourceCourseId'],v['sourceActivityId'],v['sourceCourseModuleId'],v['sourceUrl'],s.SubmissionObservation.model_validate(v['observation']))
+                previous=None
+                if record:
+                    for evidence in record['observations']:
+                        confirmed=evidence.get('confirmed')
+                        if confirmed and (previous is None or _instant(confirmed['observation']['observedAt'])>_instant(previous['observation']['observedAt'])): previous=confirmed
+                reduced=retain_submission(wrapper(raw),wrapper(previous) if previous else None)
+                if not reduced.ok: reject()
+                item={'attempted':raw,'stale':reduced.stale}
+                if reduced.confirmed:
+                    c=reduced.confirmed
+                    item['confirmed']=dict(sourceCourseId=c.course_id,sourceActivityId=c.activity_id,sourceCourseModuleId=c.module_id,sourceUrl=c.source_url,observation=c.observation.model_dump(exclude_none=True))
+            courseids.add(raw['sourceCourseId'])
+            activity=raw.get('sourceActivityId',activity); cm=raw.get('sourceCourseModuleId',cm)
+            if record is None:
+                record=dict(id=identity,courseId=course,kind=collector,firstObservedAt=time,lastObservedAt=time,observations=[])
+                layer['records'].append(record)
+            if canonical(item) not in [canonical(x) for x in record['observations']]: record['observations'].append(deepcopy(item))
+            if _instant(time)>_instant(record['lastObservedAt']): record['lastObservedAt']=time
+        for index,review in enumerate(result.get('reviews',[])):
+            if review['kind']!=collector or collector not in ['calendar','material']: reject()
+            candidate=review.get('candidate')
+            if candidate:
+                # Unassociated calendar reviews stay separate; never guess a course.
+                if review['kind']=='calendar':
+                    validate_instant(candidate['observedAt'],'observedAt'); dates(candidate)
+                    decimal(candidate['sourceEventId'])
+                    expected=f"{ORIGIN}/calendar/view.php?event={candidate['sourceEventId']}"+('&occurrence='+candidate['sourceOccurrenceId'] if 'sourceOccurrenceId' in candidate else '')
+                    if candidate['sourceUrl']!=expected: reject()
+                    if candidate.get('sourceCourseId') and candidate['sourceCourseId'] not in mapping: reject()
+                    if 'activity' in candidate: validate_calendar_activity(candidate['activity'])
+                    for field in ['sourceOccurrenceId','sourceSeriesId']:
+                        if field in candidate: decimal(candidate[field])
+                    if ('sourceOccurrenceId' in candidate)!=('sourceSeriesId' in candidate): reject()
+                else: self._validate_observation('material',candidate,page,mapping)
+            r=dict(id=canonical([entry['body']['visitId'],collector,index]),visitId=entry['body']['visitId'],collector=collector,reasons=review['reasons'])
+            if candidate: r['candidate']=deepcopy(candidate)
+            layer['reviews'].append(r)
+        outcome='unavailable' if result['kind']=='unavailable' else 'failed' if result['kind']=='failed' else 'ok' if result['coverage']=='complete' else 'partial'
+        receipt=dict(visitId=entry['body']['visitId'],pageUrl=page,observedAt=body['observedAt'],collector=collector,sourceCourseIds=sorted(courseids),outcome=outcome,coverage=result.get('coverage','none'),scope=result.get('scope','visited_activity_only'),reasons=result.get('reasons',[d['reason'] for d in result.get('diagnostics',[])]),evidenceMode='synthetic',pages=result.get('pages',[]))
+        if activity: receipt['sourceActivityId']=activity
+        if cm: receipt['sourceCourseModuleId']=cm
+        layer['refreshes'].append(receipt)
+        # Fail inside the transaction, never commit a reply the fixed
+        # worker transport cannot acknowledge without truncating facts.
+        if len(canonical({'snapshot':snapshot,'receipt':receipt}).encode())>1024*1024: reject()
+        return receipt
 
 
 def validate_calendar_activity(a):
