@@ -2,14 +2,13 @@ openapi: 3.1.0
 info:
   title: Moodle Helper - proposed backend contract
   version: 0.1.0
-  description: >-
-    Local loopback API. Snapshot operations support the existing adapter; the
-    durable synthetic queue is separate from Snapshot and does not access Moodle.
-    The backend selects its namespace at startup. Queue mutations require the
-    current process binding from /api/bridge-context; a stale or absent binding
-    returns 409. A queue run reports counts and job states, not Moodle progress.
-    Queue execution may repeat after interruption, while the result and completed
-    state commit together. Requests and responses contain no credentials.
+  description: Local loopback API. Snapshot operations support the existing adapter;
+    the durable synthetic queue is separate from Snapshot and does not access Moodle.
+    The backend selects its namespace at startup. Queue mutations require the current
+    process binding from /api/bridge-context; a stale or absent binding returns 409.
+    A queue run reports counts and job states, not Moodle progress. Queue execution
+    may repeat after interruption, while the result and completed state commit together.
+    Requests and responses contain no credentials.
 x-contract-status: implemented-local-api
 x-source-files:
 - frontend/src/services/adapter.ts
@@ -40,6 +39,7 @@ tags:
 - name: Local data
 - name: Demo
 - name: AI availability
+- name: Scan
 paths:
   /api/connection:
     get:
@@ -712,7 +712,7 @@ paths:
       - Queue
       security: []
       parameters:
-      - &queuepath007
+      - &id008
         name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -727,31 +727,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueRun'
-        '404': &queuepath002
+        '404': &id003
           description: Run not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProposedHttpError'
-        '409': &queuepath003
+        '409': &id004
           description: Conflicting key, stale claim or process binding
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProposedHttpError'
-        '422': &queuepath004
+        '422': &id005
           description: Invalid request
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProposedHttpError'
-        '503': &queuepath005
+        '503': &id006
           description: Storage unavailable
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProposedHttpError'
-        default: &queuepath006
+        default: &id007
           description: Safe error
           content:
             application/json:
@@ -770,11 +770,11 @@ paths:
       - Queue
       security: []
       parameters:
-      - &queuepath008
+      - &id009
         name: runId
         in: path
         required: true
-        schema: &queuepath001
+        schema: &id002
           type: string
           minLength: 1
           maxLength: 128
@@ -782,7 +782,7 @@ paths:
       - name: cursor
         in: query
         required: false
-        schema: *queuepath001
+        schema: *id002
       - name: limit
         in: query
         required: false
@@ -798,11 +798,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueRun'
-        '404': *queuepath002
-        '409': *queuepath003
-        '422': *queuepath004
-        '503': *queuepath005
-        default: *queuepath006
+        '404': *id003
+        '409': *id004
+        '422': *id005
+        '503': *id006
+        default: *id007
   /api/queue/runs/{runId}/cancel:
     post:
       operationId: cancelQueueRun
@@ -810,8 +810,8 @@ paths:
       - Queue
       security: []
       parameters:
-      - *queuepath007
-      - *queuepath008
+      - *id008
+      - *id009
       responses:
         '200':
           description: Success
@@ -819,11 +819,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueRun'
-        '404': *queuepath002
-        '409': *queuepath003
-        '422': *queuepath004
-        '503': *queuepath005
-        default: *queuepath006
+        '404': *id003
+        '409': *id004
+        '422': *id005
+        '503': *id006
+        default: *id007
   /api/queue/claim:
     post:
       operationId: claimQueueJob
@@ -831,7 +831,7 @@ paths:
       - Queue
       security: []
       parameters:
-      - *queuepath007
+      - *id008
       responses:
         '200':
           description: Success
@@ -839,11 +839,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueClaimResponse'
-        '404': *queuepath002
-        '409': *queuepath003
-        '422': *queuepath004
-        '503': *queuepath005
-        default: *queuepath006
+        '404': *id003
+        '409': *id004
+        '422': *id005
+        '503': *id006
+        default: *id007
       requestBody:
         required: true
         content:
@@ -857,7 +857,7 @@ paths:
       - Queue
       security: []
       parameters:
-      - *queuepath007
+      - *id008
       responses:
         '200':
           description: Success
@@ -865,11 +865,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueRenewResponse'
-        '404': *queuepath002
-        '409': *queuepath003
-        '422': *queuepath004
-        '503': *queuepath005
-        default: *queuepath006
+        '404': *id003
+        '409': *id004
+        '422': *id005
+        '503': *id006
+        default: *id007
       requestBody:
         required: true
         content:
@@ -883,7 +883,7 @@ paths:
       - Queue
       security: []
       parameters:
-      - *queuepath007
+      - *id008
       responses:
         '200':
           description: Success
@@ -891,40 +891,465 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueJob'
-        '404': *queuepath002
-        '409': *queuepath003
-        '422': *queuepath004
-        '503': *queuepath005
-        default: *queuepath006
+        '404': *id003
+        '409': *id004
+        '422': *id005
+        '503': *id006
+        default: *id007
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/QueueFinish'
+  /api/scan/runs:
+    post:
+      operationId: startScanRun
+      tags:
+      - Scan
+      security: []
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        description: Required current backend process binding. A stale or absent binding
+          returns 409 before processing.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanRun'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Conflicting key, stale claim or process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanStart'
+      description: Start selected uniquely mapped courses; same-kind jobs share demand.
+        A mixed-kind conflict aborts the entire start.
+  /api/scan/runs/{runId}:
+    get:
+      operationId: readScanRun
+      tags:
+      - Scan
+      security: []
+      parameters:
+      - name: runId
+        in: path
+        required: true
+        schema: &id010
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+      - name: cursor
+        in: query
+        required: false
+        schema: *id010
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanRun'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Conflicting key, stale claim or process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      description: Stable job pagination; limit 1–100, default 100.
+  /api/scan/runs/{runId}/cancel:
+    post:
+      operationId: cancelScanRun
+      tags:
+      - Scan
+      security: []
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        description: Required current backend process binding. A stale or absent binding
+          returns 409 before processing.
+        schema:
+          type: string
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanRun'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Conflicting key, stale claim or process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      description: Remove this run’s demand only; shared jobs continue for other live
+        runs.
+  /api/scan/claim:
+    post:
+      operationId: claimScanJob
+      tags:
+      - Scan
+      security: []
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        description: Required current backend process binding. A stale or absent binding
+          returns 409 before processing.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanClaimResponse'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Conflicting key, stale claim or process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueClaimInput'
+      description: Claim scan-kind jobs only. A claim is not a request authority.
+  /api/scan/renew:
+    post:
+      operationId: renewScanClaim
+      tags:
+      - Scan
+      security: []
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        description: Required current backend process binding. A stale or absent binding
+          returns 409 before processing.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueRenewResponse'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Conflicting key, stale claim or process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueClaimToken'
+      description: Renew only an unexpired scan claim with live demand.
+  /api/scan/finish:
+    post:
+      operationId: finishScanClaim
+      tags:
+      - Scan
+      security: []
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        description: Required current backend process binding. A stale or absent binding
+          returns 409 before processing.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanJob'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Conflicting key, stale claim or process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanFinish'
+      description: Complete only a valid scan claim with the atomic merge and coverage
+        transaction.
+  /api/scan/jobs/{jobId}/pages:
+    get:
+      operationId: readScanJobPages
+      tags:
+      - Scan
+      security: []
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: &id011
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+      - name: cursor
+        in: query
+        required: false
+        schema: *id011
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanPageList'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Conflicting key, stale claim or process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      description: Read stable job page evidence and incomplete reasons; limit 1–100,
+        default 100.
 components:
   schemas:
     QueueStart:
-      description: >-
-        Start a run for 1-100 distinct existing course IDs in the trusted startup
-        namespace. IDs are sorted for idempotency comparison. Reusing a key with
-        a different set returns 409; unknown IDs return 422 without side effects.
+      description: Start a run for 1-100 distinct existing course IDs in the trusted
+        startup namespace. IDs are sorted for idempotency comparison. Reusing a key
+        with a different set returns 409; unknown IDs return 422 without side effects.
         Queue requests have a 1 MiB body limit.
       type: object
       additionalProperties: false
       properties:
-        idempotencyKey: &queueschema001
+        idempotencyKey: &id012
           type: string
           minLength: 1
           maxLength: 128
           pattern: ^[A-Za-z0-9._~-]+$
         courseIds:
           type: array
-          items: &queueschema003
+          items: &id014
             type: string
             minLength: 1
             maxLength: 8192
-            pattern: '\S'
+            pattern: \S
           minItems: 1
           maxItems: 100
           uniqueItems: true
@@ -939,28 +1364,27 @@ components:
       type: object
       additionalProperties: false
       properties:
-        jobId: *queueschema001
+        jobId: *id012
         generation:
           type: integer
           minimum: 1
-        token: *queueschema001
+        token: *id012
       required:
       - jobId
       - generation
       - token
     QueueFinish:
-      description: >-
-        Finish a current, unexpired claim. A failed outcome requires errorCode
-        mock_failure; a completed outcome must omit errorCode. Stale or fenced
-        claims return 409. Result insertion and completion commit atomically.
+      description: Finish a current, unexpired claim. A failed outcome requires errorCode
+        mock_failure; a completed outcome must omit errorCode. Stale or fenced claims
+        return 409. Result insertion and completion commit atomically.
       type: object
       additionalProperties: false
       properties:
-        jobId: *queueschema001
+        jobId: *id012
         generation:
           type: integer
           minimum: 1
-        token: *queueschema001
+        token: *id012
         outcome:
           type: string
           enum:
@@ -978,14 +1402,14 @@ components:
       type: object
       additionalProperties: false
       properties:
-        pending: &queueschema002
+        pending: &id013
           type: integer
           minimum: 0
-        running: *queueschema002
-        completed: *queueschema002
-        failed: *queueschema002
-        cancelled: *queueschema002
-        total: *queueschema002
+        running: *id013
+        completed: *id013
+        failed: *id013
+        cancelled: *id013
+        total: *id013
       required:
       - pending
       - running
@@ -997,7 +1421,7 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *queueschema001
+        id: *id012
         summary:
           type: string
           minLength: 1
@@ -1009,9 +1433,9 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *queueschema001
-        courseId: *queueschema003
-        state: &queueschema004
+        id: *id012
+        courseId: *id014
+        state: &id015
           type: string
           enum:
           - pending
@@ -1019,8 +1443,8 @@ components:
           - completed
           - failed
           - cancelled
-        attempts: *queueschema002
-        generation: *queueschema002
+        attempts: *id013
+        generation: *id013
         errorCode:
           type: string
           const: mock_failure
@@ -1036,16 +1460,16 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *queueschema001
-        idempotencyKey: *queueschema001
+        id: *id012
+        idempotencyKey: *id012
         courseIds:
           type: array
-          items: *queueschema003
+          items: *id014
           minItems: 1
           maxItems: 100
           uniqueItems: true
-        createdAt: *queueschema002
-        status: *queueschema004
+        createdAt: *id013
+        status: *id015
         cancelled:
           type: boolean
         progress:
@@ -1055,7 +1479,7 @@ components:
           items:
             $ref: '#/components/schemas/QueueJob'
           maxItems: 100
-        nextCursor: *queueschema001
+        nextCursor: *id012
       required:
       - id
       - idempotencyKey
@@ -1066,20 +1490,19 @@ components:
       - progress
       - jobs
     QueueClaim:
-      description: >-
-        Claims expire after 60 seconds and may be renewed before expiry. A worker
-        should renew every 20 seconds. Execution may repeat after interruption;
+      description: Claims expire after 60 seconds and may be renewed before expiry.
+        A worker should renew every 20 seconds. Execution may repeat after interruption;
         completed results are committed once per job.
       type: object
       additionalProperties: false
       properties:
         job:
           $ref: '#/components/schemas/QueueJob'
-        token: *queueschema001
+        token: *id012
         generation:
           type: integer
           minimum: 1
-        expiresAt: *queueschema002
+        expiresAt: *id013
       required:
       - job
       - token
@@ -1099,7 +1522,7 @@ components:
       type: object
       additionalProperties: false
       properties:
-        expiresAt: *queueschema002
+        expiresAt: *id013
       required:
       - expiresAt
     DateValue:
@@ -1198,7 +1621,7 @@ components:
         kind:
           type: string
           const: known
-        value: &id002
+        value: &id016
           type: string
       required:
       - kind
@@ -1211,7 +1634,7 @@ components:
           const: known
         value:
           type: array
-          items: *id002
+          items: *id016
       required:
       - kind
       - value
@@ -1226,15 +1649,15 @@ components:
     RawCourseObservation:
       type: object
       properties:
-        sourceCourseId: *id002
-        sourceUrl: *id002
-        title: &id003
+        sourceCourseId: *id016
+        sourceUrl: *id016
+        title: &id017
           oneOf:
           - $ref: '#/components/schemas/KnownString'
           - $ref: '#/components/schemas/UnknownFact'
           discriminator:
             propertyName: kind
-        termIndicators: &id004
+        termIndicators: &id018
           oneOf:
           - $ref: '#/components/schemas/KnownStrings'
           - $ref: '#/components/schemas/UnknownFact'
@@ -1248,10 +1671,10 @@ components:
     CourseDiscovery:
       type: object
       properties:
-        sourceCourseId: *id002
-        sourceUrl: *id002
-        title: *id003
-        termIndicators: *id004
+        sourceCourseId: *id016
+        sourceUrl: *id016
+        title: *id017
+        termIndicators: *id018
         currentTermStatus:
           type: string
           enum:
@@ -1990,9 +2413,9 @@ components:
       properties:
         value:
           $ref: '#/components/schemas/DateValue'
-        rawText: &id005
+        rawText: &id019
           type: string
-        location: *id005
+        location: *id019
       required:
       - value
       - rawText
@@ -2019,7 +2442,7 @@ components:
           - cutoff
         date:
           $ref: '#/components/schemas/CollectedDateObservation'
-        evidence: *id005
+        evidence: *id019
         scope:
           type: string
           const: individual
@@ -2032,12 +2455,12 @@ components:
       type: object
       additionalProperties: false
       properties:
-        sourceCourseId: *id005
-        sourceActivityId: *id005
-        sourceCourseModuleId: *id005
-        sourceUrl: *id005
-        title: *id005
-        observedAt: *id005
+        sourceCourseId: *id019
+        sourceActivityId: *id019
+        sourceCourseModuleId: *id019
+        sourceUrl: *id019
+        title: *id019
+        observedAt: *id019
         baseDates:
           $ref: '#/components/schemas/AssignmentDates'
         individualExtensions:
@@ -2065,9 +2488,9 @@ components:
           enum:
           - assign
           - quiz
-        sourceActivityId: *id005
-        sourceCourseModuleId: *id005
-        sourceUrl: *id005
+        sourceActivityId: *id019
+        sourceCourseModuleId: *id019
+        sourceUrl: *id019
       required:
       - moduleType
       - sourceActivityId
@@ -2076,14 +2499,14 @@ components:
     CalendarCandidate:
       type: object
       additionalProperties: false
-      properties: &id006
-        sourceEventId: *id005
-        sourceOccurrenceId: *id005
-        sourceSeriesId: *id005
-        sourceCourseId: *id005
-        title: *id005
-        sourceUrl: *id005
-        observedAt: *id005
+      properties: &id020
+        sourceEventId: *id019
+        sourceOccurrenceId: *id019
+        sourceSeriesId: *id019
+        sourceCourseId: *id019
+        title: *id019
+        sourceUrl: *id019
+        observedAt: *id019
         start:
           $ref: '#/components/schemas/CollectedDateObservation'
         end:
@@ -2100,7 +2523,7 @@ components:
     RawCalendarObservation:
       type: object
       additionalProperties: false
-      properties: *id006
+      properties: *id020
       required:
       - sourceEventId
       - sourceCourseId
@@ -2114,7 +2537,7 @@ components:
         kind:
           type: string
           const: known
-        value: *id005
+        value: *id019
       required:
       - kind
       - value
@@ -2150,30 +2573,30 @@ components:
       type: object
       additionalProperties: false
       properties:
-        sourcePageUrl: *id005
-        sourceUrl: *id005
-        destinationUrl: *id005
-        observedAt: *id005
-        location: &id007
+        sourcePageUrl: *id019
+        sourceUrl: *id019
+        destinationUrl: *id019
+        observedAt: *id019
+        location: &id021
           type: string
           enum:
           - course.material
           - activity.material
           - folder.entry
-        listingScope: &id008
+        listingScope: &id022
           type: string
           enum:
           - reference_only
           - supplied_listing_only
-        listingCoverage: &id009
+        listingCoverage: &id023
           type: string
           enum:
           - complete
           - partial
           - none
-        listingChildResourceKeys: &id010
+        listingChildResourceKeys: &id024
           type: array
-          items: *id005
+          items: *id019
       required:
       - sourcePageUrl
       - sourceUrl
@@ -2183,44 +2606,44 @@ components:
       type: object
       additionalProperties: false
       properties:
-        sourcePageUrl: *id005
-        sourceUrl: *id005
-        destinationUrl: *id005
-        observedAt: *id005
-        location: *id007
-        listingScope: *id008
-        listingCoverage: *id009
-        listingChildResourceKeys: *id010
-        sourceCourseId: *id005
-        sourceCourseModuleId: *id005
+        sourcePageUrl: *id019
+        sourceUrl: *id019
+        destinationUrl: *id019
+        observedAt: *id019
+        location: *id021
+        listingScope: *id022
+        listingCoverage: *id023
+        listingChildResourceKeys: *id024
+        sourceCourseId: *id019
+        sourceCourseModuleId: *id019
         sourceModuleType:
           type: string
           enum:
           - resource
           - url
           - folder
-        sourceResourceId: *id005
-        sourceFileId: *id005
-        sourceFolderId: *id005
-        sourceContextId: *id005
-        resourceKey: *id005
-        parentResourceKey: *id005
+        sourceResourceId: *id019
+        sourceFileId: *id019
+        sourceFolderId: *id019
+        sourceContextId: *id019
+        resourceKey: *id019
+        parentResourceKey: *id019
         kind:
           type: string
           enum:
           - file
           - link
           - folder
-        title: &id011
+        title: &id025
           oneOf:
           - $ref: '#/components/schemas/CollectedKnownString'
           - $ref: '#/components/schemas/CollectedUnknown'
-        section: *id011
+        section: *id025
         fileType:
           oneOf:
           - $ref: '#/components/schemas/CollectedKnownFileType'
           - $ref: '#/components/schemas/CollectedUnknown'
-        mimeType: *id011
+        mimeType: *id025
         references:
           type: array
           items:
@@ -2252,7 +2675,7 @@ components:
           - used
           - remaining
           - other
-        rawText: *id005
+        rawText: *id019
         location:
           type: string
           enum:
@@ -2295,12 +2718,12 @@ components:
       type: object
       additionalProperties: false
       properties:
-        sourceCourseId: *id005
-        sourceActivityId: *id005
-        sourceCourseModuleId: *id005
-        sourceUrl: *id005
-        title: *id005
-        observedAt: *id005
+        sourceCourseId: *id019
+        sourceActivityId: *id019
+        sourceCourseModuleId: *id019
+        sourceUrl: *id019
+        title: *id019
+        observedAt: *id019
         opening:
           $ref: '#/components/schemas/CollectedDateObservation'
         closing:
@@ -2321,10 +2744,10 @@ components:
       type: object
       additionalProperties: false
       properties:
-        sourceCourseId: *id005
-        sourceActivityId: *id005
-        sourceCourseModuleId: *id005
-        sourceUrl: *id005
+        sourceCourseId: *id019
+        sourceActivityId: *id019
+        sourceCourseModuleId: *id019
+        sourceUrl: *id019
         observation:
           $ref: '#/components/schemas/SubmissionObservation'
       required:
@@ -2341,7 +2764,7 @@ components:
           $ref: '#/components/schemas/SubmissionSourceRecord'
         confirmed:
           $ref: '#/components/schemas/SubmissionSourceRecord'
-        stale: &id014
+        stale: &id028
           type: boolean
       required:
       - attempted
@@ -2355,7 +2778,7 @@ components:
           const: calendar
         candidate:
           $ref: '#/components/schemas/CalendarCandidate'
-        reasons: &id012
+        reasons: &id026
           type: array
           items:
             type: string
@@ -2422,7 +2845,7 @@ components:
           const: material
         candidate:
           $ref: '#/components/schemas/RawMaterialObservation'
-        reasons: *id012
+        reasons: *id026
       required:
       - kind
       - reasons
@@ -2430,8 +2853,8 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *id005
-        visitId: *id005
+        id: *id019
+        visitId: *id019
         collector:
           type: string
           enum:
@@ -2440,7 +2863,7 @@ components:
           - material
           - quiz
           - submission
-        reasons: *id012
+        reasons: *id026
         candidate:
           oneOf:
           - $ref: '#/components/schemas/CalendarCandidate'
@@ -2506,9 +2929,9 @@ components:
           - duplicate_date
           - malformed_assignment
           - incomplete_assignment
-        pageIndex: &id013
+        pageIndex: &id027
           type: integer
-        recordIndex: *id013
+        recordIndex: *id027
       required:
       - reason
       - pageIndex
@@ -2516,8 +2939,8 @@ components:
       type: object
       additionalProperties: false
       properties:
-        start: *id005
-        end: *id005
+        start: *id019
+        end: *id019
       required:
       - start
       - end
@@ -2525,12 +2948,12 @@ components:
       type: object
       additionalProperties: false
       properties:
-        coverage: *id009
-        candidateCount: *id013
-        paginationPending: *id014
+        coverage: *id023
+        candidateCount: *id027
+        paginationPending: *id028
         range:
           $ref: '#/components/schemas/CollectionRange'
-        pageIndex: *id013
+        pageIndex: *id027
       required:
       - coverage
       - candidateCount
@@ -2561,7 +2984,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CollectionPage'
-        coverage: *id009
+        coverage: *id023
         scope:
           type: string
           const: visited_activity_only
@@ -2577,13 +3000,13 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *id005
-        courseId: *id005
+        id: *id019
+        courseId: *id019
         kind:
           type: string
           const: assignment
-        firstObservedAt: *id005
-        lastObservedAt: *id005
+        firstObservedAt: *id019
+        lastObservedAt: *id019
         observations:
           type: array
           items:
@@ -2619,7 +3042,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CollectionPage'
-        coverage: *id009
+        coverage: *id023
         scope:
           type: string
           const: supplied_ranges_only
@@ -2635,13 +3058,13 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *id005
-        courseId: *id005
+        id: *id019
+        courseId: *id019
         kind:
           type: string
           const: calendar
-        firstObservedAt: *id005
-        lastObservedAt: *id005
+        firstObservedAt: *id019
+        lastObservedAt: *id019
         observations:
           type: array
           items:
@@ -2677,7 +3100,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CollectionPage'
-        coverage: *id009
+        coverage: *id023
         scope:
           type: string
           const: supplied_pages_only
@@ -2693,13 +3116,13 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *id005
-        courseId: *id005
+        id: *id019
+        courseId: *id019
         kind:
           type: string
           const: material
-        firstObservedAt: *id005
-        lastObservedAt: *id005
+        firstObservedAt: *id019
+        lastObservedAt: *id019
         observations:
           type: array
           items:
@@ -2738,7 +3161,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CollectionPage'
-        coverage: *id009
+        coverage: *id023
         scope:
           type: string
           const: visited_activity_only
@@ -2754,13 +3177,13 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *id005
-        courseId: *id005
+        id: *id019
+        courseId: *id019
         kind:
           type: string
           const: quiz
-        firstObservedAt: *id005
-        lastObservedAt: *id005
+        firstObservedAt: *id019
+        lastObservedAt: *id019
         observations:
           type: array
           items:
@@ -2799,7 +3222,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CollectionPage'
-        coverage: *id009
+        coverage: *id023
         scope:
           type: string
           const: visited_activity_only
@@ -2815,13 +3238,13 @@ components:
       type: object
       additionalProperties: false
       properties:
-        id: *id005
-        courseId: *id005
+        id: *id019
+        courseId: *id019
         kind:
           type: string
           const: submission
-        firstObservedAt: *id005
-        lastObservedAt: *id005
+        firstObservedAt: *id019
+        lastObservedAt: *id019
         observations:
           type: array
           items:
@@ -2841,7 +3264,7 @@ components:
         kind:
           type: string
           const: unavailable
-        reasons: *id012
+        reasons: *id026
       required:
       - kind
       - reasons
@@ -2852,7 +3275,7 @@ components:
         kind:
           type: string
           const: failed
-        reasons: *id012
+        reasons: *id026
       required:
       - kind
       - reasons
@@ -2876,9 +3299,9 @@ components:
       type: object
       additionalProperties: false
       properties:
-        visitId: *id005
-        pageUrl: *id005
-        observedAt: *id005
+        visitId: *id019
+        pageUrl: *id019
+        observedAt: *id019
         collector:
           type: string
           enum:
@@ -2889,9 +3312,9 @@ components:
           - submission
         sourceCourseIds:
           type: array
-          items: *id005
-        sourceActivityId: *id005
-        sourceCourseModuleId: *id005
+          items: *id019
+        sourceActivityId: *id019
+        sourceCourseModuleId: *id019
         outcome:
           type: string
           enum:
@@ -2899,14 +3322,14 @@ components:
           - partial
           - failed
           - unavailable
-        coverage: *id009
+        coverage: *id023
         scope:
           type: string
           enum:
           - visited_activity_only
           - supplied_pages_only
           - supplied_ranges_only
-        reasons: *id012
+        reasons: *id026
         evidenceMode:
           type: string
           enum:
@@ -2952,8 +3375,8 @@ components:
       type: object
       additionalProperties: false
       properties:
-        courseId: *id005
-        sourceCourseId: *id005
+        courseId: *id019
+        sourceCourseId: *id019
       required:
       - courseId
       - sourceCourseId
@@ -2964,14 +3387,14 @@ components:
         version:
           type: string
           const: '1'
-        binding: *id005
+        binding: *id019
         mode:
           type: string
           enum:
           - disabled
           - synthetic
           - verified
-        selectionRevision: *id005
+        selectionRevision: *id019
         courses:
           type: array
           items:
@@ -2992,10 +3415,10 @@ components:
       type: object
       additionalProperties: false
       properties:
-        documentKey: *id005
-        visitId: *id005
-        pageUrl: *id005
-        selectionRevision: *id005
+        documentKey: *id019
+        visitId: *id019
+        pageUrl: *id019
+        selectionRevision: *id019
       required:
       - documentKey
       - visitId
@@ -3005,15 +3428,15 @@ components:
       type: object
       additionalProperties: false
       properties:
-        visitToken: *id005
+        visitToken: *id019
       required:
       - visitToken
     PageRefreshInput:
       type: object
       additionalProperties: false
       properties:
-        visitToken: *id005
-        observedAt: *id005
+        visitToken: *id019
+        observedAt: *id019
         collector:
           type: string
           enum:
@@ -3040,6 +3463,617 @@ components:
       required:
       - snapshot
       - receipt
+    ScanStart:
+      type: object
+      additionalProperties: false
+      properties:
+        idempotencyKey: &id030
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+      required:
+      - idempotencyKey
+      description: Resolve current selected courses and exact unique source mappings
+        atomically. Replay returns the original selection; cross-kind key reuse or
+        an active mock job conflicts. No caller-supplied URLs or namespace. Request
+        size is limited to 1 MiB.
+    ScanJob:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+        courseId:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: \S
+        state:
+          type: string
+          enum:
+          - pending
+          - running
+          - completed
+          - failed
+          - cancelled
+        attempts:
+          type: integer
+          minimum: 0
+        generation:
+          type: integer
+          minimum: 0
+        errorCode: &id041
+          type: string
+          enum:
+          - signed_out
+          - request_failed
+          - invalid_context
+      required:
+      - id
+      - courseId
+      - state
+      - attempts
+      - generation
+    ScanRun:
+      type: object
+      additionalProperties: false
+      properties:
+        id: &id029
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+        idempotencyKey: *id029
+        courseIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8192
+            pattern: \S
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+        createdAt:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum:
+          - pending
+          - running
+          - completed
+          - failed
+          - cancelled
+        cancelled:
+          type: boolean
+        progress:
+          $ref: '#/components/schemas/QueueProgress'
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScanJob'
+          maxItems: 100
+        nextCursor: *id029
+      required:
+      - id
+      - idempotencyKey
+      - courseIds
+      - createdAt
+      - status
+      - cancelled
+      - progress
+      - jobs
+    ScanClaim:
+      type: object
+      additionalProperties: false
+      properties:
+        job:
+          $ref: '#/components/schemas/ScanJob'
+        token: *id030
+        generation: &id038
+          type: integer
+          minimum: 1
+        expiresAt:
+          type: integer
+          minimum: 0
+        sourceCourseId:
+          type: string
+          pattern: ^[1-9][0-9]{0,127}$
+        selectionRevision: &id039
+          type: string
+          pattern: ^[0-9a-f]{64}$
+      required:
+      - job
+      - token
+      - generation
+      - expiresAt
+      - sourceCourseId
+      - selectionRevision
+    ScanClaimResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        unfinished:
+          type: boolean
+        claim:
+          $ref: '#/components/schemas/ScanClaim'
+      required:
+      - unfinished
+    ScanPageInput:
+      type: object
+      additionalProperties: false
+      properties:
+        pageType:
+          type: string
+          enum:
+          - course
+          - assignment
+          - calendar
+          - material
+          - quiz
+          - submission
+          - unsupported
+        scope:
+          type: string
+          enum:
+          - visited_activity_only
+          - supplied_pages_only
+          - supplied_ranges_only
+          - unknown
+        outcome:
+          type: string
+          enum:
+          - ok
+          - partial
+          - failed
+          - unavailable
+          - forbidden
+          - signed_out
+          - undiscovered
+        coverage:
+          type: string
+          enum:
+          - complete
+          - partial
+          - none
+        reasons: &id040
+          type: array
+          items:
+            type: string
+            enum:
+            - undiscovered
+            - unsupported_page
+            - collector_unavailable
+            - access_error
+            - signed_out
+            - forbidden
+            - request_failed
+            - limit_reached
+            - invalid_context
+          maxItems: 9
+          uniqueItems: true
+        observedAt:
+          type: string
+          format: date-time
+        pageUrl:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          format: uri
+          description: Canonical whitelisted HTTPS SDU route, with only its allowed
+            query keys; no credentials, fragments, traversal or noncanonical port.
+        collector:
+          type: string
+          enum:
+          - assignment
+          - calendar
+          - material
+          - quiz
+          - submission
+        result:
+          oneOf:
+          - $ref: '#/components/schemas/AssignmentRefreshResult'
+          - $ref: '#/components/schemas/CalendarRefreshResult'
+          - $ref: '#/components/schemas/MaterialRefreshResult'
+          - $ref: '#/components/schemas/QuizRefreshResult'
+          - $ref: '#/components/schemas/SubmissionRefreshResult'
+      required:
+      - pageType
+      - scope
+      - outcome
+      - coverage
+      - reasons
+      description: Collector/result kind must match; assignment uses /mod/assign/view.php,
+        calendar uses /calendar/view.php, material uses a supported course, resource,
+        url or folder route, quiz uses /mod/quiz/view.php and submission uses /mod/assign/view.php.
+        Page type, collector, scope, route, source identity and claimed course must
+        agree under server domain validation. A checked page requires a valid observation
+        time; undiscovered sections must omit it. Failed, unavailable, forbidden,
+        signed-out, unsupported and undiscovered evidence carries the applicable fixed
+        reason; accepted observations require ok or partial outcome. An empty or incomplete
+        listing cannot establish complete coverage.
+      allOf:
+      - &id031
+        if:
+          properties:
+            outcome:
+              const: undiscovered
+          required:
+          - outcome
+        then:
+          not:
+            required:
+            - observedAt
+        else:
+          required:
+          - observedAt
+      - if:
+          required:
+          - collector
+        then:
+          required:
+          - result
+      - if:
+          required:
+          - result
+        then:
+          required:
+          - collector
+          properties:
+            outcome:
+              type: string
+              enum:
+              - ok
+              - partial
+      - &id032
+        if:
+          properties:
+            outcome:
+              type: string
+              enum:
+              - failed
+              - unavailable
+              - forbidden
+              - signed_out
+              - undiscovered
+          required:
+          - outcome
+        then:
+          properties:
+            coverage:
+              type: string
+              enum:
+              - partial
+              - none
+            reasons:
+              minItems: 1
+          not:
+            required:
+            - result
+      - &id033
+        if:
+          properties:
+            pageType:
+              const: unsupported
+          required:
+          - pageType
+        then:
+          properties:
+            coverage:
+              type: string
+              enum:
+              - partial
+              - none
+            reasons:
+              contains:
+                const: unsupported_page
+      - if:
+          properties:
+            collector:
+              const: assignment
+          required:
+          - collector
+        then:
+          properties:
+            result:
+              $ref: '#/components/schemas/AssignmentRefreshResult'
+          required:
+          - pageUrl
+      - if:
+          properties:
+            collector:
+              const: calendar
+          required:
+          - collector
+        then:
+          properties:
+            result:
+              $ref: '#/components/schemas/CalendarRefreshResult'
+          required:
+          - pageUrl
+      - if:
+          properties:
+            collector:
+              const: material
+          required:
+          - collector
+        then:
+          properties:
+            result:
+              $ref: '#/components/schemas/MaterialRefreshResult'
+          required:
+          - pageUrl
+      - if:
+          properties:
+            collector:
+              const: quiz
+          required:
+          - collector
+        then:
+          properties:
+            result:
+              $ref: '#/components/schemas/QuizRefreshResult'
+          required:
+          - pageUrl
+      - if:
+          properties:
+            collector:
+              const: submission
+          required:
+          - collector
+        then:
+          properties:
+            result:
+              $ref: '#/components/schemas/SubmissionRefreshResult'
+          required:
+          - pageUrl
+      - &id034
+        if:
+          properties:
+            outcome:
+              const: unavailable
+          required:
+          - outcome
+        then:
+          properties:
+            reasons:
+              contains:
+                const: collector_unavailable
+      - &id035
+        if:
+          properties:
+            outcome:
+              const: forbidden
+          required:
+          - outcome
+        then:
+          properties:
+            reasons:
+              contains:
+                const: forbidden
+      - &id036
+        if:
+          properties:
+            outcome:
+              const: signed_out
+          required:
+          - outcome
+        then:
+          properties:
+            reasons:
+              contains:
+                const: signed_out
+      - &id037
+        if:
+          properties:
+            outcome:
+              const: undiscovered
+          required:
+          - outcome
+        then:
+          properties:
+            reasons:
+              contains:
+                const: undiscovered
+    ScanPageRecord:
+      type: object
+      additionalProperties: false
+      properties:
+        pageType:
+          type: string
+          enum:
+          - course
+          - assignment
+          - calendar
+          - material
+          - quiz
+          - submission
+          - unsupported
+        scope:
+          type: string
+          enum:
+          - visited_activity_only
+          - supplied_pages_only
+          - supplied_ranges_only
+          - unknown
+        outcome:
+          type: string
+          enum:
+          - ok
+          - partial
+          - failed
+          - unavailable
+          - forbidden
+          - signed_out
+          - undiscovered
+        coverage:
+          type: string
+          enum:
+          - complete
+          - partial
+          - none
+        reasons:
+          type: array
+          items:
+            type: string
+            enum:
+            - undiscovered
+            - unsupported_page
+            - collector_unavailable
+            - access_error
+            - signed_out
+            - forbidden
+            - request_failed
+            - limit_reached
+            - invalid_context
+          maxItems: 9
+          uniqueItems: true
+        observedAt:
+          type: string
+          format: date-time
+        pageUrl:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          format: uri
+          description: Canonical whitelisted HTTPS SDU route, with only its allowed
+            query keys; no credentials, fragments, traversal or noncanonical port.
+        collector:
+          type: string
+          enum:
+          - assignment
+          - calendar
+          - material
+          - quiz
+          - submission
+        ordinal:
+          type: integer
+          minimum: 0
+          maximum: 99
+      required:
+      - pageType
+      - scope
+      - outcome
+      - coverage
+      - reasons
+      - ordinal
+      description: Collector/result kind must match; assignment uses /mod/assign/view.php,
+        calendar uses /calendar/view.php, material uses a supported course, resource,
+        url or folder route, quiz uses /mod/quiz/view.php and submission uses /mod/assign/view.php.
+        Page type, collector, scope, route, source identity and claimed course must
+        agree under server domain validation. A checked page requires a valid observation
+        time; undiscovered sections must omit it. Failed, unavailable, forbidden,
+        signed-out, unsupported and undiscovered evidence carries the applicable fixed
+        reason; accepted observations require ok or partial outcome. An empty or incomplete
+        listing cannot establish complete coverage.
+      allOf:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - *id035
+      - *id036
+      - *id037
+    ScanFinish:
+      type: object
+      additionalProperties: false
+      properties:
+        jobId: *id030
+        generation: *id038
+        token: *id030
+        selectionRevision: *id039
+        outcome:
+          type: string
+          enum:
+          - completed
+          - failed
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScanPageInput'
+          maxItems: 100
+        incompleteReasons: *id040
+        errorCode: *id041
+      required:
+      - jobId
+      - generation
+      - token
+      - selectionRevision
+      - outcome
+      - pages
+      - incompleteReasons
+      description: Atomically validate claim, live demand, synthetic context, selection
+        and unique mapping; merge accepted source observations, store page coverage
+        and finish. Stale or cancelled claims commit nothing. A completed job does
+        not assert complete course coverage.
+      allOf:
+      - if:
+          properties:
+            outcome:
+              const: failed
+          required:
+          - outcome
+        then:
+          required:
+          - errorCode
+        else:
+          not:
+            required:
+            - errorCode
+    ScanPageList:
+      type: object
+      additionalProperties: false
+      properties:
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScanPageRecord'
+          maxItems: 100
+        incompleteReasons: *id040
+        nextCursor: *id030
+        signInGuidance:
+          type: string
+          const: Sign in to SDU Moodle to continue.
+        signInUrl:
+          type: string
+          const: https://moodle.sdu.edu.kz/login/index.php
+      required:
+      - pages
+      - incompleteReasons
+      description: Stable ordinal pagination. When any recorded or job-level reason
+        is signed_out, both fixed sign-in fields are present; otherwise they are omitted.
+        No DOM, secrets or exception text.
+      allOf:
+      - if:
+          anyOf:
+          - properties:
+              incompleteReasons:
+                contains:
+                  const: signed_out
+          - properties:
+              pages:
+                contains:
+                  properties:
+                    outcome:
+                      const: signed_out
+                  required:
+                  - outcome
+        then:
+          required:
+          - signInGuidance
+          - signInUrl
+        else:
+          not:
+            anyOf:
+            - required:
+              - signInGuidance
+            - required:
+              - signInUrl
   responses:
     ProposedHttpFailure:
       description: Proposed HTTP failure convention only. The current frontend rejects
