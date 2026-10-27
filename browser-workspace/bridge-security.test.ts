@@ -336,6 +336,21 @@ describe("closed bridge trust and schemas", () => {
       );
     }
   });
+  it("only maps the exact safe sync 503 envelope to fixed unavailable guidance", async () => {
+    for (const [payload, expected] of [
+      [{message: errors.SYNC_UNAVAILABLE}, 'SYNC_UNAVAILABLE'],
+      [{message: 'private-exception-token-sentinel'}, 'BACKEND_UNAVAILABLE'],
+      [{message: errors.SYNC_UNAVAILABLE, extra: 'private-exception-token-sentinel'}, 'BACKEND_UNAVAILABLE'],
+    ] as const) {
+      const h = harness(async (url:string) => url.endsWith('bridge-context')
+        ? new Response(JSON.stringify({version:'1',binding:'a'.repeat(32)}))
+        : new Response(JSON.stringify(payload), {status:503}));
+      const session = await h.connect();
+      const reply = await h.handler(request(session, 'syncAll'), sender);
+      expect(reply?.error?.code).toBe(expected);
+      expect(JSON.stringify(reply)).not.toContain('private-exception-token-sentinel');
+    }
+  });
   it("requests redirect:error, credentials:omit, and maps redirect failures to fixed error", async () => {
     const h = harness(async (url: string, init: RequestInit) => {
       expect(init.redirect).toBe("error");

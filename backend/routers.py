@@ -105,7 +105,7 @@ def delete_personal_event(id: str, api: Service):
     return api.delete_personal_event(id)
 
 
-@router.post("/sync", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="syncAll", tags=["Sync"])
+@router.post("/sync", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="syncAll", tags=["Sync"], responses={503:{'model':s.SyncUnavailableError}})
 def sync(api: Service):
     return api.sync_all()
 

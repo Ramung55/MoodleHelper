@@ -4,7 +4,7 @@ from copy import deepcopy
 from hashlib import sha256
 import re
 
-from backend.identity import collector_entity_key
+from backend.identity import collector_entity_key, namespace_key
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -30,11 +30,20 @@ def source_date(sources: list[dict]) -> dict:
     return sorted(sources, key=lambda s: (priority[s["source"]], -observed(s)))[0]["date"]
 
 
+SYNC_UNAVAILABLE = 'Live course sync is unavailable until Moodle access is verified.'
+
+
+class SyncUnavailable(RuntimeError):
+    pass
+
+
 class BackendService:
     def __init__(self, store: SnapshotStore):
         self.store = store
 
     def connection(self) -> dict:
+        if self.store.namespace != namespace_key():
+            return {'state': 'disconnected', 'extensionDetected': False, 'message': SYNC_UNAVAILABLE}
         return {"state": "demo", "extensionDetected": False,
                 "message": "Local fictional demo data. Chrome extension not connected; nothing is collected from Moodle."}
 
@@ -134,6 +143,8 @@ class BackendService:
         return self.store.mutate(apply)
 
     def sync_all(self) -> dict:
+        if self.store.namespace != namespace_key():
+            raise SyncUnavailable(SYNC_UNAVAILABLE)
         def apply(s):
             for state in s["sync"]:
                 if state["courseId"] not in s["settings"]["trackedCourseIds"]:

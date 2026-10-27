@@ -298,13 +298,13 @@ paths:
       operationId: syncAll
       tags:
       - Sync
-      summary: Run sync and return its final snapshot
-      description: No request body. In-process onProgress receives intermediate Snapshots;
-        this proposed HTTP operation returns only the final Snapshot. A future HTTP
-        adapter needs a separately agreed progress transport to preserve incremental
-        UI updates. Course-level failures are recorded in Snapshot.sync and can coexist
-        with a successful operation response. Current demo never contacts Moodle and
-        simulates one failing course.
+      summary: Run the explicitly labeled demo sync
+      description: No request body. The startup-selected demo dataset returns a final
+        Snapshot with fictional simulated results; it does not contact Moodle. A non-demo
+        dataset returns HTTP 503 with the fixed message "Live course sync is unavailable
+        until Moodle access is verified." and changes no data or queue state. Clients
+        cannot select the dataset in this request. Real Moodle sync is unavailable
+        pending verified identity, site evidence and safe request authority.
       security: []
       x-frontend-method: MoodleHelperAdapter.syncAll
       x-http-mapping: proposed
@@ -319,6 +319,13 @@ paths:
           $ref: '#/components/responses/ProposedHttpFailure'
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
+        '503':
+          description: Moodle sync is unavailable; no work was scheduled and no data
+            changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncUnavailableError'
       parameters:
       - $ref: '#/components/parameters/BridgeBinding'
   /api/documents/import:
@@ -4119,6 +4126,15 @@ components:
               - signInGuidance
             - required:
               - signInUrl
+    SyncUnavailableError:
+      type: object
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          const: Live course sync is unavailable until Moodle access is verified.
+      required:
+      - message
   responses:
     ProposedHttpFailure:
       description: Proposed HTTP failure convention only. The current frontend rejects

@@ -83,6 +83,17 @@ describe("HTTP-backed UI failures", () => {
     expect(screen.getByTestId("snapshot")).toHaveTextContent(String(data.settings.semesterWeeks));
   });
 
+  it("shows unavailable live sync without a success toast or changed snapshot", async () => {
+    mocks.adapter.syncAll.mockRejectedValueOnce(new Error("Live course sync is unavailable until Moodle access is verified."));
+    render(<AppProvider><Probe /></AppProvider>);
+    await screen.findByText("Tracked courses");
+    fireEvent.click(screen.getByText("Sync"));
+    await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith("Live course sync is unavailable until Moodle access is verified."));
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(screen.getByTestId("sync-state")).toHaveTextContent("idle");
+    expect(screen.getByTestId("snapshot")).toHaveTextContent(String(data.settings.semesterWeeks));
+  });
+
   it("never shows reset success after the backend rejected it", async () => {
     mocks.adapter.resetDemo.mockRejectedValueOnce(new Error("Reset rejected"));
     render(<AppProvider><Probe /></AppProvider>);

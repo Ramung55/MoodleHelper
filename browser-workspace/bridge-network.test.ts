@@ -400,6 +400,14 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
     ]);
     expect(snap.courses).toHaveLength(1);
     expect(snap.settings.trackedCourseIds).toEqual([]);
+    await client.setTrackedCourses([snap.courses[0]!.id]);
+    const beforeSync = await client.load();
+    let callbacks = 0;
+    await expect(client.syncAll(() => callbacks++)).rejects.toMatchObject({
+      code: 'SYNC_UNAVAILABLE', message: 'Live course sync is unavailable until Moodle access is verified.',
+    });
+    expect(callbacks).toBe(0);
+    expect(await client.load()).toEqual(beforeSync);
     await client.updateSettings({ semesterWeeks: 22 });
     await stop();
     await start("moodle");

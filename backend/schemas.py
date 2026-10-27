@@ -898,3 +898,6 @@ class ScanPageList(QueueModel):
     signInGuidance: Literal['Sign in to SDU Moodle to continue.'] = None
     signInUrl: Literal['https://moodle.sdu.edu.kz/login/index.php'] = None
 
+class SyncUnavailableError(QueueModel):
+    message: Literal['Live course sync is unavailable until Moodle access is verified.']
+

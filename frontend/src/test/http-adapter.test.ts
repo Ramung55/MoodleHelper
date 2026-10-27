@@ -92,6 +92,14 @@ describe("HTTP outcomes", () => {
     await expect(api.load()).rejects.toThrow("Could not reach the local backend");
   });
 
+  it("reports unavailable live sync without emitting a progress snapshot", async () => {
+    const message = "Live course sync is unavailable until Moodle access is verified.";
+    fetcher.mockResolvedValueOnce(response({ message }, 503));
+    const progress = vi.fn();
+    await expect(api.syncAll(progress)).rejects.toThrow(message);
+    expect(progress).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed successful payloads and never calls progress", async () => {
     fetcher.mockResolvedValueOnce(response({})).mockResolvedValueOnce(new Response("<html>error</html>"));
     const progress = vi.fn();

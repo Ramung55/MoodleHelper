@@ -10,7 +10,7 @@ from starlette.exceptions import HTTPException
 
 from backend.routers import router, context_router, collection_router, queue_router, scan_router
 from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
-from backend.services import BackendService
+from backend.services import BackendService, SyncUnavailable, SYNC_UNAVAILABLE
 from backend.storage import SnapshotStore
 from backend.database_config import DatabaseConfig
 from backend.sqlite_store import SQLiteStore, StorageError
@@ -76,7 +76,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
                 sent = True
                 return {'type':'http.request','body':body,'more_body':False}
             request._receive = replay
-        elif request.url.path.startswith('/api/') and request.method not in ['GET','HEAD','OPTIONS']:
+        elif request.url.path.startswith('/api/') and request.url.path != '/api/sync' and request.method not in ['GET','HEAD','OPTIONS']:
             app.state.collection.invalidate()
         if (request.url.path.startswith("/api/") and request.url.path != "/api/bridge-context"
                 and binding is not None and binding != getattr(app.state, "bridge_binding", None)):
@@ -86,6 +86,10 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     @app.exception_handler(StorageError)
     async def storage_error(request: Request, error: StorageError):
         return JSONResponse(status_code=503, content={"message": str(error)})
+
+    @app.exception_handler(SyncUnavailable)
+    async def sync_unavailable(request: Request, error: SyncUnavailable):
+        return JSONResponse(status_code=503, content={'message': SYNC_UNAVAILABLE})
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError):

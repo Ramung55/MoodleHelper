@@ -114,6 +114,19 @@ export function createWorker(options: {
         throw "RECONNECT_REQUIRED";
       }
       if (response.status === 422) throw "VALIDATION";
+      if (response.status === 503 && path === '/api/sync') {
+        try {
+          const text = await response.text();
+          if (new TextEncoder().encode(text).length <= 1024 * 1024) {
+            const value = JSON.parse(text);
+            if (closed(value, ['message']) && value.message === 'Live course sync is unavailable until Moodle access is verified.')
+              throw 'SYNC_UNAVAILABLE';
+          }
+        } catch (error) {
+          if (error === 'SYNC_UNAVAILABLE') throw error;
+        }
+        throw 'BACKEND_UNAVAILABLE';
+      }
       if (!response.ok) throw "BACKEND_UNAVAILABLE";
       const text = await response.text();
       if (new TextEncoder().encode(text).length > 1024 * 1024)
@@ -218,6 +231,7 @@ export function createWorker(options: {
             "TIMEOUT",
             "INVALID_RESPONSE",
             "TOO_LARGE",
+            "SYNC_UNAVAILABLE",
           ].includes(e)
           ? (e as any)
           : "BACKEND_UNAVAILABLE",
