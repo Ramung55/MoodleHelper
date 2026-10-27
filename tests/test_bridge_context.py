@@ -19,7 +19,7 @@ def test_shared_closed_inventory_tracks_source_contract():
     expected = {}
     for path, operations in source['paths'].items():
         for method, operation in operations.items():
-            if path.startswith('/api/queue/') or operation['operationId'] in {'bridgeContext','collectionContext','beginPageVisit','ingestPageRefresh'}:
+            if path.startswith(('/api/queue/','/api/scan/')) or operation['operationId'] in {'bridgeContext','collectionContext','beginPageVisit','ingestPageRefresh'}:
                 continue
             expected[operation['operationId']] = {
                 'method': method.upper(), 'path': path,

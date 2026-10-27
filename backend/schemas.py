@@ -763,6 +763,36 @@ ScanCollector = Literal['assignment','calendar','material','quiz','submission']
 ScanError = Literal['signed_out','request_failed','invalid_context']
 ScanRevision = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
 
+def scan_page_schema(record=False, result_refs=None):
+    choice = lambda *v: {'type':'string', 'enum':list(v)}
+    conditions = [
+        {'if': {'properties': {'outcome': {'const':'undiscovered'}}, 'required':['outcome']}, 'then': {'not': {'required':['observedAt']}}, 'else': {'required':['observedAt']}},
+        {'if': {'required':['collector']}, 'then': {'required':['result']}},
+        {'if': {'required':['result']}, 'then': {'required':['collector'], 'properties': {'outcome':choice('ok','partial')}}},
+        {'if': {'properties': {'outcome':choice('failed','unavailable','forbidden','signed_out','undiscovered')}, 'required':['outcome']}, 'then': {'properties': {'coverage':choice('partial','none'), 'reasons':{'minItems':1}}, 'not':{'required':['result']}}},
+        {'if': {'properties': {'pageType':{'const':'unsupported'}}, 'required':['pageType']}, 'then': {'properties': {'coverage':choice('partial','none'), 'reasons':{'contains':{'const':'unsupported_page'}}}}},
+        {'if': {'properties': {'outcome':{'const':'failed'}}, 'required':['outcome']}, 'then': {'properties':{'reasons':{'contains':choice('access_error','request_failed','invalid_context')}}}},
+        {'if': {'properties': {'outcome':{'const':'partial'}}, 'required':['outcome']}, 'then': {'properties': {'coverage':choice('partial','none'),'reasons':{'minItems':1}}}},
+    ]
+    for index, kind in enumerate(('assignment','calendar','material','quiz','submission')):
+        conditions.append({'if':{'properties':{'collector':{'const':kind}},'required':['collector']},
+            'then':{'properties':{'result':result_refs[index] if result_refs else {}},'required':['pageUrl']}})
+    for state,reason in [('unavailable','collector_unavailable'),('forbidden','forbidden'),('signed_out','signed_out'),('undiscovered','undiscovered')]:
+        conditions.append({'if':{'properties':{'outcome':{'const':state}},'required':['outcome']},'then':{'properties':{'reasons':{'contains':{'const':reason}}}}})
+    return {'allOf': [conditions[0], *conditions[3:7], *conditions[-4:]] if record else conditions}
+
+def scan_list_schema():
+    return {'allOf':[{'if':{'anyOf':[
+        {'properties':{'incompleteReasons':{'contains':{'const':'signed_out'}}}},
+        {'properties':{'pages':{'contains':{'properties':{'outcome':{'const':'signed_out'}},'required':['outcome']}}}}]},
+        'then':{'required':['signInGuidance','signInUrl']},
+        'else':{'not':{'anyOf':[{'required':['signInGuidance']},{'required':['signInUrl']}]}}}]}
+
+def input_page_json_schema(schema):
+    omit_absence_defaults(schema)
+    refs = schema['properties']['result']['anyOf']
+    schema.update(scan_page_schema(result_refs=refs))
+
 class ScanStart(QueueModel):
     idempotencyKey: QueueId
 
@@ -777,7 +807,7 @@ class ScanJob(QueueModel):
 class ScanRun(QueueModel):
     id: QueueId
     idempotencyKey: QueueId
-    courseIds: list[QueueCourseId] = Field(min_length=1,max_length=100)
+    courseIds: list[QueueCourseId] = Field(min_length=1,max_length=100,json_schema_extra={'uniqueItems':True})
     createdAt: QueueCount
     status: QueueState
     cancelled: bool
@@ -798,13 +828,14 @@ class ScanClaimResponse(QueueModel):
     claim: ScanClaim = None
 
 class ScanPageInput(QueueModel):
+    model_config = ConfigDict(strict=True, extra='forbid', allow_inf_nan=False, json_schema_extra=input_page_json_schema)
     pageType: Literal['course','assignment','calendar','material','quiz','submission','unsupported']
     scope: Literal['visited_activity_only','supplied_pages_only','supplied_ranges_only','unknown']
     outcome: Literal['ok','partial','failed','unavailable','forbidden','signed_out','undiscovered']
     coverage: Literal['complete','partial','none']
-    reasons: list[ScanReason] = Field(max_length=9)
-    observedAt: str = None
-    pageUrl: str = Field(default=None,min_length=1,max_length=4096)
+    reasons: list[ScanReason] = Field(max_length=9,json_schema_extra={'uniqueItems':True})
+    observedAt: str = Field(default=None,json_schema_extra={'format':'date-time'})
+    pageUrl: str = Field(default=None,min_length=1,max_length=4096,json_schema_extra={'format':'uri'})
     collector: ScanCollector = None
     result: AssignmentRefreshResult | CalendarRefreshResult | MaterialRefreshResult | QuizRefreshResult | SubmissionRefreshResult = None
 
@@ -829,10 +860,11 @@ class ScanPageInput(QueueModel):
         return self
 
 class ScanFinish(QueueClaimToken):
+    model_config = ConfigDict(strict=True, extra='forbid', allow_inf_nan=False, json_schema_extra=lambda schema: (omit_absence_defaults(schema), schema.update({'allOf':[{'if':{'properties':{'outcome':{'const':'failed'}},'required':['outcome']},'then':{'required':['errorCode']},'else':{'not':{'required':['errorCode']}}}]})))
     selectionRevision: ScanRevision
     outcome: Literal['completed','failed']
     pages: list[ScanPageInput] = Field(max_length=100)
-    incompleteReasons: list[ScanReason] = Field(max_length=9)
+    incompleteReasons: list[ScanReason] = Field(max_length=9,json_schema_extra={'uniqueItems':True})
     errorCode: ScanError = None
     @model_validator(mode='after')
     def valid_finish(self):
@@ -843,19 +875,21 @@ class ScanFinish(QueueClaimToken):
         return self
 
 class ScanPageRecord(QueueModel):
+    model_config = ConfigDict(strict=True, extra='forbid', allow_inf_nan=False, json_schema_extra=lambda schema: (omit_absence_defaults(schema), schema.update(scan_page_schema(True))))
     ordinal: Annotated[int, Field(ge=0,le=99)]
     pageType: Literal['course','assignment','calendar','material','quiz','submission','unsupported']
     scope: Literal['visited_activity_only','supplied_pages_only','supplied_ranges_only','unknown']
     outcome: Literal['ok','partial','failed','unavailable','forbidden','signed_out','undiscovered']
     coverage: Literal['complete','partial','none']
-    reasons: list[ScanReason] = Field(max_length=9)
-    observedAt: str = None
-    pageUrl: str = Field(default=None,min_length=1,max_length=4096)
+    reasons: list[ScanReason] = Field(max_length=9,json_schema_extra={'uniqueItems':True})
+    observedAt: str = Field(default=None,json_schema_extra={'format':'date-time'})
+    pageUrl: str = Field(default=None,min_length=1,max_length=4096,json_schema_extra={'format':'uri'})
     collector: ScanCollector = None
 
 class ScanPageList(QueueModel):
+    model_config = ConfigDict(strict=True, extra='forbid', allow_inf_nan=False, json_schema_extra=lambda schema: (omit_absence_defaults(schema), schema.update(scan_list_schema())))
     pages: list[ScanPageRecord] = Field(max_length=100)
-    incompleteReasons: list[ScanReason] = Field(max_length=9)
+    incompleteReasons: list[ScanReason] = Field(max_length=9,json_schema_extra={'uniqueItems':True})
     nextCursor: QueueId = None
     signInGuidance: Literal['Sign in to SDU Moodle to continue.'] = None
     signInUrl: Literal['https://moodle.sdu.edu.kz/login/index.php'] = None

@@ -88,8 +88,9 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
     expected_operations = {(method, path) for path, ops in contract["paths"].items() for method in ops}
     actual_operations = {(method, path) for path, ops in generated["paths"].items() for method in ops}
     internal = {('get','/api/collection-context'),('post','/api/collection/visits'),('post','/api/collection/refresh'), ('post','/api/queue/runs'), ('get','/api/queue/runs/{runId}'), ('post','/api/queue/runs/{runId}/cancel'), ('post','/api/queue/claim'), ('post','/api/queue/renew'), ('post','/api/queue/finish')}
+    internal |= {('post','/api/scan/runs'), ('get','/api/scan/runs/{runId}'), ('post','/api/scan/runs/{runId}/cancel'), ('post','/api/scan/claim'), ('post','/api/scan/renew'), ('post','/api/scan/finish'), ('get','/api/scan/jobs/{jobId}/pages')}
     assert actual_operations == expected_operations == {(method, path) for method, path, _ in OPERATIONS} | internal
-    assert len(actual_operations) == 27
+    assert len(actual_operations) == 34
     assert not generated["components"].get("securitySchemes")
     for method, path in expected_operations:
         expected = contract["paths"][path][method]
