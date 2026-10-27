@@ -758,3 +758,105 @@ class QueueClaimResponse(QueueModel):
 class QueueRenewResponse(QueueModel):
     expiresAt: QueueCount
 
+ScanReason = Literal['undiscovered','unsupported_page','collector_unavailable','access_error','signed_out','forbidden','request_failed','limit_reached','invalid_context']
+ScanCollector = Literal['assignment','calendar','material','quiz','submission']
+ScanError = Literal['signed_out','request_failed','invalid_context']
+ScanRevision = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+
+class ScanStart(QueueModel):
+    idempotencyKey: QueueId
+
+class ScanJob(QueueModel):
+    id: QueueId
+    courseId: QueueCourseId
+    state: QueueState
+    attempts: QueueCount
+    generation: QueueCount
+    errorCode: ScanError = None
+
+class ScanRun(QueueModel):
+    id: QueueId
+    idempotencyKey: QueueId
+    courseIds: list[QueueCourseId] = Field(min_length=1,max_length=100)
+    createdAt: QueueCount
+    status: QueueState
+    cancelled: bool
+    progress: QueueProgress
+    jobs: list[ScanJob] = Field(max_length=100)
+    nextCursor: QueueId = None
+
+class ScanClaim(QueueModel):
+    job: ScanJob
+    token: QueueId
+    generation: QueueGeneration
+    expiresAt: QueueCount
+    sourceCourseId: str = Field(pattern=r'^[1-9][0-9]{0,127}$')
+    selectionRevision: ScanRevision
+
+class ScanClaimResponse(QueueModel):
+    unfinished: bool
+    claim: ScanClaim = None
+
+class ScanPageInput(QueueModel):
+    pageType: Literal['course','assignment','calendar','material','quiz','submission','unsupported']
+    scope: Literal['visited_activity_only','supplied_pages_only','supplied_ranges_only','unknown']
+    outcome: Literal['ok','partial','failed','unavailable','forbidden','signed_out','undiscovered']
+    coverage: Literal['complete','partial','none']
+    reasons: list[ScanReason] = Field(max_length=9)
+    observedAt: str = None
+    pageUrl: str = Field(default=None,min_length=1,max_length=4096)
+    collector: ScanCollector = None
+    result: AssignmentRefreshResult | CalendarRefreshResult | MaterialRefreshResult | QuizRefreshResult | SubmissionRefreshResult = None
+
+    @model_validator(mode='after')
+    def valid_evidence(self):
+        from backend.domain_validation import validate_instant
+        if len(set(self.reasons)) != len(self.reasons): raise ValueError('Duplicate reason')
+        if self.outcome == 'undiscovered':
+            if self.observedAt is not None: raise ValueError('Undiscovered page has time')
+        else:
+            if self.observedAt is None: raise ValueError('Checked page requires time')
+            validate_instant(self.observedAt,'observedAt')
+        if (self.collector is None) != (self.result is None): raise ValueError('Collector/result mismatch')
+        if self.result is not None and (self.result.kind != self.collector or self.pageUrl is None or self.outcome not in ('ok','partial')):
+            raise ValueError('Invalid collector evidence')
+        required = {'unavailable':'collector_unavailable','forbidden':'forbidden','signed_out':'signed_out','undiscovered':'undiscovered'}
+        if self.outcome in required and required[self.outcome] not in self.reasons: raise ValueError('Missing reason')
+        if self.outcome == 'failed' and not set(self.reasons) & {'access_error','request_failed','invalid_context'}: raise ValueError('Missing reason')
+        if self.outcome in ('failed','unavailable','forbidden','signed_out','undiscovered','partial') and (self.coverage == 'complete' or not self.reasons): raise ValueError('Inconsistent coverage')
+        if self.pageType == 'unsupported' and (self.coverage == 'complete' or 'unsupported_page' not in self.reasons): raise ValueError('Invalid unsupported page')
+        if self.result is not None and (self.coverage != self.result.coverage or self.scope != self.result.scope): raise ValueError('Inconsistent collector coverage')
+        return self
+
+class ScanFinish(QueueClaimToken):
+    selectionRevision: ScanRevision
+    outcome: Literal['completed','failed']
+    pages: list[ScanPageInput] = Field(max_length=100)
+    incompleteReasons: list[ScanReason] = Field(max_length=9)
+    errorCode: ScanError = None
+    @model_validator(mode='after')
+    def valid_finish(self):
+        if (self.outcome == 'failed') != (self.errorCode is not None): raise ValueError('Invalid error code')
+        if len(set(self.incompleteReasons)) != len(self.incompleteReasons): raise ValueError('Duplicate reason')
+        if any(reason not in self.incompleteReasons for page in self.pages for reason in page.reasons): raise ValueError('Missing coverage reason')
+        if not self.pages and 'undiscovered' not in self.incompleteReasons: raise ValueError('Missing discovery reason')
+        return self
+
+class ScanPageRecord(QueueModel):
+    ordinal: Annotated[int, Field(ge=0,le=99)]
+    pageType: Literal['course','assignment','calendar','material','quiz','submission','unsupported']
+    scope: Literal['visited_activity_only','supplied_pages_only','supplied_ranges_only','unknown']
+    outcome: Literal['ok','partial','failed','unavailable','forbidden','signed_out','undiscovered']
+    coverage: Literal['complete','partial','none']
+    reasons: list[ScanReason] = Field(max_length=9)
+    observedAt: str = None
+    pageUrl: str = Field(default=None,min_length=1,max_length=4096)
+    collector: ScanCollector = None
+
+class ScanPageList(QueueModel):
+    pages: list[ScanPageRecord] = Field(max_length=100)
+    incompleteReasons: list[ScanReason] = Field(max_length=9)
+    nextCursor: QueueId = None
+    signInGuidance: Literal['Sign in to SDU Moodle to continue.'] = None
+    signInUrl: Literal['https://moodle.sdu.edu.kz/login/index.php'] = None
+

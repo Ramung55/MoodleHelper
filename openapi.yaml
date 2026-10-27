@@ -3506,7 +3506,7 @@ components:
         generation:
           type: integer
           minimum: 0
-        errorCode: &id041
+        errorCode: &id043
           type: string
           enum:
           - signed_out
@@ -3575,7 +3575,7 @@ components:
         job:
           $ref: '#/components/schemas/ScanJob'
         token: *id030
-        generation: &id038
+        generation: &id040
           type: integer
           minimum: 1
         expiresAt:
@@ -3584,7 +3584,7 @@ components:
         sourceCourseId:
           type: string
           pattern: ^[1-9][0-9]{0,127}$
-        selectionRevision: &id039
+        selectionRevision: &id041
           type: string
           pattern: ^[0-9a-f]{64}$
       required:
@@ -3641,7 +3641,7 @@ components:
           - complete
           - partial
           - none
-        reasons: &id040
+        reasons: &id042
           type: array
           items:
             type: string
@@ -3772,6 +3772,38 @@ components:
             reasons:
               contains:
                 const: unsupported_page
+      - &id034
+        if:
+          properties:
+            outcome:
+              const: failed
+          required:
+          - outcome
+        then:
+          properties:
+            reasons:
+              contains:
+                type: string
+                enum:
+                - access_error
+                - request_failed
+                - invalid_context
+      - &id035
+        if:
+          properties:
+            outcome:
+              const: partial
+          required:
+          - outcome
+        then:
+          properties:
+            coverage:
+              type: string
+              enum:
+              - partial
+              - none
+            reasons:
+              minItems: 1
       - if:
           properties:
             collector:
@@ -3832,7 +3864,7 @@ components:
               $ref: '#/components/schemas/SubmissionRefreshResult'
           required:
           - pageUrl
-      - &id034
+      - &id036
         if:
           properties:
             outcome:
@@ -3844,7 +3876,7 @@ components:
             reasons:
               contains:
                 const: collector_unavailable
-      - &id035
+      - &id037
         if:
           properties:
             outcome:
@@ -3856,7 +3888,7 @@ components:
             reasons:
               contains:
                 const: forbidden
-      - &id036
+      - &id038
         if:
           properties:
             outcome:
@@ -3868,7 +3900,7 @@ components:
             reasons:
               contains:
                 const: signed_out
-      - &id037
+      - &id039
         if:
           properties:
             outcome:
@@ -3979,14 +4011,16 @@ components:
       - *id035
       - *id036
       - *id037
+      - *id038
+      - *id039
     ScanFinish:
       type: object
       additionalProperties: false
       properties:
         jobId: *id030
-        generation: *id038
+        generation: *id040
         token: *id030
-        selectionRevision: *id039
+        selectionRevision: *id041
         outcome:
           type: string
           enum:
@@ -3997,8 +4031,8 @@ components:
           items:
             $ref: '#/components/schemas/ScanPageInput'
           maxItems: 100
-        incompleteReasons: *id040
-        errorCode: *id041
+        incompleteReasons: *id042
+        errorCode: *id043
       required:
       - jobId
       - generation
@@ -4034,7 +4068,7 @@ components:
           items:
             $ref: '#/components/schemas/ScanPageRecord'
           maxItems: 100
-        incompleteReasons: *id040
+        incompleteReasons: *id042
         nextCursor: *id030
         signInGuidance:
           type: string

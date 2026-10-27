@@ -19,6 +19,10 @@ def test_scan_contract_closed_pages_and_outcomes():
     assert not validator.is_valid({**undiscovered, 'reasons': []})
     assert not validator.is_valid({**undiscovered, 'unexpected': True})
     assert not validator.is_valid({**undiscovered, 'outcome': 'forbidden'})
+    checked = {**undiscovered, 'observedAt': '2026-10-27T00:00:00Z', 'outcome': 'failed'}
+    assert not validator.is_valid(checked)
+    assert validator.is_valid({**checked, 'reasons': ['request_failed']})
+    assert not validator.is_valid({**checked, 'outcome': 'partial', 'coverage': 'complete', 'reasons': []})
 
 
 def test_scan_contract_operation_surface():

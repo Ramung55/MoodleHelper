@@ -8,13 +8,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from backend.routers import router, context_router, collection_router, queue_router
+from backend.routers import router, context_router, collection_router, queue_router, scan_router
 from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
 from backend.services import BackendService
 from backend.storage import SnapshotStore
 from backend.database_config import DatabaseConfig
 from backend.sqlite_store import SQLiteStore, StorageError
 from backend.collection import CollectionService, CollectionRejected
+from backend.scan_queue import ScanQueueService
 
 
 def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None) -> FastAPI:
@@ -34,6 +35,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.queue = make_queue(selected)
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(selected, app.state.bridge_binding, collection_provider)
+        app.state.scan = ScanQueueService(selected, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
         try:
             yield
         finally:
@@ -47,16 +49,17 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.queue = make_queue(store)
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(store, app.state.bridge_binding, collection_provider)
+        app.state.scan = ScanQueueService(store, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
 
     @app.middleware("http")
     async def bridge_precondition(request: Request, call_next):
         # Runs before body parsing and service work, including malformed writes.
         binding = request.headers.get("X-Moodle-Helper-Bridge-Binding")
         collection_write = request.url.path in ['/api/collection/visits', '/api/collection/refresh']
-        queue_write = request.url.path.startswith('/api/queue/') and request.method not in ['GET','HEAD','OPTIONS']
+        queue_write = request.url.path.startswith(('/api/queue/', '/api/scan/')) and request.method not in ['GET','HEAD','OPTIONS']
         if (collection_write or queue_write) and binding != getattr(app.state, 'bridge_binding', None):
             return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
-        if request.url.path.startswith('/api/collection') or request.url.path.startswith('/api/queue/'):
+        if request.url.path.startswith(('/api/collection', '/api/queue/', '/api/scan/')):
             chunks = []
             size = 0
             async for chunk in request.stream():
@@ -86,7 +89,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError):
-        if request.url.path.startswith('/api/collection') or request.url.path.startswith('/api/queue/'):
+        if request.url.path.startswith(('/api/collection', '/api/queue/', '/api/scan/')):
             return JSONResponse(status_code=422, content={'message':'Invalid request.'})
         errors = [f"{'.'.join(str(p) for p in item['loc'])}: {item['msg']}" for item in error.errors()]
         return JSONResponse(status_code=422, content={"message": "Invalid request: " + "; ".join(errors)})
@@ -116,6 +119,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         return JSONResponse(status_code=422, content={'message':'Invalid queue request.'})
 
     app.include_router(queue_router)
+    app.include_router(scan_router)
     app.include_router(router)
     app.include_router(context_router)
     app.include_router(collection_router)

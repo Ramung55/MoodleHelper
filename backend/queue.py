@@ -15,6 +15,7 @@ class QueueMissing(Exception): pass
 class QueueInvalid(Exception): pass
 
 class QueueService:
+    kind = 'mock'
     def __init__(self, store, concurrency=1, clock=time.time):
         self.store, self.concurrency, self.clock = store, concurrency, clock
 
@@ -61,8 +62,8 @@ class QueueService:
         if saved: result['result'] = {'id':saved.id, 'summary':saved.summary}
         return result
 
-    def _run(self, c, run_id, cursor, limit, kind='mock'):
-        run = self.execute(c, 'SELECT * FROM queue_runs WHERE namespace=? AND id=? AND kind=?', self.ns, run_id, kind).first()
+    def _run(self, c, run_id, cursor, limit):
+        run = self.execute(c, 'SELECT * FROM queue_runs WHERE namespace=? AND id=? AND kind=?', self.ns, run_id, self.kind).first()
         if not run: raise QueueMissing()
         counts = {s:0 for s in STATES}
         for state, count in self.execute(c, 'SELECT j.state, count(*) FROM queue_jobs j JOIN queue_links l ON l.namespace=j.namespace AND l.job_id=j.id WHERE l.namespace=? AND l.run_id=? GROUP BY j.state', self.ns, run_id): counts[state] = count
@@ -92,26 +93,31 @@ class QueueService:
         def action(c):
             now=int(self.clock())
             # Expiration is a reclaim, never a successful completion.
-            self.execute(c, "UPDATE queue_jobs SET state='pending',token=NULL,expires=NULL WHERE namespace=? AND kind='mock' AND state='running' AND expires<=?", self.ns, now)
-            active=self.execute(c, "SELECT count(*) FROM queue_jobs WHERE namespace=? AND kind='mock' AND state='running' AND expires>?", self.ns, now).scalar_one()
-            unfinished=bool(self.execute(c, "SELECT 1 FROM queue_jobs WHERE namespace=? AND kind='mock' AND state IN ('pending','running') LIMIT 1", self.ns).first())
+            self.execute(c, "UPDATE queue_jobs SET state='pending',token=NULL,expires=NULL WHERE namespace=? AND kind=? AND state='running' AND expires<=?", self.ns, self.kind, now)
+            active=self.execute(c, "SELECT count(*) FROM queue_jobs WHERE namespace=? AND kind=? AND state='running' AND expires>?", self.ns, self.kind, now).scalar_one()
+            unfinished=bool(self.execute(c, "SELECT 1 FROM queue_jobs WHERE namespace=? AND kind=? AND state IN ('pending','running') LIMIT 1", self.ns, self.kind).first())
             if active>=self.concurrency: return {'unfinished':unfinished}
-            row=self.execute(c, """SELECT j.* FROM queue_jobs j WHERE j.namespace=? AND j.kind='mock' AND j.state='pending' AND EXISTS
+            row=self.execute(c, """SELECT j.* FROM queue_jobs j WHERE j.namespace=? AND j.kind=? AND j.state='pending' AND EXISTS
                 (SELECT 1 FROM queue_links l JOIN queue_runs r ON r.namespace=l.namespace AND r.id=l.run_id
                  WHERE l.namespace=j.namespace AND l.job_id=j.id AND r.cancelled=0)
-                 ORDER BY j.created,j.id LIMIT 1""", self.ns).first()
+                 ORDER BY j.created,j.id LIMIT 1""", self.ns, self.kind).first()
             if not row: return {'unfinished':unfinished}
             token=secrets.token_urlsafe(32); generation=row.generation+1; expires=now+LEASE_SECONDS
             self.execute(c, "UPDATE queue_jobs SET state='running',attempts=attempts+1,generation=?,token=?,expires=? WHERE namespace=? AND id=?", generation, token, expires, self.ns, row.id)
             row=self.execute(c, 'SELECT * FROM queue_jobs WHERE namespace=? AND id=?', self.ns, row.id).one()
-            return {'unfinished':True,'claim':{'job':self._job(c,row),'token':token,'generation':generation,'expiresAt':expires}}
+            claim={'job':self._job(c,row),'token':token,'generation':generation,'expiresAt':expires}
+            self._enrich_claim(c, row, claim)
+            return {'unfinished':True,'claim':claim}
         return self.tx(action)
 
+    def _enrich_claim(self, c, row, claim):
+        pass
+
     def _valid(self,c,job_id,generation,token):
-        row=self.execute(c, """SELECT j.* FROM queue_jobs j WHERE j.namespace=? AND j.id=? AND j.kind='mock' AND j.state='running'
+        row=self.execute(c, """SELECT j.* FROM queue_jobs j WHERE j.namespace=? AND j.id=? AND j.kind=? AND j.state='running'
             AND j.generation=? AND j.token=? AND j.expires>? AND EXISTS
             (SELECT 1 FROM queue_links l JOIN queue_runs r ON r.namespace=l.namespace AND r.id=l.run_id
-             WHERE l.namespace=j.namespace AND l.job_id=j.id AND r.cancelled=0)""", self.ns,job_id,generation,token,int(self.clock())).first()
+             WHERE l.namespace=j.namespace AND l.job_id=j.id AND r.cancelled=0)""", self.ns,job_id,self.kind,generation,token,int(self.clock())).first()
         if not row: raise QueueConflict()
         return row
 

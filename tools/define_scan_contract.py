@@ -56,6 +56,10 @@ conditions = [
      'then': {'properties': {'coverage': enum('partial','none'), 'reasons': {'minItems': 1}}, 'not': {'required': ['result']}}},
     {'if': {'properties': {'pageType': {'const': 'unsupported'}}, 'required': ['pageType']},
      'then': {'properties': {'coverage': enum('partial','none'), 'reasons': {'contains': {'const': 'unsupported_page'}}}}},
+    {'if': {'properties': {'outcome': {'const': 'failed'}}, 'required': ['outcome']},
+     'then': {'properties': {'reasons': {'contains': enum('access_error','request_failed','invalid_context')}}}},
+    {'if': {'properties': {'outcome': {'const': 'partial'}}, 'required': ['outcome']},
+     'then': {'properties': {'coverage': enum('partial','none'), 'reasons': {'minItems': 1}}}},
 ]
 for kind in ('assignment','calendar','material','quiz','submission'):
     conditions.append({'if': {'properties': {'collector': {'const': kind}}, 'required': ['collector']},
@@ -76,7 +80,7 @@ schemas['ScanPageInput'] = obj(page_props, ['observedAt','pageUrl','collector','
                                description=page_description, allOf=conditions)
 record_props = {k: deepcopy(v) for k,v in page_props.items() if k != 'result'}
 record_props['ordinal'] = {'type': 'integer', 'minimum': 0, 'maximum': 99}
-record_conditions = [conditions[0], conditions[3], conditions[4], *conditions[-4:]]
+record_conditions = [conditions[0], *conditions[3:7], *conditions[-4:]]
 schemas['ScanPageRecord'] = obj(record_props, ['observedAt','pageUrl','collector'],
                                 description=page_description, allOf=record_conditions)
 finish_props = {'jobId': qid, 'generation': generation, 'token': qid, 'selectionRevision': revision,
@@ -126,5 +130,5 @@ pages = operation('/api/queue/runs/{runId}','get','readScanJobPages','ScanPageLi
                   description='Read stable job page evidence and incomplete reasons; limit 1–100, default 100.')
 pages['parameters'][0]['name'] = 'jobId'
 queue['/api/scan/jobs/{jobId}/pages'] = {'get': pages}
-doc['tags'].append({'name':'Scan'})
+doc['tags'] = [tag for tag in doc['tags'] if tag.get('name') != 'Scan'] + [{'name':'Scan'}]
 path.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True), encoding='utf-8')

@@ -173,3 +173,27 @@ def renew_queue(body:s.QueueClaimToken, request:Request): return queue(request).
 
 @queue_router.post('/finish', response_model=s.QueueJob, response_model_exclude_none=True, operation_id='finishQueueClaim', tags=['Queue'], dependencies=[Depends(queue_binding)])
 def finish_queue(body:s.QueueFinish, request:Request): return queue(request).finish(body.jobId,body.generation,body.token,body.outcome,body.errorCode)
+
+scan_router = APIRouter(prefix='/api/scan', responses={'default': {'model':s.ProposedHttpError}, 404:{'model':s.ProposedHttpError}, 409:{'model':s.ProposedHttpError}, 422:{'model':s.ProposedHttpError}, 503:{'model':s.ProposedHttpError}})
+def scan(request: Request): return request.app.state.scan
+
+@scan_router.post('/runs', response_model=s.ScanRun, response_model_exclude_none=True, operation_id='startScanRun', tags=['Scan'], dependencies=[Depends(queue_binding)])
+def start_scan(body:s.ScanStart, request:Request): return scan(request).start(body.idempotencyKey)
+
+@scan_router.get('/runs/{runId}', response_model=s.ScanRun, response_model_exclude_none=True, operation_id='readScanRun', tags=['Scan'])
+def read_scan(runId:s.QueueId, request:Request, cursor:s.QueueId=None, limit:Annotated[int, __import__('fastapi').Query(ge=1,le=100)]=100): return scan(request).read(runId,cursor,limit)
+
+@scan_router.post('/runs/{runId}/cancel', response_model=s.ScanRun, response_model_exclude_none=True, operation_id='cancelScanRun', tags=['Scan'], dependencies=[Depends(queue_binding)])
+def cancel_scan(runId:s.QueueId, request:Request): return scan(request).cancel(runId)
+
+@scan_router.post('/claim', response_model=s.ScanClaimResponse, response_model_exclude_none=True, operation_id='claimScanJob', tags=['Scan'], dependencies=[Depends(queue_binding)])
+def claim_scan(body:s.QueueClaimInput, request:Request): return scan(request).claim()
+
+@scan_router.post('/renew', response_model=s.QueueRenewResponse, operation_id='renewScanClaim', tags=['Scan'], dependencies=[Depends(queue_binding)])
+def renew_scan(body:s.QueueClaimToken, request:Request): return scan(request).renew(body.jobId,body.generation,body.token)
+
+@scan_router.post('/finish', response_model=s.ScanJob, response_model_exclude_none=True, operation_id='finishScanClaim', tags=['Scan'], dependencies=[Depends(queue_binding)])
+def finish_scan(body:s.ScanFinish, request:Request): return scan(request).finish(wire(body))
+
+@scan_router.get('/jobs/{jobId}/pages', response_model=s.ScanPageList, response_model_exclude_none=True, operation_id='readScanJobPages', tags=['Scan'])
+def read_scan_pages(jobId:s.QueueId, request:Request, cursor:s.QueueId=None, limit:Annotated[int, __import__('fastapi').Query(ge=1,le=100)]=100): return scan(request).pages(jobId,cursor,limit)
