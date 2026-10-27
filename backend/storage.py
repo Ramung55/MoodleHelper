@@ -76,5 +76,8 @@ class InMemoryStore(SourceUpserts):
         with self._lock:
             next_snapshot = deepcopy(self._snapshot)
             operation(next_snapshot)
+            if 'reconciliation' in next_snapshot:
+                from backend.reconciliation import project_sources
+                project_sources(next_snapshot, self.namespace)
             self._snapshot = self._validated(next_snapshot)
             return deepcopy(self._snapshot)

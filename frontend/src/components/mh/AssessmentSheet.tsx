@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { formatDate } from "@/domain/dates";
+import { resolveAssessmentId } from "@/domain/assessments";
 import { useApp } from "@/lib/app-store";
 import { CourseTag, SubmissionBadge, TYPE_LABEL } from "./bits";
 import { DateInput } from "./DateInput";
@@ -11,7 +12,8 @@ import type { DateValue } from "@/domain/types";
 
 export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
   const { views, snap, run } = useApp();
-  const v = views.find((x) => x.a.id === id);
+  const resolvedId = id && snap ? resolveAssessmentId(snap, id) : id;
+  const v = views.find((x) => x.a.id === resolvedId);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState<DateValue | undefined>();
 
@@ -23,7 +25,8 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
   if (!snap) return null;
   const tz = snap.settings.timezone;
   const course = v && snap.courses.find((c) => c.id === v.a.courseId);
-  const changes = v ? snap.changes.filter((c) => c.assessmentId === v.a.id) : [];
+  const changes = v ? snap.changes.filter((c) => resolveAssessmentId(snap, c.assessmentId) === v.a.id) : [];
+  const rawSources = v ? (snap.reconciliation?.sources ?? []).filter((source) => resolveAssessmentId(snap, source.assessmentId) === v.a.id && source.recordId) : [];
 
   return (
     <Sheet open={!!v} onOpenChange={(o) => !o && onClose()}>
@@ -48,7 +51,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 {v.a.availableFrom && <p className="text-xs text-muted-foreground">Opens {new Date(v.a.availableFrom).toLocaleString("en-GB", { timeZone: tz })}</p>}
                 {v.conflict && (
                   <div className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                    <p className="font-semibold text-destructive">Sources disagree — Moodle date is used</p>
+                    <p className="font-semibold text-destructive">{v.conflict.comparison === "incomparable" ? "Sources have different date precision — Moodle date is used" : "Sources disagree — Moodle date is used"}</p>
                     <p>Moodle: {formatDate(v.conflict.moodle, tz)}</p>
                     <p>Syllabus: {formatDate(v.conflict.syllabus, tz)}</p>
                   </div>
@@ -91,6 +94,13 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                     </li>
                   ))}
                 </ul>
+                {rawSources.map((source) => {
+                  const record = snap.collection?.records.find((item) => item.id === source.recordId);
+                  return record && <details key={source.id} className="mt-2 rounded border p-3 text-sm">
+                    <summary className="cursor-pointer font-medium">Original {record.kind} observations</summary>
+                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs">{JSON.stringify(record.observations, null, 2)}</pre>
+                  </details>;
+                })}
               </section>
 
               <section className="space-y-3 rounded-lg border p-4">

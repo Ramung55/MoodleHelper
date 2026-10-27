@@ -43,6 +43,11 @@ describe("reconciliation", () => {
       { source: "syllabus", date: { kind: "exact", iso: "2026-10-01T15:00:00+05:00", tz: "Asia/Almaty" }, observedAt: t },
     ] });
     expect(viewAssessment(a, undefined, S).conflict).toBeUndefined();
+    const different = mk({ sources: [
+      { source: "moodle", date: { kind: "exact", iso: "2026-10-01T10:00:00.000001Z", tz: "UTC" }, observedAt: t },
+      { source: "syllabus", date: { kind: "exact", iso: "2026-10-01T15:00:00.000002+05:00", tz: "Asia/Almaty" }, observedAt: t },
+    ] });
+    expect(viewAssessment(different, undefined, S).conflict?.comparison).toBe("different");
   });
   it("Moodle date wins over syllabus and the conflict is shown", () => {
     const a = mk({ sources: [

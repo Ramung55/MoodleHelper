@@ -177,16 +177,23 @@ export class BridgeClient implements MoodleHelperAdapter {
     onProgress(s);
     return s;
   }
-  async importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void) {
+  async importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void, contentDigest?: string) {
     const r: { snapshot: Snapshot; result: ImportResult } = await this.send("importDocument", {
       courseId,
       fileName,
+      ...(contentDigest ? { contentDigest } : {}),
     });
     onProgress(r.snapshot);
     return r;
   }
   review(id: string, body: ReviewDecision): Promise<Snapshot> {
     return this.send("review", { id, body });
+  }
+  async proposeReconciliation(left: string, right: string): Promise<Snapshot> {
+    return this.send("proposeReconciliation", { left, right });
+  }
+  async decideReconciliation(pairId: string, fingerprint: string, reviewRevision: string, kind: "confirm" | "reject", choices: Record<string, string>): Promise<Snapshot> {
+    return this.send("decideReconciliation", { pairId, fingerprint, reviewRevision, kind, choices });
   }
   downloadMaterial(
     id: string,

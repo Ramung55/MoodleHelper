@@ -65,12 +65,16 @@ export class HttpAdapter implements MoodleHelperAdapter {
     onProgress(result);
     return result;
   }
-  async importDocument(courseId: string, fileName: string, onProgress: (snapshot: SnapshotValue) => void) {
-    const result = await this.request("POST", "/documents/import", importSchema, { courseId, fileName });
+  async importDocument(courseId: string, fileName: string, onProgress: (snapshot: SnapshotValue) => void, contentDigest?: string) {
+    const result = await this.request("POST", "/documents/import", importSchema, { courseId, fileName, ...(contentDigest ? { contentDigest } : {}) });
     onProgress(result.snapshot);
     return result;
   }
   review(id: string, decision: ReviewDecision) { return this.request("POST", `/candidates/${encodeURIComponent(id)}/review`, Snapshot, decision); }
+  proposeReconciliation(left: string, right: string) { return this.request("POST", "/reconciliation/pairs", Snapshot, { left, right }); }
+  decideReconciliation(pairId: string, fingerprint: string, reviewRevision: string, kind: "confirm" | "reject", choices: Record<string, string>) {
+    return this.request("POST", "/reconciliation/decisions", Snapshot, { pairId, fingerprint, reviewRevision, kind, choices });
+  }
   downloadMaterial(id: string) { return this.request("POST", `/materials/${encodeURIComponent(id)}/download`, downloadSchema); }
   saveAlerts(alerts: SnapshotValue["alerts"]) { return this.request("PUT", "/alerts", Snapshot, alerts); }
   updateSettings(patch: Partial<SnapshotValue["settings"]>) { return this.request("PATCH", "/settings", Snapshot, patch); }

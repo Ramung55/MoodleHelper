@@ -41,6 +41,46 @@ tags:
 - name: AI availability
 - name: Scan
 paths:
+  /api/reconciliation/pairs:
+    post:
+      operationId: proposeReconciliationPair
+      tags: [Assessments]
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/BridgeBinding'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReconciliationSelection'}
+      responses:
+        '200':
+          description: Updated Snapshot
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Snapshot'}
+        '409': {$ref: '#/components/responses/ProposedHttpFailure'}
+        default: {$ref: '#/components/responses/ProposedHttpFailure'}
+  /api/reconciliation/decisions:
+    post:
+      operationId: decideReconciliationPair
+      tags: [Assessments]
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/BridgeBinding'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReconciliationDecision'}
+      responses:
+        '200':
+          description: Updated Snapshot
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Snapshot'}
+        '409': {$ref: '#/components/responses/ProposedHttpFailure'}
+        default: {$ref: '#/components/responses/ProposedHttpFailure'}
   /api/connection:
     get:
       operationId: connection
@@ -2323,6 +2363,8 @@ components:
           $ref: '#/components/schemas/Settings'
         collection:
           $ref: '#/components/schemas/SnapshotCollection'
+        reconciliation:
+          $ref: '#/components/schemas/Reconciliation'
       required:
       - courses
       - assessments
@@ -2334,6 +2376,77 @@ components:
       - changes
       - alerts
       - settings
+    ReconciliationSelection:
+      type: object
+      properties:
+        left: {type: string}
+        right: {type: string}
+      required: [left, right]
+    ReconciliationDecision:
+      type: object
+      properties:
+        pairId: {type: string}
+        fingerprint: {type: string}
+        reviewRevision: {type: string}
+        kind: {type: string, enum: [confirm, reject]}
+        choices:
+          type: object
+          additionalProperties: {type: string}
+      required: [pairId, fingerprint, reviewRevision, kind, choices]
+    ReconciliationSource:
+      type: object
+      properties:
+        id: {type: string}
+        courseId: {type: string}
+        assessmentId: {type: string}
+        kind: {type: string, enum: [moodle, syllabus]}
+        state: {type: string, const: ambiguous}
+        recordId: {type: string}
+        documentId: {type: string}
+        candidateId: {type: string}
+      required: [id, courseId, assessmentId, kind]
+    ReconciliationPair:
+      type: object
+      properties:
+        id: {type: string}
+        left: {type: string}
+        right: {type: string}
+        fingerprint: {type: string}
+        reviewRevision: {type: string}
+        status: {type: string, enum: [pending, confirmed, rejected]}
+        canonicalId: {type: string}
+        choices:
+          type: object
+          additionalProperties: {type: string}
+      required: [id, left, right, fingerprint, reviewRevision, status]
+    ReconciliationAlias:
+      type: object
+      properties:
+        originalId: {type: string}
+        canonicalId: {type: string}
+      required: [originalId, canonicalId]
+    Reconciliation:
+      type: object
+      properties:
+        sources:
+          type: array
+          items: {$ref: '#/components/schemas/ReconciliationSource'}
+        pairs:
+          type: array
+          items: {$ref: '#/components/schemas/ReconciliationPair'}
+        aliases:
+          type: array
+          items: {$ref: '#/components/schemas/ReconciliationAlias'}
+        logicalAssessments:
+          type: array
+          items: {$ref: '#/components/schemas/Assessment'}
+        logicalOverlays:
+          type: array
+          items: {$ref: '#/components/schemas/Overlay'}
+        overlayEdits:
+          type: array
+          items: {$ref: '#/components/schemas/Overlay'}
+      required: [sources, pairs, aliases, logicalAssessments, logicalOverlays, overlayEdits]
     ConnectionInfo:
       type: object
       properties:
@@ -2415,8 +2528,11 @@ components:
           type: string
         fileName:
           type: string
-          description: Only a file name is passed by the current frontend. File bytes,
-            size, MIME type, and multipart upload are not part of its adapter contract.
+          description: File name for the explicitly mocked import.
+        contentDigest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of selected bytes for stable mock-import replay; bytes are not uploaded or parsed.
       required:
       - courseId
       - fileName

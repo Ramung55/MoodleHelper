@@ -68,7 +68,10 @@ def test_atomic_source_layer_stable_revisit_replay_and_personal_preservation(har
     assert record['observations']==[assignment()]
     assert json.loads(record['id'])==['demo','assignment','101','assign','202']
     assert value['receipt']['evidenceMode']=='synthetic'
-    for key in before: assert value['snapshot'][key]==before[key]
+    for key in before:
+        if key != 'assessments': assert value['snapshot'][key]==before[key]
+    assert value['snapshot']['assessments'][:-1] == before['assessments']
+    assert value['snapshot']['assessments'][-1]['title'] == 'Synthetic assignment'
     rev=revision(store)
     assert refresh(client,token,headers).json()==value
     assert revision(store)==rev

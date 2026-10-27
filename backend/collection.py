@@ -321,6 +321,8 @@ class CollectionService:
         if activity: receipt['sourceActivityId']=activity
         if cm: receipt['sourceCourseModuleId']=cm
         layer['refreshes'].append(receipt)
+        from backend.reconciliation import project_sources
+        project_sources(snapshot, self.store.namespace)
         # Fail inside the transaction, never commit a reply the fixed
         # worker transport cannot acknowledge without truncating facts.
         if len(canonical({'snapshot':snapshot,'receipt':receipt}).encode())>1024*1024: reject()

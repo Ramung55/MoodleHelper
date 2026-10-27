@@ -56,14 +56,22 @@ export function sortKey(d: DateValue, semesterStart: string): number {
   }
 }
 
+/** Parse an explicitly zoned instant without dropping sub-millisecond precision. */
+export function instantMicros(iso: string): number | null {
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(iso)) return null;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  const fraction = iso.match(/[.,](\d+)(?=Z|[+-]\d{2}:\d{2}$)/i)?.[1] ?? "";
+  const tail = Number(fraction.padEnd(6, "0").slice(3, 6));
+  const micros = ms * 1000 + tail;
+  return Number.isSafeInteger(micros) ? micros : null;
+}
+
 export function sameDate(a: DateValue | undefined, b: DateValue | undefined): boolean {
   if (!a || !b) return a === b;
   if (a.kind === "exact" && b.kind === "exact") {
-    const zoned = /(?:Z|[+-]\d{2}:\d{2})$/i;
-    if (zoned.test(a.iso) && zoned.test(b.iso)) {
-      const left = Date.parse(a.iso), right = Date.parse(b.iso);
-      if (Number.isFinite(left) && Number.isFinite(right)) return left === right;
-    }
+    const left = instantMicros(a.iso), right = instantMicros(b.iso);
+    if (left !== null && right !== null) return left === right;
   }
   return JSON.stringify(a) === JSON.stringify(b);
 }

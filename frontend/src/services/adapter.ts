@@ -50,8 +50,10 @@ export interface MoodleHelperAdapter {
 
   syncAll(onProgress: (s: Snapshot) => void): Promise<Snapshot>;
 
-  importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void): Promise<{ snapshot: Snapshot; result: ImportResult }>;
+  importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void, contentDigest?: string): Promise<{ snapshot: Snapshot; result: ImportResult }>;
   review(candidateId: string, decision: ReviewDecision): Promise<Snapshot>;
+  proposeReconciliation(left: string, right: string): Promise<Snapshot>;
+  decideReconciliation(pairId: string, fingerprint: string, reviewRevision: string, kind: "confirm" | "reject", choices: Record<string, string>): Promise<Snapshot>;
 
   downloadMaterial(id: string): Promise<{ snapshot: Snapshot; supported: boolean; message: string }>;
 

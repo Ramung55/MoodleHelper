@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { EmptyState, PageHeader } from "@/components/mh/bits";
 import { useApp } from "@/lib/app-store";
+import { resolveAssessmentId } from "@/domain/assessments";
 
 export const Route = createFileRoute("/alerts")({
   head: () => ({
@@ -35,7 +36,7 @@ function Alerts() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{KIND[a.kind]}{!a.read && <span className="ml-2 rounded bg-primary px-1.5 text-primary-foreground">new</span>}</p>
                 <p className="text-sm">{a.message}</p>
               </div>
-              {a.assessmentId && <Link to="/deadlines" search={{ id: a.assessmentId }} className="text-sm text-primary underline">Open</Link>}
+              {a.assessmentId && <Link to="/deadlines" search={{ id: resolveAssessmentId(s, a.assessmentId) }} className="text-sm text-primary underline">Open</Link>}
             </li>
           ))}
         </ul>

@@ -30,7 +30,7 @@ export const browserKV = (): KV =>
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function emptySnapshot(base: Snapshot): Snapshot {
-  const { collection: _collection, ...retained } = base;
+  const { collection: _collection, reconciliation: _reconciliation, ...retained } = base;
   return { ...retained, courses: [], assessments: [], overlays: [], materials: [], documents: [], candidates: [], sync: [], changes: [], alerts: [], settings: { ...base.settings, trackedCourseIds: [] } };
 }
 
@@ -145,10 +145,19 @@ export class DemoAdapter implements MoodleHelperAdapter {
     return s;
   }
 
-  async importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void) {
+  async importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void, contentDigest?: string) {
     const fmt = checkFormat(fileName);
     if (!fmt.ok) return { snapshot: this.read(), result: fmt };
-    const id = `d-${this.now().toString(36)}`;
+    const id = contentDigest ? `d-mock-${JSON.stringify([courseId, contentDigest])}` : `d-${this.now().toString(36)}`;
+    const previous = this.read();
+    if (contentDigest && previous.documents.some((d) => d.id === id)) {
+      if (previous.documents.filter((d) => d.id === id && d.courseId === courseId && d.mocked).length !== 1 ||
+          previous.candidates.filter((c) => c.id === `k-${id}` && c.documentId === id && c.courseId === courseId).length !== 1) {
+        throw new Error("Mock document identity collision; import was not saved.");
+      }
+      return { snapshot: previous, result: { ok: true as const } };
+    }
+    if (previous.candidates.some((c) => c.id === `k-${id}`)) throw new Error("Mock candidate identity collision; import was not saved.");
     let s = this.mutate((x) => ({ ...x, documents: [...x.documents, { id, courseId, name: fileName, format: fmt.format, status: "extracting", progress: 0, importedAt: this.stamp(), mocked: true }] }));
     onProgress(s);
     for (const p of [35, 70, 100]) {
@@ -189,6 +198,12 @@ export class DemoAdapter implements MoodleHelperAdapter {
         candidates: s.candidates.map((x) => (x.id === c.id ? { ...fixed, status: d.kind === "correct" ? ("corrected" as const) : ("confirmed" as const) } : x)),
       };
     });
+  }
+  async proposeReconciliation(_left: string, _right: string): Promise<Snapshot> {
+    throw new Error("Match review requires the local backend. Demo data stays unchanged.");
+  }
+  async decideReconciliation(_pairId: string, _fingerprint: string, _reviewRevision: string, _kind: "confirm" | "reject", _choices: Record<string, string>): Promise<Snapshot> {
+    throw new Error("Match review requires the local backend. Demo data stays unchanged.");
   }
 
   async downloadMaterial(id: string) {

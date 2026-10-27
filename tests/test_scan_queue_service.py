@@ -40,7 +40,8 @@ def test_scan_atomic_merge_and_claim_fencing(service):
     finished = queue.finish(body)
     assert finished['state'] == 'completed'
     assert store.read()['collection']['records'][0]['observations'] == [assignment()]
-    assert store.read()['assessments'] == before['assessments']
+    assert store.read()['assessments'][:-1] == before['assessments']
+    assert store.read()['assessments'][-1]['title'] == 'Synthetic assignment'
     assert queue.pages(finished['id'])['incompleteReasons'] == ['undiscovered']
     assert len(queue.pages(finished['id'])['pages']) == 2
     with pytest.raises(QueueConflict): queue.finish(body)

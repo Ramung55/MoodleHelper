@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { DateInput } from "@/components/mh/DateInput";
+import { ReconciliationReview } from "@/components/mh/ReconciliationReview";
 import { CourseTag, EmptyState, PageHeader, TYPE_LABEL } from "@/components/mh/bits";
 import { formatDate } from "@/domain/dates";
 import type { DateValue, ExtractionCandidate } from "@/domain/types";
@@ -35,7 +36,10 @@ function Syllabus() {
     if (!f) return;
     setImporting(true);
     try {
-      const { result, snapshot } = await adapter.importDocument(course, f.name, setSnap);
+      const bytes = await f.arrayBuffer();
+      const hash = await crypto.subtle.digest("SHA-256", bytes);
+      const digest = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      const { result, snapshot } = await adapter.importDocument(course, f.name, setSnap, digest);
       setSnap(snapshot);
       if (!result.ok) toast.error(result.reason);
       else toast.success("Imported. Review the extracted items below.");
@@ -83,6 +87,7 @@ function Syllabus() {
         </section>
       </div>
 
+      <ReconciliationReview />
       <section className="mt-8">
         <h2 className="mb-3 text-xl font-semibold">Needs review ({pending.length})</h2>
         {pending.length === 0 ? <EmptyState title="Review queue is empty" /> : (
@@ -122,7 +127,7 @@ function CandidateCard({ c, onDecide }: { c: ExtractionCandidate; onDecide: (d: 
       <p className="text-xs text-muted-foreground">{c.location}</p>
       <p className="mt-2 text-sm">Proposed: <strong>{formatDate(c.date, snap!.settings.timezone)}</strong> from “{c.rawDateText}”</p>
       {c.reason && <p className="text-sm text-muted-foreground">Why review: {c.reason}</p>}
-      {match && <p className="text-sm">Possible match: <strong>{match.title}</strong>. Confirming links them; Moodle's date keeps priority.</p>}
+      {match && <p className="text-sm">Possible related item: <strong>{match.title}</strong>. Moodle and syllabus matches are reviewed separately.</p>}
       {editing && (
         <div className="mt-3 space-y-2">
           <input aria-label="Corrected title" className="h-9 w-full rounded-md border bg-card px-2 text-sm" value={title} onChange={(e) => setTitle(e.target.value)} />

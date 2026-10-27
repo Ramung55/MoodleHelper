@@ -66,6 +66,22 @@ def connection(api: Service):
     return api.connection()
 
 
+@router.post('/reconciliation/pairs', response_model=s.Snapshot, response_model_exclude_none=True, operation_id='proposeReconciliationPair', tags=['Assessments'])
+def propose_reconciliation(body: s.ReconciliationSelection, api: Service):
+    try:
+        return api.propose_reconciliation(wire(body))
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post('/reconciliation/decisions', response_model=s.Snapshot, response_model_exclude_none=True, operation_id='decideReconciliationPair', tags=['Assessments'])
+def decide_reconciliation(body: s.ReconciliationDecision, api: Service):
+    try:
+        return api.decide_reconciliation(wire(body))
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 @router.get("/snapshot", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="load", tags=["Snapshot"])
 def load(api: Service):
     return api.load()
@@ -112,12 +128,18 @@ def sync(api: Service):
 
 @router.post("/documents/import", response_model=s.ImportDocumentResponse, response_model_exclude_none=True, operation_id="importDocument", tags=["Documents"])
 def import_document(body: s.ImportDocumentInput, api: Service):
-    return api.import_document(body.courseId, body.fileName)
+    try:
+        return api.import_document(body.courseId, body.fileName, body.contentDigest)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.post("/candidates/{candidateId:path}/review", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="review", tags=["Documents"])
 def review(candidateId: str, body: Annotated[s.ConfirmReview | s.RejectReview | s.CorrectReview, Body(discriminator="kind")], api: Service):
-    return api.review(candidateId, wire(body))
+    try:
+        return api.review(candidateId, wire(body))
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.post("/materials/{id:path}/download", response_model=s.DownloadMaterialResponse, response_model_exclude_none=True, operation_id="downloadMaterial", tags=["Materials"])

@@ -595,8 +595,58 @@ class PageRefreshInput(CollectionWire):
 
 # END GENERATED COLLECTION MODELS
 
+class ReconciliationSelection(WireModel):
+    left: str
+    right: str
+
+
+class ReconciliationDecision(WireModel):
+    pairId: str
+    fingerprint: str
+    reviewRevision: str
+    kind: Literal['confirm', 'reject']
+    choices: dict[str, str]
+
+
+class ReconciliationSource(WireModel):
+    id: str
+    courseId: str
+    assessmentId: str
+    kind: Literal['moodle', 'syllabus']
+    state: Literal['ambiguous'] = None
+    recordId: str = None
+    documentId: str = None
+    candidateId: str = None
+
+
+class ReconciliationPair(WireModel):
+    id: str
+    left: str
+    right: str
+    fingerprint: str
+    reviewRevision: str
+    status: Literal['pending', 'confirmed', 'rejected']
+    canonicalId: str = None
+    choices: dict[str, str] = None
+
+
+class ReconciliationAlias(WireModel):
+    originalId: str
+    canonicalId: str
+
+
+class Reconciliation(WireModel):
+    sources: list[ReconciliationSource]
+    pairs: list[ReconciliationPair]
+    aliases: list[ReconciliationAlias]
+    logicalAssessments: list[Assessment]
+    logicalOverlays: list[Overlay]
+    overlayEdits: list[Overlay]
+
+
 class Snapshot(WireModel):
     collection: SnapshotCollection = None
+    reconciliation: Reconciliation = None
     courses: list[Course]
     assessments: list[Assessment]
     overlays: list[Overlay]
@@ -643,6 +693,7 @@ ReviewDecision = Annotated[ConfirmReview | RejectReview | CorrectReview, Field(d
 class ImportDocumentInput(WireModel):
     courseId: str
     fileName: str
+    contentDigest: str = Field(default=None, pattern=r'^[0-9a-f]{64}$')
 
 
 class ImportSuccess(WireModel):

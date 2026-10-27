@@ -1,5 +1,9 @@
-import { sameDate, sortKey, weekOf } from "./dates";
-import type { Assessment, DateValue, Overlay, Settings, SourceEvidence } from "./types";
+import { instantMicros, sameDate, sortKey, weekOf } from "./dates";
+import type { Assessment, DateValue, Overlay, Settings, SourceEvidence, Snapshot } from "./types";
+
+export function resolveAssessmentId(snapshot: Snapshot, id: string): string {
+  return snapshot.reconciliation?.aliases.find((alias) => alias.originalId === id)?.canonicalId ?? id;
+}
 
 export interface AssessmentView {
   a: Assessment;
@@ -11,7 +15,7 @@ export interface AssessmentView {
   sourceDate: DateValue;
   week: number | null;
   /** Moodle and syllabus disagree */
-  conflict?: { moodle: DateValue; syllabus: DateValue };
+  conflict?: { moodle: DateValue; syllabus: DateValue; comparison: "different" | "incomparable" };
   /** Source date moved after the student set an override */
   overrideDisagreement?: { was: DateValue; now: DateValue };
   hidden: boolean;
@@ -24,22 +28,35 @@ export interface AssessmentView {
 
 const PRIORITY: Record<SourceEvidence["source"], number> = { moodle: 0, syllabus: 1, personal: 2 };
 
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => `${canonical(k)}:${canonical(v)}`).join(",")}}`;
+  return JSON.stringify(value).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+function observed(source: SourceEvidence): number {
+  return instantMicros(source.observedAt) ?? Number.NEGATIVE_INFINITY;
+}
+
+function newest(sources: SourceEvidence[]): SourceEvidence[] {
+  return [...sources].sort((x, y) => {
+    const difference = observed(y) - observed(x);
+    if (Number.isFinite(difference) && difference !== 0) return difference;
+    if (observed(x) !== observed(y)) return observed(y) > observed(x) ? 1 : -1;
+    const a = canonical(x), b = canonical(y);
+    return a === b ? 0 : a < b ? 1 : -1;
+  });
+}
+
 /** For confirmed matches Moodle's date has priority over the syllabus date. */
 export function reconciledSourceDate(sources: SourceEvidence[]): DateValue {
-  const sorted = [...sources].sort((x, y) => {
-    const p = PRIORITY[x.source] - PRIORITY[y.source];
-    if (p !== 0) return p;
-    // within a source, the latest observation wins
-    return Date.parse(y.observedAt) - Date.parse(x.observedAt);
-  });
-  const newest = sorted.filter((s, i) => sorted.findIndex((x) => x.source === s.source) === i);
-  return (newest.find((s) => s.date.kind !== "unknown") ?? newest[0]).date;
+  const sorted = newest(sources).sort((x, y) => PRIORITY[x.source] - PRIORITY[y.source]);
+  const perSource = sorted.filter((s, i) => sorted.findIndex((x) => x.source === s.source) === i);
+  return (perSource.find((s) => s.date.kind !== "unknown") ?? perSource[0]).date;
 }
 
 function latest(sources: SourceEvidence[], src: SourceEvidence["source"]) {
-  return sources
-    .filter((s) => s.source === src)
-    .sort((x, y) => Date.parse(y.observedAt) - Date.parse(x.observedAt))[0];
+  return newest(sources.filter((s) => s.source === src))[0];
 }
 
 export function isOutstanding(a: Assessment, o?: Overlay): boolean {
@@ -55,7 +72,9 @@ export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Setting
   const date = o?.dateOverride ?? sourceDate;
   const m = latest(a.sources, "moodle");
   const sy = latest(a.sources, "syllabus");
-  const conflict = m && sy && m.date.kind !== "unknown" && sy.date.kind !== "unknown" && !sameDate(m.date, sy.date) ? { moodle: m.date, syllabus: sy.date } : undefined;
+  const conflict = m && sy && m.date.kind !== "unknown" && sy.date.kind !== "unknown" && !sameDate(m.date, sy.date)
+    ? { moodle: m.date, syllabus: sy.date, comparison: m.date.kind === sy.date.kind ? "different" as const : "incomparable" as const }
+    : undefined;
   const overrideDisagreement =
     o?.dateOverride && o.overrideBase && !sameDate(o.overrideBase, sourceDate)
       ? { was: o.overrideBase, now: sourceDate }

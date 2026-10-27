@@ -71,7 +71,9 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
     expect(registry.assignment.collect).toHaveBeenCalledTimes(1);
     let saved:Snapshot=await json('/api/snapshot');expect(saved.collection!.records).toHaveLength(1);
     const evidence=saved.collection!.records[0]!.observations[0] as any;expect(evidence.individualExtensions[0].evidence).toBe('Synthetic extension');expect(evidence.effectiveDates.due.value).toEqual({kind:'date',date:'2026-10-29'});
-    for(const key of ['overlays','assessments','materials','sync'] as const)expect(saved[key]).toEqual(seed[key]);
+    for(const key of ['overlays','materials','sync'] as const)expect(saved[key]).toEqual(seed[key]);
+    expect(saved.assessments.slice(0,seed.assessments.length)).toEqual(seed.assessments);
+    expect(saved.assessments.at(-1)).toMatchObject({title:'Fictional assignment',courseId:'c-csc'});
     f.set(fixture(assignmentInput(assignment().replace('Fictional   assignment','Changed synthetic assignment'))));await until(()=>f.coordinator.state.receipts.length===4);
     saved=await json('/api/snapshot');expect(saved.collection!.records).toHaveLength(1);expect(saved.collection!.records[0]!.observations).toHaveLength(2);
     const backup=previewRestore(JSON.stringify(makeBackup(saved)),seed);expect(backup.ok).toBe(true);if(!backup.ok)throw Error('backup');expect(backup.backup.data).toEqual(saved);

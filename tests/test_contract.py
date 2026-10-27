@@ -89,8 +89,9 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
     actual_operations = {(method, path) for path, ops in generated["paths"].items() for method in ops}
     internal = {('get','/api/collection-context'),('post','/api/collection/visits'),('post','/api/collection/refresh'), ('post','/api/queue/runs'), ('get','/api/queue/runs/{runId}'), ('post','/api/queue/runs/{runId}/cancel'), ('post','/api/queue/claim'), ('post','/api/queue/renew'), ('post','/api/queue/finish')}
     internal |= {('get','/api/queue/current'), ('post','/api/queue/current'), ('post','/api/scan/runs'), ('get','/api/scan/runs/{runId}'), ('post','/api/scan/runs/{runId}/cancel'), ('post','/api/scan/claim'), ('post','/api/scan/renew'), ('post','/api/scan/finish'), ('get','/api/scan/jobs/{jobId}/pages')}
+    internal |= {('post','/api/reconciliation/pairs'), ('post','/api/reconciliation/decisions')}
     assert actual_operations == expected_operations == {(method, path) for method, path, _ in OPERATIONS} | internal
-    assert len(actual_operations) == 36
+    assert len(actual_operations) == 38
     assert not generated["components"].get("securitySchemes")
     for method, path in expected_operations:
         expected = contract["paths"][path][method]

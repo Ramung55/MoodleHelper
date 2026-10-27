@@ -122,6 +122,9 @@ class SQLiteStore(SourceUpserts):
     def mutate(self, operation: Callable[[dict], None]) -> dict:
         def change(snapshot):
             operation(snapshot)
+            if 'reconciliation' in snapshot:
+                from backend.reconciliation import project_sources
+                project_sources(snapshot, self.namespace)
             return self._validated(snapshot)
         return self._write(change)
 

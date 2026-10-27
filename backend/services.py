@@ -17,20 +17,11 @@ def stamp() -> str:
 
 
 def source_date(sources: list[dict]) -> dict:
+    from backend.reconciliation import latest
     priority = {"moodle": 0, "syllabus": 1, "personal": 2}
-
-    def observed(source):
-        try:
-            return datetime.fromisoformat(source["observedAt"].replace("Z", "+00:00")).timestamp()
-        except (ValueError, OverflowError, OSError):
-            # The wire schema permits arbitrary timestamp strings. Unparseable
-            # values retain stable input order rather than causing an error.
-            return 0
-
-    ordered = sorted(sources, key=lambda s: (priority[s["source"]], -observed(s)))
-    latest = list({source["source"]: source for source in reversed(ordered)}.values())
-    latest.sort(key=lambda source: priority[source["source"]])
-    return next((source["date"] for source in latest if source["date"]["kind"] != "unknown"), latest[0]["date"])
+    newest = [latest([s for s in sources if s['source'] == kind])
+              for kind in sorted(priority, key=priority.get) if any(s['source'] == kind for s in sources)]
+    return next((source["date"] for source in newest if source["date"]["kind"] != "unknown"), newest[0]["date"])
 
 
 SYNC_UNAVAILABLE = 'Live course sync is unavailable until Moodle access is verified.'
@@ -53,7 +44,22 @@ class BackendService:
     def load(self) -> dict:
         return self.store.read()
 
+    def propose_reconciliation(self, selection: dict) -> dict:
+        from backend.reconciliation import add_pair, rebuild_logical
+        def apply(snapshot):
+            add_pair(snapshot, self.store.namespace, selection['left'], selection['right'])
+            rebuild_logical(snapshot)
+        return self.store.mutate(apply)
+
+    def decide_reconciliation(self, decision: dict) -> dict:
+        from backend.reconciliation import decide
+        return self.store.mutate(lambda snapshot: decide(snapshot, self.store.namespace, decision))
+
     def replace_all(self, snapshot: dict) -> dict:
+        if 'reconciliation' in snapshot:
+            from backend.reconciliation import project_sources
+            snapshot = deepcopy(snapshot)
+            project_sources(snapshot, self.store.namespace)
         return self.store.replace(snapshot)
 
     def ingest_course_discovery(self, observations: list[dict]) -> dict:
@@ -115,6 +121,25 @@ class BackendService:
 
     def update_overlay(self, id: str, patch: dict) -> dict:
         def apply(s):
+            reconciliation = s.get('reconciliation')
+            aliases = reconciliation['aliases'] if reconciliation else []
+            resolved = next((a['canonicalId'] for a in aliases if a['originalId'] == id), id)
+            group = [a for a in aliases if a['canonicalId'] == resolved]
+            if reconciliation and len(group) > 1:
+                current = next((deepcopy(o) for o in reconciliation['logicalOverlays'] if o['assessmentId'] == resolved),
+                               {'assessmentId': resolved, 'hidden': False, 'completed': False})
+                current.update(patch)
+                for key in ('titleOverride', 'dateOverride', 'overrideBase'):
+                    if current.get(key) is None:
+                        current.pop(key, None)
+                if 'dateOverride' in patch:
+                    logical = next(a for a in reconciliation['logicalAssessments'] if a['id'] == resolved)
+                    if patch['dateOverride'] is None:
+                        current.pop('overrideBase', None)
+                    else:
+                        current['overrideBase'] = source_date(logical['sources'])
+                reconciliation['overlayEdits'] = [o for o in reconciliation['overlayEdits'] if o['assessmentId'] != resolved] + [current]
+                return
             current = next((o for o in s["overlays"] if o["assessmentId"] == id),
                            {"assessmentId": id, "hidden": False, "completed": False})
             current.update(patch)
@@ -160,7 +185,7 @@ class BackendService:
                     state.pop("error", None)
         return self.store.mutate(apply)
 
-    def import_document(self, course_id: str, file_name: str) -> dict:
+    def import_document(self, course_id: str, file_name: str, content_digest: str | None = None) -> dict:
         extension = file_name.lower().split(".")[-1]
         if extension not in ("pdf", "docx"):
             reason = ("Legacy .doc files are not supported. Save it as .docx or PDF and try again."
@@ -168,7 +193,21 @@ class BackendService:
             return {"snapshot": self.load(), "result": {"ok": False, "reason": reason}}
 
         def apply(s):
-            id = f"d-{uuid4().hex}"
+            import json
+            if content_digest and sum(c['id'] == course_id for c in s['courses']) != 1:
+                raise ValueError('Select an existing, unambiguous course before importing.')
+            key = json.dumps([self.store.namespace, course_id, content_digest], separators=(',', ':'))
+            id = f"d-mock-{sha256(key.encode()).hexdigest()}" if content_digest else f"d-{uuid4().hex}"
+            existing = [d for d in s['documents'] if d['id'] == id]
+            if existing:
+                if len(existing) != 1 or existing[0]['courseId'] != course_id or not existing[0]['mocked']:
+                    raise ValueError('Mock document identity collision; import was not saved.')
+                candidate = [c for c in s['candidates'] if c['id'] == f'k-{id}']
+                if len(candidate) != 1 or candidate[0]['documentId'] != id or candidate[0]['courseId'] != course_id:
+                    raise ValueError('Mock candidate identity collision; import was not saved.')
+                return
+            if any(c['id'] == f'k-{id}' for c in s['candidates']):
+                raise ValueError('Mock candidate identity collision; import was not saved.')
             s["documents"].append({"id": id, "courseId": course_id, "name": file_name,
                                    "format": extension, "status": "done", "progress": 100,
                                    "importedAt": stamp(), "mocked": True})
@@ -182,25 +221,46 @@ class BackendService:
 
     def review(self, id: str, decision: dict) -> dict:
         def apply(s):
-            candidate = next((c for c in s["candidates"] if c["id"] == id), None)
-            if candidate is None:
+            candidates = [c for c in s["candidates"] if c["id"] == id]
+            if not candidates:
                 return
-            if decision["kind"] == "reject":
-                candidate["status"] = "rejected"
+            if len(candidates) != 1:
+                raise ValueError('Candidate identity is ambiguous. No review was saved.')
+            candidate = candidates[0]
+            if decision['kind'] == 'reject':
+                candidate['status'] = 'rejected'
                 return
+            if candidate['status'] != 'pending':
+                same = (decision['kind'] == 'reject' and candidate['status'] == 'rejected' or
+                        decision['kind'] == 'confirm' and candidate['status'] == 'confirmed' or
+                        decision['kind'] == 'correct' and candidate['status'] == 'corrected' and
+                        all(candidate[k] == decision[k] for k in ('title', 'date', 'type')))
+                if same:
+                    return
+                raise ValueError('This candidate already has a different decision. Refresh and review it.')
             if decision["kind"] == "correct":
                 candidate.update({key: decision[key] for key in ("title", "date", "type")})
             t = stamp()
             evidence = {"source": "syllabus", "date": candidate["date"], "excerpt": candidate["excerpt"],
                         "location": candidate["location"], "observedAt": t}
-            matched = next((a for a in s["assessments"] if a["id"] == candidate.get("matchAssessmentId")), None)
-            if matched:
-                matched["sources"].append(evidence)
-            else:
-                s["assessments"].append({"id": f"syl-{id}", "courseId": candidate["courseId"],
-                                         "title": candidate["title"], "type": candidate["type"], "personal": False,
-                                         "sources": [evidence], "firstObservedAt": t, "lastObservedAt": t})
+            # Preserve the legacy same-syllabus candidate review behavior when
+            # the existing target is unambiguous and has no Moodle evidence.
+            # Moodle/syllabus association always requires a separate pair review.
+            targets = [a for a in s['assessments'] if a['id'] == candidate.get('matchAssessmentId')]
+            if (len(targets) == 1 and targets[0]['courseId'] == candidate['courseId'] and
+                    targets[0]['type'] == candidate['type'] and not targets[0]['personal'] and
+                    all(source['source'] == 'syllabus' for source in targets[0]['sources'])):
+                targets[0]['sources'].append(evidence)
+                candidate['status'] = 'corrected' if decision['kind'] == 'correct' else 'confirmed'
+                return
+            if any(a['id'] == f'syl-{id}' for a in s['assessments']):
+                raise ValueError('Candidate assessment identity collides with existing data. No review was saved.')
+            s["assessments"].append({"id": f"syl-{id}", "courseId": candidate["courseId"],
+                                     "title": candidate["title"], "type": candidate["type"], "personal": False,
+                                     "sources": [evidence], "firstObservedAt": t, "lastObservedAt": t})
             candidate["status"] = "corrected" if decision["kind"] == "correct" else "confirmed"
+            from backend.reconciliation import layer
+            layer(s)
         return self.store.mutate(apply)
 
     def download_material(self, id: str) -> dict:
@@ -219,6 +279,7 @@ class BackendService:
     def delete_local_data(self) -> dict:
         def apply(s):
             s.pop('collection', None)
+            s.pop('reconciliation', None)
             for key in s:
                 if key != "settings":
                     s[key] = []

@@ -580,8 +580,26 @@ export type PageRefreshInput = z.infer<typeof PageRefreshInput>;
 
 // END GENERATED COLLECTION MODELS
 
+export const ReconciliationSource = z.object({
+  id: z.string(), courseId: z.string(), assessmentId: z.string(),
+  kind: z.enum(["moodle", "syllabus"]), state: z.literal("ambiguous").optional(), recordId: z.string().optional(),
+  documentId: z.string().optional(), candidateId: z.string().optional(),
+});
+export const ReconciliationPair = z.object({
+  id: z.string(), left: z.string(), right: z.string(), fingerprint: z.string(),
+  reviewRevision: z.string(),
+  status: z.enum(["pending", "confirmed", "rejected"]), canonicalId: z.string().optional(),
+  choices: z.record(z.string(), z.string()).optional(),
+});
+export const ReconciliationAlias = z.object({ originalId: z.string(), canonicalId: z.string() });
+export const Reconciliation = z.object({
+  sources: z.array(ReconciliationSource), pairs: z.array(ReconciliationPair),
+  aliases: z.array(ReconciliationAlias), logicalAssessments: z.array(Assessment),
+  logicalOverlays: z.array(Overlay), overlayEdits: z.array(Overlay),
+});
 export const Snapshot = z.object({
   collection: SnapshotCollection.optional(),
+  reconciliation: Reconciliation.optional(),
   courses: z.array(Course),
   assessments: z.array(Assessment),
   overlays: z.array(Overlay),

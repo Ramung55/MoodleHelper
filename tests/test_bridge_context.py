@@ -32,7 +32,7 @@ def test_shared_closed_inventory_tracks_source_contract():
                           'body':operation.get('requestBody', {}).get('content', {}).get('application/json', {}).get('schema'),
                           'result':operation['responses']['200']['content']['application/json']['schema']}
     assert catalog == expected
-    assert len(catalog)==20
+    assert len(catalog)==22
     assert not {'collectionContext','beginPageVisit','ingestPageRefresh'} & catalog.keys()
 
 

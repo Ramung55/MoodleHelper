@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException
 from backend.routers import router, context_router, collection_router, queue_router, scan_router
 from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
 from backend.services import BackendService, SyncUnavailable, SYNC_UNAVAILABLE
+from backend.reconciliation import ReconciliationConflict
 from backend.storage import SnapshotStore
 from backend.database_config import DatabaseConfig
 from backend.sqlite_store import SQLiteStore, StorageError
@@ -86,6 +87,10 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     @app.exception_handler(StorageError)
     async def storage_error(request: Request, error: StorageError):
         return JSONResponse(status_code=503, content={"message": str(error)})
+
+    @app.exception_handler(ReconciliationConflict)
+    async def reconciliation_error(request: Request, error: ReconciliationConflict):
+        return JSONResponse(status_code=409, content={'message': str(error)})
 
     @app.exception_handler(SyncUnavailable)
     async def sync_unavailable(request: Request, error: SyncUnavailable):

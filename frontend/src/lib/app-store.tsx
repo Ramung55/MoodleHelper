@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { viewAll, type AssessmentView } from "@/domain/assessments";
+import { resolveAssessmentId, viewAll, type AssessmentView } from "@/domain/assessments";
 import { eligibleAlerts } from "@/domain/alerts";
 import { weeklyLoad, type WeekLoad } from "@/domain/workload";
 import type { Snapshot } from "@/domain/types";
@@ -120,7 +120,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const derived = useMemo(() => {
     if (!snap) return { views: [], weeks: [], unallocated: [], currentWeek: null };
-    const views = viewAll(snap.assessments, snap.overlays, snap.settings);
+    const views = viewAll(snap.reconciliation?.logicalAssessments ?? snap.assessments, snap.reconciliation?.logicalOverlays ?? snap.overlays, snap.settings);
     const { weeks, unallocated } = weeklyLoad(views, snap.settings);
     const start = Date.parse(snap.settings.semesterStart);
     const currentWeek = Math.floor((Date.now() - start) / (7 * 86_400_000)) + 1;
@@ -130,7 +130,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Persist newly eligible alerts (delivery keys prevent repeats)
   useEffect(() => {
     if (!snap) return;
-    const fresh = eligibleAlerts(derived.views, derived.weeks, snap.changes, snap.settings, Date.now(), snap.alerts);
+    const changes = snap.changes.map((change) => ({ ...change, assessmentId: resolveAssessmentId(snap, change.assessmentId) }));
+    const fresh = eligibleAlerts(derived.views, derived.weeks, changes, snap.settings, Date.now(), snap.alerts);
     if (fresh.length) void run((a) => a.saveAlerts([...fresh, ...snap.alerts]));
   }, [snap, derived, run]);
 

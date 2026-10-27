@@ -137,6 +137,15 @@ overlay, while unassociated IDs retain existing behavior. The backend returns
 transaction unchanged. The HTTP adapter calls this endpoint; the demo adapter exposes
 the same control behavior with explicitly fictional fixture data. Existing unrelated
 candidate review remains available; rejecting a match never rejects its candidate.
+Each pending pair also carries a review revision derived from both personal overlays
+and submission observations. The decision must supply that revision; changing either
+original after the card was loaded makes the request stale and returns 409. Conflicting
+submission observations likewise require an explicit source choice, while preserving
+both originals. A source whose later observations contradict its module association
+is marked ambiguous, keeps its prior projection and all raw facts, and cannot produce
+a new match until the association becomes reliable again. A confirmed earlier match
+retains its stable ID and previously confirmed evidence; ambiguous new evidence is not
+projected into it.
 Fixture checks cover different-day explicit selection and conflict confirmation,
 recurring occurrences, absent versus false, nonconflicting and conflicting dual
 overlays, coupled override/baseline, aliases, replay, concurrent writers and rollback.
