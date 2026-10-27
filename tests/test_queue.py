@@ -139,7 +139,7 @@ def test_version_two_migrates_snapshot_and_revision(tmp_path):
     try:
         assert store.read()==original
         with sqlite3.connect(path) as db:
-            assert db.execute('SELECT version FROM schema_version').fetchone()==(3,)
+            assert db.execute('SELECT version FROM schema_version').fetchone()==(4,)
             assert db.execute('SELECT revision FROM snapshots').fetchone()==(42,)
     finally: store.close()
 
@@ -186,3 +186,4 @@ def test_global_cap_and_renewal_across_instances(tmp_path,monkeypatch):
             assert post(one,h1,'renew',token(claims[1])).status_code==409
             assert post(one,h1,'renew',token(claims[0])).status_code==200
     finally: a.close(); b.close()
+
