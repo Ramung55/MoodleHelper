@@ -29,6 +29,17 @@ describe("emitted Chrome shell", () => {
     expect(listeners).toHaveLength(2);
     for(const listener of listeners) expect(listener({}, {id:"bad"},()=>{})).toBeUndefined();
   });
+  it("never starts scan work in the ordinary installed background worker", async () => {
+    const source=await readFile(new URL("index.js",dist),"utf8");
+    const calls:string[]=[];const callbacks:any[]=[];
+    const chrome={runtime:{id:'test',onMessage:{addListener:()=>{}},onStartup:{addListener:(f:any)=>callbacks.push(f)},onInstalled:{addListener:(f:any)=>callbacks.push(f)}},
+      alarms:{onAlarm:{addListener:(f:any)=>callbacks.push(f)},create:()=>{},clear:()=>{}},permissions:{contains:()=>{}}};
+    const fetcher=async(url:string)=>{calls.push(String(url));return new Response(JSON.stringify(url.endsWith('/bridge-context')?{binding:'b'}:{unfinished:false}),{headers:{'Content-Type':'application/json'}});};
+    runInNewContext(source,{chrome,fetch:fetcher,crypto:{randomUUID:()=>'generation'},Map,Set,URL,TextEncoder,AbortController,setTimeout,clearTimeout,setInterval,clearInterval});
+    await new Promise(resolve=>setTimeout(resolve,20));callbacks[0]?.({name:'moodle-helper-mock-queue'});callbacks[1]?.();callbacks[2]?.();
+    await new Promise(resolve=>setTimeout(resolve,20));
+    expect(calls.some(url=>url.includes('/api/scan/'))).toBe(false);
+  });
   it("ships exactly the local manifest references with the minimal SDU grant", async () => {
     const manifest = JSON.parse(await readFile(new URL("manifest.json", dist), "utf8"));
     validateManifest(manifest);

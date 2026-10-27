@@ -6,7 +6,7 @@ import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {beforeAll,afterAll,it,expect} from 'vitest';
-import {installSyntheticScanWorker} from '../extension/src/synthetic-scan-worker';
+import {installExtension} from '../extension/src/index';
 import {assignment} from '../frontend/src/test/moodle-assignments-fixtures';
 import {calendarPage} from '../frontend/src/test/moodle-calendar-fixtures';
 
@@ -14,6 +14,14 @@ const root=path.resolve(import.meta.dirname,'..');
 const python=path.join(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
 let server:ChildProcess,dir:string,base:string;
 const pause=(ms:number)=>new Promise(r=>setTimeout(r,ms));
+function installed(options:any) {
+  const alarms:((alarm:{name:string})=>void)[]=[], startup:(()=>void)[]=[];
+  const chrome:any={runtime:{id:'synthetic-test',onMessage:{addListener:()=>{}},onStartup:{addListener:(callback:any)=>startup.push(callback)},onInstalled:{addListener:()=>{}}},
+    alarms:{create:()=>{},clear:()=>{},onAlarm:{addListener:(callback:any)=>alarms.push(callback)}},permissions:{contains:(_:any,cb:any)=>cb(true)}};
+  const {base,fetcher,...syntheticScan}=options;
+  const worker=installExtension(chrome,{base,fetcher,syntheticScan});
+  return {...worker, trigger:()=>alarms[0]!({name:'moodle-helper-mock-queue'}),triggerStartup:()=>startup[0]!()};
+}
 beforeAll(async()=>{
   dir=await mkdtemp(path.join(tmpdir(),'moodle-scan-'));
   const listener=createServer();await new Promise<void>(r=>listener.listen(0,'127.0.0.1',r));
@@ -58,9 +66,9 @@ it('shares one SQLite request authority across workers using different data data
       const binding=(await (await fetch(endpoint+'/api/bridge-context')).json()).binding;
       const response=await fetch(endpoint+'/api/scan/runs',{method:'POST',headers:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':binding},body:JSON.stringify({idempotencyKey:'two-databases'})});
       expect(response.status).toBe(200);runs.push(await response.json());
-      workers.push(installSyntheticScanWorker(()=>{}, {base:endpoint,fetcher:fetch,source,authority:authority(),now:Date.now,wait:pause,schedule:()=>{}}));
+      workers.push(installed({base:endpoint,fetcher:fetch,source,authority:authority(),now:Date.now,wait:pause}));
     }
-    const working=Promise.all(workers.map(worker=>(worker as ReturnType<typeof installSyntheticScanWorker>).wake()));
+    const working=Promise.all(workers.map(worker=>(worker as ReturnType<typeof installed>).wake()));
     await entered;await pause(1300);
     expect(trace.map(x=>x.type)).toEqual(['start']);expect(active).toBe(1);
     releaseFirst();await working;
@@ -86,12 +94,13 @@ it('wakes the synthetic worker through HTTP and commits actual assignment parser
   const authority={async acquire(at:number){if(owner||at<Math.max(last+1000,deadline))return null;owner=true;last=at;return 'test';},async releaseAfterTermination(_:string,n:number){deadline=Math.max(deadline,n);owner=false;return true;}};
   const source={start(url:string){const document=new DOMParser().parseFromString(url===course?html:url===calendar?calendarPage():assignment(),'text/html');
     return {completion:Promise.resolve({input:{document,requestedUrl:url,finalUrl:url,httpStatus:200,networkFailure:false},links:url===course?[activity,calendar]:[],sourceCourseId:'101',bytes:1000}),termination:Promise.resolve(true),abort(){}};}};
-  let wake:()=>void=()=>{};
-  const worker=installSyntheticScanWorker(fn=>wake=fn,{base,fetcher:fetch,source,authority,now:()=>now,wait:async ms=>{now+=ms;},schedule:()=>{}});
+  const worker=installed({base,fetcher:fetch,source,authority,now:()=>now,wait:async (ms:number)=>{now+=ms;}});
+  await worker.wake();
   const binding=(await (await fetch(base+'/api/bridge-context')).json()).binding;
   const start=await fetch(base+'/api/scan/runs',{method:'POST',headers:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':binding},body:JSON.stringify({idempotencyKey:'synthetic-http'})});
-  expect(start.status).toBe(200);const run=await start.json();wake();await worker.wake();
-  const done=await (await fetch(base+'/api/scan/runs/'+run.id)).json();
+  expect(start.status).toBe(200);const run=await start.json();worker.trigger();
+  let done:any;
+  for(let i=0;i<200;i++){done=await (await fetch(base+'/api/scan/runs/'+run.id)).json();if(done.status==='completed'||done.status==='failed')break;await pause(25);}
   expect(done.status).toBe('completed');
   const evidence=await (await fetch(base+'/api/scan/jobs/'+done.jobs[0].id+'/pages')).json();
   expect(evidence.pages.some((p:any)=>p.collector==='assignment')).toBe(true);
@@ -100,6 +109,11 @@ it('wakes the synthetic worker through HTTP and commits actual assignment parser
   expect(saved.collection.records.some((r:any)=>r.kind==='assignment'&&r.observations[0].sourceActivityId==='202')).toBe(true);
   expect(saved.collection.records.some((r:any)=>r.kind==='calendar'&&r.observations[0].sourceEventId==='501')).toBe(true);
   expect(saved.collection.records.some((r:any)=>r.kind==='material'&&r.observations[0].sourceCourseModuleId==='201')).toBe(true);
+  await worker.wake();
+  const next=await (await fetch(base+'/api/scan/runs',{method:'POST',headers:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':binding},body:JSON.stringify({idempotencyKey:'synthetic-startup'})})).json();
+  worker.triggerStartup();
+  let resumed:any;for(let i=0;i<200;i++){resumed=await (await fetch(base+'/api/scan/runs/'+next.id)).json();if(resumed.status==='completed'||resumed.status==='failed')break;await pause(25);}
+  expect(resumed.status).toBe('completed');
   worker.dispose();
 },30000);
 
@@ -114,7 +128,7 @@ it('aborts an in-flight synthetic request on cancellation and fences its late re
     const completion=new Promise<any>((_,r)=>reject=r);let acknowledge!:(value:boolean)=>void;
     const termination=new Promise<boolean>(r=>acknowledge=r);
     return {completion,termination,abort(){reject(Error('cancelled'));acknowledge(true);aborted();}};}};
-  const worker=installSyntheticScanWorker(()=>{}, {base,fetcher:fetch,source,authority,now:Date.now,wait:pause,schedule:()=>{}});
+  const worker=installed({base,fetcher:fetch,source,authority,now:Date.now,wait:pause});
   const binding=(await (await fetch(base+'/api/bridge-context')).json()).binding;
   const h={'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':binding};
   const run=await (await fetch(base+'/api/scan/runs',{method:'POST',headers:h,body:JSON.stringify({idempotencyKey:'cancel-inflight'})})).json();
@@ -135,7 +149,7 @@ it('aborts on changed selection before any later request or merge',async()=>{
   const source={start(_url:string){starts++;entered();let reject!:(reason:Error)=>void;let acknowledge!:(value:boolean)=>void;
     const completion=new Promise<any>((_,r)=>reject=r),termination=new Promise<boolean>(r=>acknowledge=r);
     return {completion,termination,abort(){reject(Error('changed'));acknowledge(true);aborted();}};}};
-  const worker=installSyntheticScanWorker(()=>{}, {base,fetcher:fetch,source,authority,now:Date.now,wait:pause,schedule:()=>{}});
+  const worker=installed({base,fetcher:fetch,source,authority,now:Date.now,wait:pause});
   const binding=(await (await fetch(base+'/api/bridge-context')).json()).binding;
   const h={'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':binding};
   const run=await (await fetch(base+'/api/scan/runs',{method:'POST',headers:h,body:JSON.stringify({idempotencyKey:'selection-change'})})).json();

@@ -5,7 +5,14 @@ import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {it,expect} from 'vitest';
-import {installSyntheticScanWorker} from '../extension/src/synthetic-scan-worker';
+import {installExtension} from '../extension/src/index';
+
+function installed(options:any) {
+  const chrome:any={runtime:{id:'synthetic-test',onMessage:{addListener:()=>{}},onStartup:{addListener:()=>{}},onInstalled:{addListener:()=>{}}},
+    alarms:{create:()=>{},clear:()=>{},onAlarm:{addListener:()=>{}}},permissions:{contains:(_:any,cb:any)=>cb(true)}};
+  const {base,fetcher,...syntheticScan}=options;
+  return installExtension(chrome,{base,fetcher,syntheticScan});
+}
 
 it('recovers a pre-commit worker interruption and does not repeat a committed scan after restart',async()=>{
   const root=path.resolve(import.meta.dirname,'..'), dir=await mkdtemp(path.join(tmpdir(),'scan-restart-'));
@@ -28,15 +35,17 @@ it('recovers a pre-commit worker interruption and does not repeat a committed sc
     const stalled={start(_url:string){entered();let reject!:(e:Error)=>void,ack!:(v:boolean)=>void;
       const completion=new Promise<any>((_,r)=>reject=r),termination=new Promise<boolean>(r=>ack=r);
       return {completion,termination,abort(){reject(Error('terminated'));ack(true);}};}};
-    const first=installSyntheticScanWorker(()=>{}, {base,fetcher:fetch,source:stalled,authority,now:()=>now,wait:async ms=>{now+=ms;},schedule:()=>{}});workers.push(first);
-    const run=await first.start('restart');await started;first.dispose();await first.wake();await stopServer();
+    const first=installed({base,fetcher:fetch,source:stalled,authority,now:()=>now,wait:async (ms:number)=>{now+=ms;}});workers.push(first);
+    const binding=(await (await fetch(base+'/api/bridge-context')).json()).binding;
+    const run=await (await fetch(base+'/api/scan/runs',{method:'POST',headers:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':binding},body:JSON.stringify({idempotencyKey:'restart'})})).json();
+    void first.wake();await started;first.dispose();await first.wake();await stopServer();
     await writeFile(clock,'1061');await startServer();
     let calls=0;const html='<nav aria-label="Account"><a href="/login/logout.php">Sign out</a></nav><main data-region="course-content"><h1>Course</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><section data-region="course-section"><h2>Week</h2><p data-region="materials-empty">None</p></section></main>';
     const source={start(url:string){calls++;return {completion:Promise.resolve({input:{document:new DOMParser().parseFromString(html,'text/html'),requestedUrl:url,finalUrl:url,httpStatus:200,networkFailure:false},links:[],sourceCourseId:'101',bytes:100}),termination:Promise.resolve(true),abort(){}};}};
-    const second=installSyntheticScanWorker(()=>{}, {base,fetcher:fetch,source,authority,now:()=>now,wait:async ms=>{now+=ms;},schedule:()=>{}});workers.push(second);
+    const second=installed({base,fetcher:fetch,source,authority,now:()=>now,wait:async (ms:number)=>{now+=ms;}});workers.push(second);
     await second.wake();expect((await (await fetch(base+'/api/scan/runs/'+run.id)).json()).status).toBe('completed');expect(calls).toBe(1);second.dispose();
     await stopServer();await startServer();
-    const third=installSyntheticScanWorker(()=>{}, {base,fetcher:fetch,source,authority,now:()=>now,wait:async ms=>{now+=ms;},schedule:()=>{}});workers.push(third);
+    const third=installed({base,fetcher:fetch,source,authority,now:()=>now,wait:async (ms:number)=>{now+=ms;}});workers.push(third);
     await third.wake();expect(calls).toBe(1);
     const done=await (await fetch(base+'/api/scan/runs/'+run.id)).json();
     expect((await (await fetch(base+'/api/scan/jobs/'+done.jobs[0].id+'/pages')).json()).pages.length).toBeGreaterThan(0);

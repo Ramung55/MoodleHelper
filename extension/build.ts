@@ -7,7 +7,7 @@ await rm(output, { recursive: true, force: true });
 try {
   await mkdir(output, { recursive: true });
   for (const [entry, format, name] of [
-    ["index", "esm", "index.js"],
+    ["index", "iife", "index.js"],
     ["content", "iife", "content.js"],
     ["dashboard-relay", "iife", "dashboard-relay.js"],
   ] as const) {

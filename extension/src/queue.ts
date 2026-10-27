@@ -1,5 +1,6 @@
 /** Disposable MV3 mock queue. SQLite owns all durable state; execution can repeat. */
 import { BACKEND } from './dashboard-bridge';
+import {createSyntheticScanWorker} from './synthetic-scan-worker';
 type Job = { id:string; courseId:string };
 type Claim = { job:Job; token:string; generation:number; expiresAt:number };
 type ClaimReply = { unfinished:boolean; claim?:Claim };
@@ -73,14 +74,20 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
 }
 
 type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number;periodInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} };
-export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Parameters<typeof createQueueService>[0], 'schedule'>>={}) {
+type SyntheticOptions=Omit<Parameters<typeof createSyntheticScanWorker>[0], 'base'|'fetcher'|'schedule'>;
+export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Parameters<typeof createQueueService>[0], 'schedule'>> & {syntheticScan?:SyntheticOptions}={}) {
   // One periodic alarm discovers runs created directly through the local API.
   // Register it and all listeners before any asynchronous worker activity.
   chrome.alarms.create(ALARM_NAME,{delayInMinutes:1,periodInMinutes:1});
-  const service=createQueueService({...options,schedule:()=>{}});
-  chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name===ALARM_NAME) void service.wake();});
-  chrome.runtime.onStartup.addListener(()=>{void service.wake();});
-  chrome.runtime.onInstalled.addListener(()=>{void service.wake();});
-  void service.wake();
-  return service;
+  const {syntheticScan,...queueOptions}=options;
+  const service=createQueueService({...queueOptions,schedule:()=>{}});
+  // Only the in-process synthetic harness can supply this dependency. The
+  // installed extension supplies none and has no message/configuration switch.
+  const scan=syntheticScan ? createSyntheticScanWorker({...syntheticScan,base:queueOptions.base??BACKEND,fetcher:queueOptions.fetcher??fetch,schedule:()=>{}}) : undefined;
+  const wake=async()=>{await Promise.all([service.wake(),scan?.wake()]);};
+  chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name===ALARM_NAME) void wake();});
+  chrome.runtime.onStartup.addListener(()=>{void wake();});
+  chrome.runtime.onInstalled.addListener(()=>{void wake();});
+  void wake();
+  return {...service,wake,dispose(){service.dispose();scan?.dispose();}};
 }

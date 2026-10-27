@@ -39,7 +39,3 @@ export function createSyntheticScanWorker(options:{base:string;fetcher:typeof fe
   return {wake,start,dispose(){disposed=true;controller.abort();}};
 }
 
-/** Harness installation binds wakeup to its scheduler; no live runtime invokes this. */
-export function installSyntheticScanWorker(register:(wake:()=>void)=>void, options:Parameters<typeof createSyntheticScanWorker>[0]) {
-  const worker=createSyntheticScanWorker(options);register(()=>{void worker.wake();});return worker;
-}
