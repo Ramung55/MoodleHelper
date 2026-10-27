@@ -50,13 +50,37 @@ class ScanQueueService(QueueService):
                     self.execute(c, "INSERT INTO queue_jobs(namespace,id,course_id,created,state,kind) VALUES(?,?,?,?,'pending','scan')", self.ns, job_id, course_id, now)
                 self.execute(c, 'INSERT INTO queue_links(namespace,run_id,job_id) VALUES(?,?,?)', self.ns, run_id, job_id)
             return self._run(c, run_id, None, 100)
-        return self.tx(action)
+        with self.collection.lock:
+            return self.tx(action)
+
+    def claim(self):
+        with self.collection.lock:
+            return super().claim()
 
     def _enrich_claim(self, c, row, claim):
         _, context = self._snapshot_context(c)
         mapping = [item for item in context['courses'] if item['courseId'] == row.course_id]
         if len(mapping) != 1: raise QueueConflict()
         claim.update(sourceCourseId=mapping[0]['sourceCourseId'], selectionRevision=context['selectionRevision'])
+        self.execute(c, 'UPDATE queue_jobs SET scan_revision=?,scan_source_id=? WHERE namespace=? AND id=?',
+                     context['selectionRevision'], mapping[0]['sourceCourseId'], self.ns, row.id)
+
+    def _current_mapping(self, c, row):
+        snapshot, context = self._snapshot_context(c)
+        mapping = [item for item in context['courses'] if item['courseId'] == row.course_id]
+        if (len(mapping) != 1 or row.scan_revision != context['selectionRevision'] or
+                row.scan_source_id != mapping[0]['sourceCourseId']): raise QueueConflict()
+        return snapshot, context, mapping[0]['sourceCourseId']
+
+    def renew(self, job_id, generation, token):
+        def action(c):
+            row = self._valid(c, job_id, generation, token)
+            self._current_mapping(c, row)
+            expires = int(self.clock()) + 60
+            self.execute(c, 'UPDATE queue_jobs SET expires=? WHERE namespace=? AND id=?', expires, self.ns, job_id)
+            return {'expiresAt':expires}
+        with self.collection.lock:
+            return self.tx(action)
 
     def finish(self, body):
         try:
@@ -65,20 +89,23 @@ class ScanQueueService(QueueService):
             raise QueueInvalid() from None
         def action(c):
             row = self._valid(c, body['jobId'], body['generation'], body['token'])
-            snapshot, context = self._snapshot_context(c)
-            if context['selectionRevision'] != body['selectionRevision']: raise QueueConflict()
-            mapping = [item for item in context['courses'] if item['courseId'] == row.course_id]
-            if len(mapping) != 1: raise QueueConflict()
-            source = mapping[0]['sourceCourseId']
+            snapshot, context, source = self._current_mapping(c, row)
+            if row.scan_revision != body['selectionRevision']: raise QueueConflict()
             for ordinal, page in enumerate(body['pages']):
-                if 'result' in page:
-                    page_kind, page_id = route(page['pageUrl'])
+                page_kind = page_id = None
+                if 'pageUrl' in page:
                     if '#' in page['pageUrl']: raise QueueInvalid()
+                    page_kind, page_id = route(page['pageUrl'])
+                    allowed_types = {'assign':['assignment','submission'], 'quiz':['quiz'], 'calendar':['calendar'],
+                                     'course':['course','material'], 'resource':['material'], 'url':['material'], 'folder':['material']}
+                    if page['pageType'] not in allowed_types[page_kind]: raise QueueInvalid()
+                    if page_kind == 'course' and page_id != source: raise QueueInvalid()
+                if 'result' in page:
                     collector = page['collector']
                     if collector not in {'assign':['assignment','submission'], 'quiz':['quiz'], 'calendar':['calendar'],
                                          'course':['material'], 'resource':['material'], 'url':['material'], 'folder':['material']}[page_kind]:
                         raise QueueInvalid()
-                    if page_kind == 'course' and page_id != source: raise QueueInvalid()
+                    if page['pageType'] != collector and not (page_kind == 'course' and page['pageType'] == 'course' and collector == 'material'): raise QueueInvalid()
                     for raw in page['result'].get('observations', []):
                         if raw.get('sourceCourseId') != source: raise QueueInvalid()
                     for review in page['result'].get('reviews', []):

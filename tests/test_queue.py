@@ -159,7 +159,7 @@ def test_version_two_migrates_snapshot_and_revision(tmp_path):
     try:
         assert store.read()==original
         with sqlite3.connect(path) as db:
-            assert db.execute('SELECT version FROM schema_version').fetchone()==(5,)
+            assert db.execute('SELECT version FROM schema_version').fetchone()==(6,)
             assert db.execute('SELECT revision FROM snapshots').fetchone()==(42,)
     finally: store.close()
 

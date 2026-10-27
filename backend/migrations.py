@@ -1,7 +1,7 @@
 """Small transactional SQLite migrations; caller owns BEGIN/COMMIT/ROLLBACK."""
 from sqlalchemy import Connection
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class MigrationError(RuntimeError):
@@ -58,7 +58,12 @@ def version_four_to_five(connection: Connection) -> None:
         FOREIGN KEY(namespace,job_id) REFERENCES queue_jobs(namespace,id))""")
 
 
-MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five}
+def version_five_to_six(connection: Connection) -> None:
+    connection.exec_driver_sql('ALTER TABLE queue_jobs ADD COLUMN scan_revision TEXT')
+    connection.exec_driver_sql('ALTER TABLE queue_jobs ADD COLUMN scan_source_id TEXT')
+
+
+MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six}
 
 
 def upgrade(connection: Connection) -> None:

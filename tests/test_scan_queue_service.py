@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import URL
 
 from backend.collection import CollectionService, SyntheticCollectionContext
-from backend.queue import QueueConflict
+from backend.queue import QueueConflict, QueueInvalid
 from backend.sample_data import build_sample_snapshot
 from backend.scan_queue import ScanQueueService
 from backend.sqlite_store import SQLiteStore
@@ -75,3 +75,39 @@ def test_scan_http_requires_binding_and_synthetic_context(service):
     with TestClient(create_app(store)) as client:
         h = {'X-Moodle-Helper-Bridge-Binding':client.get('/api/bridge-context').json()['binding']}
         assert client.post('/api/scan/runs', headers=h, json={'idempotencyKey':'disabled'}).status_code == 409
+
+
+@pytest.mark.parametrize('page', [
+    dict(pageType='assignment', scope='unknown', outcome='forbidden', coverage='none', reasons=['forbidden'], observedAt=TIME, pageUrl='https://user:password@evil.invalid/secret'),
+    dict(pageType='unsupported', scope='unknown', outcome='unavailable', coverage='none', reasons=['collector_unavailable','unsupported_page'], observedAt=TIME, pageUrl='https://evil.invalid/'),
+    dict(pageType='calendar', scope='visited_activity_only', outcome='ok', coverage='complete', reasons=[], observedAt=TIME, pageUrl=PAGE, collector='assignment', result=result()),
+    dict(pageType='assignment', scope='unknown', outcome='forbidden', coverage='none', reasons=['forbidden'], observedAt=TIME, pageUrl=PAGE+'#fragment'),
+])
+def test_rejects_unsafe_or_mislabeled_page_without_side_effects(service, page):
+    queue, store = service
+    queue.start('unsafe')
+    claim = queue.claim()['claim']
+    before = store.read()
+    body = dict(jobId=claim['job']['id'], generation=claim['generation'], token=claim['token'],
+                selectionRevision=claim['selectionRevision'], outcome='completed', pages=[page],
+                incompleteReasons=page['reasons'])
+    with pytest.raises(QueueInvalid): queue.finish(body)
+    assert store.read() == before
+    assert queue.pages(claim['job']['id'])['pages'] == []
+
+
+def test_mapping_change_fences_even_if_caller_submits_new_revision(service):
+    queue, store = service
+    queue.start('changed')
+    claim = queue.claim()['claim']
+    snapshot = store.read()
+    snapshot['courses'][0]['discovery']['sourceCourseId'] = '102'
+    snapshot['courses'][0]['discovery']['sourceUrl'] = ORIGIN+'/course/view.php?id=102'
+    store.replace(snapshot)
+    revised = queue.collection.context()['selectionRevision']
+    assert revised != claim['selectionRevision']
+    with pytest.raises(QueueConflict): queue.renew(claim['job']['id'],claim['generation'],claim['token'])
+    body = dict(jobId=claim['job']['id'],generation=claim['generation'],token=claim['token'],
+                selectionRevision=revised,outcome='completed',pages=[],incompleteReasons=['undiscovered'])
+    with pytest.raises(QueueConflict): queue.finish(body)
+    assert store.read() == snapshot
