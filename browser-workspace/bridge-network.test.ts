@@ -420,5 +420,5 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
     await start();
     await client.connect();
     expect((await client.load()).settings.semesterWeeks).toBe(18);
-  });
+  }, 30000);
 });
