@@ -28,6 +28,22 @@ describe("dates", () => {
 });
 
 describe("reconciliation", () => {
+  it("keeps a known syllabus date when the newest Moodle date is unknown", () => {
+    const a = mk({ sources: [
+      { source: "moodle", date: { kind: "date", date: "2026-10-01" }, observedAt: t },
+      { source: "moodle", date: { kind: "unknown" }, observedAt: "2026-10-02T00:00:00Z" },
+      { source: "syllabus", date: { kind: "week", week: 8 }, observedAt: t },
+    ] });
+    expect(reconciledSourceDate(a.sources)).toEqual({ kind: "week", week: 8 });
+    expect(viewAssessment(a, undefined, S).conflict).toBeUndefined();
+  });
+  it("recognizes equivalent exact instants across offsets", () => {
+    const a = mk({ sources: [
+      { source: "moodle", date: { kind: "exact", iso: "2026-10-01T10:00:00Z", tz: "UTC" }, observedAt: t },
+      { source: "syllabus", date: { kind: "exact", iso: "2026-10-01T15:00:00+05:00", tz: "Asia/Almaty" }, observedAt: t },
+    ] });
+    expect(viewAssessment(a, undefined, S).conflict).toBeUndefined();
+  });
   it("Moodle date wins over syllabus and the conflict is shown", () => {
     const a = mk({ sources: [
       { source: "syllabus", date: { kind: "date", date: "2026-10-01" }, observedAt: t },

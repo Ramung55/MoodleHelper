@@ -58,6 +58,10 @@ export function sortKey(d: DateValue, semesterStart: string): number {
 
 export function sameDate(a: DateValue | undefined, b: DateValue | undefined): boolean {
   if (!a || !b) return a === b;
+  if (a.kind === "exact" && b.kind === "exact") {
+    const left = Date.parse(a.iso), right = Date.parse(b.iso);
+    return Number.isFinite(left) && Number.isFinite(right) && left === right;
+  }
   return JSON.stringify(a) === JSON.stringify(b);
 }
 

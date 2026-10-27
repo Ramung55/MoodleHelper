@@ -32,7 +32,8 @@ export function reconciledSourceDate(sources: SourceEvidence[]): DateValue {
     // within a source, the latest observation wins
     return Date.parse(y.observedAt) - Date.parse(x.observedAt);
   });
-  return sorted[0].date;
+  const newest = sorted.filter((s, i) => sorted.findIndex((x) => x.source === s.source) === i);
+  return (newest.find((s) => s.date.kind !== "unknown") ?? newest[0]).date;
 }
 
 function latest(sources: SourceEvidence[], src: SourceEvidence["source"]) {
@@ -54,7 +55,7 @@ export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Setting
   const date = o?.dateOverride ?? sourceDate;
   const m = latest(a.sources, "moodle");
   const sy = latest(a.sources, "syllabus");
-  const conflict = m && sy && !sameDate(m.date, sy.date) ? { moodle: m.date, syllabus: sy.date } : undefined;
+  const conflict = m && sy && m.date.kind !== "unknown" && sy.date.kind !== "unknown" && !sameDate(m.date, sy.date) ? { moodle: m.date, syllabus: sy.date } : undefined;
   const overrideDisagreement =
     o?.dateOverride && o.overrideBase && !sameDate(o.overrideBase, sourceDate)
       ? { was: o.overrideBase, now: sourceDate }

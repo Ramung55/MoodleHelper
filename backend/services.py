@@ -27,7 +27,10 @@ def source_date(sources: list[dict]) -> dict:
             # values retain stable input order rather than causing an error.
             return 0
 
-    return sorted(sources, key=lambda s: (priority[s["source"]], -observed(s)))[0]["date"]
+    ordered = sorted(sources, key=lambda s: (priority[s["source"]], -observed(s)))
+    latest = list({source["source"]: source for source in reversed(ordered)}.values())
+    latest.sort(key=lambda source: priority[source["source"]])
+    return next((source["date"] for source in latest if source["date"]["kind"] != "unknown"), latest[0]["date"])
 
 
 SYNC_UNAVAILABLE = 'Live course sync is unavailable until Moodle access is verified.'
