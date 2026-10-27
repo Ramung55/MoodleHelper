@@ -4,10 +4,15 @@ This draft records engineering decisions before scan wire code. It does not enab
 or claim a finished scan. The existing mock queue remains independent and retains
 its current endpoints and semantics. Scan and mock jobs must never claim each
 other's work: migration 5 adds a non-null job `kind` defaulting to `mock` and
-replaces the active-course unique index with `(namespace, kind, course_id)`. All
-existing queue queries are explicitly restricted to `mock`. Scan operations use
-`scan` jobs and the same run/job/link/claim transaction discipline. Runs carry a
-kind to prevent cross-kind idempotency replay. Migration keeps every existing ID,
+retains the existing unique active `(namespace, course_id)` index. All existing
+queue claim queries are explicitly restricted to `mock`; scan claims select
+only `scan` jobs. A start encountering an active job of the other kind rejects
+the entire transaction with 409, with no run, job or link created. Same-kind
+overlapping starts still share jobs. Simultaneous mixed-kind starts serialize at
+the database write lock, so only one kind can create active work for a course.
+Runs carry a kind; a key previously used by either kind cannot be reused for
+the other and returns 409. Scan operations use `scan` jobs and the same
+run/job/link/claim transaction discipline. Migration keeps every existing ID,
 claim, link, result and snapshot intact. Each scan job records its source course
 ID and selection revision at claim; commit rechecks the selected, unique mapping
 and current injected synthetic context under the same database write lock.
