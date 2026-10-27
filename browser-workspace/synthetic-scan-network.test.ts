@@ -43,7 +43,7 @@ it('shares one SQLite request authority across workers using different data data
     }
     const call=async(...args:string[])=>JSON.parse((await promisify(execFile)(python,['-m','tests.synthetic_authority_cli',...args],{cwd:root,windowsHide:true})).stdout);
     const file=path.join(dir,'shared-authority.sqlite3'),marker=await call('provision',file);
-    const authority=()=>({acquire:(n:number)=>call('acquire',file,marker,String(n)),releaseAfterTermination:(token:string,n:number)=>call('release',file,marker,token,String(n))});
+    const authority=()=>({acquire:(n:number,key?:string)=>call('acquire',file,marker,String(n),...(key?[key]:[])),releaseAfterTermination:(token:string,n:number,key?:string,failed?:boolean)=>call('release',file,marker,token,String(n),...(key?[key,failed===undefined?'none':String(failed)]:[]))});
     const account='<nav aria-label="Account"><a href="/login/logout.php">Sign out</a></nav>';
     const html=`${account}<main data-region="course-content"><h1>Course</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><section data-region="course-section"><h2>Week 1</h2><p data-region="materials-empty">No materials</p></section></main>`;
     let active=0, releaseFirst!:()=>void, firstStarted!:()=>void;

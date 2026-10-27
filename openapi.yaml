@@ -3806,6 +3806,17 @@ components:
               minItems: 1
       - if:
           properties:
+            coverage:
+              const: complete
+          required:
+          - coverage
+        then:
+          required:
+          - collector
+          - result
+          - pageUrl
+      - if:
+          properties:
             collector:
               const: assignment
           required:

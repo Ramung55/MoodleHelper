@@ -773,6 +773,7 @@ def scan_page_schema(record=False, result_refs=None):
         {'if': {'properties': {'pageType':{'const':'unsupported'}}, 'required':['pageType']}, 'then': {'properties': {'coverage':choice('partial','none'), 'reasons':{'contains':{'const':'unsupported_page'}}}}},
         {'if': {'properties': {'outcome':{'const':'failed'}}, 'required':['outcome']}, 'then': {'properties':{'reasons':{'contains':choice('access_error','request_failed','invalid_context')}}}},
         {'if': {'properties': {'outcome':{'const':'partial'}}, 'required':['outcome']}, 'then': {'properties': {'coverage':choice('partial','none'),'reasons':{'minItems':1}}}},
+        {'if': {'properties': {'coverage':{'const':'complete'}}, 'required':['coverage']}, 'then': {'required':['collector','result','pageUrl']}},
     ]
     for index, kind in enumerate(('assignment','calendar','material','quiz','submission')):
         conditions.append({'if':{'properties':{'collector':{'const':kind}},'required':['collector']},
@@ -851,6 +852,7 @@ class ScanPageInput(QueueModel):
         if (self.collector is None) != (self.result is None): raise ValueError('Collector/result mismatch')
         if self.result is not None and (self.result.kind != self.collector or self.pageUrl is None or self.outcome not in ('ok','partial')):
             raise ValueError('Invalid collector evidence')
+        if self.coverage == 'complete' and self.result is None: raise ValueError('Complete coverage requires collector evidence')
         required = {'unavailable':'collector_unavailable','forbidden':'forbidden','signed_out':'signed_out','undiscovered':'undiscovered'}
         if self.outcome in required and required[self.outcome] not in self.reasons: raise ValueError('Missing reason')
         if self.outcome == 'failed' and not set(self.reasons) & {'access_error','request_failed','invalid_context'}: raise ValueError('Missing reason')

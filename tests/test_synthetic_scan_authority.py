@@ -42,6 +42,20 @@ def test_missing_or_replaced_authority_fails_closed(tmp_path):
     assert replacement.acquire(10000)
 
 
+def test_retry_budget_survives_restart_and_owner_key_is_bound(tmp_path):
+    authority = SyntheticAuthority.provision(tmp_path / 'authority.db')
+    for index in range(3):
+        reopened = SyntheticAuthority(authority.path, authority.marker)
+        reservation = reopened.acquire(10000 + index*6000, 'job:page')
+        assert reservation['failures'] == index
+        assert not reopened.release_after_termination(reservation['token'], 0, 'other', True)
+        assert reopened.release_after_termination(reservation['token'], 10000 + index*6000, 'job:page', True)
+    assert SyntheticAuthority(authority.path, authority.marker).acquire(50000, 'job:page') == 'exhausted'
+    other = authority.acquire(50000, 'other:page')
+    assert other['failures'] == 0
+    assert authority.release_after_termination(other['token'], 0, 'other:page', False)
+
+
 def test_worker_death_does_not_release_authority(tmp_path):
     import subprocess
     import sys

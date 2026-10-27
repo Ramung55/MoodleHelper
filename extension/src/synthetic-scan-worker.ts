@@ -20,7 +20,7 @@ export function createSyntheticScanWorker(options:{base:string;fetcher:typeof fe
       let alive=true;
       const valid=async()=>{if(disposed||!alive)return false;try{await request('/api/scan/renew',binding,token);return true;}catch{alive=false;return false;}};
       const result=await scanSyntheticCourse({source:options.source,authority:options.authority,sourceCourseId:claim.sourceCourseId,
-        valid,now:options.now,wait:options.wait,signal:controller.signal});
+        valid,now:options.now,wait:options.wait,signal:controller.signal,retryScope:claim.job.id});
       if(disposed||!alive)return true;
       await request('/api/scan/finish',binding,{...token,selectionRevision:claim.selectionRevision,...result});
     }

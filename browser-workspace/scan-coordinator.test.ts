@@ -115,3 +115,24 @@ it('records forbidden and unsupported pages, breaks cycles, and bounds discovery
   const bounded=await scanSyntheticCourse({source,authority,sourceCourseId:'101',valid:async()=>true,now:()=>now,wait:async ms=>{now+=ms;},maxDepth:0});
   expect(bounded.incompleteReasons).toContain('limit_reached');
 });
+
+it('keeps retry count and second delay across coordinator restart',async()=>{
+  const directory=await mkdtemp(path.join(tmpdir(),'scan-retry-restart-'));
+  try {
+    const root=path.resolve(import.meta.dirname,'..'),python=path.join(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
+    const file=path.join(directory,'authority.sqlite3'),run=promisify(execFile);
+    const call=async(...args:string[])=>JSON.parse((await run(python,['-m','tests.synthetic_authority_cli',...args],{cwd:root,windowsHide:true})).stdout);
+    const marker=await call('provision',file);
+    const authority=()=>({acquire:(n:number,key?:string)=>call('acquire',file,marker,String(n),...(key?[key]:[])),
+      releaseAfterTermination:(token:string,n:number,key?:string,failed?:boolean)=>call('release',file,marker,token,String(n),...(key?[key,failed===undefined?'none':String(failed)]:[]))});
+    let now=10000;const starts:number[]=[];const document=new DOMParser().parseFromString('<main></main>','text/html');
+    const source={start(url:string){starts.push(now);return {completion:Promise.resolve({input:{document,requestedUrl:url,finalUrl:url,httpStatus:503,networkFailure:false},links:[],sourceCourseId:'101',bytes:5}),termination:Promise.resolve(true),abort(){}};}};
+    const options={source,sourceCourseId:'101',now:()=>now,wait:async(ms:number)=>{now+=ms;},retryScope:'stable-job'};
+    let checks=0;const first=await scanSyntheticCourse({...options,authority:authority(),valid:async()=>++checks<=4});
+    expect(first.errorCode).toBe('invalid_context');
+    const second=await scanSyntheticCourse({...options,authority:authority(),valid:async()=>true});
+    expect(starts).toEqual([10000,12000,17000]);expect(second.incompleteReasons).toContain('request_failed');
+    const key=JSON.stringify(['stable-job','https://moodle.sdu.edu.kz/course/view.php?id=101']);
+    expect(await authority().acquire(50000,key)).toBe('exhausted');
+  } finally {await rm(directory,{recursive:true,force:true});}
+},30000);

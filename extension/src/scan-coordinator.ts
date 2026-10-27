@@ -10,11 +10,12 @@ export interface SyntheticResponse {input:MoodleAccessInput;links:string[];sourc
 /** Resolve only after actual request termination; rejected/lost acknowledgement must not release. */
 export interface SyntheticRequest {completion:Promise<SyntheticResponse>; termination:Promise<boolean>; abort:()=>void}
 export interface SyntheticSource {start:(url:string)=>SyntheticRequest}
-export interface RequestAuthority {acquire:(now:number)=>Promise<string|null>;releaseAfterTermination:(token:string,notBefore:number)=>Promise<boolean>}
+export interface RequestAuthority {acquire:(now:number,requestKey?:string)=>Promise<string|{token:string;failures:number}|null>;releaseAfterTermination:(token:string,notBefore:number,requestKey?:string,retryFailure?:boolean)=>Promise<boolean>}
 export interface ScanOptions {
   source:SyntheticSource; authority:RequestAuthority; sourceCourseId:string;
   valid:()=>Promise<boolean>; now:()=>number; wait:(ms:number)=>Promise<void>;
   signal?:AbortSignal;
+  retryScope?:string;
   maxPages?:number; maxDepth?:number; maxBytes?:number;
 }
 export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:'completed'|'failed';pages:Page[];incompleteReasons:Reason[];errorCode?:'signed_out'|'request_failed'|'invalid_context'}> {
@@ -33,11 +34,15 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
     if(!await check()){stopped='invalid_context';break;}
     const pageType=route.kind==='assign'?'assignment':route.kind==='resource'||route.kind==='url'||route.kind==='folder'?'material':route.kind;
     let response:SyntheticResponse|undefined;
+    const requestKey=options.retryScope?JSON.stringify([options.retryScope,next.url]):undefined;
     for(let attempt=1;attempt<=3;attempt++) {
-      let token:string|null=null;
-      while(!token && await check()){token=await options.authority.acquire(options.now());if(!token)await options.wait(100);}
-      if(!token){stopped='invalid_context';break;}
-      if(!await check()) { await options.authority.releaseAfterTermination(token,0);stopped='invalid_context';break; }
+      let reservation:string|{token:string;failures:number}|null=null;
+      while(!reservation && await check()){reservation=await options.authority.acquire(options.now(),requestKey);if(!reservation)await options.wait(100);}
+      if(!reservation){stopped='invalid_context';break;}
+      if(reservation==='exhausted'){failure(pageType,'request_failed','failed',next.url);break;}
+      const token=typeof reservation==='string'?reservation:reservation.token;
+      if(typeof reservation!=='string')attempt=reservation.failures+1;
+      if(!await check()) { await options.authority.releaseAfterTermination(token,0,requestKey);stopped='invalid_context';break; }
       let request:SyntheticRequest;
       try {request=options.source.start(next.url);}catch{stopped='request_failed';break;}
       // Capture after start: delaying between the SQLite reservation and the
@@ -61,9 +66,10 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
       if(serverDeadline===undefined){stopped='request_failed';break;}
       const decision=retry?scanRetryDecision(failedAt,attempt,value?.retryAfter):undefined;
       const deadline=Math.max(startedAt+1000,serverDeadline,decision?.kind==='retry'?decision.notBefore:0);
-      if(!await options.authority.releaseAfterTermination(token,deadline)){stopped='request_failed';break;}
+      if(!await options.authority.releaseAfterTermination(token,deadline,requestKey,retry)){stopped='request_failed';break;}
       if(!alive){stopped='invalid_context';break;}
       if(!value){stopped='request_failed';break;}
+      if(retry && serverDeadline>failedAt+86400000){failure(pageType,'request_failed','failed',next.url);break;}
       if(retry){if(decision?.kind!=='retry'){failure(pageType,'request_failed','failed',next.url);break;}await options.wait(Math.max(0,deadline-options.now()));continue;}
       response=value;break;
     }

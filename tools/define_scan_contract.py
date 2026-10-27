@@ -60,6 +60,8 @@ conditions = [
      'then': {'properties': {'reasons': {'contains': enum('access_error','request_failed','invalid_context')}}}},
     {'if': {'properties': {'outcome': {'const': 'partial'}}, 'required': ['outcome']},
      'then': {'properties': {'coverage': enum('partial','none'), 'reasons': {'minItems': 1}}}},
+    {'if': {'properties': {'coverage': {'const': 'complete'}}, 'required': ['coverage']},
+     'then': {'required': ['collector','result','pageUrl']}},
 ]
 for kind in ('assignment','calendar','material','quiz','submission'):
     conditions.append({'if': {'properties': {'collector': {'const': kind}}, 'required': ['collector']},

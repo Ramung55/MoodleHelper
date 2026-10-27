@@ -23,6 +23,7 @@ def test_scan_contract_closed_pages_and_outcomes():
     assert not validator.is_valid(checked)
     assert validator.is_valid({**checked, 'reasons': ['request_failed']})
     assert not validator.is_valid({**checked, 'outcome': 'partial', 'coverage': 'complete', 'reasons': []})
+    assert not validator.is_valid({**checked, 'outcome': 'ok', 'coverage': 'complete', 'reasons': []})
 
 
 def test_scan_contract_operation_surface():
