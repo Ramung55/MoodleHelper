@@ -27,3 +27,56 @@ Before code, specify additive source OpenAPI, corresponding typed schemas and mi
 A single global request gate must govern all scan workers and courses, including restarts and multiple backend processes; per-worker sleeps or namespace-only job concurrency do not satisfy it. Persist request-start spacing and retry not-before time in SQLite, use atomic coordination, and serialize request execution with a mechanism that cannot release while an old request remains active. A lease alone cannot prove that property after expiry: require an enforceable bounded request lifetime and abort/termination confirmation before another request, or fail closed if ownership cannot be established. In an injected synthetic trace, assert actual start/end events across worker restart, lease expiration and cancellation, including stalled/late responses. Live request execution stays disabled until its cross-process/worker lifetime guarantee can actually be established. Persist server Retry-After as a not-before instant; accept valid seconds or HTTP-date, never shorten it to a local cap. Excessively long or malformed values must fail/defer safely with a fixed visible reason, never retry earlier. Retry delays are relative to the preceding failure and globally paced; at most three attempts total. Abort on cancellation, stale generation or context change; no late response may commit.
 
 Independent QA should drive the installed production worker wakeup and queue with actual loopback HTTP and SQLite, synthetic source and clock, and inspect trace plus durable readback. Include overlapping runs, multi-worker race, restart before/after commit, stale claim, cancellation and mapping changes; 429/503, Retry-After, login redirect, forbidden, inaccessible pages, pagination/cycle/limit and partial failure; assert existing data and unrelated jobs survive. Run relevant backend, browser-workspace, frontend and build checks. Report exact commands and results, no live claims. If the full global request gate cannot be safely guaranteed with current disposable-worker execution, document the blocker and ship no enabled network transport; do not weaken AC3.
+
+## Global request authority clarification (issue 20)
+
+The authority is separate from every configurable application data database. A
+namespace or a row in `MOODLE_HELPER_DATABASE_URL` cannot coordinate distinct
+data files. For the supported single-Windows-machine synthetic deployment, use
+one fixed machine-wide authority file at
+`%PROGRAMDATA%\MoodleHelper\scan-authority.sqlite3`, resolved from the OS known
+folder rather than a caller-controlled environment override. Every backend process
+must use that same absolute location, including processes with different data
+files or namespaces. Create/open it transactionally with one versioned singleton
+row; reject inaccessible, malformed, replaced or incompatible authority state and
+fail closed. Never fall back to a per-process, per-user, per-installation or data
+DB gate. Authority deletion, reset, copying, and administrative recovery while
+requests may exist are unsupported; no automatic recreation may clear an occupied
+or unknown state. The first-time provisioning and permissions must ensure all
+participating processes access the same file, with an explicit durable installation
+marker so a missing authority after provisioning fails closed. If that property
+cannot be established, refuse requests. This is a local-machine authority, not a
+claim of coordination across machines, containers or separate OS installations;
+network execution is disabled wherever a single authority cannot be established.
+
+Atomically reserve the singleton before each actual start, recording a random
+owner, start time, and durable global not-before. Grant only when unoccupied and
+both the prior start plus 1,000 ms and persisted retry deadline have elapsed.
+Persist the maximum of existing and applicable Retry-After/retry deadlines before
+releasing the owner. Handle clock rollback conservatively: no request until the
+persisted deadlines are reached; invalid/unrepresentable times fail closed. Never
+reclaim on lease expiry, worker exit, backend restart, elapsed timeout, or a
+stale job claim. Only the matching owner may release after a trustworthy end or
+abort acknowledgement establishes that the actual request has stopped. If the
+acknowledgement is lost or cannot be established, retain occupancy indefinitely;
+this intentionally sacrifices availability. A browser may outlive its worker,
+so worker death is not such an acknowledgement. Cancellation and stale claims
+stop future work and fence results but do not themselves release the request gate.
+
+For the explicitly synthetic harness only, inject one isolated authority file
+shared by all tested backend processes; this injection must not be an ordinary
+runtime configuration or activate live transport. Synthetic request objects must
+expose observable actual start/end and explicit abort acknowledgement; a stalled
+request remains active until acknowledgement, and a lost acknowledgement keeps
+the authority occupied after restart. Test two independently configured data
+databases, multiple workers and process restart against the same authority, plus
+spacing, persisted Retry-After, cancellation, stale claims, lease expiration and
+late responses. Trace actual events, not just grant times. This demonstrates the
+production coordinator and the mock-trace criterion within that isolated scope;
+it is not evidence that Chrome network requests terminate on worker death, nor
+that SDU selectors or live transport work. All five acceptance criteria still
+require the queue, collector, atomic merge and readback behavior in this contract.
+Issue #3 remains the live evidence blocker, and live activation additionally
+requires a demonstrated browser termination acknowledgement protocol and a
+single authority for every participating backend. The existing data-file gate
+primitive is preparatory only and cannot be treated as global across data files.
