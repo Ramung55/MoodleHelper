@@ -712,6 +712,93 @@ paths:
         schema:
           type: string
         description: Required process binding for collection writes.
+  /api/queue/current:
+    get:
+      operationId: currentQueueRun
+      summary: Discover the latest mock run for the selected courses
+      description: >-
+        Uses the trusted Snapshot selection in the startup namespace. Returns the
+        newest active run for that exact set, otherwise the newest terminal run;
+        ties are ordered by run ID. Jobs are bounded to 100 and ordered by ID.
+      tags: [Queue]
+      security: []
+      responses:
+        '200':
+          description: Current selection and optional matching run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueCurrent'
+        '503':
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+    post:
+      operationId: startCurrentQueueRun
+      summary: Start or return the active mock run for selected courses
+      description: >-
+        Resolves the Snapshot selection and creates or returns an active exact-set
+        run atomically. Idempotency key replay returns its original run; no caller
+        supplies course IDs or a namespace. Empty selection is rejected.
+      tags: [Queue]
+      security: []
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        description: Required current backend process binding. A stale or absent binding returns 409 before processing.
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanStart'
+      responses:
+        '200':
+          description: Started or existing active mock run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueRun'
+        '409':
+          description: Conflicting key or process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid or empty selection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
   /api/queue/runs:
     post:
       operationId: startQueueRun
@@ -1337,6 +1424,18 @@ paths:
         default 100.
 components:
   schemas:
+    QueueCurrent:
+      type: object
+      additionalProperties: false
+      properties:
+        courseIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items: {type: string, minLength: 1, maxLength: 8192, pattern: '\S'}
+        run:
+          $ref: '#/components/schemas/QueueRun'
+      required: [courseIds]
     QueueStart:
       description: Start a run for 1-100 distinct existing course IDs in the trusted
         startup namespace. IDs are sorted for idempotency comparison. Reusing a key

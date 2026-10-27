@@ -34,6 +34,7 @@ class ScanQueueService(QueueService):
 
     def start(self, key):
         def action(c):
+            if self.execute(c, 'SELECT 1 FROM queue_key_aliases WHERE namespace=? AND idem=?', self.ns, key).first(): raise QueueConflict()
             old = self.execute(c, 'SELECT id,kind FROM queue_runs WHERE namespace=? AND idem=?', self.ns, key).first()
             if old:
                 if old.kind != self.kind: raise QueueConflict()

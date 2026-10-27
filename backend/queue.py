@@ -34,18 +34,29 @@ class QueueService:
     def execute(self, c, sql, *args):
         return c.exec_driver_sql(sql, args)
 
-    def start(self, key, ids):
+    def start(self, key, ids, *, selected=False):
         ids = sorted(ids)
         def action(c):
+            alias = self.execute(c, 'SELECT run_id FROM queue_key_aliases WHERE namespace=? AND idem=?', self.ns, key).first()
+            if alias:
+                run = self._run(c, alias.run_id, None, 100)
+                if not selected and run['courseIds'] != ids: raise QueueConflict()
+                return run
             existing = self.execute(c, 'SELECT id, course_ids, kind FROM queue_runs WHERE namespace=? AND idem=?', self.ns, key).first()
             if existing:
-                if existing.kind != 'mock' or json.loads(existing.course_ids) != ids: raise QueueConflict()
+                if existing.kind != 'mock' or (not selected and json.loads(existing.course_ids) != ids): raise QueueConflict()
                 return self._run(c, existing.id, None, 100)
             snapshot = self.store._decode(self.execute(c, 'SELECT snapshot FROM snapshots WHERE namespace=?', self.ns).scalar_one())
-            if not set(ids) <= {x['id'] for x in snapshot['courses']}: raise QueueInvalid()
+            chosen = sorted(snapshot['settings']['trackedCourseIds']) if selected else ids
+            if not chosen or len(chosen)>100 or len(set(chosen)) != len(chosen) or not set(chosen) <= {x['id'] for x in snapshot['courses']}: raise QueueInvalid()
+            if selected:
+                active = self._matching(c, chosen, active_only=True)
+                if active:
+                    self.execute(c, 'INSERT INTO queue_key_aliases(namespace,idem,run_id) VALUES(?,?,?)', self.ns, key, active['id'])
+                    return active
             now = int(self.clock()); run_id = uuid4().hex
-            self.execute(c, 'INSERT INTO queue_runs(namespace,id,idem,course_ids,created) VALUES(?,?,?,?,?)', self.ns, run_id, key, json.dumps(ids, ensure_ascii=True), now)
-            for course_id in ids:
+            self.execute(c, 'INSERT INTO queue_runs(namespace,id,idem,course_ids,created) VALUES(?,?,?,?,?)', self.ns, run_id, key, json.dumps(chosen, ensure_ascii=True), now)
+            for course_id in chosen:
                 job = self.execute(c, "SELECT id,kind FROM queue_jobs WHERE namespace=? AND course_id=? AND state IN ('pending','running')", self.ns, course_id).first()
                 if job and job.kind != 'mock': raise QueueConflict()
                 job_id = job.id if job else uuid4().hex
@@ -53,6 +64,27 @@ class QueueService:
                     self.execute(c, "INSERT INTO queue_jobs(namespace,id,course_id,created,state) VALUES(?,?,?,?,'pending')", self.ns, job_id, course_id, now)
                 self.execute(c, 'INSERT INTO queue_links(namespace,run_id,job_id) VALUES(?,?,?)', self.ns, run_id, job_id)
             return self._run(c, run_id, None, 100)
+        return self.tx(action)
+
+    def _matching(self, c, ids, active_only=False):
+        # Exact set match and bounded result; the transaction serializes selection
+        # changes and starts. Newest active takes precedence over terminal history.
+        rows = self.execute(c, """SELECT r.id FROM queue_runs r WHERE r.namespace=? AND r.kind='mock' AND r.course_ids=?
+            ORDER BY CASE WHEN r.cancelled=0 AND EXISTS
+            (SELECT 1 FROM queue_links l JOIN queue_jobs j ON j.namespace=l.namespace AND j.id=l.job_id
+             WHERE l.namespace=r.namespace AND l.run_id=r.id AND j.state IN ('pending','running')) THEN 0 ELSE 1 END,
+            r.created DESC,r.id DESC LIMIT 1""", self.ns, json.dumps(ids, ensure_ascii=True)).first()
+        if not rows: return None
+        run = self._run(c, rows.id, None, 100)
+        return run if not active_only or run['status'] in ('pending', 'running') else None
+
+    def current(self):
+        def action(c):
+            snapshot = self.store._decode(self.execute(c, 'SELECT snapshot FROM snapshots WHERE namespace=?', self.ns).scalar_one())
+            ids = sorted(snapshot['settings']['trackedCourseIds'])
+            if len(ids)>100: raise QueueInvalid()
+            run = self._matching(c, ids) if ids else None
+            return {'courseIds':ids, **({'run':run} if run else {})}
         return self.tx(action)
 
     def _job(self, c, row):

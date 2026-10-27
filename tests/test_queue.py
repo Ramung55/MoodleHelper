@@ -22,6 +22,33 @@ def start(c,h,key,ids): return post(c,h,'runs',{'idempotencyKey':key,'courseIds'
 def token(claim): return {'jobId':claim['job']['id'],'generation':claim['generation'],'token':claim['token']}
 def claim(c,h): return post(c,h,'claim',{}).json()['claim']
 
+def test_selected_current_simultaneous_starts_and_alias_replay(env):
+    c, store, clock, h = env
+    snapshot = c.get('/api/snapshot').json()
+    selected = sorted(snapshot['settings']['trackedCourseIds'])
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda key: post(c, h, 'current', {'idempotencyKey':key}), ['surface-a','surface-b']))
+    assert all(r.status_code == 200 for r in responses)
+    run = responses[0].json()
+    assert run['id'] == responses[1].json()['id']
+    assert run['courseIds'] == selected
+    assert c.get('/api/queue/current').json()['run']['id'] == run['id']
+    while True:
+        result = post(c,h,'claim',{}).json()
+        if not result.get('claim'): break
+        assert post(c,h,'finish',{**token(result['claim']),'outcome':'completed'}).status_code == 200
+    for key in ['surface-a','surface-b']:
+        assert post(c,h,'current',{'idempotencyKey':key}).json()['id'] == run['id']
+    assert post(c,h,'current',{'idempotencyKey':'new-attempt'}).json()['id'] != run['id']
+    assert c.get('/api/snapshot').json() == snapshot
+
+def test_selected_current_rejects_empty_and_caller_course_ids(env):
+    c, store, clock, h = env
+    assert post(c,h,'current',{'idempotencyKey':'bad','courseIds':['c-csc']}).status_code == 422
+    assert c.put('/api/tracked-courses',json=[]).status_code == 200
+    assert c.get('/api/queue/current').json() == {'courseIds':[]}
+    assert post(c,h,'current',{'idempotencyKey':'empty'}).status_code == 422
+
 def test_mock_worker_cannot_claim_or_finish_scan_jobs(env):
     c, store, clock, h = env
     with store._transaction() as db:
@@ -159,7 +186,8 @@ def test_version_two_migrates_snapshot_and_revision(tmp_path):
     try:
         assert store.read()==original
         with sqlite3.connect(path) as db:
-            assert db.execute('SELECT version FROM schema_version').fetchone()==(6,)
+            from backend.migrations import SCHEMA_VERSION
+            assert db.execute('SELECT version FROM schema_version').fetchone()==(SCHEMA_VERSION,)
             assert db.execute('SELECT revision FROM snapshots').fetchone()==(42,)
     finally: store.close()
 

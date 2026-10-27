@@ -156,6 +156,12 @@ def queue(request: Request): return request.app.state.queue
 
 def queue_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bridge-Binding', description='Required current backend process binding. A stale or absent binding returns 409 before processing.')]): pass
 
+@queue_router.get('/current', response_model=s.QueueCurrent, response_model_exclude_none=True, operation_id='currentQueueRun', tags=['Queue'])
+def current_queue(request:Request): return queue(request).current()
+
+@queue_router.post('/current', response_model=s.QueueRun, response_model_exclude_none=True, operation_id='startCurrentQueueRun', tags=['Queue'], dependencies=[Depends(queue_binding)])
+def start_current_queue(body:s.ScanStart, request:Request): return queue(request).start(body.idempotencyKey, [], selected=True)
+
 @queue_router.post('/runs', response_model=s.QueueRun, response_model_exclude_none=True, operation_id='startQueueRun', tags=['Queue'], dependencies=[Depends(queue_binding)])
 def start_queue(body:s.QueueStart, request:Request): return queue(request).start(body.idempotencyKey,body.courseIds)
 
