@@ -40,3 +40,31 @@ def test_missing_or_replaced_authority_fails_closed(tmp_path):
     with pytest.raises(AuthorityUnavailable):
         authority.acquire(10000)
     assert replacement.acquire(10000)
+
+
+def test_worker_death_does_not_release_authority(tmp_path):
+    import subprocess
+    import sys
+    authority = SyntheticAuthority.provision(tmp_path / 'authority.db')
+    program = (
+        'import sys, time; '
+        'from backend.synthetic_scan_authority import SyntheticAuthority; '
+        'a=SyntheticAuthority(sys.argv[1],sys.argv[2]); '
+        'print(a.acquire(10000),flush=True); time.sleep(60)'
+    )
+    worker = subprocess.Popen([sys.executable, '-c', program, str(authority.path), authority.marker],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        token = worker.stdout.readline().strip()
+        assert token and token != 'None'
+        worker.kill()
+        worker.wait(timeout=10)
+        reopened = SyntheticAuthority(authority.path, authority.marker)
+        assert reopened.acquire(999999) is None
+        # No termination acknowledgement exists, so the owner is retained.
+    finally:
+        if worker.poll() is None:
+            worker.kill()
+            worker.wait(timeout=10)
+        worker.stdout.close()
+        worker.stderr.close()
