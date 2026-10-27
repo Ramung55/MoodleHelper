@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { buildDemoSnapshot } from '@/services/fixtures';
 import { MockProgress } from '@/components/mh/MockProgress';
 import { installPopup } from '../../../extension/src/popup';
@@ -102,4 +102,34 @@ it('serializes slow periodic reads, recovers after a network failure and stops o
   expect(maxConcurrent).toBe(1);
   c.dispose(); await vi.advanceTimersByTimeAsync(12000); expect(calls).toBe(4);
   vi.restoreAllMocks();
+});
+
+it('dashboard renders successive four-second reads despite three-second poll ticks',async()=>{
+  vi.useFakeTimers(); vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+  let calls=0;
+  mock.connect.mockResolvedValue({}); mock.current.mockImplementation(()=>new Promise(resolve=>{
+    const attempt=++calls; setTimeout(()=>resolve({courseIds:['c-csc'],run:{...run,status:attempt===1?'pending':'completed'}}),4000);
+  }));
+  render(<MockProgress snapshot={buildDemoSnapshot()}/>);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(4000);});
+  expect(screen.getByText(/Mock run: pending/)).toBeInTheDocument();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(6000);});
+  expect(screen.getByText(/Mock run: completed/)).toBeInTheDocument(); expect(calls).toBe(2);
+  cleanup(); vi.restoreAllMocks();
+});
+
+it('popup renders successive four-second reads despite three-second poll ticks',async()=>{
+  vi.useFakeTimers(); vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+  document.body.innerHTML='<div id="status"></div><div id="freshness"></div><button id="start"></button><button id="cancel"></button><button id="reconnect"></button><button id="example-retry"></button>';
+  const snapshot=buildDemoSnapshot(); let calls=0;
+  const fetcher=vi.fn(async (input:RequestInfo|URL)=>{
+    const path=new URL(String(input)).pathname;
+    let value:any=path==='/api/bridge-context'?{version:'1',binding:'a'.repeat(32)}:snapshot;
+    if(path==='/api/queue/current') {const attempt=++calls; await new Promise(resolve=>setTimeout(resolve,4000)); value={courseIds:['c-csc'],run:{...run,status:attempt===1?'pending':'completed'}};}
+    return new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}});
+  });
+  const controller=installPopup(document,fetcher as typeof fetch,localStorage);
+  await vi.advanceTimersByTimeAsync(4000); expect(document.querySelector('#status')!.textContent).toContain('Mock run: pending');
+  await vi.advanceTimersByTimeAsync(6000); expect(document.querySelector('#status')!.textContent).toContain('Mock run: completed'); expect(calls).toBe(2);
+  controller.dispose(); vi.restoreAllMocks();
 });
