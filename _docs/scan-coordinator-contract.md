@@ -80,3 +80,36 @@ Issue #3 remains the live evidence blocker, and live activation additionally
 requires a demonstrated browser termination acknowledgement protocol and a
 single authority for every participating backend. The existing data-file gate
 primitive is preparatory only and cannot be treated as global across data files.
+
+## Queue job kind isolation (issue 20)
+
+Retain #19's existing partial unique index on active `(namespace, course_id)`
+without adding kind to the key. Existing queue records migrate to `mock` and
+retain their IDs, states, claims, links and results. Add a distinct `scan` kind
+for #20. The installed mock worker may claim, renew and finish only mock jobs;
+the scan worker may claim, renew and finish only scan jobs. Enforce kind at the
+server on each operation, including a valid claim submitted to the wrong route,
+so a mock result cannot complete scan work or vice versa. An expired claim or
+other invalid claim remains fenced as in #19.
+
+Start is one transaction: replay of an existing idempotency key with the same
+kind returns its original run even if terminal. For mock starts, reusing a key
+with different supplied course IDs returns 409; scan starts do not supply a
+selection and replay the original selection regardless of current selection.
+Reusing a key across kinds returns 409. For a new
+key, overlapping active jobs of the same kind are shared as in #19. If any
+selected course already has an active job of the other kind, reject the entire
+start with 409 and create no run, job or link; do not silently attach a mock job
+to a scan or weaken the uniqueness index. Concurrent mixed-kind starts serialize
+under the write transaction: at most one kind creates active work for that course.
+The caller may retry after the conflicting job reaches a terminal state. Shared
+jobs retain demand and cancellation semantics from #19. The scan start still
+uses the current selected courses and exact mapping as specified above; replay
+returns the original immutable selection rather than silently changing it.
+
+Verification must exercise both start orders, concurrent starts, mixed selections
+with one conflict and no partial writes, same-kind sharing, cross-kind key reuse,
+wrong-kind claim/renew/finish, old mock-worker behavior and recovery after a
+conflicting job becomes terminal. This preserves #19's original queue behavior
+for mock-only runs while preventing a mock worker from consuming #20 scan jobs;
+all #20 collection and coverage acceptance criteria remain required.
