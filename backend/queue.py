@@ -36,16 +36,17 @@ class QueueService:
     def start(self, key, ids):
         ids = sorted(ids)
         def action(c):
-            existing = self.execute(c, 'SELECT id, course_ids FROM queue_runs WHERE namespace=? AND idem=?', self.ns, key).first()
+            existing = self.execute(c, 'SELECT id, course_ids, kind FROM queue_runs WHERE namespace=? AND idem=?', self.ns, key).first()
             if existing:
-                if json.loads(existing.course_ids) != ids: raise QueueConflict()
+                if existing.kind != 'mock' or json.loads(existing.course_ids) != ids: raise QueueConflict()
                 return self._run(c, existing.id, None, 100)
             snapshot = self.store._decode(self.execute(c, 'SELECT snapshot FROM snapshots WHERE namespace=?', self.ns).scalar_one())
             if not set(ids) <= {x['id'] for x in snapshot['courses']}: raise QueueInvalid()
             now = int(self.clock()); run_id = uuid4().hex
             self.execute(c, 'INSERT INTO queue_runs(namespace,id,idem,course_ids,created) VALUES(?,?,?,?,?)', self.ns, run_id, key, json.dumps(ids, ensure_ascii=True), now)
             for course_id in ids:
-                job = self.execute(c, "SELECT id FROM queue_jobs WHERE namespace=? AND course_id=? AND state IN ('pending','running')", self.ns, course_id).first()
+                job = self.execute(c, "SELECT id,kind FROM queue_jobs WHERE namespace=? AND course_id=? AND state IN ('pending','running')", self.ns, course_id).first()
+                if job and job.kind != 'mock': raise QueueConflict()
                 job_id = job.id if job else uuid4().hex
                 if not job:
                     self.execute(c, "INSERT INTO queue_jobs(namespace,id,course_id,created,state) VALUES(?,?,?,?,'pending')", self.ns, job_id, course_id, now)
@@ -60,8 +61,8 @@ class QueueService:
         if saved: result['result'] = {'id':saved.id, 'summary':saved.summary}
         return result
 
-    def _run(self, c, run_id, cursor, limit):
-        run = self.execute(c, 'SELECT * FROM queue_runs WHERE namespace=? AND id=?', self.ns, run_id).first()
+    def _run(self, c, run_id, cursor, limit, kind='mock'):
+        run = self.execute(c, 'SELECT * FROM queue_runs WHERE namespace=? AND id=? AND kind=?', self.ns, run_id, kind).first()
         if not run: raise QueueMissing()
         counts = {s:0 for s in STATES}
         for state, count in self.execute(c, 'SELECT j.state, count(*) FROM queue_jobs j JOIN queue_links l ON l.namespace=j.namespace AND l.job_id=j.id WHERE l.namespace=? AND l.run_id=? GROUP BY j.state', self.ns, run_id): counts[state] = count
@@ -91,11 +92,11 @@ class QueueService:
         def action(c):
             now=int(self.clock())
             # Expiration is a reclaim, never a successful completion.
-            self.execute(c, "UPDATE queue_jobs SET state='pending',token=NULL,expires=NULL WHERE namespace=? AND state='running' AND expires<=?", self.ns, now)
-            active=self.execute(c, "SELECT count(*) FROM queue_jobs WHERE namespace=? AND state='running' AND expires>?", self.ns, now).scalar_one()
-            unfinished=bool(self.execute(c, "SELECT 1 FROM queue_jobs WHERE namespace=? AND state IN ('pending','running') LIMIT 1", self.ns).first())
+            self.execute(c, "UPDATE queue_jobs SET state='pending',token=NULL,expires=NULL WHERE namespace=? AND kind='mock' AND state='running' AND expires<=?", self.ns, now)
+            active=self.execute(c, "SELECT count(*) FROM queue_jobs WHERE namespace=? AND kind='mock' AND state='running' AND expires>?", self.ns, now).scalar_one()
+            unfinished=bool(self.execute(c, "SELECT 1 FROM queue_jobs WHERE namespace=? AND kind='mock' AND state IN ('pending','running') LIMIT 1", self.ns).first())
             if active>=self.concurrency: return {'unfinished':unfinished}
-            row=self.execute(c, """SELECT j.* FROM queue_jobs j WHERE j.namespace=? AND j.state='pending' AND EXISTS
+            row=self.execute(c, """SELECT j.* FROM queue_jobs j WHERE j.namespace=? AND j.kind='mock' AND j.state='pending' AND EXISTS
                 (SELECT 1 FROM queue_links l JOIN queue_runs r ON r.namespace=l.namespace AND r.id=l.run_id
                  WHERE l.namespace=j.namespace AND l.job_id=j.id AND r.cancelled=0)
                  ORDER BY j.created,j.id LIMIT 1""", self.ns).first()
@@ -107,7 +108,7 @@ class QueueService:
         return self.tx(action)
 
     def _valid(self,c,job_id,generation,token):
-        row=self.execute(c, """SELECT j.* FROM queue_jobs j WHERE j.namespace=? AND j.id=? AND j.state='running'
+        row=self.execute(c, """SELECT j.* FROM queue_jobs j WHERE j.namespace=? AND j.id=? AND j.kind='mock' AND j.state='running'
             AND j.generation=? AND j.token=? AND j.expires>? AND EXISTS
             (SELECT 1 FROM queue_links l JOIN queue_runs r ON r.namespace=l.namespace AND r.id=l.run_id
              WHERE l.namespace=j.namespace AND l.job_id=j.id AND r.cancelled=0)""", self.ns,job_id,generation,token,int(self.clock())).first()

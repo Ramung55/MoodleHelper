@@ -22,6 +22,26 @@ def start(c,h,key,ids): return post(c,h,'runs',{'idempotencyKey':key,'courseIds'
 def token(claim): return {'jobId':claim['job']['id'],'generation':claim['generation'],'token':claim['token']}
 def claim(c,h): return post(c,h,'claim',{}).json()['claim']
 
+def test_mock_worker_cannot_claim_or_finish_scan_jobs(env):
+    c, store, clock, h = env
+    with store._transaction() as db:
+        db.exec_driver_sql("INSERT INTO queue_runs(namespace,id,idem,course_ids,created,kind) VALUES(?,?,?,?,?,'scan')",
+                           (store.namespace, 'scan-run', 'scan-key', '[\"c-csc\"]', 1))
+        db.exec_driver_sql("INSERT INTO queue_jobs(namespace,id,course_id,created,state,kind,generation,token,expires) VALUES(?,?,?,?,'running','scan',1,'claim',?)",
+                           (store.namespace, 'scan-job', 'c-csc', 1, 2000))
+        db.exec_driver_sql('INSERT INTO queue_links(namespace,run_id,job_id) VALUES(?,?,?)',
+                           (store.namespace, 'scan-run', 'scan-job'))
+    assert post(c, h, 'claim', {}).json() == {'unfinished': False}
+    claim_token = {'jobId': 'scan-job', 'generation': 1, 'token': 'claim'}
+    assert post(c, h, 'renew', claim_token).status_code == 409
+    assert post(c, h, 'finish', {**claim_token, 'outcome': 'completed'}).status_code == 409
+    assert start(c, h, 'scan-key', ['c-math']).status_code == 409
+    assert start(c, h, 'other-key', ['c-csc', 'c-math']).status_code == 409
+    assert c.get('/api/queue/runs/scan-run').status_code == 404
+    with store.engine.connect() as db:
+        assert db.exec_driver_sql("SELECT count(*) FROM queue_runs WHERE idem='other-key'").scalar_one() == 0
+        assert db.exec_driver_sql("SELECT state FROM queue_jobs WHERE id='scan-job'").scalar_one() == 'running'
+
 def test_queue_persistence_idempotency_and_stale_claim(env):
     c,store,clock,h=env
     before=c.get('/api/snapshot').json()
@@ -139,7 +159,7 @@ def test_version_two_migrates_snapshot_and_revision(tmp_path):
     try:
         assert store.read()==original
         with sqlite3.connect(path) as db:
-            assert db.execute('SELECT version FROM schema_version').fetchone()==(4,)
+            assert db.execute('SELECT version FROM schema_version').fetchone()==(5,)
             assert db.execute('SELECT revision FROM snapshots').fetchone()==(42,)
     finally: store.close()
 

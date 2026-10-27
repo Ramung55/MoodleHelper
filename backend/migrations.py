@@ -1,7 +1,7 @@
 """Small transactional SQLite migrations; caller owns BEGIN/COMMIT/ROLLBACK."""
 from sqlalchemy import Connection
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class MigrationError(RuntimeError):
@@ -46,7 +46,19 @@ def version_three_to_four(connection: Connection) -> None:
     connection.exec_driver_sql("INSERT INTO scan_request_gate(id,owner,last_start,not_before) VALUES(1,NULL,-1000,0)")
 
 
-MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four}
+def version_four_to_five(connection: Connection) -> None:
+    connection.exec_driver_sql("ALTER TABLE queue_runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'mock' CHECK(kind IN ('mock','scan'))")
+    connection.exec_driver_sql("ALTER TABLE queue_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'mock' CHECK(kind IN ('mock','scan'))")
+    connection.exec_driver_sql("""CREATE TABLE scan_coverage (
+        namespace TEXT NOT NULL, job_id TEXT NOT NULL, reasons TEXT NOT NULL,
+        PRIMARY KEY(namespace,job_id), FOREIGN KEY(namespace,job_id) REFERENCES queue_jobs(namespace,id))""")
+    connection.exec_driver_sql("""CREATE TABLE scan_pages (
+        namespace TEXT NOT NULL, job_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+        page TEXT NOT NULL, PRIMARY KEY(namespace,job_id,ordinal),
+        FOREIGN KEY(namespace,job_id) REFERENCES queue_jobs(namespace,id))""")
+
+
+MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five}
 
 
 def upgrade(connection: Connection) -> None:
