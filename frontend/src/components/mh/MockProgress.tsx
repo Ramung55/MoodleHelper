@@ -3,8 +3,9 @@ import { Link } from '@tanstack/react-router';
 import { BridgeClient } from '@/services/extension-adapter';
 import type { Snapshot } from '@/domain/types';
 import { createMockProgress, type ProgressState } from '../../../../shared/src/mock-progress';
+import { fullSyncFreshness, type FullSyncAttestation } from '../../../../shared/src/full-sync';
 
-export function MockProgress({snapshot}:{snapshot:Snapshot}) {
+export function MockProgress({snapshot, fullSyncAttestation}:{snapshot:Snapshot; fullSyncAttestation?:FullSyncAttestation | undefined}) {
   const [state,setState]=useState<ProgressState>({unavailable:false,busy:false,uncertain:false});
   const [controller,setController]=useState<ReturnType<typeof createMockProgress>>();
   useEffect(()=>{
@@ -19,7 +20,7 @@ export function MockProgress({snapshot}:{snapshot:Snapshot}) {
   return <section className="mt-8 rounded-lg border bg-card p-5" aria-label="Mock scan progress">
     <h2 className="text-xl font-semibold">Mock scan progress</h2>
     <p className="text-sm text-muted-foreground">Demonstration only: this does not contact Moodle or refresh saved data.</p>
-    <p>No successful full sync yet. No authoritative full-scan evidence is available.</p>
+    <p>{fullSyncFreshness(snapshot.settings.trackedCourseIds,fullSyncAttestation,snapshot.settings.timezone)}</p>
     <p>{receipt ? `Latest page refresh: ${receipt.observedAt} · ${receipt.scope} · ${receipt.outcome} · ${receipt.evidenceMode} evidence` : 'No individual-page refresh recorded.'}</p>
     {snapshot.sync.filter(x=>x.lastSuccessAt).map(x=><p key={x.courseId} className="text-sm">Saved course timestamp (sample/demo values are fictional): {x.courseId} · {x.lastSuccessAt}</p>)}
     {!state.current?.courseIds.length && !state.unavailable && <p>Select courses in <Link to="/settings" className="underline">Settings</Link> to start a mock run.</p>}

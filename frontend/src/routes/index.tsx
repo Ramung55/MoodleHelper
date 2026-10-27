@@ -6,6 +6,7 @@ import { formatDate } from "@/domain/dates";
 import { useApp } from "@/lib/app-store";
 import { cn } from "@/lib/utils";
 import { MockProgress } from "@/components/mh/MockProgress";
+import { fullSyncFreshness, type FullSyncAttestation } from "../../../shared/src/full-sync";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -33,7 +34,7 @@ function Card({ to, search, title, value, tone, children }: { to: string; search
   );
 }
 
-function Overview() {
+export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAttestation} = {}) {
   const { snap, views, weeks, currentWeek, syncAll, syncing } = useApp();
   const s = snap!;
   const tz = s.settings.timezone;
@@ -70,13 +71,13 @@ function Overview() {
         <Card to="/deadlines" search={{ status: "attention" }} title="Drafts & resubmissions" value={attention.length} tone={attention.length ? "bad" : undefined}>
           {attention.map((a) => a.title).join(" · ") || "Nothing pending in Moodle"}
         </Card>
-        <Card to="/settings" title="Successful full sync" value="Never">
-          No successful full sync yet
+        <Card to="/settings" title="Successful full sync" value={fullSyncFreshness(s.settings.trackedCourseIds,fullSyncAttestation,s.settings.timezone).startsWith('Synthetic example') ? 'Example' : 'Never'}>
+          {fullSyncFreshness(s.settings.trackedCourseIds,fullSyncAttestation,s.settings.timezone)}
         </Card>
         <Card to="/alerts" title="Unread alerts" value={s.alerts.filter((a) => !a.read).length} />
       </div>
 
-      <MockProgress snapshot={s} />
+      <MockProgress snapshot={s} fullSyncAttestation={fullSyncAttestation} />
 
       <section className="mt-10">
         <div className="mb-3 flex items-center justify-between">

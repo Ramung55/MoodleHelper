@@ -4,12 +4,62 @@ import { buildDemoSnapshot } from '@/services/fixtures';
 import { MockProgress } from '@/components/mh/MockProgress';
 import { installPopup } from '../../../extension/src/popup';
 import { createMockProgress, type ProgressState } from '../../../shared/src/mock-progress';
+import { fullSyncFreshness } from '../../../shared/src/full-sync';
+import { Overview } from '@/routes/index';
 
-const mock = vi.hoisted(()=>({ current:vi.fn(), start:vi.fn(), cancel:vi.fn(), connect:vi.fn() }));
+const mock = vi.hoisted(()=>({ current:vi.fn(), start:vi.fn(), cancel:vi.fn(), connect:vi.fn(), useApp:vi.fn() }));
 vi.mock('@/services/extension-adapter',()=>({BridgeClient:class {connect=mock.connect; currentMockRun=mock.current; startMockRun=mock.start; cancelMockRun=mock.cancel; dispose(){} }}));
-vi.mock('@tanstack/react-router',()=>({Link:({children,to}:any)=><a href={to}>{children}</a>}));
+vi.mock('@tanstack/react-router',()=>({Link:({children,to}:any)=><a href={to}>{children}</a>,createFileRoute:()=>()=>({})}));
+vi.mock('@/lib/app-store',()=>({useApp:mock.useApp}));
 const run={id:'run1',idempotencyKey:'key1',courseIds:['c-csc'],createdAt:1000,status:'pending',cancelled:false,progress:{total:1,pending:1,running:0,completed:0,failed:0,cancelled:0},jobs:[{id:'job1',courseId:'c-csc',state:'pending',attempts:0,generation:0}]};
-afterEach(()=>{cleanup(); vi.useRealTimers(); vi.clearAllMocks(); sessionStorage.clear(); localStorage.clear();});
+
+const fixture=()=>{
+  const snapshot=buildDemoSnapshot(); snapshot.settings.trackedCourseIds=[snapshot.courses[0]!.id]; snapshot.settings.timezone='UTC';
+  snapshot.courses[0]!.discovery={sourceCourseId:'123',sourceUrl:'https://moodle.sdu.edu.kz/course/view.php?id=123',title:{kind:'unknown'},termIndicators:{kind:'unknown'},currentTermStatus:'current'};
+  snapshot.collection={records:[],reviews:[],refreshes:[{visitId:'visit',pageUrl:'https://moodle.sdu.edu.kz/course/view.php?id=123',observedAt:'2024-02-02T02:00:00Z',collector:'material',sourceCourseIds:['123'],outcome:'ok',coverage:'complete',scope:'supplied_pages_only',reasons:[],evidenceMode:'synthetic',pages:[]}]};
+  return snapshot;
+};
+afterEach(()=>{cleanup(); document.body.innerHTML=''; vi.useRealTimers(); vi.restoreAllMocks(); vi.resetAllMocks(); sessionStorage.clear(); localStorage.clear();});
+
+it('validates example attestations strictly and scopes exact selected IDs',()=>{
+  const good={completedAt:'2024-01-01T12:30:00+05:00',courseIds:['a','b'],provenance:'synthetic-example' as const};
+  expect(fullSyncFreshness(['b','a'],good,'UTC')).toContain('01/01/2024, 07:30:00 (UTC)');
+  expect(fullSyncFreshness(['a','b'],good,'invalid zone')).toContain('(UTC)');
+  for(const [selection,evidence] of [
+    [['a'],good], [[],good], [['a','a'],good], [['a','b'],{...good,courseIds:['a','a']}],
+    [['a','b'],{...good,courseIds:['a',' ']}], [['a','b'],{...good,completedAt:'2024-02-30T12:00:00Z'}],
+    [['a','b'],{...good,completedAt:'2024-01-01T12:00:00'}], [['a','b'],{...good,completedAt:'2024-01-01T12:00:00+25:00'}],
+    [['a','b'],{...good,completedAt:'2024-01-01T12:00:00-00:00'}],
+  ] as const) expect(fullSyncFreshness([...selection],evidence)).toBe('No successful full sync yet.');
+  expect(fullSyncFreshness(['a'])).toBe('No successful full sync yet.');
+});
+
+it('overview and dashboard render scoped synthetic full sync, page receipt and failed attempt separately',async()=>{
+  const snapshot=fixture(), evidence={completedAt:'2024-01-01T12:30:00Z',courseIds:[...snapshot.settings.trackedCourseIds],provenance:'synthetic-example' as const};
+  mock.useApp.mockReturnValue({snap:snapshot,views:[],weeks:[],currentWeek:null,syncAll:vi.fn(),syncing:false});
+  mock.connect.mockResolvedValue({}); mock.current.mockResolvedValue({courseIds:evidence.courseIds,lastFailedRun:{...run,status:'failed'}});
+  const view=render(<Overview fullSyncAttestation={evidence}/>);
+  expect(screen.getAllByText(/Synthetic example — successful full sync:.*01\/01\/2024/)).toHaveLength(2);
+  expect(screen.getByText(/Latest page refresh: 2024-02-02T02:00:00Z.*supplied_pages_only.*synthetic/)).toBeInTheDocument();
+  await screen.findByText(/Last failed mock attempt started:.*1970/);
+  view.rerender(<Overview fullSyncAttestation={{...evidence,courseIds:['different']}}/>);
+  expect(screen.getAllByText(/No successful full sync yet/)).toHaveLength(2);
+  view.rerender(<Overview/>); expect(screen.getAllByText(/No successful full sync yet/)).toHaveLength(2);
+});
+
+it('popup renders an injected example separately from receipt and failed attempt; mismatch is no-success',async()=>{
+  document.body.innerHTML='<p id="full-sync"></p><div id="status"></div><div id="freshness"></div><button id="start"></button><button id="cancel"></button><button id="reconnect"></button><button id="example-retry"></button>';
+  const snapshot=fixture(), evidence={completedAt:'2024-01-01T12:30:00Z',courseIds:[...snapshot.settings.trackedCourseIds],provenance:'synthetic-example' as const};
+  const fetcher=vi.fn(async (input:RequestInfo|URL)=>{const path=new URL(String(input)).pathname; const value=path==='/api/bridge-context'?{version:'1',binding:'a'.repeat(32)}:path==='/api/snapshot'?snapshot:{courseIds:evidence.courseIds,lastFailedRun:{...run,status:'failed'}};return new Response(JSON.stringify(value),{status:200});});
+  let controller=installPopup(document,fetcher as typeof fetch,localStorage,evidence);
+  await waitFor(()=>expect(document.querySelector('#full-sync')!.textContent).toContain('Synthetic example — successful full sync: 01/01/2024'));
+  expect(document.querySelector('#freshness')!.textContent).toContain('2024-02-02T02:00:00Z');
+  await waitFor(()=>expect(document.querySelector('#status')!.textContent).toMatch(/Last failed mock attempt started:.*1970/));
+  controller.dispose(); controller=installPopup(document,fetcher as typeof fetch,localStorage,{...evidence,courseIds:['different']});
+  await waitFor(()=>expect(document.querySelector('#full-sync')!.textContent).toBe('No successful full sync yet.'));
+  controller.dispose(); controller=installPopup(document,fetcher as typeof fetch,localStorage);
+  await waitFor(()=>expect(document.querySelector('#full-sync')!.textContent).toBe('No successful full sync yet.')); controller.dispose();
+});
 
 it('dashboard real controls start and cancel a labelled mock run while retaining data',async()=>{
   mock.connect.mockResolvedValue({}); mock.current.mockResolvedValueOnce({courseIds:['c-csc']}).mockResolvedValueOnce({courseIds:['c-csc'],run}).mockResolvedValue({courseIds:['c-csc'],run:{...run,status:'cancelled',cancelled:true}});
