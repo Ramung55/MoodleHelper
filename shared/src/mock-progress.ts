@@ -7,16 +7,19 @@ export type ProgressState = {current?:Current; unavailable:boolean; busy:boolean
 
 export function createMockProgress(transport:MockTransport, publish:(state:ProgressState)=>void, storage:Storage) {
   let state:ProgressState={unavailable:false,busy:false,uncertain:!!storage.getItem('mock-start-key')};
-  let generation=0, disposed=false, timer:ReturnType<typeof setInterval>|undefined;
+  let generation=0, readsInFlight=0, disposed=false, timer:ReturnType<typeof setInterval>|undefined;
   const update=(patch:Partial<ProgressState>)=>{state={...state,...patch}; if(!disposed) publish(state);};
   async function read(reconnect=false) {
     const serial=++generation;
+    readsInFlight++;
     try {
       if(reconnect) await transport.connect();
+      if(disposed || serial!==generation) return false;
       const current=await transport.current();
       if(serial===generation&&!disposed) { update({current,unavailable:false}); return true; }
       return false;
     } catch { if(serial===generation&&!disposed) update({unavailable:true}); return false; }
+    finally { readsInFlight--; }
   }
   async function start() {
     if(state.busy||state.unavailable||!state.current?.courseIds.length) return;
@@ -39,6 +42,8 @@ export function createMockProgress(transport:MockTransport, publish:(state:Progr
     finally { update({busy:false}); }
   }
   void read(true);
-  timer=setInterval(()=>{if(!state.busy&&!state.unavailable && (typeof document==='undefined'||document.visibilityState==='visible')) void read();},3000);
+  // Never supersede a slow successful read with another periodic poll. Explicit
+  // mutations and reconnects still fence older responses using generation.
+  timer=setInterval(()=>{if(!disposed&&!readsInFlight&&!state.busy&&!state.unavailable && (typeof document==='undefined'||document.visibilityState==='visible')) void read();},3000);
   return {start,cancel,reconnect:()=>read(true),dispose(){disposed=true; ++generation; if(timer) clearInterval(timer); transport.dispose?.();}};
 }

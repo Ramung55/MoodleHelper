@@ -9,7 +9,7 @@ const mock = vi.hoisted(()=>({ current:vi.fn(), start:vi.fn(), cancel:vi.fn(), c
 vi.mock('@/services/extension-adapter',()=>({BridgeClient:class {connect=mock.connect; currentMockRun=mock.current; startMockRun=mock.start; cancelMockRun=mock.cancel; dispose(){} }}));
 vi.mock('@tanstack/react-router',()=>({Link:({children,to}:any)=><a href={to}>{children}</a>}));
 const run={id:'run1',idempotencyKey:'key1',courseIds:['c-csc'],createdAt:1000,status:'pending',cancelled:false,progress:{total:1,pending:1,running:0,completed:0,failed:0,cancelled:0},jobs:[{id:'job1',courseId:'c-csc',state:'pending',attempts:0,generation:0}]};
-afterEach(()=>{cleanup(); vi.clearAllMocks(); sessionStorage.clear(); localStorage.clear();});
+afterEach(()=>{cleanup(); vi.useRealTimers(); vi.clearAllMocks(); sessionStorage.clear(); localStorage.clear();});
 
 it('dashboard real controls start and cancel a labelled mock run while retaining data',async()=>{
   mock.connect.mockResolvedValue({}); mock.current.mockResolvedValueOnce({courseIds:['c-csc']}).mockResolvedValueOnce({courseIds:['c-csc'],run}).mockResolvedValue({courseIds:['c-csc'],run:{...run,status:'cancelled',cancelled:true}});
@@ -76,4 +76,30 @@ it('empty selection prevents a start and reconnect retains previously confirmed 
   await c.start(); expect(transport.start).not.toHaveBeenCalled();
   await c.reconnect(); expect(last?.unavailable).toBe(true); expect(last?.current?.courseIds).toEqual([]);
   c.dispose();
+});
+
+it('serializes slow periodic reads, recovers after a network failure and stops on disposal',async()=>{
+  vi.useFakeTimers();
+  vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+  let last:ProgressState|undefined, concurrent=0, maxConcurrent=0, calls=0;
+  const transport={connect:vi.fn().mockResolvedValue({}), current:vi.fn(()=>{
+    const attempt=++calls; concurrent++; maxConcurrent=Math.max(maxConcurrent,concurrent);
+    return new Promise<any>((resolve,reject)=>setTimeout(()=>{
+      concurrent--;
+      if(attempt===3) reject(Error('offline'));
+      else resolve({courseIds:[`course-${attempt}`]});
+    },4000));
+  }),start:vi.fn(),cancel:vi.fn()};
+  const c=createMockProgress(transport,s=>{last=s;},sessionStorage);
+  await vi.advanceTimersByTimeAsync(3000); expect(calls).toBe(1);
+  await vi.advanceTimersByTimeAsync(1000); expect(last?.current?.courseIds).toEqual(['course-1']);
+  await vi.advanceTimersByTimeAsync(5000); expect(calls).toBe(2);
+  await vi.advanceTimersByTimeAsync(1000); expect(last?.current?.courseIds).toEqual(['course-2']);
+  await vi.advanceTimersByTimeAsync(6000); expect(last?.unavailable).toBe(true);
+  expect(last?.current?.courseIds).toEqual(['course-2']);
+  const reconnect=c.reconnect(); await vi.advanceTimersByTimeAsync(4000); await reconnect;
+  expect(last?.current?.courseIds).toEqual(['course-4']); expect(last?.unavailable).toBe(false);
+  expect(maxConcurrent).toBe(1);
+  c.dispose(); await vi.advanceTimersByTimeAsync(12000); expect(calls).toBe(4);
+  vi.restoreAllMocks();
 });
