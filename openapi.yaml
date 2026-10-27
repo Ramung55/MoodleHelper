@@ -719,7 +719,7 @@ paths:
       description: >-
         Uses the trusted Snapshot selection in the startup namespace. Returns the
         newest active run for that exact set, otherwise the newest terminal run;
-        ties are ordered by run ID. Jobs are bounded to 100 and ordered by ID.
+        ties use durable SQLite insertion order. Jobs are bounded to 100 and ordered by ID.
       tags: [Queue]
       security: []
       responses:

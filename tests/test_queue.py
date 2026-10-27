@@ -49,6 +49,16 @@ def test_selected_current_rejects_empty_and_caller_course_ids(env):
     assert c.get('/api/queue/current').json() == {'courseIds':[]}
     assert post(c,h,'current',{'idempotencyKey':'empty'}).status_code == 422
 
+def test_current_uses_insertion_order_for_same_second_terminal_runs(env):
+    c, store, clock, h = env
+    runs = []
+    for number in range(3):
+        run = post(c,h,'current',{'idempotencyKey':f'attempt-{number}'}).json()
+        runs.append(run)
+        assert post(c,h,'runs/'+run['id']+'/cancel',{}).status_code == 200
+    assert len({r['createdAt'] for r in runs}) == 1
+    assert c.get('/api/queue/current').json()['run']['id'] == runs[-1]['id']
+
 def test_mock_worker_cannot_claim_or_finish_scan_jobs(env):
     c, store, clock, h = env
     with store._transaction() as db:

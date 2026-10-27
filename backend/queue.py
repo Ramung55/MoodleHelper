@@ -73,7 +73,7 @@ class QueueService:
             ORDER BY CASE WHEN r.cancelled=0 AND EXISTS
             (SELECT 1 FROM queue_links l JOIN queue_jobs j ON j.namespace=l.namespace AND j.id=l.job_id
              WHERE l.namespace=r.namespace AND l.run_id=r.id AND j.state IN ('pending','running')) THEN 0 ELSE 1 END,
-            r.created DESC,r.id DESC LIMIT 1""", self.ns, json.dumps(ids, ensure_ascii=True)).first()
+            r.rowid DESC LIMIT 1""", self.ns, json.dumps(ids, ensure_ascii=True)).first()
         if not rows: return None
         run = self._run(c, rows.id, None, 100)
         return run if not active_only or run['status'] in ('pending', 'running') else None
