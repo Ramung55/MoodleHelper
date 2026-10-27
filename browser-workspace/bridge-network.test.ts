@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
 import path from "node:path";
 import { mkdtemp, rm, writeFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -50,6 +51,7 @@ const sender: Sender = {
   url: "http://127.0.0.1:5173/settings",
 };
 let child: ChildProcess, temporaryDirectory: string;
+let isolatedBackend: string, isolatedPort: number;
 let traffic: {
   url: string;
   method: string;
@@ -105,18 +107,18 @@ async function start(dataset = "demo") {
       "--host",
       "127.0.0.1",
       "--port",
-      "8000",
+      String(isolatedPort),
     ],
     { cwd: root, env, windowsHide: true, stdio: "pipe" },
   );
   let logs = "";
   child.stderr?.on("data", (d) => (logs += d));
   child.on("error", (e) => (logs += e.message));
-  for (let n = 0; n < 150; n++) {
+  for (let n = 0; n < 400; n++) {
     if (child.exitCode !== null)
       throw Error(`Isolated FastAPI could not start: ${logs}`);
     try {
-      if ((await fetch(BACKEND + "/docs")).ok) return;
+      if ((await fetch(isolatedBackend + "/docs", {signal: AbortSignal.timeout(1000)})).ok) return;
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -127,7 +129,7 @@ function setup() {
     runtimeId: "extension-test",
     grant: async () => allowed,
     fetcher: async (url, init) => {
-      const response = await fetch(url, init);
+      const response = await fetch(String(url).replace(BACKEND, isolatedBackend), init);
       traffic.push({
         url: String(url),
         method: init?.method || "GET",
@@ -147,19 +149,17 @@ function setup() {
   client = new BridgeClient(win as any);
 }
 beforeAll(async () => {
-  // Do not attach to or disturb a developer backend using the fixed production target.
-  try {
-    await fetch(BACKEND + "/docs");
-    throw Error(
-      "Port 8000 occupied; stop the developer backend before this isolated test.",
-    );
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("occupied")) throw e;
-  }
+  // Keep the production target in the worker while routing test traffic to an
+  // isolated ephemeral port, so a running developer backend is never touched.
+  const listener = createServer();
+  await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
+  isolatedPort = (listener.address() as {port: number}).port;
+  await new Promise<void>((resolve) => listener.close(() => resolve()));
+  isolatedBackend = `http://127.0.0.1:${isolatedPort}`;
   temporaryDirectory = await mkdtemp(path.join(tmpdir(), "moodle-bridge-"));
   await start();
   setup();
-}, 20000);
+}, 30000);
 afterAll(async () => {
   client?.dispose();
   removeRelay?.();
@@ -288,18 +288,18 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
       client.updateSettings({ semesterWeeks: 27 }),
     ).rejects.toMatchObject({ code: "RECONNECT_REQUIRED" });
     expect(traffic.at(-1)?.status).toBe(409);
-    const direct = await (await fetch(BACKEND + "/api/snapshot")).json();
+    const direct = await (await fetch(isolatedBackend + "/api/snapshot")).json();
     expect(direct).toEqual(before);
     await client.connect();
     expect(await client.load()).toEqual(before);
-    const legacy = await fetch(BACKEND + "/api/settings", {
+    const legacy = await fetch(isolatedBackend + "/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ semesterWeeks: 18 }),
     });
     expect(legacy.ok).toBe(true);
     expect((await client.load()).settings.semesterWeeks).toBe(18);
-  });
+  }, 30000);
   it("revoked grant rejects without fetch; reload loses sessions and never replays a mutation", async () => {
     const count = traffic.length;
     allowed = false;

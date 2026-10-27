@@ -100,3 +100,18 @@ it('terminates on login with fixed signed-out evidence',async()=>{
   expect(result.outcome).toBe('failed');expect(result.errorCode).toBe('signed_out');expect(result.incompleteReasons).toContain('signed_out');
   expect(result.pages.some(p=>p.outcome==='signed_out')).toBe(true);
 });
+
+it('records forbidden and unsupported pages, breaks cycles, and bounds discovery',async()=>{
+  let now=10000,last=-1000,occupied=false;const calls:string[]=[];
+  const authority={async acquire(at:number){if(occupied||at<last+1000)return null;occupied=true;last=at;return 'owner';},async releaseAfterTermination(){occupied=false;return true;}};
+  const course='https://moodle.sdu.edu.kz/course/view.php?id=101', quiz='https://moodle.sdu.edu.kz/mod/quiz/view.php?id=404';
+  const doc=new DOMParser().parseFromString('<nav aria-label="Account"><a href="/login/logout.php">Sign out</a></nav><main data-region="course-content"><h1>Course</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a></main>','text/html');
+  const denied=new DOMParser().parseFromString('<main><h1>Unavailable</h1><div role="alert" data-errorcode="nopermissions">Access denied</div></main>','text/html');
+  const source={start(url:string){calls.push(url);return {completion:Promise.resolve({input:{document:url===course?doc:denied,requestedUrl:url,finalUrl:url,httpStatus:url===course?200:403,networkFailure:false},links:url===course?[course,quiz,'https://evil.invalid/private']:[],sourceCourseId:'101',bytes:100}),termination:Promise.resolve(true),abort(){}};}};
+  const result=await scanSyntheticCourse({source,authority,sourceCourseId:'101',valid:async()=>true,now:()=>now,wait:async ms=>{now+=ms;}});
+  expect(calls).toEqual([course,quiz]);expect(result.pages.some(p=>p.pageType==='quiz'&&p.outcome==='forbidden')).toBe(true);
+  expect(result.pages.some(p=>p.pageType==='unsupported'&&p.reasons.includes('unsupported_page'))).toBe(true);
+  expect(JSON.stringify(result)).not.toContain('evil.invalid');
+  const bounded=await scanSyntheticCourse({source,authority,sourceCourseId:'101',valid:async()=>true,now:()=>now,wait:async ms=>{now+=ms;},maxDepth:0});
+  expect(bounded.incompleteReasons).toContain('limit_reached');
+});

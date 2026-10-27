@@ -162,3 +162,24 @@ def test_concurrent_mixed_kind_start_has_one_atomic_winner(service):
     with store.engine.connect() as c:
         assert c.exec_driver_sql('SELECT count(*) FROM queue_runs').scalar_one() == 1
         assert c.exec_driver_sql('SELECT count(*) FROM queue_jobs').scalar_one() == 1
+
+
+def test_failed_sign_in_preserves_prior_source_and_provides_fixed_guidance(service):
+    scan, store = service
+    scan.start('first'); first = scan.claim()['claim']
+    scan.finish(dict(jobId=first['job']['id'],generation=first['generation'],token=first['token'],
+        selectionRevision=first['selectionRevision'],outcome='completed',incompleteReasons=['undiscovered'],
+        pages=[dict(pageType='assignment',scope='visited_activity_only',outcome='ok',coverage='complete',
+                    reasons=[],observedAt=TIME,pageUrl=PAGE,collector='assignment',result=result())]))
+    before=deepcopy(store.read())
+    scan.start('second'); second=scan.claim()['claim']
+    failed=scan.finish(dict(jobId=second['job']['id'],generation=second['generation'],token=second['token'],
+        selectionRevision=second['selectionRevision'],outcome='failed',errorCode='signed_out',
+        incompleteReasons=['signed_out','undiscovered'],pages=[dict(pageType='course',scope='unknown',
+        outcome='signed_out',coverage='none',reasons=['signed_out'],observedAt=TIME,
+        pageUrl=ORIGIN+'/course/view.php?id=101')]))
+    assert failed['state']=='failed' and store.read()==before
+    page_list=scan.pages(second['job']['id'])
+    assert page_list['signInGuidance']=='Sign in to SDU Moodle to continue.'
+    assert page_list['signInUrl']=='https://moodle.sdu.edu.kz/login/index.php'
+    assert page_list['incompleteReasons']==['signed_out','undiscovered']

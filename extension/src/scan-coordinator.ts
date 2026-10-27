@@ -70,7 +70,7 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
     if(stopped||!response)continue;
     const access=detectMoodleAccess(response.input);
     if(access.status==='signed_out'){failure(pageType,'signed_out','signed_out',next.url);stopped='signed_out';break;}
-    if(response.input.requestedUrl!==next.url || response.input.finalUrl!==next.url || response.sourceCourseId!==options.sourceCourseId || response.bytes<0 || response.bytes>maxBytes){failure(pageType,'access_error','failed',next.url);continue;}
+    if(response.input.requestedUrl!==next.url || response.input.finalUrl!==next.url || response.sourceCourseId!==options.sourceCourseId || !Number.isSafeInteger(response.bytes) || response.bytes<0 || response.bytes>maxBytes || !Array.isArray(response.links)){failure(pageType,'access_error','failed',next.url);continue;}
     if(access.status==='forbidden'){failure(pageType,'forbidden','forbidden',next.url);continue;}
     if(access.status!=='accessible'){failure(pageType,'access_error','failed',next.url);continue;}
     const collectors:Collector[]=route.kind==='assign'?['assignment','submission']:route.kind==='quiz'?['quiz']:route.kind==='calendar'?['calendar']:['material'];
@@ -87,13 +87,17 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
       const incomplete=result.coverage!=='complete';
       add({pageType,scope:result.scope, outcome:incomplete?'partial':'ok',coverage:result.coverage,reasons:incomplete?['undiscovered']:[],observedAt,pageUrl:next.url,collector,result});
     }
-    for(const link of response.links){
-      if(!pageRoute(link)||link.includes('#')){
+    if(response.links.length>512)reasons.add('limit_reached');
+    for(const link of response.links.slice(0,512)){
+      if(typeof link!=='string'||!pageRoute(link)||link.includes('#')){
         if(pages.length<maxPages)add({pageType:'unsupported',scope:'unknown',outcome:'unavailable',coverage:'none',reasons:['unsupported_page','collector_unavailable'],observedAt});
         else reasons.add('limit_reached');
         continue;
       }
-      if(!seen.has(link)){if(next.depth>=maxDepth)reasons.add('limit_reached');else pending.push({url:link,depth:next.depth+1});}
+      if(!seen.has(link) && !pending.some(item=>item.url===link)){
+        if(next.depth>=maxDepth || pending.length+seen.size>=maxPages)reasons.add('limit_reached');
+        else pending.push({url:link,depth:next.depth+1});
+      }
     }
   }
   if(pending.length||pages.length>=maxPages)reasons.add('limit_reached');

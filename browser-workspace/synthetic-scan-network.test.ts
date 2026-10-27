@@ -46,9 +46,12 @@ it('shares one SQLite request authority across workers using different data data
     const authority=()=>({acquire:(n:number)=>call('acquire',file,marker,String(n)),releaseAfterTermination:(token:string,n:number)=>call('release',file,marker,token,String(n))});
     const account='<nav aria-label="Account"><a href="/login/logout.php">Sign out</a></nav>';
     const html=`${account}<main data-region="course-content"><h1>Course</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><section data-region="course-section"><h2>Week 1</h2><p data-region="materials-empty">No materials</p></section></main>`;
-    let active=0;const trace:{type:string;at:number}[]=[];
+    let active=0, releaseFirst!:()=>void, firstStarted!:()=>void;
+    const unblock=new Promise<void>(r=>releaseFirst=r), entered=new Promise<void>(r=>firstStarted=r);
+    const trace:{type:string;at:number}[]=[];
     const source={start(url:string){active++;expect(active).toBe(1);trace.push({type:'start',at:Date.now()});
-      const completion=new Promise<any>(resolve=>setTimeout(()=>{active--;trace.push({type:'end',at:Date.now()});resolve({input:{document:new DOMParser().parseFromString(html,'text/html'),requestedUrl:url,finalUrl:url,httpStatus:200,networkFailure:false},links:[],sourceCourseId:'101',bytes:1000});},100));
+      const first=trace.length===1;if(first)firstStarted();
+      const completion=(first?unblock:pause(100)).then(()=>{active--;trace.push({type:'end',at:Date.now()});return {input:{document:new DOMParser().parseFromString(html,'text/html'),requestedUrl:url,finalUrl:url,httpStatus:200,networkFailure:false},links:[],sourceCourseId:'101',bytes:1000};});
       return {completion,termination:completion.then(()=>true),abort(){}};}};
     const runs=[];
     for(const endpoint of [base,secondBase]) {
@@ -57,7 +60,10 @@ it('shares one SQLite request authority across workers using different data data
       expect(response.status).toBe(200);runs.push(await response.json());
       workers.push(installSyntheticScanWorker(()=>{}, {base:endpoint,fetcher:fetch,source,authority:authority(),now:Date.now,wait:pause,schedule:()=>{}}));
     }
-    await Promise.all(workers.map(worker=>(worker as ReturnType<typeof installSyntheticScanWorker>).wake()));
+    const working=Promise.all(workers.map(worker=>(worker as ReturnType<typeof installSyntheticScanWorker>).wake()));
+    await entered;await pause(1300);
+    expect(trace.map(x=>x.type)).toEqual(['start']);expect(active).toBe(1);
+    releaseFirst();await working;
     for(let i=0;i<2;i++)expect((await (await fetch([base,secondBase][i]+'/api/scan/runs/'+runs[i].id)).json()).status).toBe('completed');
     expect(trace.map(x=>x.type)).toEqual(['start','end','start','end']);
     expect(trace[2]!.at-trace[0]!.at).toBeGreaterThanOrEqual(1000);
