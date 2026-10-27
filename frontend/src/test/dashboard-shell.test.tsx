@@ -9,7 +9,7 @@ import { buildDemoSnapshot } from "@/services/fixtures";
 
 const mocks = vi.hoisted(() => ({ getAdapter: vi.fn(), load: vi.fn(), connection: vi.fn(), aiAvailability: vi.fn(), saveAlerts: vi.fn(), detect: vi.fn() }));
 vi.mock("@/services", () => ({ getAdapter: mocks.getAdapter }));
-vi.mock("@/services/extension-adapter", () => ({ detectExtension: mocks.detect }));
+vi.mock("@/services/extension-adapter", async (importOriginal) => ({ ...(await importOriginal<typeof import('@/services/extension-adapter')>()), detectExtension: mocks.detect }));
 // Replace only Start's HTML document wrapper: jsdom does not load external
 // stylesheets. Actual root wiring, shell/provider and route components render.
 Object.assign(routeTree.options, { shellComponent: ({ children }: { children: ReactNode }) => <>{children}</> });

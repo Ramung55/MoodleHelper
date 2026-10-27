@@ -45,7 +45,7 @@ describe("emitted Chrome shell", () => {
     validateManifest(manifest);
     const references = [manifest.background.service_worker, manifest.action.default_popup,
       ...manifest.content_scripts.flatMap((entry: { js: string[] }) => entry.js)];
-    expect((await readdir(dist)).sort()).toEqual(["manifest.json", ...references].sort());
+    expect((await readdir(dist)).sort()).toEqual(["manifest.json", "popup.js", ...references].sort());
     for (const reference of references) {
       const bytes = await readFile(new URL(reference, dist));
       expect(bytes.length).toBeGreaterThan(0);
@@ -86,12 +86,12 @@ describe("emitted Chrome shell", () => {
       expect(() => runInNewContext(probe, context)).toThrow();
   });
 
-  it("keeps the popup blank and local, with a title and usable dimensions", async () => {
+  it("ships the local mock progress popup with a fixed sign-in link", async () => {
     const html = await readFile(new URL("popup.html", dist), "utf8");
     expect(html).toMatch(/<title>Moodle Helper<\/title>/);
-    expect(html).toMatch(/<body>\s*<\/body>/);
-    expect(html).toMatch(/width:\s*280px/);
-    expect(html).toMatch(/min-height:\s*160px/);
-    expect(html).not.toMatch(/<script|\bsrc\s*=|\bhref\s*=|\bon\w+\s*=/i);
+    expect(html).toMatch(/Mock scan progress/);
+    expect(html).toMatch(/src="popup.js"/);
+    expect(html).toMatch(/href="https:\/\/moodle.sdu.edu.kz\/login\/index.php"/);
+    expect(html).not.toMatch(/\bon\w+\s*=/i);
   });
 });

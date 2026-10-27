@@ -26,8 +26,13 @@ def test_shared_closed_inventory_tracks_source_contract():
                 'body': operation.get('requestBody', {}).get('content', {}).get('application/json', {}).get('schema'),
                 'result': operation['responses']['200']['content']['application/json']['schema'],
             }
+    for name, method, path in [('currentMockRun','get','/api/queue/current'), ('startMockRun','post','/api/queue/current'), ('cancelMockRun','post','/api/queue/runs/{runId}/cancel')]:
+        operation = source['paths'][path][method]
+        expected[name] = {'method':method.upper(), 'path':path,
+                          'body':operation.get('requestBody', {}).get('content', {}).get('application/json', {}).get('schema'),
+                          'result':operation['responses']['200']['content']['application/json']['schema']}
     assert catalog == expected
-    assert len(catalog)==17
+    assert len(catalog)==20
     assert not {'collectionContext','beginPageVisit','ingestPageRefresh'} & catalog.keys()
 
 

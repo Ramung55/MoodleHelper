@@ -148,6 +148,9 @@ export class BridgeClient implements MoodleHelperAdapter {
   load(): Promise<Snapshot> {
     return this.send("load", {});
   }
+  currentMockRun() { return this.send("currentMockRun", {}); }
+  startMockRun(idempotencyKey: string) { return this.send("startMockRun", { idempotencyKey }); }
+  cancelMockRun(id: string) { return this.send("cancelMockRun", { id }); }
   replaceAll(snapshot: Snapshot): Promise<Snapshot> {
     return this.send("replaceAll", snapshot);
   }

@@ -10,6 +10,7 @@ try {
     ["index", "iife", "index.js"],
     ["content", "iife", "content.js"],
     ["dashboard-relay", "iife", "dashboard-relay.js"],
+    ["popup-entry", "iife", "popup.js"],
   ] as const) {
     const result = await Bun.build({
       entrypoints: [fileURLToPath(new URL(`./src/${entry}.ts`, import.meta.url))],

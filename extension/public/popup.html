@@ -3,7 +3,21 @@
   <head>
     <meta charset="utf-8">
     <title>Moodle Helper</title>
-    <style>html { width: 280px; min-height: 160px; } body { margin: 0; }</style>
+    <style>html { width: 340px; } body { margin: 0; padding: 16px; font: 14px system-ui; } button { margin: 4px; } li { margin: 4px 0; }</style>
   </head>
-  <body></body>
+  <body>
+    <h1>Mock scan progress</h1>
+    <p>Demonstration only. This does not contact Moodle or refresh saved data.</p>
+    <p>No successful full sync yet. No authoritative full-scan evidence is available.</p>
+    <div id="freshness"></div><div id="status" aria-live="polite">Connecting…</div>
+    <button id="start">Start mock run</button><button id="cancel">Cancel mock run</button><button id="reconnect">Reconnect</button>
+    <details><summary>Mock examples</summary>
+      <p>Example — Partial: some courses are incomplete. Retry the mock run.</p>
+      <p>Example — Failed: a mock job failed. Retry the mock run.</p>
+      <p>Example — Cancelled: start another mock run.</p>
+      <button id="example-retry">Retry a mock run</button>
+      <p>Example — Signed out: <a href="https://moodle.sdu.edu.kz/login/index.php" target="_blank" rel="noreferrer">Sign in to SDU Moodle</a>, then retry when live scanning is available. This does not describe your current session.</p>
+    </details>
+    <script src="popup.js"></script>
+  </body>
 </html>

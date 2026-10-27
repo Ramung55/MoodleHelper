@@ -5,6 +5,8 @@ import { mkdtemp, rm, writeFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { BridgeClient } from "../frontend/src/services/extension-adapter";
+import { JSDOM } from "../frontend/node_modules/jsdom/lib/api.js";
+import { installPopup } from "../extension/src/popup";
 import {
   createWorker,
   installRelay,
@@ -169,6 +171,26 @@ afterAll(async () => {
 });
 
 describe("production bridge through labeled Chrome/window shim and real SQLite network", () => {
+  it('coordinates simultaneous dashboard bridge and popup handler starts against SQLite', async () => {
+    await client.connect();
+    const dom=new JSDOM('<div id="status"></div><div id="freshness"></div><button id="start"></button><button id="cancel"></button><button id="reconnect"></button><button id="example-retry"></button>',{url:'https://extension.test'});
+    const doc=dom.window.document;
+    const popup=installPopup(doc, ((url:any,init:any)=>fetch(String(url).replace(BACKEND,isolatedBackend),init)) as typeof fetch,dom.window.localStorage);
+    const waitFor=async (condition:()=>boolean)=>{for(let n=0;n<100;n++){if(condition()) return; await new Promise(resolve=>setTimeout(resolve,20));} throw Error('popup did not update');};
+    try {
+      await waitFor(()=>!(doc.getElementById('start') as HTMLButtonElement).disabled);
+      const dashboard=client.startMockRun('simultaneous-dashboard');
+      (doc.getElementById('start') as HTMLButtonElement).click();
+      const run=await dashboard;
+      await waitFor(()=>doc.getElementById('status')!.textContent!.includes('Mock run:'));
+      const current=await client.currentMockRun();
+      expect(current.run.id).toBe(run.id);
+      expect(doc.getElementById('status')!.textContent).toContain('pending');
+      (doc.getElementById('cancel') as HTMLButtonElement).click();
+      await waitFor(()=>doc.getElementById('status')!.textContent!.includes('cancelled'));
+      expect((await client.currentMockRun()).run.status).toBe('cancelled');
+    } finally {popup.dispose();dom.window.close();}
+  }, 30000);
   it("executes and inspects all 17 operations with actual mutation/read results", async () => {
     expect((await client.connect()).moodleCollection).toBe("unavailable");
     expect((await client.connection()).state).toBe("demo");
@@ -257,6 +279,11 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
     expect(await client.replaceAll(original)).toEqual(original);
     expect((await client.deleteLocalData()).courses).toEqual([]);
     expect((await client.resetDemo()).courses.length).toBeGreaterThan(0);
+    const current = await client.currentMockRun();
+    expect(current.courseIds.length).toBeGreaterThan(0);
+    const mock = await client.startMockRun('bridge-mock-test');
+    expect((await client.currentMockRun()).run.id).toBe(mock.id);
+    expect((await client.cancelMockRun(mock.id)).status).toBe('cancelled');
     const operations = win.messages
       .filter((m) => m.source === "moodle-helper-web")
       .map((m) => m.operation);
