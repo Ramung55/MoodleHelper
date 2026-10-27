@@ -57,3 +57,17 @@ it('serializes actual synthetic starts across independent authority processes an
     expect(course).toContain('/course/');
   } finally {await rm(directory,{recursive:true,force:true});}
 },30000);
+
+it('persists terminal Retry-After and keeps the gate occupied for malformed values',async()=>{
+  for(const header of ['60','not-a-date']) {
+    let now=10000,occupied=false,deadline=0,last=-1000,attempts=0;
+    const authority={async acquire(at:number){if(occupied||at<Math.max(last+1000,deadline))return null;occupied=true;last=at;return 'owner';},
+      async releaseAfterTermination(_:string,n:number){occupied=false;deadline=Math.max(deadline,n);return true;}};
+    const document=new DOMParser().parseFromString('<main></main>','text/html');
+    const source={start(url:string){attempts++;return {completion:Promise.resolve({input:{document,requestedUrl:url,finalUrl:url,httpStatus:503,networkFailure:false},links:[],sourceCourseId:'101',bytes:10,retryAfter:attempts===3?header:undefined}),termination:Promise.resolve(true),abort(){}};}};
+    const result=await scanSyntheticCourse({source,authority,sourceCourseId:'101',valid:async()=>true,now:()=>now,wait:async ms=>{now+=ms;}});
+    expect(attempts).toBe(3);
+    if(header==='60'){expect(occupied).toBe(false);expect(deadline).toBeGreaterThanOrEqual(now+60000);}
+    else {expect(occupied).toBe(true);expect(result.errorCode).toBe('request_failed');}
+  }
+});

@@ -1,7 +1,7 @@
 /** Bounded synthetic scan traversal. Ordinary runtime never installs a page source. */
 import {detectMoodleAccess, type MoodleAccessInput} from './moodle-access';
 import {pageRoute, syntheticFixtureRegistry, type Collector} from './page-refresh';
-import {scanRetryDecision} from './scan-retry';
+import {retryAfterDeadline, scanRetryDecision} from './scan-retry';
 
 type Reason = 'undiscovered'|'unsupported_page'|'collector_unavailable'|'access_error'|'signed_out'|'forbidden'|'request_failed'|'limit_reached'|'invalid_context';
 type Scope = 'visited_activity_only'|'supplied_pages_only'|'supplied_ranges_only'|'unknown';
@@ -55,8 +55,12 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
       if(!acknowledged){stopped='request_failed';break;}
       const access=value&&detectMoodleAccess(value.input);
       const retry=!!value && !!access?.retryable && (value.input.networkFailure || value.input.httpStatus===408 || value.input.httpStatus===425 || value.input.httpStatus===429 || value.input.httpStatus>=500);
-      const decision=retry?scanRetryDecision(options.now(),attempt,value?.retryAfter):undefined;
-      const deadline=Math.max(startedAt+1000,decision?.kind==='retry'?decision.notBefore:0);
+      const failedAt=options.now();
+      const serverDeadline=retry && value?.retryAfter!==undefined?retryAfterDeadline(failedAt,value.retryAfter):0;
+      // Malformed or unrepresentable server deadlines cannot be safely cleared.
+      if(serverDeadline===undefined){stopped='request_failed';break;}
+      const decision=retry?scanRetryDecision(failedAt,attempt,value?.retryAfter):undefined;
+      const deadline=Math.max(startedAt+1000,serverDeadline,decision?.kind==='retry'?decision.notBefore:0);
       if(!await options.authority.releaseAfterTermination(token,deadline)){stopped='request_failed';break;}
       if(!alive){stopped='invalid_context';break;}
       if(!value){stopped='request_failed';break;}
