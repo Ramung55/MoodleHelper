@@ -1,10 +1,11 @@
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from sqlalchemy import URL
 
 from backend.collection import CollectionService, SyntheticCollectionContext
-from backend.queue import QueueConflict, QueueInvalid
+from backend.queue import QueueConflict, QueueInvalid, QueueService
 from backend.sample_data import build_sample_snapshot
 from backend.scan_queue import ScanQueueService
 from backend.sqlite_store import SQLiteStore
@@ -111,3 +112,53 @@ def test_mapping_change_fences_even_if_caller_submits_new_revision(service):
                 selectionRevision=revised,outcome='completed',pages=[],incompleteReasons=['undiscovered'])
     with pytest.raises(QueueConflict): queue.finish(body)
     assert store.read() == snapshot
+
+
+def test_crash_before_finalization_rolls_back_observations_and_coverage(service, monkeypatch):
+    queue, store = service
+    queue.start('crash'); claim = queue.claim()['claim']; before = store.read()
+    body = dict(jobId=claim['job']['id'], generation=claim['generation'], token=claim['token'],
+        selectionRevision=claim['selectionRevision'], outcome='completed', incompleteReasons=['undiscovered'],
+        pages=[dict(pageType='assignment', scope='visited_activity_only', outcome='ok', coverage='complete',
+                    reasons=[], observedAt=TIME, pageUrl=PAGE, collector='assignment', result=result())])
+    execute = queue.execute
+    def fail(c, sql, *args):
+        if sql.startswith('UPDATE queue_jobs SET state='): raise RuntimeError('injected crash')
+        return execute(c, sql, *args)
+    monkeypatch.setattr(queue, 'execute', fail)
+    with pytest.raises(RuntimeError): queue.finish(body)
+    monkeypatch.setattr(queue, 'execute', execute)
+    assert store.read() == before
+    assert queue.pages(claim['job']['id'])['pages'] == []
+    assert queue.finish(body)['state'] == 'completed'
+    assert store.read()['collection']['records'][0]['observations'] == [assignment()]
+
+
+@pytest.mark.parametrize('first_kind', ['mock', 'scan'])
+def test_mixed_kind_conflicts_are_atomic_and_recover_after_terminal(service, first_kind):
+    scan, store = service
+    mock = QueueService(store, clock=lambda:1000)
+    course = store.read()['settings']['trackedCourseIds'][0]
+    first = mock.start('mock-first', [course]) if first_kind == 'mock' else scan.start('scan-first')
+    with pytest.raises(QueueConflict):
+        scan.start('other') if first_kind == 'mock' else mock.start('other', [course])
+    with pytest.raises(QueueConflict):
+        scan.start('mock-first') if first_kind == 'mock' else mock.start('scan-first', [course])
+    with store.engine.connect() as c:
+        assert c.exec_driver_sql("SELECT count(*) FROM queue_runs WHERE idem='other'").scalar_one() == 0
+    (mock if first_kind == 'mock' else scan).cancel(first['id'])
+    assert (scan.start('other') if first_kind == 'mock' else mock.start('other', [course]))['status'] == 'pending'
+
+
+def test_concurrent_mixed_kind_start_has_one_atomic_winner(service):
+    scan, store = service
+    mock = QueueService(store, clock=lambda:1000)
+    course = store.read()['settings']['trackedCourseIds'][0]
+    def start(kind):
+        try: return ('ok', mock.start('mock-race', [course]) if kind == 'mock' else scan.start('scan-race'))
+        except QueueConflict: return ('conflict', None)
+    with ThreadPoolExecutor(max_workers=2) as pool: outcomes = list(pool.map(start, ['mock','scan']))
+    assert sorted(value[0] for value in outcomes) == ['conflict','ok']
+    with store.engine.connect() as c:
+        assert c.exec_driver_sql('SELECT count(*) FROM queue_runs').scalar_one() == 1
+        assert c.exec_driver_sql('SELECT count(*) FROM queue_jobs').scalar_one() == 1

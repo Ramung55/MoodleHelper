@@ -71,3 +71,32 @@ it('persists terminal Retry-After and keeps the gate occupied for malformed valu
     else {expect(occupied).toBe(true);expect(result.errorCode).toBe('request_failed');}
   }
 });
+
+it('holds the authority after cancellation until a stalled request acknowledges abort',async()=>{
+  let owner=false,last=0,starts=0,active=0,ack!:()=>void,entered!:()=>void,aborted!:()=>void;
+  const began=new Promise<void>(r=>entered=r),abortSeen=new Promise<void>(r=>aborted=r);
+  const authority={async acquire(at:number){if(owner||at<last+1000)return null;owner=true;last=at;return 'owner';},
+    async releaseAfterTermination(){expect(active).toBe(0);owner=false;return true;}};
+  const document=new DOMParser().parseFromString('<nav aria-label="Account"><a href="/login/logout.php">Sign out</a></nav><main data-region="course-content"><h1>Course</h1><a href="/course/view.php?id=101">Course</a></main>','text/html');
+  const source={start(url:string){starts++;active++;if(starts===1){entered();let reject!:(e:Error)=>void,confirm!:(v:boolean)=>void;
+    const completion=new Promise<any>((_,r)=>reject=r),termination=new Promise<boolean>(r=>confirm=r);
+    ack=()=>{active--;confirm(true);};return {completion,termination,abort(){reject(Error('stopped'));aborted();}};}
+    active--;return {completion:Promise.resolve({input:{document,requestedUrl:url,finalUrl:url,httpStatus:200,networkFailure:false},links:[],sourceCourseId:'101',bytes:10}),termination:Promise.resolve(true),abort(){}};}};
+  const signal=new AbortController(), wait=(ms:number)=>new Promise<void>(r=>setTimeout(r,ms));
+  const common={source,authority,sourceCourseId:'101',valid:async()=>true,now:Date.now,wait};
+  const first=scanSyntheticCourse({...common,signal:signal.signal});await began;
+  const second=scanSyntheticCourse(common);signal.abort();await abortSeen;await wait(250);
+  expect(starts).toBe(1);expect(owner).toBe(true);ack();
+  const [cancelled,completed]=await Promise.all([first,second]);
+  expect(cancelled.errorCode).toBe('invalid_context');expect(completed.outcome).toBe('completed');expect(starts).toBe(2);
+},10000);
+
+it('terminates on login with fixed signed-out evidence',async()=>{
+  let now=10000,last=-1000,occupied=false;
+  const authority={async acquire(at:number){if(occupied||at<last+1000)return null;occupied=true;last=at;return 'owner';},async releaseAfterTermination(){occupied=false;return true;}};
+  const document=new DOMParser().parseFromString('<main><h1>Sign in</h1><form action="/login/index.php"><input name="username" type="text"><input name="password" type="password"></form></main>','text/html');
+  const source={start(url:string){return {completion:Promise.resolve({input:{document,requestedUrl:url,finalUrl:'https://moodle.sdu.edu.kz/login/index.php',httpStatus:200,networkFailure:false},links:[],sourceCourseId:'101',bytes:50}),termination:Promise.resolve(true),abort(){}};}};
+  const result=await scanSyntheticCourse({source,authority,sourceCourseId:'101',valid:async()=>true,now:()=>now,wait:async ms=>{now+=ms;}});
+  expect(result.outcome).toBe('failed');expect(result.errorCode).toBe('signed_out');expect(result.incompleteReasons).toContain('signed_out');
+  expect(result.pages.some(p=>p.outcome==='signed_out')).toBe(true);
+});

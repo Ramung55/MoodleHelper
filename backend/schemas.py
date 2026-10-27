@@ -871,7 +871,9 @@ class ScanFinish(QueueClaimToken):
         if (self.outcome == 'failed') != (self.errorCode is not None): raise ValueError('Invalid error code')
         if len(set(self.incompleteReasons)) != len(self.incompleteReasons): raise ValueError('Duplicate reason')
         if any(reason not in self.incompleteReasons for page in self.pages for reason in page.reasons): raise ValueError('Missing coverage reason')
-        if not self.pages and 'undiscovered' not in self.incompleteReasons: raise ValueError('Missing discovery reason')
+        found = {page.pageType for page in self.pages}
+        if not {'course','assignment','calendar','material','quiz','submission'} <= found and 'undiscovered' not in self.incompleteReasons:
+            raise ValueError('Missing discovery reason')
         return self
 
 class ScanPageRecord(QueueModel):

@@ -20,7 +20,8 @@ class ScanQueueService(QueueService):
         context = self.collection._context(snapshot)
         selected = snapshot['settings']['trackedCourseIds']
         if (not self.collection._enabled() or not selected or
-                len(selected) != len(context['courses']) or len(selected) > 100):
+                len(selected) != len(context['courses']) or len(selected) > 100 or
+                any(len(item['sourceCourseId']) > 128 for item in context['courses'])):
             raise QueueConflict()
         return snapshot, context
 

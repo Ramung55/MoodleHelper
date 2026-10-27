@@ -100,7 +100,7 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
   // Discovery cannot prove absent categories, and unavailable #14/#16 stay explicit.
   for(const kind of ['assignment','calendar','material','quiz','submission']) {
     if(pages.length>=100){reasons.add('limit_reached');break;}
-    if(!pages.some(p=>p.pageType===kind))add({pageType:kind,scope:'unknown',outcome:'undiscovered',coverage:'none',reasons:['undiscovered']});
+    if(!pages.some(p=>p.pageType===kind))add({pageType:kind,scope:'unknown',outcome:'undiscovered',coverage:'none',reasons:kind==='quiz'||kind==='submission'?['undiscovered','collector_unavailable']:['undiscovered']});
   }
   if(stopped){reasons.add(stopped);return {outcome:'failed',pages,incompleteReasons:[...reasons],errorCode:stopped};}
   return {outcome:'completed',pages,incompleteReasons:[...reasons]};
