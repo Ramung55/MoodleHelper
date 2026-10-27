@@ -203,7 +203,8 @@ def test_executable_prior_version_migration_preserves_every_field_and_overlay(tm
     store = SQLiteStore(url(path))
     assert store.read() == original
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT version FROM schema_version").fetchone() == (6,)
+        from backend.migrations import SCHEMA_VERSION
+        assert connection.execute("SELECT version FROM schema_version").fetchone() == (SCHEMA_VERSION,)
         assert connection.execute("SELECT revision FROM snapshots").fetchone() == (0,)
     BackendService(store).update_settings({"semesterWeeks": 17})
     assert reopened(store).read()["settings"]["semesterWeeks"] == 17

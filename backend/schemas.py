@@ -750,6 +750,7 @@ class QueueRun(QueueModel):
 class QueueCurrent(QueueModel):
     courseIds: list[QueueCourseId] = Field(max_length=100, json_schema_extra={'uniqueItems':True})
     run: QueueRun = None
+    lastFailedRun: QueueRun = None
 class QueueClaim(QueueModel):
     job: QueueJob
     token: QueueId

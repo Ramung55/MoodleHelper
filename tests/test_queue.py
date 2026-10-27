@@ -59,6 +59,20 @@ def test_current_uses_insertion_order_for_same_second_terminal_runs(env):
     assert len({r['createdAt'] for r in runs}) == 1
     assert c.get('/api/queue/current').json()['run']['id'] == runs[-1]['id']
 
+def test_current_retains_last_failed_attempt_after_later_run(env):
+    c, store, clock, h = env
+    failed = post(c,h,'current',{'idempotencyKey':'failure'}).json()
+    while True:
+        result=post(c,h,'claim',{}).json()
+        if not result.get('claim'): break
+        assert post(c,h,'finish',{**token(result['claim']),'outcome':'failed','errorCode':'mock_failure'}).status_code == 200
+    clock[0]+=1
+    later=post(c,h,'current',{'idempotencyKey':'later'}).json()
+    current=c.get('/api/queue/current').json()
+    assert current['run']['id']==later['id']
+    assert current['lastFailedRun']['id']==failed['id']
+    assert current['lastFailedRun']['createdAt']==1000
+
 def test_mock_worker_cannot_claim_or_finish_scan_jobs(env):
     c, store, clock, h = env
     with store._transaction() as db:

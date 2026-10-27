@@ -84,7 +84,11 @@ class QueueService:
             ids = sorted(snapshot['settings']['trackedCourseIds'])
             if len(ids)>100: raise QueueInvalid()
             run = self._matching(c, ids) if ids else None
-            return {'courseIds':ids, **({'run':run} if run else {})}
+            failed = self.execute(c, """SELECT r.id FROM queue_runs r WHERE r.namespace=? AND r.kind='mock' AND r.course_ids=? AND r.cancelled=0
+                AND EXISTS (SELECT 1 FROM queue_links l JOIN queue_jobs j ON j.namespace=l.namespace AND j.id=l.job_id WHERE l.namespace=r.namespace AND l.run_id=r.id AND j.state='failed')
+                AND NOT EXISTS (SELECT 1 FROM queue_links l JOIN queue_jobs j ON j.namespace=l.namespace AND j.id=l.job_id WHERE l.namespace=r.namespace AND l.run_id=r.id AND j.state IN ('pending','running'))
+                ORDER BY r.rowid DESC LIMIT 1""", self.ns, json.dumps(ids, ensure_ascii=True)).first() if ids else None
+            return {'courseIds':ids, **({'run':run} if run else {}), **({'lastFailedRun':self._run(c,failed.id,None,100)} if failed else {})}
         return self.tx(action)
 
     def _job(self, c, row):

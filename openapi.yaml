@@ -719,7 +719,9 @@ paths:
       description: >-
         Uses the trusted Snapshot selection in the startup namespace. Returns the
         newest active run for that exact set, otherwise the newest terminal run;
-        ties use durable SQLite insertion order. Jobs are bounded to 100 and ordered by ID.
+        ties use durable SQLite insertion order. The latest failed terminal attempt
+        for the same set is returned separately, with its start time. Jobs are
+        bounded to 100 and ordered by ID.
       tags: [Queue]
       security: []
       responses:
@@ -1434,6 +1436,8 @@ components:
           uniqueItems: true
           items: {type: string, minLength: 1, maxLength: 8192, pattern: '\S'}
         run:
+          $ref: '#/components/schemas/QueueRun'
+        lastFailedRun:
           $ref: '#/components/schemas/QueueRun'
       required: [courseIds]
     QueueStart:
