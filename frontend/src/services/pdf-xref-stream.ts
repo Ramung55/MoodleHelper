@@ -20,7 +20,7 @@ async function decode(data: Uint8Array, compressed: boolean, limit: number, sign
 }
 
 export type XrefEntry = { object: number; generation: number; inUse: boolean; position: number; type: number; index: number };
-export async function readXrefStream(bytes: Uint8Array, text: string, offset: number, end: number, signal: AbortSignal): Promise<{ trailer: string; entries: XrefEntry[] }> {
+export async function readXrefStream(bytes: Uint8Array, text: string, offset: number, end: number, signal: AbortSignal, supplemental = false): Promise<{ trailer: string; entries: XrefEntry[] }> {
   const header = /^(\d+)\s+(\d+)\s+obj\s*<<((?:(?!<<|>>)[\s\S]|<<(?:(?!<<|>>)[\s\S])*>>)*)>>\s*stream(?:\r\n|\r|\n)/.exec(text.slice(offset, end));
   if (!header) return fail();
   let dictionary = header[3]!;
@@ -57,8 +57,9 @@ export async function readXrefStream(bytes: Uint8Array, text: string, offset: nu
   }
   if (new Set(objectNumbers).size !== objectNumbers.length) return fail();
   const expected = count * widths.reduce((a,b)=>a+b,0), start = offset + header[0].length, finish = start + length;
-  const footer = /^(?:\r\n|\r|\n)endstream\s*endobj\s*startxref\s+(\d+)\s+%%EOF(?:\s|$)/.exec(text.slice(finish));
-  if (expected > 2_000_000 || finish > end || !footer || Number(footer[1]) !== offset) return fail();
+  const remainder = text.slice(finish, supplemental ? end : undefined);
+  const footer = supplemental ? /^(?:\r\n|\r|\n)endstream\s*endobj\b/.exec(remainder) : /^(?:\r\n|\r|\n)endstream\s*endobj\s*startxref\s+(\d+)\s+%%EOF(?:\s|$)/.exec(remainder);
+  if (expected > 2_000_000 || finish > end || !footer || (!supplemental && Number(footer[1]) !== offset)) return fail();
   let columns = 0;
   if (params.length) {
     if (!filter) return fail();

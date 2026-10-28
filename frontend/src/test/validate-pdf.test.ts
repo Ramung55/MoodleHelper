@@ -42,6 +42,33 @@ describe("PDF structural gate", () => {
     await expect(validate(Uint8Array.from(Buffer.from(invalid,'latin1')))).rejects.toThrow(/corrupt/);
     expect(getDocument).not.toHaveBeenCalled();
   });
+  it.each(['local-hybrid.pdf','local-hybrid-incremental.pdf'])('validates bounded hybrid supplemental stream in %s', async (name) => {
+    vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
+    const source=readFileSync(`src/test/fixtures/${name}`), text=source.toString('latin1');
+    await expect(validate(Uint8Array.from(source))).resolves.toBeUndefined();
+    getDocument.mockClear();
+    const latest=[...text.matchAll(/startxref\s+(\d+)/g)].at(-1)![1]!;
+    for (const target of [latest,String(Number(latest)+1),'1']) {
+      const invalid=text.replace(/\/XRefStm\s+\d+/,`/XRefStm ${target}`);
+      await expect(validate(Uint8Array.from(Buffer.from(invalid,'latin1')))).rejects.toThrow(/corrupt/);
+    }
+    const supplemental=text.indexOf('5 0 obj'), dataStart=text.indexOf('stream\n',supplemental)+7;
+    const damaged=Uint8Array.from(source); damaged[dataStart+3]^=1;
+    await expect(validate(damaged)).rejects.toThrow(/corrupt/);
+    const conflict=text.replace('2 4\n','1 1\n0000000000 00000 f \n2 4\n');
+    await expect(validate(Uint8Array.from(Buffer.from(conflict,'latin1')))).rejects.toThrow(/corrupt/);
+    // Supplemental dictionary fields cannot redirect the revision chain or root.
+    for (const field of ['/Prev 1', '/Root 2 0 R', '/Encrypt 2 0 R', '/XRefStm 1']) {
+      const invalid=text.replace('/Type /XRef /Size 6', `/Type /XRef ${field} /Size 6`);
+      expect(invalid).not.toBe(text);
+      await expect(validate(Uint8Array.from(Buffer.from(invalid,'latin1')))).rejects.toThrow(/corrupt/);
+    }
+    for (const replacement of ['/XRefStm 280 0 R', '/XRefStm 280 /XRefStm 280']) {
+      const invalid=text.replace(/\/XRefStm\s+\d+/, replacement);
+      await expect(validate(Uint8Array.from(Buffer.from(invalid,'latin1')))).rejects.toThrow(/corrupt/);
+    }
+    expect(getDocument).not.toHaveBeenCalled();
+  });
   it('accepts a bounded compressed xref stream and rejects corruption', async () => {
     vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
     const bytes = Uint8Array.from(readFileSync('src/test/fixtures/local-xref-stream.pdf'));
