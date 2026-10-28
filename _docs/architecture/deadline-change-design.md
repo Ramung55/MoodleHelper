@@ -1,4 +1,4 @@
-# Source deadline tracking design (#22; draft for review)
+# Source deadline tracking design (#22)
 
 ## Identity and assertions
 

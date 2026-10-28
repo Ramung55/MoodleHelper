@@ -7,6 +7,15 @@ from pydantic import TypeAdapter, ValidationError
 from jsonschema import ValidationError as SchemaError
 from backend.schemas import DeadlineStream
 from test_model_inventory import zod
+from concurrent.futures import ThreadPoolExecutor
+import sqlite3
+from sqlalchemy import URL, event
+from backend.sqlite_store import SQLiteStore
+from backend.collection import SyntheticCollectionContext
+from backend.main import create_app
+from fastapi.testclient import TestClient
+from test_reconciliation import make_pair, decision
+from backend.deadline_tracking import effective_sources
 
 
 def ingest(client, visit, raw):
@@ -84,3 +93,133 @@ def test_invalid_stream_shapes_are_rejected_everywhere(change, contract, contrac
     with pytest.raises(SchemaError):
         contract_validator(contract['components']['schemas']['DeadlineStream'], state)
     assert not zod('DeadlineStream', state)['success']
+
+
+def test_write_failure_concurrent_replay_and_restart(harness):
+    client, store, path = harness
+    initial = observed('2026-10-27T10:00:00Z', {'kind':'week','week':4})
+    baseline = ingest(client, 'baseline', initial).json()['snapshot']
+    count = len(baseline['changes'])
+    changed = observed('2026-10-27T11:00:00Z', {'kind':'week','week':5})
+    def fail_after_update(connection, cursor, statement, parameters, context, many):
+        if statement.startswith('UPDATE snapshots'):
+            raise sqlite3.OperationalError('simulated failure after write')
+    event.listen(store.engine, 'after_cursor_execute', fail_after_update)
+    try:
+        assert ingest(client, 'failed-write', changed).status_code == 503
+    finally:
+        event.remove(store.engine, 'after_cursor_execute', fail_after_update)
+    assert store.read() == baseline
+    other = SQLiteStore(URL.create('sqlite', database=str(path)), namespace=store.namespace)
+    try:
+        def submit(repo, name):
+            with TestClient(create_app(repo, collection_provider=SyntheticCollectionContext(repo.namespace))) as c:
+                return ingest(c, name, changed).status_code
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = [executor.submit(submit, repo, name) for repo, name in [(store,'writer-a'),(other,'writer-b')]]
+            assert [x.result() for x in results] == [200, 200]
+        saved = other.read()
+        assert saved == store.read()
+        assert len(saved['changes']) == count + 1
+    finally:
+        other.close()
+    reopened = SQLiteStore(URL.create('sqlite', database=str(path)), namespace=store.namespace)
+    try:
+        assert reopened.read() == saved
+    finally:
+        reopened.close()
+
+
+def test_confirmed_alias_overlay_history_and_restore(harness):
+    client, store, _ = harness
+    first = observed('2026-10-27T10:00:00Z', {'kind':'exact','iso':'2026-10-28T13:30:00Z','tz':'UTC'})
+    ingest(client, 'alias-baseline', first)
+    _, pairs, candidate = make_pair(client)
+    assert len(pairs) == 1
+    confirmed = decision(client, pairs[0], 'confirm')
+    assert confirmed.status_code == 200
+    from urllib.parse import quote
+    alias = 'syl-' + candidate['id']
+    overlay = client.patch('/api/assessments/'+quote(alias,safe='')+'/overlay', json={'dateOverride':{'kind':'week','week':7},'completed':True}).json()
+    edited = deepcopy(overlay['reconciliation']['logicalOverlays'])
+    updated = observed('2026-10-27T11:00:00Z', {'kind':'date','date':'2026-11-04'})
+    result = ingest(client, 'alias-change', updated).json()['snapshot']
+    assert result['reconciliation']['logicalOverlays'] == edited
+    alias_record = next(a for a in result['reconciliation']['aliases'] if a['originalId'] == alias)
+    change = result['changes'][-1]
+    assert change['assessmentId'] == alias_record['canonicalId']
+    assert change['from'] == first['effectiveDates']['due']['value']
+    assert change['to'] == updated['effectiveDates']['due']['value']
+    assert client.put('/api/snapshot', json=result).json() == result
+    assert store.read() == result
+
+
+def test_overlay_and_source_ingestion_race_preserves_both(harness):
+    client, store, path = harness
+    initial = observed('2026-10-27T10:00:00Z', {'kind':'week','week':4})
+    baseline = ingest(client, 'overlay-race-baseline', initial).json()['snapshot']
+    assessment_id = baseline['deadlineStreams'][0]['assessmentId']
+    changed = observed('2026-10-27T11:00:00Z', {'kind':'week','week':5})
+    other = SQLiteStore(URL.create('sqlite', database=str(path)), namespace=store.namespace)
+    try:
+        def source_write():
+            with TestClient(create_app(store, collection_provider=SyntheticCollectionContext(store.namespace))) as c:
+                return ingest(c, 'overlay-race-source', changed).status_code
+        def overlay_write():
+            from urllib.parse import quote
+            with TestClient(create_app(other)) as c:
+                return c.patch('/api/assessments/'+quote(assessment_id,safe='')+'/overlay', json={'hidden':True,'completed':True}).status_code
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            source = executor.submit(source_write); overlay = executor.submit(overlay_write)
+            assert source.result() == overlay.result() == 200
+        saved = store.read()
+        assert saved['deadlineStreams'][0]['accepted'] == {'kind':'week','week':5}
+        assert next(x for x in saved['overlays'] if x['assessmentId']==assessment_id)['hidden']
+        assert next(x for x in saved['overlays'] if x['assessmentId']==assessment_id)['completed']
+    finally:
+        other.close()
+
+
+def test_independent_stream_projection_never_revives_removed_raw_date(harness):
+    client, _, _ = harness
+    raw = observed('2026-10-27T10:00:00Z', {'kind':'week','week':4})
+    snap = ingest(client, 'stream-projection', raw).json()['snapshot']
+    original = snap['deadlineStreams'][0]
+    assessment = next(a for a in snap['assessments'] if a['id'] == original['assessmentId'])
+    second = deepcopy(snap['reconciliation']['sources'][0])
+    second['id'] = original['sourceId'] + '-second'
+    snap['reconciliation']['sources'].append(second)
+    state = deepcopy(original); state.update(sourceId=second['id'], accepted={'kind':'week','week':9})
+    snap['deadlineStreams'].append(state)
+    assert effective_sources(snap, assessment)[-1]['date'] == {'kind':'week','week':9}
+    state['accepted'] = {'kind':'removed'}
+    assert effective_sources(snap, assessment)[-1]['date'] == {'kind':'week','week':4}
+    original['accepted'] = {'kind':'removed'}
+    assert not [s for s in effective_sources(snap, assessment) if s['source']=='moodle']
+
+
+def test_unknown_only_watermark_and_provisional_removal(harness):
+    client, _, _ = harness
+    unknown = observed('2026-10-27T10:00:00Z', None)
+    snap = ingest(client, 'unknown-first', unknown).json()['snapshot']
+    count = len(snap['changes'])
+    assert snap['deadlineStreams'][0]['watermark'] == unknown['observedAt']
+    assert 'accepted' not in snap['deadlineStreams'][0]
+    older = observed('2026-10-27T09:00:00Z', {'kind':'week','week':3})
+    assert 'accepted' not in ingest(client, 'old-known', older).json()['snapshot']['deadlineStreams'][0]
+    removal = observed('2026-10-27T11:00:00Z', None); removal['syntheticDeadlineRemoval'] = True
+    snap = ingest(client, 'first-removal', removal).json()['snapshot']
+    assert len(snap['changes']) == count and not snap['deadlineStreams'][0]['established']
+    known = observed('2026-10-27T12:00:00Z', {'kind':'week','week':4})
+    snap = ingest(client, 'first-known', known).json()['snapshot']
+    assert len(snap['changes']) == count and snap['deadlineStreams'][0]['established']
+
+
+def test_submicrosecond_exact_values_and_order_are_not_collapsed(harness):
+    client, _, _ = harness
+    first = observed('2026-10-27T10:00:00.0000001Z', {'kind':'exact','iso':'2026-11-01T10:00:00.0000001Z','tz':'UTC'})
+    snap = ingest(client, 'submicro-first', first).json()['snapshot']
+    count = len(snap['changes'])
+    second = observed('2026-10-27T10:00:00.0000002Z', {'kind':'exact','iso':'2026-11-01T10:00:00.0000002Z','tz':'UTC'})
+    snap = ingest(client, 'submicro-second', second).json()['snapshot']
+    assert len(snap['changes']) == count + 1

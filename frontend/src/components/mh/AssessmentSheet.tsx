@@ -8,7 +8,13 @@ import { resolveAssessmentId } from "@/domain/assessments";
 import { useApp } from "@/lib/app-store";
 import { CourseTag, SubmissionBadge, TYPE_LABEL } from "./bits";
 import { DateInput } from "./DateInput";
-import type { DateValue } from "@/domain/types";
+import type { DateValue, DeadlineAssertion } from "@/domain/types";
+
+function historyDate(value: DeadlineAssertion, timezone: string): string {
+  if (value.kind === "removed") return "Removed";
+  const shown = formatDate(value, timezone);
+  return value.kind === "exact" ? `${shown} (${value.iso}, ${value.tz})` : shown;
+}
 
 export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
   const { views, snap, run } = useApp();
@@ -60,13 +66,13 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                   <div className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
                     <p className="font-semibold text-destructive">The source date changed after you edited it</p>
                     <p>When you edited: {formatDate(v.overrideDisagreement.was, tz)}</p>
-                    <p>Source now: {formatDate(v.overrideDisagreement.now, tz)}</p>
+                    <p>Source now{v.sourceKind ? ` (${v.sourceKind})` : ""}: {formatDate(v.overrideDisagreement.now, tz)}</p>
                     <p>Your date: {formatDate(v.date, tz)}</p>
                   </div>
                 )}
                 {changes.map((c) => (
                   <p key={c.id} className="mt-2 text-sm text-muted-foreground">
-                    {c.sourceId ? "Moodle" : "Source (unattributed)"} changed: {c.from.kind === "removed" ? "Removed" : formatDate(c.from, tz)} → {c.to.kind === "removed" ? "Removed" : formatDate(c.to, tz)}
+                    {c.sourceId ? "Moodle" : "Source (unattributed)"} changed: {historyDate(c.from, tz)} → {historyDate(c.to, tz)}
                     {c.sourceUrl && <> · <a href={c.sourceUrl}>Source</a></>}
                     {c.sourceObservedAt && <> · Observed {c.sourceObservedAt}</>} · Detected {c.detectedAt}
                   </p>

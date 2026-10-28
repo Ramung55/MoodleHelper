@@ -1,5 +1,5 @@
 import type { RawCourseObservation } from "@/domain/types";
-import { reconciledSourceDate } from "@/domain/assessments";
+import { effectiveSources, reconciledSourceDate } from "@/domain/assessments";
 import { candidateToAssessment, checkFormat } from "@/domain/extraction";
 import { Snapshot as SnapshotSchema, type Snapshot } from "@/domain/types";
 import type { MoodleHelperAdapter, PersonalEventInput, ReviewDecision } from "./adapter";
@@ -95,7 +95,8 @@ export class DemoAdapter implements MoodleHelperAdapter {
       // remember which source date the override was set against
       if ("dateOverride" in patch) {
         const a = s.assessments.find((x) => x.id === id);
-        next.overrideBase = patch.dateOverride && a ? reconciledSourceDate(a.sources) : undefined;
+        const sources = a ? effectiveSources(s, a) : [];
+        next.overrideBase = patch.dateOverride && a ? (sources.length ? reconciledSourceDate(sources) : {kind:"unknown"}) : undefined;
       }
       return { ...s, overlays: [...s.overlays.filter((o) => o.assessmentId !== id), next] };
     });

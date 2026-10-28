@@ -53,7 +53,7 @@ export function eligibleAlerts(
     push({
       kind: "change",
       assessmentId: c.assessmentId,
-      message: `${v?.title ?? "An assessment"} moved from ${formatDate(c.from, s.timezone)} to ${formatDate(c.to, s.timezone)}`,
+      message: `${v?.title ?? "An assessment"} moved from ${c.from.kind === "removed" ? "removed" : formatDate(c.from, s.timezone)} to ${c.to.kind === "removed" ? "removed" : formatDate(c.to, s.timezone)}`,
       deliveryKey: `change:${c.id}`,
     });
   }

@@ -149,7 +149,7 @@ export const DeadlineStream = z.object({
   sourceId: z.string(), assessmentId: z.string(), watermark: z.string(),
   established: z.boolean(), accepted: AcceptedDeadlineAssertion.optional(),
   acceptedAt: z.string().optional(), sourceUrl: z.string().optional(),
-}).refine((v) => [v.accepted, v.acceptedAt, v.sourceUrl].every((x) => x !== undefined) ||
+}).strict().refine((v) => [v.accepted, v.acceptedAt, v.sourceUrl].every((x) => x !== undefined) ||
   (!v.established && [v.accepted, v.acceptedAt, v.sourceUrl].every((x) => x === undefined)));
 export const DeadlineChange = z.object({
   id: z.string(),

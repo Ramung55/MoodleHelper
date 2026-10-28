@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isOutstanding, reconciledSourceDate, viewAssessment } from "@/domain/assessments";
 import { eligibleAlerts } from "@/domain/alerts";
 import { makeBackup, previewRestore } from "@/domain/backup";
-import { instantMicros, weekOfYmd } from "@/domain/dates";
+import { instantMicros, sameDate, weekOfYmd } from "@/domain/dates";
 import { canAutoAccept, checkFormat, proposeMatches } from "@/domain/extraction";
 import { weeklyLoad } from "@/domain/workload";
 import type { Assessment, ExtractionCandidate } from "@/domain/types";
@@ -12,6 +12,11 @@ import { DemoAdapter, type KV } from "@/services/demo-adapter";
 const snap = buildDemoSnapshot(Date.UTC(2026, 9, 24, 9));
 const S = snap.settings;
 const t = "2026-10-01T00:00:00Z";
+it('retains submicrosecond exact deadline differences and offset equality', () => {
+  const value = {kind:'exact' as const, iso:'2026-11-01T10:00:00.0000001Z', tz:'UTC'};
+  expect(sameDate(value,{kind:'exact',iso:'2026-11-01T15:00:00.000000100+05:00',tz:'Asia/Almaty'})).toBe(true);
+  expect(sameDate(value,{kind:'exact',iso:'2026-11-01T10:00:00.0000002Z',tz:'UTC'})).toBe(false);
+});
 const mk = (x: Partial<Assessment>): Assessment => ({
   id: "x", courseId: "c-csc", title: "T", type: "assignment", personal: false,
   sources: [{ source: "moodle", date: { kind: "date", date: S.semesterStart }, observedAt: t }],

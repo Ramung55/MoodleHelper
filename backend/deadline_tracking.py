@@ -3,7 +3,14 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from backend.reconciliation import instant
+from backend.submission_retention import _instant as instant
+
+
+def order(value):
+    try:
+        return instant(value)
+    except (ValueError, TypeError, OverflowError):
+        return (-1, '')
 
 
 def assertion(kind, raw):
@@ -55,7 +62,7 @@ def effective_sources(snapshot, assessment):
         if len(owners) == 1 and any(owners[0]['id'] == s['id'] for s, _ in untracked):
             candidates.append((owners[0]['id'], evidence))
     if candidates:
-        _, evidence = max(candidates, key=lambda item: (instant(item[1]['observedAt']) or datetime.min.replace(tzinfo=timezone.utc), item[0]))
+        _, evidence = max(candidates, key=lambda item: (order(item[1]['observedAt']), item[0]))
         current.append(evidence)
     return current
 

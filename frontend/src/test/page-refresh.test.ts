@@ -14,6 +14,14 @@ import { emptySnapshot } from '@/services/demo-adapter';
 import { assignment,assignmentInput,dateNode } from './moodle-assignments-fixtures';
 import { calendarInput,calendarPage,calendarEvent,calendarDate } from './moodle-calendar-fixtures';
 import { account,origin,login } from './moodle-access-fixtures';
+import { createElement } from 'react';
+import { cleanup, render, screen } from '@testing-library/react';
+import { AppProvider } from '@/lib/app-store';
+import { AssessmentSheet } from '@/components/mh/AssessmentSheet';
+import { HttpAdapter } from '@/services/http-adapter';
+vi.mock('@/services', () => ({ getAdapter: () => api }));
+vi.mock('@/services/extension-adapter', () => ({ detectExtension: async () => false }));
+let api: HttpAdapter;
 const time='2026-10-27T12:30:00.12+05:00';
 let server:ChildProcess,base:string,temporary:string,seed:Snapshot;
 const root=path.resolve(import.meta.dirname,'../../..');
@@ -23,7 +31,7 @@ async function start() {
   const python=path.join(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
   server=spawn(python,['-m','uvicorn','tests.collection_network_app:app','--host','127.0.0.1','--port',String(port)],{cwd:root,env:{...process.env,MOODLE_HELPER_COLLECTION_TEST_DATABASE:database},windowsHide:true,stdio:'pipe'});
   let log='';server.stderr?.on('data',v=>log+=String(v));server.on('error',e=>log+=String(e));
-  const until=Date.now()+20000;while(Date.now()<until){try{if((await fetch(base+'/docs')).ok)return;}catch{}if(server.exitCode!==null)break;await new Promise(r=>setTimeout(r,50));}throw Error(log);
+  const until=Date.now()+20000;while(Date.now()<until){try{if((await fetch(base+'/docs')).ok){api=new HttpAdapter(base);return;}}catch{}if(server.exitCode!==null)break;await new Promise(r=>setTimeout(r,50));}throw Error(log);
 }
 async function stop(){if(server&&server.exitCode===null)await new Promise<void>(resolve=>{server.once('exit',()=>resolve());server.kill();});}
 async function json(url:string,method='GET',body?:unknown){const r=await fetch(base+url,{method,headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json();}
@@ -76,6 +84,32 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
     expect(saved.assessments.at(-1)).toMatchObject({title:'Fictional assignment',courseId:'c-csc'});
     f.setTime('2026-10-27T12:31:00.12+05:00');f.set(fixture(assignmentInput(assignment().replace('Fictional   assignment','Changed synthetic assignment'))));await until(()=>f.coordinator.state.receipts.length===4);
     saved=await json('/api/snapshot');expect(saved.collection!.records).toHaveLength(1);expect(saved.collection!.records[0]!.observations).toHaveLength(2);
+    const source=saved.reconciliation!.sources.find(s=>s.kind==='moodle')!;
+    expect(saved.changes.some(c=>c.sourceId===source.id)).toBe(true);
+    await api.updateSettings({reminders:{...saved.settings.reminders,enabled:false}});
+    const view=render(createElement(AppProvider,{children:createElement(AssessmentSheet,{id:source.assessmentId,onClose:()=>{}})}));
+    expect(await screen.findByText(/Moodle changed:/)).toHaveTextContent('Moodle changed:');
+    expect(screen.getByText(/Moodle changed:/)).toHaveTextContent('Observed');
+    view.unmount();cleanup();
+    await api.updateOverlay(source.assessmentId,{dateOverride:{kind:'week',week:7},hidden:false});
+    const collect=registry.assignment.collect;
+    registry.assignment.collect=async (...args)=>{
+      const output=await collect(...args);
+      if(output.kind==='assignment') for(const item of output.observations) {
+        delete item.baseDates.due; delete item.effectiveDates.due;
+        item.individualExtensions=item.individualExtensions.filter(x=>x.field!=='due');
+        Object.assign(item,{syntheticDeadlineRemoval:true});
+      }
+      return output;
+    };
+    f.setTime('2026-10-27T12:32:00.12+05:00');f.set(fixture());await until(()=>f.coordinator.state.receipts.length===6);
+    saved=await json('/api/snapshot');expect(saved.changes.at(-1)?.to).toEqual({kind:'removed'});
+    const removalView=render(createElement(AppProvider,{children:createElement(AssessmentSheet,{id:source.assessmentId,onClose:()=>{}})}));
+    expect(await screen.findByText(/Moodle changed:.*Removed/)).toBeInTheDocument();
+    expect(screen.getByText('The source date changed after you edited it')).toBeInTheDocument();
+    expect(screen.getByText(/Your date:/)).toHaveTextContent('Week 7');
+    removalView.unmount();cleanup();
+    saved=await json('/api/snapshot');
     const backup=previewRestore(JSON.stringify(makeBackup(saved)),seed);expect(backup.ok).toBe(true);if(!backup.ok)throw Error('backup');expect(backup.backup.data).toEqual(saved);
     f.coordinator.stop();await stop();await start();expect(await json('/api/snapshot')).toEqual(saved);
     await json('/api/local-data','DELETE');expect((await json('/api/snapshot')).collection).toBeUndefined();

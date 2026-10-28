@@ -99,9 +99,16 @@ export function sameDate(a: DateValue | undefined, b: DateValue | undefined): bo
   if (!a || !b) return a === b;
   if (a.kind === "exact" && b.kind === "exact") {
     const left = instantMicros(a.iso), right = instantMicros(b.iso);
-    if (left !== null && right !== null) return left === right;
+    if (left !== null && right !== null) return left === right && compareSubmicro(a.iso, b.iso) === 0;
   }
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Compare digits beyond microseconds for the strict collected timestamp form. */
+export function compareSubmicro(a: string, b: string): number {
+  const tail = (value: string) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})$/.exec(value)?.[1]?.slice(6).replace(/0+$/, "") ?? "";
+  const x = tail(a), y = tail(b);
+  return x === y ? 0 : x < y ? -1 : 1;
 }
 
 export function formatDate(d: DateValue, tz: string): string {

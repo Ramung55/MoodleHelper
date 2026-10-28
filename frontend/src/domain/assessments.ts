@@ -1,4 +1,4 @@
-import { instantMicros, sameDate, sortKey, weekOf } from "./dates";
+import { compareSubmicro, instantMicros, sameDate, sortKey, weekOf } from "./dates";
 import type { Assessment, DateValue, Overlay, Settings, SourceEvidence, Snapshot } from "./types";
 
 export function resolveAssessmentId(snapshot: Snapshot, id: string): string {
@@ -13,6 +13,7 @@ export interface AssessmentView {
   date: DateValue;
   /** Reconciled source date: Moodle beats syllabus */
   sourceDate: DateValue;
+  sourceKind?: SourceEvidence["source"];
   week: number | null;
   /** Moodle and syllabus disagree */
   conflict?: { moodle: DateValue; syllabus: DateValue; comparison: "different" | "incomparable" };
@@ -38,6 +39,8 @@ function newest(sources: SourceEvidence[]): SourceEvidence[] {
   return [...sources].sort((x, y) => {
     const aTime = instantMicros(x.observedAt), bTime = instantMicros(y.observedAt);
     if (aTime !== bTime) return aTime === null ? 1 : bTime === null ? -1 : aTime < bTime ? 1 : -1;
+    const fraction = compareSubmicro(x.observedAt, y.observedAt);
+    if (fraction) return -fraction;
     const a = canonical(x), b = canonical(y);
     return a === b ? 0 : a < b ? 1 : -1;
   });
@@ -81,6 +84,8 @@ export function effectiveSources(snapshot: Snapshot, a: Assessment): SourceEvide
   candidates.sort((a, b) => {
     const x = instantMicros(a.evidence.observedAt), y = instantMicros(b.evidence.observedAt);
     if (x !== y) return x === null ? 1 : y === null ? -1 : x > y ? -1 : 1;
+    const fraction = compareSubmicro(a.evidence.observedAt, b.evidence.observedAt);
+    if (fraction) return -fraction;
     return a.id === b.id ? 0 : a.id > b.id ? -1 : 1;
   });
   if (candidates[0]) current.push(candidates[0].evidence);
@@ -119,6 +124,7 @@ export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Setting
     title: o?.titleOverride || a.title,
     date,
     sourceDate,
+    sourceKind: m?.date.kind !== "unknown" && m ? "moodle" : sy?.date.kind !== "unknown" && sy ? "syllabus" : undefined,
     week: weekOf(date, s.semesterStart, s.timezone),
     conflict,
     overrideDisagreement,
