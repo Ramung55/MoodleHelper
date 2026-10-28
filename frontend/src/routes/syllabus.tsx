@@ -39,6 +39,7 @@ export function Syllabus() {
   const [retryFile, setRetryFile] = useState<File>();
   const [interrupted, setInterrupted] = useState<LocalJob[]>([]);
   const [contextReady, setContextReady] = useState(false);
+  const [showLocalRecords, setShowLocalRecords] = useState(false);
   const cancellation = useRef<AbortController | null>(null);
   const owner = useRef("");
   const boundDataset = useRef<string | null>(null);
@@ -46,18 +47,22 @@ export function Syllabus() {
   useEffect(() => {
     let active = true;
     let sequence = 0;
+    let revealPending = false;
     try {
       owner.current = sessionStorage.getItem("moodle-helper-import-tab") ?? crypto.randomUUID();
       sessionStorage.setItem("moodle-helper-import-tab", owner.current);
     } catch { setLocalStatus("Secure browser storage is unavailable. Local imports cannot start."); }
-    const refresh = async () => {
+    const refresh = async (reveal = false) => {
+      if (!reveal && revealPending) return;
       const request = ++sequence;
+      const generation = contextGeneration.current;
+      if (reveal) revealPending = true;
       try {
         const id = await currentDataset();
         if (!active || request !== sequence) return;
         if (boundDataset.current && boundDataset.current !== id) {
           contextGeneration.current++;
-          cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false);
+          cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false); setShowLocalRecords(false);
           setLocalStatus("The dataset changed. Reload the page to continue with the current courses.");
           return;
         }
@@ -65,19 +70,28 @@ export function Syllabus() {
           const rows = await listLocalDocuments(id);
           const jobs = await recoverLocalJobs(id, owner.current);
           if (!active || request !== sequence) return;
-          boundDataset.current = id; setLocalDocuments(rows); setInterrupted(jobs.filter((job) => job.state === "failed")); setContextReady(true);
+          boundDataset.current = id; setLocalDocuments(rows); setInterrupted(jobs.filter((job) => job.state === "failed")); setContextReady(true); setShowLocalRecords(!document.hidden);
+        } else if (reveal && !document.hidden) {
+          const rows = await listLocalDocuments(id);
+          if (!active || request !== sequence || contextGeneration.current !== generation) return;
+          setLocalDocuments(rows); setShowLocalRecords(true);
         }
       } catch {
         if (!active || request !== sequence) return;
         contextGeneration.current++;
-        cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false);
+        cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false); setShowLocalRecords(false);
         setLocalStatus("Local files are unavailable. Check the backend and reload the page.");
+      } finally {
+        if (request === sequence) revealPending = false;
       }
     };
-    const onFocus = () => { void refresh(); };
+    const onFocus = () => { setShowLocalRecords(false); void refresh(true); };
+    const onVisibility = () => { setShowLocalRecords(false); if (!document.hidden) void refresh(true); };
+    const onPageShow = () => { setShowLocalRecords(false); void refresh(true); };
     void refresh(); window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onPageShow); document.addEventListener("visibilitychange", onVisibility);
     const timer = window.setInterval(() => { void refresh(); }, 2000);
-    return () => { active = false; contextGeneration.current++; window.clearInterval(timer); window.removeEventListener("focus", onFocus); cancellation.current?.abort(); };
+    return () => { active = false; contextGeneration.current++; window.clearInterval(timer); window.removeEventListener("focus", onFocus); window.removeEventListener("pageshow", onPageShow); document.removeEventListener("visibilitychange", onVisibility); cancellation.current?.abort(); };
   }, []);
   const pending = s.candidates.filter((c) => c.status === "pending");
   const decided = s.candidates.filter((c) => c.status !== "pending");
@@ -194,10 +208,10 @@ export function Syllabus() {
             <input ref={fileRef} type="file" aria-label="Syllabus file" aria-busy={importing} disabled={importing || !contextReady} className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />
           </div>
           {localStatus && <p role="status" className="mt-2 text-sm">{localStatus}</p>}
-          {interrupted.map((job) => <p key={job.id} className="mt-2 text-sm">{job.name}: {job.message}</p>)}
+          {showLocalRecords && interrupted.map((job) => <p key={job.id} className="mt-2 text-sm">{job.name}: {job.message}</p>)}
           {importing && <Button size="sm" variant="outline" onClick={() => cancellation.current?.abort()}>Cancel import</Button>}
           {!importing && retryFile && <Button size="sm" variant="outline" onClick={() => void onFile(retryFile)}>Retry selected file</Button>}
-          <ul className="mt-3 space-y-2">{localDocuments.map((d) => <li key={`${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only)</li>)}</ul>
+          <ul className="mt-3 space-y-2">{showLocalRecords && localDocuments.map((d) => <li key={`${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only)</li>)}</ul>
           <ul className="mt-4 space-y-2">
             {s.documents.map((d) => (
               <li key={d.id} className="text-sm">
