@@ -1,7 +1,31 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acquireLocalJobLease, currentDataset, saveLocalDocument } from "@/services/local-documents";
+import { acquireLocalJobLease, currentDataset, saveLocalDocument, readLocalDocument } from "@/services/local-documents";
 afterEach(() => vi.unstubAllGlobals());
 describe("local dataset binding", () => {
+  it.each(["valid", "missing association", "missing blob", "changed", "offline"])("scopes Blob reads and fails closed: %s", async (mode) => {
+    const datasetId = "12345678-1234-4123-8123-123456789abc";
+    const association = { datasetId, courseId: "course", digest: "digest", name: "local.pdf", size: 1, source: "local", createdAt: "now" };
+    const file = new Blob(["local"]); const keys: unknown[] = []; let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls++;
+      if (calls > 1 && mode === "offline") throw new Error("offline");
+      return new Response(JSON.stringify({ datasetId: calls > 1 && mode === "changed" ? "87654321-4321-4321-8321-cba987654321" : datasetId }), { status: 200 });
+    }));
+    const close = vi.fn();
+    const db = { close, transaction: (stores: string[], access: string) => {
+      expect(stores).toEqual(["associations", "blobs"]); expect(access).toBe("readonly");
+      const tx: any = { objectStore: (store: string) => ({ get: (key: unknown) => {
+        keys.push(key);
+        const request = { result: store === "associations" ? (mode === "missing association" ? undefined : association) : (mode === "missing blob" ? undefined : { file }) };
+        return request;
+      } }) };
+      queueMicrotask(() => tx.oncomplete()); return tx;
+    } };
+    vi.stubGlobal("indexedDB", { open: () => { const request: any = { result: db }; queueMicrotask(() => request.onsuccess()); return request; } });
+    const read = readLocalDocument(association, new AbortController().signal);
+    if (mode === "valid") expect(await read).toBe(file); else await expect(read).rejects.toThrow(/unavailable|changed|offline/);
+    expect(keys).toEqual([[datasetId, "course", "digest"], [datasetId, "digest"]]); expect(close).toHaveBeenCalledOnce();
+  });
   it("requests only the opaque context without credentials", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ datasetId: "12345678-1234-4123-8123-123456789abc" }), { status: 200 }));
     vi.stubGlobal("fetch", fetcher);

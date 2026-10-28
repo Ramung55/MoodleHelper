@@ -3,7 +3,7 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { readXrefStream, validateObjectStreams, type XrefEntry } from "./pdf-xref-stream";
 
 /** Bounded classic, stream and hybrid xrefs, including incremental revisions. */
-export async function validatePdf(buffer: ArrayBuffer, signal: AbortSignal): Promise<void> {
+export async function validatePdf(buffer: ArrayBuffer, signal: AbortSignal, maximumPages = 10000): Promise<void> {
   const fail = (reason: string): never => { throw new Error(reason); };
   const bad = () => fail("The PDF is corrupt or uses an unsupported structure. Export a new unencrypted PDF and retry.");
   const check = () => { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); };
@@ -96,13 +96,14 @@ export async function validatePdf(buffer: ArrayBuffer, signal: AbortSignal): Pro
   catch { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); return bad(); }
   check(); GlobalWorkerOptions.workerSrc = workerUrl;
   const task = getDocument({ data: bytes, stopAtErrors: true, verbosity: VerbosityLevel.ERRORS,
-    useWorkerFetch: false, useSystemFonts: false, useWasm: false, disableFontFace: true,
+    useWorkerFetch: false, useSystemFonts: false, useWasm: false, isEvalSupported: false, disableFontFace: true,
     disableAutoFetch: true, disableStream: true, disableRange: true });
   const abort = () => { void task.destroy(); };
   signal.addEventListener("abort", abort, { once: true });
   try {
     const pdf = await task.promise; check();
-    if (pdf.numPages < 1 || pdf.numPages > 10000) return bad();
+    if (pdf.numPages < 1) return bad();
+    if (pdf.numPages > maximumPages) throw new RangeError(`This operation supports at most ${maximumPages} PDF pages. Split the document and retry.`);
     for (let page = 1; page <= pdf.numPages; page++) {
       check();
       const current = await pdf.getPage(page);
@@ -112,6 +113,7 @@ export async function validatePdf(buffer: ArrayBuffer, signal: AbortSignal): Pro
     check();
   } catch (error) {
     if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    if (error instanceof RangeError) throw error;
     if (error instanceof Error && error.name === "PasswordException") return fail("Password-protected PDFs are unsupported. Export an unencrypted copy and retry.");
     return bad();
   } finally { signal.removeEventListener("abort", abort); await task.destroy(); }

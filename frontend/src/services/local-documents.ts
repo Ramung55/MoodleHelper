@@ -121,6 +121,29 @@ export async function listLocalDocuments(datasetId: string): Promise<LocalAssoci
   } finally { db.close(); }
 }
 
+/** Read bytes only through an existing dataset/course/digest association. */
+export async function readLocalDocument(association: LocalAssociation, signal: AbortSignal): Promise<Blob> {
+  const check = () => { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); };
+  check();
+  if (await currentDataset() !== association.datasetId) throw new Error("The dataset changed. Reconnect and retry.");
+  check(); const db = await database();
+  try {
+    const file = await new Promise<Blob>((resolve, reject) => {
+      const tx = db.transaction(["associations", "blobs"], "readonly");
+      const row = tx.objectStore("associations").get([association.datasetId, association.courseId, association.digest]);
+      const blob = tx.objectStore("blobs").get([association.datasetId, association.digest]);
+      tx.oncomplete = () => {
+        if (!row.result || !(blob.result?.file instanceof Blob)) reject(new Error("The original local document is unavailable. Reselect and import it for this course."));
+        else resolve(blob.result.file);
+      };
+      tx.onabort = () => reject(new Error("Could not read the local document. Check browser storage and retry."));
+    });
+    check();
+    if (await currentDataset() !== association.datasetId) throw new Error("The dataset changed. Reconnect and retry.");
+    check(); return file;
+  } finally { db.close(); }
+}
+
 /** Atomic blob and association insertion. Caller must perform validation first. */
 export async function saveLocalDocument(association: LocalAssociation, file: Blob, confirmedCourses: string[], signal: AbortSignal, job?: LocalJob): Promise<"stored" | "duplicate" | "confirmation-required"> {
   if (signal.aborted) throw new DOMException("Cancelled", "AbortError");

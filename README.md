@@ -187,6 +187,11 @@ Deletion asks for confirmation. Failed saves retain the entered values for retry
 Personal events persist in SQLite across reopening, backend restart and the
 existing simulated sync; this does not claim live Moodle collection.
 
+On **Syllabus review**, import a local PDF, then choose **Extract text** to inspect
+page-grouped English/Russian text and original page evidence locally. Image-only
+pages show **OCR needed**. Extraction is session-local, cancellable and limited to
+100 pages; it creates no assessments. See [PDF extraction limits and evidence](_docs/pdf-extraction-25.md).
+
 Run frontend checks from `frontend/`:
 
 ```powershell
