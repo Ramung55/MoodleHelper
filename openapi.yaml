@@ -41,6 +41,46 @@ tags:
 - name: AI availability
 - name: Scan
 paths:
+  /api/syllabus-revisions/preview:
+    post:
+      operationId: previewSyllabusRevision
+      tags: [Assessments]
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/BridgeBinding'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SyllabusRevisionSelection'}
+      responses:
+        '200':
+          description: Reviewed evidence and a revision precondition
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SyllabusRevisionPreview'}
+        '409': {$ref: '#/components/responses/ProposedHttpFailure'}
+        default: {$ref: '#/components/responses/ProposedHttpFailure'}
+  /api/syllabus-revisions/confirm:
+    post:
+      operationId: confirmSyllabusRevision
+      tags: [Assessments]
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/BridgeBinding'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SyllabusRevisionDecision'}
+      responses:
+        '200':
+          description: Updated Snapshot
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Snapshot'}
+        '409': {$ref: '#/components/responses/ProposedHttpFailure'}
+        default: {$ref: '#/components/responses/ProposedHttpFailure'}
   /api/reconciliation/pairs:
     post:
       operationId: proposeReconciliationPair
@@ -2178,6 +2218,71 @@ components:
       - $ref: '#/components/schemas/CalendarDate'
       - $ref: '#/components/schemas/TeachingWeek'
       - $ref: '#/components/schemas/DeadlineRemoved'
+    KnownDateValue:
+      oneOf:
+      - $ref: '#/components/schemas/ExactDate'
+      - $ref: '#/components/schemas/CalendarDate'
+      - $ref: '#/components/schemas/TeachingWeek'
+    SyllabusRevisionSelection:
+      type: object
+      properties:
+        sourceId: {type: string}
+        candidateId: {type: string}
+      required: [sourceId, candidateId]
+    SyllabusRevisionDecision:
+      type: object
+      properties:
+        sourceId: {type: string}
+        candidateId: {type: string}
+        revision: {type: integer, minimum: 0}
+        fingerprint: {type: string}
+      required: [sourceId, candidateId, revision, fingerprint]
+    SyllabusRevisionEvidence:
+      type: object
+      properties:
+        documentId: {type: string}
+        documentName: {type: string}
+        candidateId: {type: string}
+        title: {type: string}
+        date: {$ref: '#/components/schemas/KnownDateValue'}
+        excerpt: {type: string}
+        location: {type: string}
+        observedAt: {type: string}
+        mocked: {type: boolean}
+      required: [documentId, documentName, candidateId, title, date, excerpt, location, observedAt, mocked]
+    SyllabusRevisionPreview:
+      type: object
+      properties:
+        sourceId: {type: string}
+        candidateId: {type: string}
+        revision: {type: integer, minimum: 0}
+        fingerprint: {type: string}
+        target: {$ref: '#/components/schemas/SyllabusRevisionEvidence'}
+        incoming: {$ref: '#/components/schemas/SyllabusRevisionEvidence'}
+      required: [sourceId, candidateId, revision, fingerprint, target, incoming]
+    SyllabusRevisionLink:
+      type: object
+      properties:
+        candidateId: {type: string}
+        documentId: {type: string}
+        memberSourceId: {type: string}
+        assessmentId: {type: string}
+        date: {$ref: '#/components/schemas/KnownDateValue'}
+        decidedAt: {type: string}
+        revision: {type: integer, minimum: 1}
+        fingerprint: {type: string}
+      required: [candidateId, documentId, memberSourceId, assessmentId, date, decidedAt, revision, fingerprint]
+    SyllabusRevisionStream:
+      type: object
+      properties:
+        sourceId: {type: string}
+        assessmentId: {type: string}
+        revision: {type: integer, minimum: 1}
+        links:
+          type: array
+          items: {$ref: '#/components/schemas/SyllabusRevisionLink'}
+          minItems: 1
+      required: [sourceId, assessmentId, revision, links]
     DeadlineStream:
       oneOf:
       - type: object
@@ -2216,6 +2321,9 @@ components:
         sourceId: {type: string}
         sourceUrl: {type: string}
         sourceObservedAt: {type: string}
+        sourceKind: {type: string, enum: [moodle, syllabus]}
+        sourceDocumentId: {type: string}
+        sourceCandidateId: {type: string}
       required:
       - id
       - assessmentId
@@ -2409,6 +2517,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DeadlineStream'
+        syllabusRevisions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyllabusRevisionStream'
       required:
       - courses
       - assessments
