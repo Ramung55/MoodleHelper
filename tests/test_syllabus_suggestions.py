@@ -1,3 +1,4 @@
+import pytest
 from copy import deepcopy
 from fastapi.testclient import TestClient
 from backend.main import create_app
@@ -11,12 +12,15 @@ def record():
     return dict(id='stable-id', courseId='c-csc', kind='material', firstObservedAt=ref['observedAt'], lastObservedAt=ref['observedAt'], observations=[obs])
 
 
-def test_dismiss_restore_is_atomic_and_scoped_across_reopening(tmp_path):
+@pytest.mark.parametrize("kind", ["file", "link"])
+def test_dismiss_restore_is_atomic_and_scoped_across_reopening(tmp_path, kind):
     url = f"sqlite:///{(tmp_path / 'data.db').as_posix()}"
     other_ns = namespace_key('moodle', origin='https://moodle.sdu.edu.kz', profile_label='other', stable_user_id='7')
     a, b = SQLiteStore(url), SQLiteStore(url, other_ns)
+    candidate = record()
+    candidate['observations'][0]['kind'] = kind
     for store in (a, b):
-        store.mutate(lambda s: s.update(collection={'records':[record()], 'reviews':[], 'refreshes':[]}))
+        store.mutate(lambda s: s.update(collection={'records':[deepcopy(candidate)], 'reviews':[], 'refreshes':[]}))
     client = TestClient(create_app(a))
     assert client.post('/api/syllabus-suggestions/dismissal', json={'recordId':'missing','dismissed':True}).status_code == 422
     assert client.post('/api/syllabus-suggestions/dismissal', json={'recordId':'stable-id','dismissed':True, 'namespace':other_ns}).status_code == 422

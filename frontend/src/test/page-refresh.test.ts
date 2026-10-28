@@ -166,6 +166,22 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
     expect(layer.refreshes[0]).toMatchObject({scope:'supplied_ranges_only',coverage:'partial',pages:[{range:{start:'2026-10-01',end:'2026-10-31'}}]});
     expect(layer.reviews[0]!.candidate).not.toHaveProperty('sourceCourseId');expect(saved.sync).toEqual(seed.sync);f.coordinator.stop();
   });
+  it('dismisses and restores a collected URL resource across SQLite restart',async()=>{
+    const html=course('<article data-region="material" data-module-type="url" data-course-module-id="204"><a data-role="material-link" href="/mod/url/view.php?id=204">Syllabus</a><a data-role="destination" href="https://docs.example/syllabus.pdf?id=42">Open</a></article>');
+    const f=setup(fixture(materialInput(html)));f.coordinator.notify();await until(()=>f.coordinator.state.receipts.length===1);f.coordinator.stop();
+    const saved=await api.load();const item=saved.collection!.records.find(r=>r.kind==='material')!;expect(item.observations[0]!.kind).toBe('link');
+    const calls:string[]=[];const originalFetch=globalThis.fetch;const spy=vi.spyOn(globalThis,'fetch').mockImplementation((url,init)=>{calls.push(String(url));return originalFetch(url,init);});
+    function Harness(){const {snap}=useApp();return snap?createElement(Syllabus):createElement('p',null,'Loading');}
+    try {
+      const view=render(createElement(AppProvider,{children:createElement(Harness)}));
+      expect(await screen.findByRole('link',{name:'Original link'})).toHaveAttribute('href','https://docs.example/syllabus.pdf?id=42');
+      fireEvent.click(screen.getByRole('button',{name:'Dismiss'}));await screen.findByRole('button',{name:'Restore'});
+      expect((await api.load()).dismissedSyllabusSuggestions).toEqual([item.id]);view.unmount();cleanup();
+      await stop();await start();expect((await api.load()).dismissedSyllabusSuggestions).toEqual([item.id]);
+      const restored=render(createElement(AppProvider,{children:createElement(Harness)}));fireEvent.click(await screen.findByRole('button',{name:'Restore'}));await screen.findByRole('button',{name:'Dismiss'});
+      expect((await api.load()).dismissedSyllabusSuggestions).toEqual([]);expect(calls.some(url=>/docs\.example|pluginfile|documents\/import/.test(url))).toBe(false);restored.unmount();cleanup();
+    } finally {spy.mockRestore();}
+  },15000);
   it('dispatches real materials including unknown metadata and exact folder listing proof',async()=>{
     const input=materialInput(`${account}<main data-region="activity" data-module-type="folder" data-course-module-id="301"><h1>Synthetic folder</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><span data-role="material-section">Week 2</span><ul data-region="folder-contents"><li data-region="folder-entry" data-entry-kind="file" data-file-id="401"><a data-role="entry-link" href="/pluginfile.php/701/mod_folder/content/2/slides.pptx">Slides</a></li></ul></main>`,'/mod/folder/view.php?id=301');
     const f=setup(fixture(input));f.coordinator.notify();await until(()=>f.coordinator.state.receipts.length===1);
