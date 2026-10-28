@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isOutstanding, reconciledSourceDate, viewAssessment } from "@/domain/assessments";
 import { eligibleAlerts } from "@/domain/alerts";
 import { makeBackup, previewRestore } from "@/domain/backup";
-import { weekOfYmd } from "@/domain/dates";
+import { instantMicros, weekOfYmd } from "@/domain/dates";
 import { canAutoAccept, checkFormat, proposeMatches } from "@/domain/extraction";
 import { weeklyLoad } from "@/domain/workload";
 import type { Assessment, ExtractionCandidate } from "@/domain/types";
@@ -20,6 +20,13 @@ const mk = (x: Partial<Assessment>): Assessment => ({
 const memKV = (): KV => { const m = new Map<string, string>(); return { get: (k) => m.get(k) ?? null, set: (k, v) => void m.set(k, v), remove: (k) => void m.delete(k) }; };
 
 describe("dates", () => {
+  it("orders Python-compatible legacy instants across the supported year range", () => {
+    expect(instantMicros("0001-01-01T00:00:00Z")).toBe(-62135596800000000n);
+    expect(instantMicros("9999-12-31T23:59:59.999999Z")).toBe(253402300799999999n);
+    expect(instantMicros("99991231 235959.999999+0100")).toBe(instantMicros("9999-12-31T22:59:59.999999Z"));
+    expect(instantMicros("2026-W01-1T12:30.5+05:30.5")).toBe(instantMicros("2025-12-29T07:00:00Z"));
+    expect(instantMicros("0001-01-01T00:00:00+01:00")).toBeNull();
+  });
   it("maps days to teaching weeks", () => {
     expect(weekOfYmd("2026-09-01", "2026-09-01")).toBe(1);
     expect(weekOfYmd("2026-09-08", "2026-09-01")).toBe(2);

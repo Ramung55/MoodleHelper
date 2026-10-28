@@ -57,14 +57,42 @@ export function sortKey(d: DateValue, semesterStart: string): number {
 }
 
 /** Parse an explicitly zoned instant without dropping sub-millisecond precision. */
-export function instantMicros(iso: string): number | null {
-  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(iso)) return null;
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return null;
-  const fraction = iso.match(/[.,](\d+)(?=Z|[+-]\d{2}:\d{2}$)/i)?.[1] ?? "";
-  const tail = Number(fraction.padEnd(6, "0").slice(3, 6));
-  const micros = ms * 1000 + tail;
-  return Number.isSafeInteger(micros) ? micros : null;
+export function instantMicros(iso: string): bigint | null {
+  // Match Python's datetime.fromisoformat forms, including compact dates,
+  // week dates, arbitrary single-character separators and offset seconds.
+  const match = /^(\d{4})(?:(-?)(\d{2})\2(\d{2})|(-?)W(\d{2})(?:\5(\d))?)(.)(\d{2})(?:(:?)(\d{2})(?:\10(\d{2}))?)?(?:[.,](\d+))?(Z|[+-]\d{2}(?::?\d{2}(?::?\d{2})?)?(?:[.,]\d+)?)$/.exec(iso);
+  if (!match) return null;
+  const year = Number(match[1]), hour = Number(match[9]), minute = Number(match[11] ?? 0), second = Number(match[12] ?? 0);
+  if (year < 1 || hour > 23 || minute > 59 || second > 59) return null;
+  const day = new Date(0);
+  day.setUTCHours(0, 0, 0, 0);
+  if (match[6]) {
+    const week = Number(match[6]), weekday = Number(match[7] ?? 1);
+    if (week < 1 || week > 53 || weekday < 1 || weekday > 7) return null;
+    day.setUTCFullYear(year, 0, 4);
+    day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7) + (week - 1) * 7 + weekday - 1);
+    const thursday = new Date(day); thursday.setUTCDate(day.getUTCDate() + 4 - weekday);
+    if (thursday.getUTCFullYear() !== year) return null;
+  } else {
+    const month = Number(match[3]), date = Number(match[4]);
+    day.setUTCFullYear(year, month - 1, date);
+    if (day.getUTCFullYear() !== year || day.getUTCMonth() !== month - 1 || day.getUTCDate() !== date) return null;
+  }
+  const zone = match[14]!;
+  let offset = 0n;
+  if (zone !== "Z") {
+    const z = /^([+-])(\d{2})(?::?(\d{2})(?::?(\d{2}))?)?(?:[.,](\d+))?$/.exec(zone)!;
+    const zh = Number(z[2]), zm = Number(z[3] ?? 0), zs = Number(z[4] ?? 0);
+    const seconds = zh * 3600 + zm * 60 + zs;
+    // Python normalizes offset minutes/seconds; a zero offset ignores its
+    // fractional component. The resulting offset must stay below 24 hours.
+    offset = BigInt(seconds) * 1000000n + (seconds ? BigInt((z[5] ?? "").padEnd(6, "0").slice(0, 6)) : 0n);
+    if (offset >= 86400000000n) return null;
+    if (z[1] === "-") offset = -offset;
+  }
+  const result = BigInt(day.getTime() + (hour * 3600 + minute * 60 + second) * 1000) * 1000n + BigInt((match[13] ?? "").padEnd(6, "0").slice(0, 6)) - offset;
+  // Python rejects UTC conversion outside datetime's supported years.
+  return result < -62135596800000000n || result > 253402300799999999n ? null : result;
 }
 
 export function sameDate(a: DateValue | undefined, b: DateValue | undefined): boolean {

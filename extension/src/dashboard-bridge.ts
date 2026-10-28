@@ -110,6 +110,16 @@ export function createWorker(options: {
         signal: controller.signal,
       });
       if (response.status === 409) {
+        if (path === "/api/reconciliation/pairs" || path === "/api/reconciliation/decisions") {
+          // The binding middleware uses this fixed response when the backend
+          // restarted. Other 409s on these routes are review conflicts.
+          const text = await response.text();
+          let bindingChanged = false;
+          if (new TextEncoder().encode(text).length <= 1024 * 1024) {
+            try { const value = JSON.parse(text); bindingChanged = closed(value, ["message"]) && value.message === "Backend context changed. Reconnect."; } catch { /* fail closed */ }
+          }
+          if (!bindingChanged) throw "REVIEW_CONFLICT";
+        }
         sessions.clear();
         throw "RECONNECT_REQUIRED";
       }
@@ -232,6 +242,7 @@ export function createWorker(options: {
             "INVALID_RESPONSE",
             "TOO_LARGE",
             "SYNC_UNAVAILABLE",
+            "REVIEW_CONFLICT",
           ].includes(e)
           ? (e as any)
           : "BACKEND_UNAVAILABLE",

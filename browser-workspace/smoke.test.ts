@@ -9,7 +9,7 @@ describe("emitted browser modules", () => {
       await access(fileURLToPath(artifact));
       const module = await import(/* @vite-ignore */ artifact.href);
       expect(module.catalog).toBeDefined();
-      expect(Object.keys(module.catalog)).toHaveLength(20);
+      expect(Object.keys(module.catalog)).toHaveLength(22);
     });
   }
 });

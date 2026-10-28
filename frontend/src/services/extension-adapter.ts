@@ -190,10 +190,10 @@ export class BridgeClient implements MoodleHelperAdapter {
     return this.send("review", { id, body });
   }
   async proposeReconciliation(left: string, right: string): Promise<Snapshot> {
-    return this.send("proposeReconciliation", { left, right });
+    return this.send("proposeReconciliationPair", { left, right });
   }
   async decideReconciliation(pairId: string, fingerprint: string, reviewRevision: string, kind: "confirm" | "reject", choices: Record<string, string>): Promise<Snapshot> {
-    return this.send("decideReconciliation", { pairId, fingerprint, reviewRevision, kind, choices });
+    return this.send("decideReconciliationPair", { pairId, fingerprint, reviewRevision, kind, choices });
   }
   downloadMaterial(
     id: string,

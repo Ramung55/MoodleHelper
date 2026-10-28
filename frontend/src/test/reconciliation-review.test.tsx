@@ -57,6 +57,15 @@ describe("match review controls with invented data", () => {
     mount();
     expect(await screen.findByText(/Moodle: Invented Moodle assignment/, { selector: "p" })).toHaveTextContent("4 Nov");
   });
+  it("orders far-future and legacy offset timestamps like the backend", async () => {
+    saved.assessments[0].sources = [
+      { source: "moodle", date: { kind: "date", date: "2026-11-01" }, observedAt: "0001-01-01T00:00:00Z" },
+      { source: "moodle", date: { kind: "date", date: "2026-11-03" }, observedAt: "9999-12-31T22:59:59.999998Z" },
+      { source: "moodle", date: { kind: "date", date: "2026-11-04" }, observedAt: "99991231 235959.999999+0100" },
+    ];
+    mount();
+    expect(await screen.findByText(/Moodle: Invented Moodle assignment/, { selector: "p" })).toHaveTextContent("4 Nov");
+  });
   it("shows both sources and requires a choice for conflicting personal titles before confirming", async () => {
     mount();
     expect(await screen.findByText(/Moodle: Invented Moodle assignment/, { selector: "p" })).toHaveTextContent("CSS 215");

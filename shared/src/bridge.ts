@@ -13,6 +13,7 @@ export const errors = {
   BACKEND_UNAVAILABLE: "Start the local backend on 127.0.0.1:8000, then reconnect.",
   INVALID_RESPONSE: "The bridge returned an invalid response. Reload and reconnect.",
   DUPLICATE_CONFLICT: "This request ID was already used for different work.", BUSY: "The bridge is busy. Wait before trying again.",
+  REVIEW_CONFLICT: "The match or its evidence changed. Refresh and review it again.",
   TOO_LARGE: "The bridge message exceeds the size limit.", TIMEOUT: "The operation timed out. Its outcome may be unknown. Refresh saved data before manually retrying; do not repeat a write blindly.",
   MISSING_EXTENSION: "Install or enable Moodle Helper, allow this local site, then reload and reconnect.",
   RECONNECT_REQUIRED: "The bridge session changed. Update Chrome to 106 or newer if needed, reload and reconnect. A pending write may have completed; refresh saved data before manually retrying.",

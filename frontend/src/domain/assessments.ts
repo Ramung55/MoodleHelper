@@ -34,15 +34,10 @@ function canonical(value: unknown): string {
   return JSON.stringify(value).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
-function observed(source: SourceEvidence): number {
-  return instantMicros(source.observedAt) ?? Number.NEGATIVE_INFINITY;
-}
-
 function newest(sources: SourceEvidence[]): SourceEvidence[] {
   return [...sources].sort((x, y) => {
-    const difference = observed(y) - observed(x);
-    if (Number.isFinite(difference) && difference !== 0) return difference;
-    if (observed(x) !== observed(y)) return observed(y) > observed(x) ? 1 : -1;
+    const aTime = instantMicros(x.observedAt), bTime = instantMicros(y.observedAt);
+    if (aTime !== bTime) return aTime === null ? 1 : bTime === null ? -1 : aTime < bTime ? 1 : -1;
     const a = canonical(x), b = canonical(y);
     return a === b ? 0 : a < b ? 1 : -1;
   });

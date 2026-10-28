@@ -191,11 +191,17 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
       expect((await client.currentMockRun()).run.status).toBe('cancelled');
     } finally {popup.dispose();dom.window.close();}
   }, 30000);
-  it("executes and inspects all 17 operations with actual mutation/read results", async () => {
+  it("exercises every catalog operation through the real backend", async () => {
     expect((await client.connect()).moodleCollection).toBe("unavailable");
     expect((await client.connection()).state).toBe("demo");
     const original = await client.load();
     expect(original.courses.length).toBeGreaterThan(0);
+    // Invalid identities reach the real service and fail closed; they must not
+    // be rejected locally because the adapter used an unregistered operation.
+    await expect(client.proposeReconciliation("missing-left", "missing-right")).rejects.toMatchObject({ code: "REVIEW_CONFLICT" });
+    await expect(client.decideReconciliation("missing", "fingerprint", "revision", "reject", {})).rejects.toMatchObject({ code: "REVIEW_CONFLICT" });
+    expect(traffic.some((t) => t.url.endsWith("/reconciliation/pairs") && t.status === 409)).toBe(true);
+    expect(traffic.some((t) => t.url.endsWith("/reconciliation/decisions") && t.status === 409)).toBe(true);
     const discovered = await client.ingestCourseDiscovery([
       {
         sourceCourseId: "777",
