@@ -20,9 +20,13 @@ async function decode(data: Uint8Array, compressed: boolean, limit: number, sign
 }
 
 export async function readXrefStream(bytes: Uint8Array, text: string, offset: number, end: number, signal: AbortSignal): Promise<{ trailer: string; entries: { object: number; generation: number; inUse: boolean; position: number }[] }> {
-  const header = /^(\d+)\s+(\d+)\s+obj\s*<<((?:(?!<<|>>)[\s\S])*)>>\s*stream(?:\r\n|\r|\n)/.exec(text.slice(offset, end));
+  const header = /^(\d+)\s+(\d+)\s+obj\s*<<((?:(?!<<|>>)[\s\S]|<<(?:(?!<<|>>)[\s\S])*>>)*)>>\s*stream(?:\r\n|\r|\n)/.exec(text.slice(offset, end));
   if (!header) return fail();
-  const dictionary = header[3]!;
+  let dictionary = header[3]!;
+  const params = [...dictionary.matchAll(/\/DecodeParms\s*<<((?:(?!<<|>>)[\s\S])*)>>/g)];
+  if (params.length > 1 || (/\/(?:DecodeParms|DP)\b/.test(dictionary) && params.length !== 1)) return fail();
+  if (params.length) dictionary = dictionary.replace(params[0]![0], '');
+  if (/<<|>>/.test(dictionary)) return fail();
   const single = (pattern: RegExp): RegExpMatchArray | null => {
     const matches = [...dictionary.matchAll(pattern)];
     if (matches.length > 1) return fail();
@@ -54,7 +58,39 @@ export async function readXrefStream(bytes: Uint8Array, text: string, offset: nu
   const expected = count * widths.reduce((a,b)=>a+b,0), start = offset + header[0].length, finish = start + length;
   const footer = /^(?:\r\n|\r|\n)endstream\s*endobj\s*startxref\s+(\d+)\s+%%EOF(?:\s|$)/.exec(text.slice(finish));
   if (expected > 2_000_000 || finish > end || !footer || Number(footer[1]) !== offset) return fail();
-  const data = await decode(bytes.slice(start, finish), !!filter, expected, signal);
+  let columns = 0;
+  if (params.length) {
+    if (!filter) return fail();
+    const settings = params[0]![1]!.trim();
+    const pairs = [...settings.matchAll(/\/([A-Za-z]+)\s+(\d+)/g)];
+    if (settings.replace(/\/([A-Za-z]+)\s+(\d+)/g, '').trim() || new Set(pairs.map(p => p[1])).size !== pairs.length) return fail();
+    const values = new Map(pairs.map(p => [p[1]!, Number(p[2])]));
+    if ([...values.keys()].some(k => !['Predictor','Columns','Colors','BitsPerComponent'].includes(k))) return fail();
+    const predictor = values.get('Predictor') ?? 1;
+    columns = values.get('Columns') ?? 1;
+    if (predictor < 10 || predictor > 15 || (values.get('Colors') ?? 1) !== 1 || (values.get('BitsPerComponent') ?? 8) !== 8 || !Number.isSafeInteger(columns) || columns < 1 || columns > expected || expected % columns !== 0) return fail();
+  }
+  const rows = columns ? expected / columns : 0;
+  const encoded = await decode(bytes.slice(start, finish), !!filter, expected + rows, signal);
+  let data = encoded;
+  if (columns) {
+    if (encoded.length !== expected + rows) return fail();
+    data = new Uint8Array(expected);
+    for (let row=0; row<rows; row++) {
+      if (signal.aborted) throw new DOMException('Cancelled','AbortError');
+      const mode = encoded[row*(columns+1)]!; if (mode > 4) return fail();
+      for (let col=0; col<columns; col++) {
+        const position=row*columns+col, raw=encoded[row*(columns+1)+col+1]!;
+        const left=col ? data[position-1]! : 0, above=row ? data[position-columns]! : 0, upperLeft=row && col ? data[position-columns-1]! : 0;
+        let value=0;
+        if (mode === 1) value=left;
+        else if (mode === 2) value=above;
+        else if (mode === 3) value=Math.floor((left+above)/2);
+        else if (mode === 4) { const p=left+above-upperLeft, a=Math.abs(p-left), b=Math.abs(p-above), c=Math.abs(p-upperLeft); value=a<=b && a<=c ? left : b<=c ? above : upperLeft; }
+        data[position]=(raw+value)&255;
+      }
+    }
+  }
   if (data.length !== expected) return fail();
   let cursor = 0;
   const read = (width: number): number => { let value=0; for (let n=0;n<width;n++) value=value*256+data[cursor++]!; return value; };

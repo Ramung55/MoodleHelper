@@ -53,6 +53,21 @@ describe("PDF structural gate", () => {
     await expect(validate(Uint8Array.from(rebuilt))).rejects.toThrow(/corrupt/);
     expect(getDocument).not.toHaveBeenCalled();
   });
+  it('accepts PNG-predictor xref rows and rejects invalid filters and row sizes', async () => {
+    vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
+    const source = readFileSync('src/test/fixtures/local-predictor.pdf');
+    await expect(validate(Uint8Array.from(source))).resolves.toBeUndefined();
+    getDocument.mockClear();
+    const text = source.toString('latin1'), headerStart = text.indexOf('4 0 obj');
+    const start = text.indexOf('stream\n', headerStart) + 7;
+    const header = text.slice(headerStart, start), length = Number(/\/Length (\d+)/.exec(header)![1]);
+    const raw = inflateSync(source.subarray(start, start + length)); raw[0] = 5;
+    const corrupted = deflateSync(raw);
+    const rebuilt = Buffer.concat([source.subarray(0,headerStart), Buffer.from(header.replace(/\/Length \d+/, `/Length ${corrupted.length}`),'latin1'), corrupted, source.subarray(start+length)]);
+    await expect(validate(Uint8Array.from(rebuilt))).rejects.toThrow(/corrupt/);
+    await expect(validate(Uint8Array.from(Buffer.from(text.replace('/Columns 7','/Columns 8'),'latin1')))).rejects.toThrow(/corrupt/);
+    expect(getDocument).not.toHaveBeenCalled();
+  });
   it('rejects a compressed object stream exceeding the bounded expanded size', async () => {
     vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
     const bytes = Uint8Array.from(readFileSync('src/test/fixtures/local-object-bomb.pdf'));
