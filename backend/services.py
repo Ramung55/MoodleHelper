@@ -227,9 +227,6 @@ class BackendService:
             if len(candidates) != 1:
                 raise ValueError('Candidate identity is ambiguous. No review was saved.')
             candidate = candidates[0]
-            if decision['kind'] == 'reject':
-                candidate['status'] = 'rejected'
-                return
             if candidate['status'] != 'pending':
                 same = (decision['kind'] == 'reject' and candidate['status'] == 'rejected' or
                         decision['kind'] == 'confirm' and candidate['status'] == 'confirmed' or
@@ -238,6 +235,9 @@ class BackendService:
                 if same:
                     return
                 raise ValueError('This candidate already has a different decision. Refresh and review it.')
+            if decision['kind'] == 'reject':
+                candidate['status'] = 'rejected'
+                return
             if decision["kind"] == "correct":
                 candidate.update({key: decision[key] for key in ("title", "date", "type")})
             t = stamp()

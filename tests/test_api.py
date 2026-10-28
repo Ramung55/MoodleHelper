@@ -202,9 +202,16 @@ def test_confirm_attach_reject_and_missing_review(client):
     merged = next(a for a in attached["assessments"] if a["id"] == "a2")
     assert merged["sources"][:-1] == original["sources"]
     assert merged["sources"][-1]["source"] == "syllabus"
-    rejected = client.post("/api/candidates/k1/review", json={"kind": "reject"}).json()
-    assert rejected["candidates"][0]["status"] == "rejected"
-    assert rejected["assessments"] == attached["assessments"]
+    stale = client.post("/api/candidates/k1/review", json={"kind": "reject"})
+    assert stale.status_code == 409 and "different decision" in stale.json()['message']
+    assert snapshot(client) == attached
+    assert client.post("/api/candidates/k1/review", json={"kind": "confirm"}).json() == attached
+    imported = client.post('/api/documents/import', json={'courseId':'c-csc','fileName':'fictional.pdf'}).json()['snapshot']
+    candidate = imported['candidates'][-1]
+    rejected = client.post(f"/api/candidates/{candidate['id']}/review", json={"kind": "reject"}).json()
+    assert rejected['candidates'][-1]['status'] == 'rejected'
+    assert rejected['assessments'] == attached['assessments']
+    assert client.post(f"/api/candidates/{candidate['id']}/review", json={"kind": "reject"}).json() == rejected
     assert client.post("/api/candidates/missing/review", json={"kind": "confirm"}).json() == rejected
 
 

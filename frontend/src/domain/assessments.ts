@@ -55,7 +55,7 @@ export function reconciledSourceDate(sources: SourceEvidence[]): DateValue {
   return (perSource.find((s) => s.date.kind !== "unknown") ?? perSource[0]).date;
 }
 
-function latest(sources: SourceEvidence[], src: SourceEvidence["source"]) {
+export function latest(sources: SourceEvidence[], src: SourceEvidence["source"]) {
   return newest(sources.filter((s) => s.source === src))[0];
 }
 

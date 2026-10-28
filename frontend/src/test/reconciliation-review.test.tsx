@@ -47,6 +47,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("match review controls with invented data", () => {
+  it("shows the same latest evidence used for reconciliation, including microseconds and ties", async () => {
+    const moodle = saved.assessments[0];
+    moodle.sources = [
+      { source: "moodle", date: { kind: "date", date: "2026-11-01" }, observedAt: "2026-10-27T10:00:00.123001Z" },
+      { source: "moodle", date: { kind: "date", date: "2026-11-03" }, observedAt: "2026-10-27T10:00:00.123002Z" },
+      { source: "moodle", date: { kind: "date", date: "2026-11-04" }, observedAt: "2026-10-27T10:00:00.123002Z" },
+    ];
+    mount();
+    expect(await screen.findByText(/Moodle: Invented Moodle assignment/, { selector: "p" })).toHaveTextContent("4 Nov");
+  });
   it("shows both sources and requires a choice for conflicting personal titles before confirming", async () => {
     mount();
     expect(await screen.findByText(/Moodle: Invented Moodle assignment/, { selector: "p" })).toHaveTextContent("CSS 215");

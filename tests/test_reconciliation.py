@@ -244,6 +244,27 @@ def test_competing_decisions_serialize_and_failure_after_write_rolls_back(harnes
     finally: other.close()
 
 
+def test_competing_extraction_decisions_are_atomic_and_replay_safe(harness):
+    client,store,path=harness
+    imported=client.post('/api/documents/import',json={'courseId':'c-csc','fileName':'fictional.pdf','contentDigest':'e'*64})
+    candidate=imported.json()['snapshot']['candidates'][-1]
+    other=SQLiteStore(URL.create('sqlite',database=str(path)),namespace=store.namespace)
+    try:
+        def act(kind, repo):
+            with TestClient(create_app(repo)) as contender:
+                return contender.post(f"/api/candidates/{candidate['id']}/review",json={'kind':kind}).status_code
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            a=executor.submit(act,'confirm',store);b=executor.submit(act,'reject',other)
+            assert sorted([a.result(),b.result()])==[200,409]
+        saved=store.read();status=next(c['status'] for c in saved['candidates'] if c['id']==candidate['id'])
+        assert status in ('confirmed','rejected')
+        assert sum(a['id']==f"syl-{candidate['id']}" for a in saved['assessments'])==int(status=='confirmed')
+        assert client.post(f"/api/candidates/{candidate['id']}/review",json={'kind':'confirm' if status=='confirmed' else 'reject'}).json()==saved
+        assert client.post(f"/api/candidates/{candidate['id']}/review",json={'kind':'reject' if status=='confirmed' else 'confirm'}).status_code==409
+        assert store.read()==saved==other.read()
+    finally: other.close()
+
+
 def test_namespace_isolation_and_foreign_restore_fails_closed(harness):
     client,store,path=harness
     collect_assignment(client);original=store.read()
