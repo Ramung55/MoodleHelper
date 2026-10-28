@@ -11,7 +11,7 @@ import { rankSyllabusSuggestions } from "@/domain/syllabus-suggestions";
 import { formatDate } from "@/domain/dates";
 import type { DateValue, ExtractionCandidate } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
-import { currentDataset, listLocalDocuments, saveLocalDocument, type LocalAssociation } from "@/services/local-documents";
+import { currentDataset, listLocalDocuments, saveLocalDocument, updateLocalJob, recoverLocalJobs, type LocalAssociation, type LocalJob } from "@/services/local-documents";
 import { validateDocx } from "@/services/validate-docx";
 
 const LOCAL_FILE_LIMIT = 20 * 1024 * 1024;
@@ -37,9 +37,16 @@ export function Syllabus() {
   const [localDocuments, setLocalDocuments] = useState<LocalAssociation[]>([]);
   const [localStatus, setLocalStatus] = useState("");
   const [retryFile, setRetryFile] = useState<File>();
+  const [interrupted, setInterrupted] = useState<LocalJob[]>([]);
   const cancellation = useRef<AbortController | null>(null);
+  const owner = useRef("");
   useEffect(() => {
     let active = true;
+    try {
+      owner.current = sessionStorage.getItem("moodle-helper-import-tab") ?? crypto.randomUUID();
+      sessionStorage.setItem("moodle-helper-import-tab", owner.current);
+      void currentDataset().then((id) => recoverLocalJobs(id, owner.current)).then((jobs) => { if (active) setInterrupted(jobs.filter((job) => job.state === "failed")); }).catch(() => { if (active) setLocalStatus("Could not recover local import status. Check browser storage and retry."); });
+    } catch { setLocalStatus("Secure browser storage is unavailable. Local imports cannot start."); }
     const refresh = () => {
       setLocalDocuments([]);
       void currentDataset().then(listLocalDocuments).then((rows) => { if (active) setLocalDocuments(rows); }).catch(() => { if (active) setLocalStatus("Local files are unavailable. Check the backend and browser storage, then retry."); });
@@ -62,6 +69,7 @@ export function Syllabus() {
   const onFile = async (f?: File) => {
     if (!f) return;
     const controller = new AbortController(); cancellation.current = controller;
+    let job: LocalJob | undefined;
     setRetryFile(f);
     setImporting(true);
     setLocalStatus("Queued for local validation.");
@@ -70,17 +78,26 @@ export function Syllabus() {
       if (f.size > LOCAL_FILE_LIMIT) throw new Error("The file exceeds the 20 MiB limit. Choose a smaller file.");
       if (/\.doc$/i.test(f.name)) throw new Error("Legacy .doc is unsupported. Export it as DOCX.");
       if (/\.(gdoc|gsheet|gslides)$/i.test(f.name)) throw new Error("Export the Google document as PDF or DOCX and select the exported file.");
-      if (/\.pdf$/i.test(f.name)) throw new Error("PDF validation is not yet available. Select a DOCX file instead.");
-      if (!/\.docx$/i.test(f.name)) throw new Error("Choose a DOCX file. Google Docs must first be exported.");
+      if (!/\.(pdf|docx)$/i.test(f.name)) throw new Error("Choose a PDF or DOCX file. Google Docs must first be exported.");
       const datasetId = await currentDataset();
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      if (!owner.current || !crypto.randomUUID) throw new Error("Secure browser storage is unavailable. Retry in a supported browser.");
+      job = { datasetId, owner: owner.current, id: crypto.randomUUID(), name: f.name, courseId: course, state: "queued", message: "Queued" };
+      await updateLocalJob(job);
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      job = { ...job, state: "parsing", message: "Validating locally" };
+      await updateLocalJob(job);
       setLocalStatus("Parsing: validating and hashing locally; no extraction is performed.");
       const bytes = await f.arrayBuffer();
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
-      await validateDocx(bytes, controller.signal);
       if (!globalThis.crypto?.subtle) throw new Error("Secure hashing is unavailable in this browser. Use a secure local origin and retry.");
       const hash = await crypto.subtle.digest("SHA-256", bytes);
       const digest = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      if (/\.pdf$/i.test(f.name)) {
+        const { validatePdf } = await import("@/services/validate-pdf");
+        await validatePdf(bytes, controller.signal);
+      } else await validateDocx(bytes, controller.signal);
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       let rows = await listLocalDocuments(datasetId);
       const others = rows.filter((row) => row.digest === digest && row.courseId !== course).map((row) => row.courseId);
@@ -89,15 +106,19 @@ export function Syllabus() {
         const labels = others.map((id) => s.courses.find((c) => c.id === id)?.code ?? id).join(", ");
         if (!window.confirm(`This document is already associated with ${labels}. Also associate it with ${s.courses.find((c) => c.id === course)?.code}?`)) throw new DOMException("Cancelled", "AbortError");
       }
-      const result = await saveLocalDocument({ datasetId, courseId: course, digest, name: f.name, size: f.size, source: selected?.title ?? "Local selection", createdAt: new Date().toISOString() }, f, confirmed, controller.signal);
+      const result = await saveLocalDocument({ datasetId, courseId: course, digest, name: f.name, size: f.size, source: selected?.title ?? "Local selection", createdAt: new Date().toISOString() }, f, confirmed, controller.signal, job);
       if (result === "confirmation-required") throw new Error("Another course association was added. Retry to review it.");
       cancellation.current = null;
+      setInterrupted((jobs) => jobs.filter((entry) => entry.name !== f.name || entry.courseId !== course));
       setLocalStatus(result === "duplicate" ? "Already associated with this course." : "Complete: validated and stored locally. Extraction has not been performed.");
       setRetryFile(undefined);
       try { rows = await listLocalDocuments(datasetId); setLocalDocuments(rows); }
       catch { setLocalDocuments([]); setLocalStatus("Saved locally, but the dataset changed or is unavailable. Reconnect to view it."); }
     } catch (e) {
-      setLocalStatus(e instanceof DOMException && e.name === "AbortError" ? "Cancelled. No association was added." : `Failed: ${e instanceof Error ? e.message : "Local import failed. Retry."}`);
+      const cancelled = e instanceof DOMException && e.name === "AbortError";
+      const message = cancelled ? "Cancelled. No association was added." : `Failed: ${e instanceof Error ? e.message : "Local import failed. Retry."}`;
+      setLocalStatus(message);
+      if (job) { try { await updateLocalJob({ ...job, state: cancelled ? "cancelled" : "failed", message }); } catch { /* dataset/storage unavailable; recovery will report interruption */ } }
     } finally {
       setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -128,7 +149,7 @@ export function Syllabus() {
         </section>
         <section className="rounded-lg border bg-card p-4">
           <h2 className="mb-2 text-lg font-semibold">Import a file</h2>
-          <p className="mb-3 text-sm text-muted-foreground">Select a local DOCX up to 20 MiB. PDF validation is not yet available. Files stay in this browser profile and origin; clearing browser storage removes them.</p>
+          <p className="mb-3 text-sm text-muted-foreground">Select a local PDF or DOCX up to 20 MiB. Some PDF and ZIP structures are unsupported; export a new copy if validation fails. Files stay in this browser profile and origin; clearing browser storage removes them.</p>
           {selected && <p className="mb-3 text-sm">Selected resource: {selected.title}. Choose a local file below or cancel. <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>Cancel</Button></p>}
           <div className="flex flex-wrap gap-2">
             <select aria-label="Course for import" disabled={importing} className="h-9 rounded-md border bg-card px-2 text-sm" value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); }}>
@@ -138,6 +159,7 @@ export function Syllabus() {
             <input ref={fileRef} type="file" aria-label="Syllabus file" aria-busy={importing} disabled={importing} className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />
           </div>
           {localStatus && <p role="status" className="mt-2 text-sm">{localStatus}</p>}
+          {interrupted.map((job) => <p key={job.id} className="mt-2 text-sm">{job.name}: {job.message}</p>)}
           {importing && <Button size="sm" variant="outline" onClick={() => cancellation.current?.abort()}>Cancel import</Button>}
           {!importing && retryFile && <Button size="sm" variant="outline" onClick={() => void onFile(retryFile)}>Retry selected file</Button>}
           <ul className="mt-3 space-y-2">{localDocuments.map((d) => <li key={`${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only)</li>)}</ul>
