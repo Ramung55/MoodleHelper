@@ -4,10 +4,12 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { LocalExtraction as Extraction } from "@/domain/local-extraction";
 import { currentDataset, readLocalDocument, type LocalAssociation } from "@/services/local-documents";
+import { detectAssessmentMentions, type AssessmentMention } from "@/domain/assessment-mentions";
 
 /** Result and preview URLs live only for this visible, dataset-bound row. */
 export function LocalExtraction({ document: association }: { document: LocalAssociation }) {
   const [result, setResult] = useState<Extraction>();
+  const [mentions, setMentions] = useState<AssessmentMention[]>();
   const [status, setStatus] = useState("");
   const [progress, setProgress] = useState(0);
   const [pending, setPending] = useState(false);
@@ -17,7 +19,7 @@ export function LocalExtraction({ document: association }: { document: LocalAsso
   const previewUrl = useRef<string | undefined>(undefined);
   const revoke = () => { if (previewUrl.current) URL.revokeObjectURL(previewUrl.current); previewUrl.current = undefined; };
   useEffect(() => {
-    controller.current = undefined; setResult(undefined); setStatus(""); setPending(false); setPreview(undefined);
+    controller.current = undefined; setResult(undefined); setMentions(undefined); setStatus(""); setPending(false); setPreview(undefined);
     return () => { generation.current++; controller.current?.abort(); revoke(); };
   }, [association.datasetId, association.courseId, association.digest]);
   const extract = async () => {
@@ -25,7 +27,7 @@ export function LocalExtraction({ document: association }: { document: LocalAsso
     const abort = new AbortController(); controller.current = abort;
     const attempt = ++generation.current;
     const valid = () => attempt === generation.current && !abort.signal.aborted;
-    setResult(undefined); setPending(true); setProgress(0); setStatus("Reading validated local document…");
+    setResult(undefined); setMentions(undefined); setPending(true); setProgress(0); setStatus("Reading validated local document…");
     try {
       const file = await readLocalDocument(association, abort.signal);
       if (!valid()) return;
@@ -52,6 +54,22 @@ export function LocalExtraction({ document: association }: { document: LocalAsso
       if (attempt === generation.current) { setResult(undefined); setStatus(abort.signal.aborted ? "Extraction cancelled. No complete result was saved." : `Extraction failed: ${error instanceof Error ? error.message : "Retry with a supported PDF."}`); }
     } finally { if (attempt === generation.current) { controller.current = undefined; setPending(false); } }
   };
+  const findMentions = async () => {
+    if (!result || controller.current) return;
+    const abort = new AbortController(); controller.current = abort;
+    const attempt = ++generation.current; const valid = () => attempt === generation.current && !abort.signal.aborted;
+    setMentions(undefined); setPending(true); setStatus("Finding possible assessments locally…");
+    try {
+      if (await currentDataset() !== association.datasetId) throw new Error("The dataset changed. Reconnect before detection.");
+      if (!valid()) return;
+      const proposals = await detectAssessmentMentions(result, abort.signal);
+      if (await currentDataset() !== association.datasetId) throw new Error("The dataset changed. Reconnect before detection.");
+      if (!valid()) return;
+      setMentions(proposals); setStatus(`${proposals.length} possible assessments found. All are unconfirmed; dates have not been interpreted.`);
+    } catch (error) {
+      if (attempt === generation.current) { setMentions(undefined); setResult(undefined); setStatus(abort.signal.aborted ? "Detection cancelled. No proposals were saved." : `Detection failed: ${error instanceof Error ? error.message : "Extract the document again."}`); }
+    } finally { if (attempt === generation.current) { controller.current = undefined; setPending(false); } }
+  };
   const inspect = async (page: number) => {
     const attempt = generation.current;
     try {
@@ -63,10 +81,20 @@ export function LocalExtraction({ document: association }: { document: LocalAsso
   };
   return <div className="mt-2 space-y-2 break-normal">
     <Button size="sm" variant="outline" disabled={pending} onClick={() => void extract()}>Extract text</Button>
-    {pending && <><Button size="sm" variant="ghost" onClick={() => { controller.current?.abort(); setResult(undefined); setStatus("Extraction cancelled. No complete result was saved."); }}>Cancel extraction</Button><Progress value={progress} aria-label={`Extracting text from ${association.name}`} /></>}
+    {pending && <><Button size="sm" variant="ghost" onClick={() => { controller.current?.abort(); setResult(undefined); setMentions(undefined); setStatus("Extraction cancelled. No complete result was saved."); }}>Cancel extraction</Button><Progress value={progress} aria-label={`Extracting text from ${association.name}`} /></>}
     {status && <p role="status">{status}</p>}
     {result && <div className="space-y-3">
       <p className="text-xs text-muted-foreground">Session-local evidence · SHA-256 {result.digest}. Reopening requires extraction again.</p>
+      <Button size="sm" variant="outline" disabled={pending} onClick={() => void findMentions()}>Find assessments</Button>
+      {mentions && <section className="space-y-2"><h3 className="font-semibold">Possible assessments · unconfirmed</h3>
+        {mentions.length === 0 && <p>No supported assessment keywords were found.</p>}
+        {mentions.map((mention) => <details key={mention.id} className="rounded border p-2"><summary className="cursor-pointer">{mention.title} · {mention.type} · Unconfirmed</summary>
+          <blockquote className="whitespace-pre-wrap">{mention.excerpt}</blockquote>
+          <p className="text-xs">Original mention offsets {mention.mention.start}–{mention.mention.end}; source {mention.location.kind}; SHA-256 {mention.digest}</p>
+          <pre className="whitespace-pre-wrap break-all text-xs">{JSON.stringify(mention.location, null, 2)}</pre>
+          {mention.reasons.map((reason) => <p key={reason} className="text-xs">{reason}</p>)}
+        </details>)}
+      </section>}
       {result.format === "docx" && <p className="text-xs text-muted-foreground">Original body paragraphs and table cells only; headers, footers and page layout are not extracted.</p>}
       {result.format === "pdf" ? result.pages.map((page) => <section key={page.page} className="rounded border p-2">
         <h3 className="font-semibold">Page {page.page} · {page.status === "ocr_needed" ? "OCR needed (image-only)" : page.status === "blank" ? "Blank page" : "Extracted text"}</h3>

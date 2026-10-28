@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { extractDocx } from "@/services/extract-docx";
 import { LocalExtraction } from "@/components/mh/LocalExtraction";
+import { webcrypto } from "node:crypto";
+import { detectAssessmentMentions } from "@/domain/assessment-mentions";
 const mock = vi.hoisted(() => ({ read: vi.fn(), context: vi.fn() }));
 vi.mock("@/services/local-documents", () => ({ readLocalDocument: mock.read, currentDataset: mock.context }));
 const file = (name = "extraction-bilingual.docx") => new NodeBlob([readFileSync(`src/test/fixtures/${name}`)]);
-beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("DecompressionStream", NativeDecompressionStream); mock.read.mockResolvedValue(file()); mock.context.mockResolvedValue("dataset"); });
+beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("DecompressionStream", NativeDecompressionStream); mock.read.mockResolvedValue(file()); mock.context.mockResolvedValue("dataset"); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("native DOCX extraction", () => {
   it.each(["extraction-bilingual.docx", "extraction-bilingual-deflated.docx"])("reads bilingual paragraphs/tables and exact locations from %s without fetching relationships", async (name) => {
@@ -21,6 +23,9 @@ describe("native DOCX extraction", () => {
     if (table.kind === "table") expect(table.rows[0]!.cells[1]!.paragraphs[0]).toEqual({ id: "word/document.xml/body4/table2/row1/cell2/p1", text: "5 ноября 2026", location: { part: "word/document.xml", bodyBlock: 4, table: 2, row: 1, cell: 2, paragraph: 1 } });
     expect(JSON.stringify(blocks)).toContain("Visible external link"); expect(fetcher).not.toHaveBeenCalled();
     expect(progress.mock.calls.at(-1)).toEqual([6, 6]);
+    const proposals = await detectAssessmentMentions({ format: "docx", datasetId: "d", courseId: "c", digest: "version", complete: true, blocks }, new AbortController().signal);
+    expect(proposals.map((p) => p.type)).toEqual(["assignment", "exam"]);
+    expect(proposals[1]!.location).toMatchObject({ kind: "docx_row", table: 2, row: 1 });
   });
   it.each(["local-valid.docx", "local-deflated.docx", "local-descriptor.docx"])("uses the same bounded reader for supported ZIP layout %s", async (name) => {
     // Existing empty validation fixtures remain valid containers, but not false extraction successes.
@@ -58,6 +63,11 @@ describe("native DOCX extraction", () => {
     fireEvent.click(screen.getByText("5 ноября 2026", { selector: "summary" }));
     expect(screen.getByText(/word\/document.xml\/body4\/table2\/row1\/cell2\/p1/)).toBeVisible();
     expect(screen.queryByText(/Page \d/)).not.toBeInTheDocument(); expect(fetcher).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Find assessments"));
+    expect(await screen.findByText("Possible assessments · unconfirmed")).toBeVisible();
+    expect(screen.getByText("Assignment 1 · assignment · Unconfirmed")).toBeVisible();
+    expect(screen.getByText("Экзамен · exam · Unconfirmed")).toBeVisible();
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it("propagates cancellation into an active decompression reader", async () => {
     const controller = new AbortController(); const cancel = vi.fn();

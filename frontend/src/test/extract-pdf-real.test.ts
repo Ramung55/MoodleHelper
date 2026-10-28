@@ -13,6 +13,7 @@ vi.mock("pdfjs-dist", async () => {
   }, GlobalWorkerOptions: { set workerSrc(_url: string) { pdf.GlobalWorkerOptions.workerSrc = pathToFileURL(path.resolve("node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs")).href; } } };
 });
 import { extractPdf } from "@/services/extract-pdf";
+import { detectAssessmentMentions } from "@/domain/assessment-mentions";
 const file = (name = "extraction-bilingual.pdf") => new Blob([readFileSync(`src/test/fixtures/${name}`)]);
 beforeEach(() => { tasks.destroy = []; });
 
@@ -35,6 +36,13 @@ describe("real local PDF extraction", () => {
     expect(russian.items[1]!.transform[4]).toBe(260);
     expect(progress.mock.calls).toEqual([[0, 4], [1, 4], [2, 4], [3, 4], [4, 4]]);
     expect(tasks.destroy).toHaveLength(2); for (const destroy of tasks.destroy) expect(destroy).toHaveBeenCalled();
+    const proposals = await detectAssessmentMentions({ format: "pdf", datasetId: "d", courseId: "c", digest: "version", complete: true, pages }, new AbortController().signal);
+    expect(proposals.map((p) => p.type)).toEqual(["assignment", "quiz", "assignment", "exam"]);
+    expect(proposals[0]!.excerpt).toBe("Assignment 1 29 October 2026");
+    expect(proposals[1]!.excerpt).toBe("Quiz 2 5 November 2026");
+    expect(proposals[2]!.location).toMatchObject({ kind: "pdf_row", page: 2, items: expect.any(Array) });
+    const reordered = await detectAssessmentMentions({ format: "pdf", datasetId: "d", courseId: "c", digest: "version", complete: true, pages: [...pages].reverse() }, new AbortController().signal);
+    expect(reordered.map((p) => p.id).sort()).toEqual(proposals.map((p) => p.id).sort());
   });
   it.each(["local-truncated.pdf", "local-encrypted.pdf", "local-encrypted-marker.pdf"])("rejects %s without successful empty output", async (name) => {
     await expect(extractPdf(file(name), new AbortController().signal, vi.fn())).rejects.toThrow(/corrupt|unsupported|protected/i);

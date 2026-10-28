@@ -60,3 +60,12 @@ it("aborts a replaced association and permits a new extraction without publishin
   fireEvent.click(screen.getByText("Extract text"));
   expect(await screen.findByText("Задание 1 29 октября")).toBeVisible();
 });
+it("clears local evidence when assessment detection finds a changed dataset", async () => {
+  render(<LocalExtraction document={association} />); fireEvent.click(screen.getByText("Extract text"));
+  await screen.findByText("Задание 1 29 октября");
+  mock.context.mockResolvedValue("other-dataset");
+  fireEvent.click(screen.getByText("Find assessments"));
+  expect(await screen.findByText(/Detection failed: The dataset changed/)).toBeVisible();
+  expect(screen.queryByText("Задание 1 29 октября")).not.toBeInTheDocument();
+  expect(screen.queryByText("Possible assessments · unconfirmed")).not.toBeInTheDocument();
+});

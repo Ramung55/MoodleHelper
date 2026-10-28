@@ -193,6 +193,9 @@ pages show **OCR needed**. Extraction is session-local, cancellable and limited 
 100 pages; it creates no assessments. See [PDF extraction limits and evidence](_docs/pdf-extraction-25.md).
 DOCX evidence retains original body paragraph/table/row/cell references without
 inventing pages. See [DOCX support and limits](_docs/docx-extraction-26.md).
+After extraction, **Find assessments** previews deterministic English/Russian
+mentions with original row evidence. All proposals remain unconfirmed and dates
+are unknown until the separate date/review workflow. See [detector scope](_docs/assessment-mentions-28.md).
 
 Run frontend checks from `frontend/`:
 
