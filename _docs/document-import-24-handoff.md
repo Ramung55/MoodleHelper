@@ -1,5 +1,11 @@
 # Issue #24: local document import handoff
 
+## Updated decisions after QA at f88ff4c
+
+The human approved `pdfjs-dist` 6.4.299; prior dependency-approval language below is historical. Run it locally without document network transfer. Support valid incremental, cross-reference-stream and PDF 2.0 examples, test specific corrupt fixtures, and describe parser recovery and unsupported cases honestly; no parser establishes universal corruption detection.
+
+The current-context check below means checking before initially displaying newly loaded records and before modifying them, not a guarantee that an already displayed row disappears at the instant an independently controlled backend switches datasets. Any check can be followed immediately by a switch. Fail closed on a changed or unavailable context, clear displayed rows and invalidate pending work when detected, hide and revalidate on focus, visibility or page resume, and fence asynchronous responses with a context generation. Visible-page polling is best effort, not a hard time bound: suspended or throttled pages and connectivity may delay detection. IndexedDB namespace keys prevent mixing, but the localhost endpoint is unauthenticated and does not provide privacy against another local client. A coordinated revocable session would require a separate design and could not retract already viewed information.
+
 ## Goal
 
 Validate and retain a student-selected PDF or DOCX on the dashboard's local browser, associated with a chosen course. The existing backend mock import is not evidence that a document was read or extracted. Extraction remains #25/#26/#27.
