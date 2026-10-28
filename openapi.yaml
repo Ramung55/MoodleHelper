@@ -2163,6 +2163,27 @@ components:
       - status
       - coverage
       - progress
+    DeadlineRemoved:
+      type: object
+      properties:
+        kind: {type: string, const: removed}
+      required: [kind]
+    DeadlineAssertion:
+      oneOf:
+      - $ref: '#/components/schemas/DateValue'
+      - $ref: '#/components/schemas/DeadlineRemoved'
+    DeadlineStream:
+      type: object
+      properties:
+        sourceId: {type: string}
+        assessmentId: {type: string}
+        watermark: {type: string}
+        established: {type: boolean}
+        accepted:
+          $ref: '#/components/schemas/DeadlineAssertion'
+        acceptedAt: {type: string}
+        sourceUrl: {type: string}
+      required: [sourceId, assessmentId, watermark, established]
     DeadlineChange:
       type: object
       properties:
@@ -2171,11 +2192,14 @@ components:
         assessmentId:
           type: string
         from:
-          $ref: '#/components/schemas/DateValue'
+          $ref: '#/components/schemas/DeadlineAssertion'
         to:
-          $ref: '#/components/schemas/DateValue'
+          $ref: '#/components/schemas/DeadlineAssertion'
         detectedAt:
           type: string
+        sourceId: {type: string}
+        sourceUrl: {type: string}
+        sourceObservedAt: {type: string}
       required:
       - id
       - assessmentId
@@ -2365,6 +2389,10 @@ components:
           $ref: '#/components/schemas/SnapshotCollection'
         reconciliation:
           $ref: '#/components/schemas/Reconciliation'
+        deadlineStreams:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeadlineStream'
       required:
       - courses
       - assessments
@@ -2687,6 +2715,9 @@ components:
         sourceUrl: *id019
         title: *id019
         observedAt: *id019
+        syntheticDeadlineRemoval:
+          type: boolean
+          const: true
         baseDates:
           $ref: '#/components/schemas/AssignmentDates'
         individualExtensions:
@@ -2950,6 +2981,9 @@ components:
         sourceUrl: *id019
         title: *id019
         observedAt: *id019
+        syntheticDeadlineRemoval:
+          type: boolean
+          const: true
         opening:
           $ref: '#/components/schemas/CollectedDateObservation'
         closing:
