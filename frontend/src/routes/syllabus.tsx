@@ -157,7 +157,7 @@ export function Syllabus() {
       if (result === "confirmation-required") throw new Error("Another course association was added. Retry to review it.");
       cancellation.current = null;
       if (contextGeneration.current !== generation || boundDataset.current !== datasetId) return;
-      setInterrupted((jobs) => jobs.filter((entry) => entry.name !== f.name || entry.courseId !== course));
+      setInterrupted((jobs) => jobs.filter((entry) => entry.state !== "failed" || entry.name !== f.name || entry.courseId !== course));
       setLocalStatus(result === "duplicate" ? "Already associated with this course." : "Complete: validated and stored locally. Extraction has not been performed.");
       setRetryFile(undefined);
       try {
@@ -212,7 +212,10 @@ export function Syllabus() {
             <input ref={fileRef} type="file" aria-label="Syllabus file" aria-busy={importing} disabled={importing || !contextReady} className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />
           </div>
           {localStatus && <p role="status" className="mt-2 text-sm">{localStatus}</p>}
-          {showLocalRecords && interrupted.map((job) => <p key={job.id} className="mt-2 text-sm">{job.name}: {job.message}</p>)}
+          {showLocalRecords && interrupted.map((job) => <div key={job.id} className="mt-2 text-sm">
+            <p>{job.leaseVersion !== 1 && job.state !== "failed" ? "Unconfirmed older import: " : ""}{job.name}: {job.message}</p>
+            {job.leaseVersion !== 1 && job.state !== "failed" && <Button size="sm" variant="ghost" onClick={() => setInterrupted((jobs) => jobs.filter((entry) => entry.id !== job.id || entry.owner !== job.owner))}>Hide guidance for now</Button>}
+          </div>)}
           {importing && <Button size="sm" variant="outline" onClick={() => cancellation.current?.abort()}>Cancel import</Button>}
           {!importing && retryFile && <Button size="sm" variant="outline" onClick={() => void onFile(retryFile)}>Retry selected file</Button>}
           <ul className="mt-3 space-y-2">{showLocalRecords && localDocuments.map((d) => <li key={`${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only)</li>)}</ul>
