@@ -141,12 +141,25 @@ export const CourseSyncState = z.object({
 });
 export type CourseSyncState = z.infer<typeof CourseSyncState>;
 
+export const DeadlineRemoved = z.object({ kind: z.literal("removed") });
+export const DeadlineAssertion = z.union([DateValue, DeadlineRemoved]);
+export type DeadlineAssertion = z.infer<typeof DeadlineAssertion>;
+export const AcceptedDeadlineAssertion = z.union([DateValue.options[0], DateValue.options[1], DateValue.options[2], DeadlineRemoved]);
+export const DeadlineStream = z.object({
+  sourceId: z.string(), assessmentId: z.string(), watermark: z.string(),
+  established: z.boolean(), accepted: AcceptedDeadlineAssertion.optional(),
+  acceptedAt: z.string().optional(), sourceUrl: z.string().optional(),
+}).refine((v) => [v.accepted, v.acceptedAt, v.sourceUrl].every((x) => x !== undefined) ||
+  (!v.established && [v.accepted, v.acceptedAt, v.sourceUrl].every((x) => x === undefined)));
 export const DeadlineChange = z.object({
   id: z.string(),
   assessmentId: z.string(),
-  from: DateValue,
-  to: DateValue,
+  from: DeadlineAssertion,
+  to: DeadlineAssertion,
   detectedAt: z.string(),
+  sourceId: z.string().optional(),
+  sourceUrl: z.string().optional(),
+  sourceObservedAt: z.string().optional(),
 });
 export type DeadlineChange = z.infer<typeof DeadlineChange>;
 
@@ -176,6 +189,23 @@ export type Settings = z.infer<typeof Settings>;
 export const ConnectionState = z.enum(["demo", "connected", "disconnected", "error"]);
 export type ConnectionState = z.infer<typeof ConnectionState>;
 
+export const ReconciliationSource = z.object({
+  id: z.string(), courseId: z.string(), assessmentId: z.string(),
+  kind: z.enum(["moodle", "syllabus"]), state: z.literal("ambiguous").optional(), recordId: z.string().optional(),
+  documentId: z.string().optional(), candidateId: z.string().optional(),
+});
+export const ReconciliationPair = z.object({
+  id: z.string(), left: z.string(), right: z.string(), fingerprint: z.string(),
+  reviewRevision: z.string(),
+  status: z.enum(["pending", "confirmed", "rejected"]), canonicalId: z.string().optional(),
+  choices: z.record(z.string(), z.string()).optional(),
+});
+export const ReconciliationAlias = z.object({ originalId: z.string(), canonicalId: z.string() });
+export const Reconciliation = z.object({
+  sources: z.array(ReconciliationSource), pairs: z.array(ReconciliationPair),
+  aliases: z.array(ReconciliationAlias), logicalAssessments: z.array(Assessment),
+  logicalOverlays: z.array(Overlay), overlayEdits: z.array(Overlay),
+});
 // BEGIN GENERATED COLLECTION MODELS
 export const CollectedDateObservation = z.object({
   value: DateValue,
@@ -206,6 +236,7 @@ export const RawAssignmentObservation = z.object({
   sourceUrl: z.string(),
   title: z.string(),
   observedAt: z.string(),
+  syntheticDeadlineRemoval: z.literal(true).optional(),
   baseDates: AssignmentDates,
   individualExtensions: z.array(IndividualExtension),
   effectiveDates: AssignmentDates,
@@ -327,6 +358,7 @@ export const RawQuizObservation = z.object({
   sourceUrl: z.string(),
   title: z.string(),
   observedAt: z.string(),
+  syntheticDeadlineRemoval: z.literal(true).optional(),
   opening: CollectedDateObservation.optional(),
   closing: CollectedDateObservation.optional(),
   attemptInformation: z.union([QuizKnownAttempts, CollectedUnknown]),
@@ -580,26 +612,10 @@ export type PageRefreshInput = z.infer<typeof PageRefreshInput>;
 
 // END GENERATED COLLECTION MODELS
 
-export const ReconciliationSource = z.object({
-  id: z.string(), courseId: z.string(), assessmentId: z.string(),
-  kind: z.enum(["moodle", "syllabus"]), state: z.literal("ambiguous").optional(), recordId: z.string().optional(),
-  documentId: z.string().optional(), candidateId: z.string().optional(),
-});
-export const ReconciliationPair = z.object({
-  id: z.string(), left: z.string(), right: z.string(), fingerprint: z.string(),
-  reviewRevision: z.string(),
-  status: z.enum(["pending", "confirmed", "rejected"]), canonicalId: z.string().optional(),
-  choices: z.record(z.string(), z.string()).optional(),
-});
-export const ReconciliationAlias = z.object({ originalId: z.string(), canonicalId: z.string() });
-export const Reconciliation = z.object({
-  sources: z.array(ReconciliationSource), pairs: z.array(ReconciliationPair),
-  aliases: z.array(ReconciliationAlias), logicalAssessments: z.array(Assessment),
-  logicalOverlays: z.array(Overlay), overlayEdits: z.array(Overlay),
-});
 export const Snapshot = z.object({
   collection: SnapshotCollection.optional(),
   reconciliation: Reconciliation.optional(),
+  deadlineStreams: z.array(DeadlineStream).optional(),
   courses: z.array(Course),
   assessments: z.array(Assessment),
   overlays: z.array(Overlay),

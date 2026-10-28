@@ -30,7 +30,7 @@ export const browserKV = (): KV =>
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function emptySnapshot(base: Snapshot): Snapshot {
-  const { collection: _collection, reconciliation: _reconciliation, ...retained } = base;
+  const { collection: _collection, reconciliation: _reconciliation, deadlineStreams: _deadlineStreams, ...retained } = base;
   return { ...retained, courses: [], assessments: [], overlays: [], materials: [], documents: [], candidates: [], sync: [], changes: [], alerts: [], settings: { ...base.settings, trackedCourseIds: [] } };
 }
 

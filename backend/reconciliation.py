@@ -108,15 +108,20 @@ def source(snapshot, identifier):
     return found[0]
 
 
-def relevant_date(a, kind):
-    sources = [x for x in a['sources'] if x['source'] == kind]
+def relevant_date(snapshot, a, source_association):
+    from backend.deadline_tracking import effective_sources
+    state = next((x for x in snapshot.get('deadlineStreams', []) if x['sourceId'] == source_association['id']), None)
+    if state is not None:
+        value = state.get('accepted')
+        return value if value and value['kind'] != 'removed' else {'kind': 'unknown'}
+    sources = [x for x in effective_sources(snapshot, a) if x['source'] == source_association['kind']]
     return latest(sources)['date'] if sources else {'kind': 'unknown'}
 
 
 def facts(snapshot, left, right):
     a, b = assessment(snapshot, left['assessmentId']), assessment(snapshot, right['assessmentId'])
     return [dict(id=s['id'], course=s['courseId'], title=normalized_title(v['title']), type=v['type'],
-                 date=relevant_date(v, s['kind'])) for s, v in ((left, a), (right, b))]
+                 date=relevant_date(snapshot, v, s)) for s, v in ((left, a), (right, b))]
 
 
 def pair_fingerprint(snapshot, left, right):

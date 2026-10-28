@@ -147,6 +147,7 @@ class CollectionService:
             if pagekind!=module or pageid!=item['sourceCourseModuleId']: reject()
             identity=[kind,source,module,item['sourceActivityId']]
             if kind=='assignment':
+                if item.get('syntheticDeadlineRemoval') and 'due' in item['effectiveDates']: reject()
                 effective=deepcopy(item['baseDates'])
                 seen=set()
                 for field,date in item['baseDates'].items():
@@ -157,6 +158,7 @@ class CollectionService:
                     seen.add(field); effective[field]=ext['date']
                 if effective!=item['effectiveDates']: reject()
             if kind=='quiz':
+                if item.get('syntheticDeadlineRemoval') and 'closing' in item: reject()
                 for field in ['opening','closing']:
                     if field in item and item[field]['location']!='quiz.'+field: reject()
                 info=item['attemptInformation']
@@ -271,9 +273,11 @@ class CollectionService:
                 if end<start or collector!='calendar': reject()
         layer=snapshot.setdefault('collection',dict(records=[],reviews=[],refreshes=[]))
         observations=result.get('observations',[])
-        courseids=set(); activity=None; cm=None
+        courseids=set(); activity=None; cm=None; deadline_observations=[]
         for raw in observations:
             identity,course,time=self._validate_observation(collector,raw,page,mapping)
+            if collector in ('assignment', 'quiz'):
+                deadline_observations.append((identity,collector,deepcopy(raw)))
             item=raw
             record=next((r for r in layer['records'] if r['id']==identity),None)
             if collector=='submission':
@@ -322,6 +326,9 @@ class CollectionService:
         if cm: receipt['sourceCourseModuleId']=cm
         layer['refreshes'].append(receipt)
         from backend.reconciliation import project_sources
+        project_sources(snapshot, self.store.namespace)
+        from backend.deadline_tracking import apply_observations
+        apply_observations(snapshot, deadline_observations)
         project_sources(snapshot, self.store.namespace)
         # Fail inside the transaction, never commit a reply the fixed
         # worker transport cannot acknowledge without truncating facts.

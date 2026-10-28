@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/domain/dates";
-import { latest } from "@/domain/assessments";
+import { effectiveSources, latest } from "@/domain/assessments";
 import type { Snapshot, Overlay } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
 
@@ -10,7 +10,12 @@ type Pair = NonNullable<Snapshot["reconciliation"]>["pairs"][number];
 
 function details(s: Snapshot, source: Source) {
   const a = s.assessments.find((item) => item.id === source.assessmentId);
-  const evidence = a && latest(a.sources, source.kind);
+  const state = s.deadlineStreams?.find((item) => item.sourceId === source.id);
+  const evidence = state
+    ? state.accepted && state.accepted.kind !== "removed" && state.acceptedAt && state.sourceUrl
+      ? { source: "moodle" as const, date: state.accepted, observedAt: state.acceptedAt, url: state.sourceUrl }
+      : undefined
+    : a && latest(s.deadlineStreams?.length ? effectiveSources(s, a) : a.sources, source.kind);
   const course = s.courses.find((item) => item.id === source.courseId);
   return { a, evidence, course };
 }

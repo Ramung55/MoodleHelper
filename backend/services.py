@@ -21,7 +21,7 @@ def source_date(sources: list[dict]) -> dict:
     priority = {"moodle": 0, "syllabus": 1, "personal": 2}
     newest = [latest([s for s in sources if s['source'] == kind])
               for kind in sorted(priority, key=priority.get) if any(s['source'] == kind for s in sources)]
-    return next((source["date"] for source in newest if source["date"]["kind"] != "unknown"), newest[0]["date"])
+    return next((source["date"] for source in newest if source["date"]["kind"] != "unknown"), newest[0]["date"] if newest else {'kind': 'unknown'})
 
 
 SYNC_UNAVAILABLE = 'Live course sync is unavailable until Moodle access is verified.'
@@ -137,7 +137,8 @@ class BackendService:
                     if patch['dateOverride'] is None:
                         current.pop('overrideBase', None)
                     else:
-                        current['overrideBase'] = source_date(logical['sources'])
+                        from backend.deadline_tracking import effective_sources
+                        current['overrideBase'] = source_date(effective_sources(s, logical))
                 reconciliation['overlayEdits'] = [o for o in reconciliation['overlayEdits'] if o['assessmentId'] != resolved] + [current]
                 return
             current = next((o for o in s["overlays"] if o["assessmentId"] == id),
@@ -149,7 +150,8 @@ class BackendService:
             if "dateOverride" in patch:
                 assessment = next((a for a in s["assessments"] if a["id"] == id), None)
                 if patch["dateOverride"] is not None and assessment:
-                    current["overrideBase"] = source_date(assessment["sources"])
+                    from backend.deadline_tracking import effective_sources
+                    current["overrideBase"] = source_date(effective_sources(s, assessment))
                 else:
                     current.pop("overrideBase", None)
             s["overlays"] = [o for o in s["overlays"] if o["assessmentId"] != id] + [current]
@@ -280,6 +282,7 @@ class BackendService:
         def apply(s):
             s.pop('collection', None)
             s.pop('reconciliation', None)
+            s.pop('deadlineStreams', None)
             for key in s:
                 if key != "settings":
                     s[key] = []

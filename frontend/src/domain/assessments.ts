@@ -54,6 +54,39 @@ export function latest(sources: SourceEvidence[], src: SourceEvidence["source"])
   return newest(sources.filter((s) => s.source === src))[0];
 }
 
+export function effectiveSources(snapshot: Snapshot, a: Assessment): SourceEvidence[] {
+  const sources = (snapshot.reconciliation?.sources ?? []).filter((s) => s.kind === "moodle" && resolveAssessmentId(snapshot, s.assessmentId) === resolveAssessmentId(snapshot, a.id));
+  if (!sources.length) return a.sources;
+  const records = snapshot.collection?.records ?? [];
+  const current: SourceEvidence[] = a.sources.filter((s) => s.source !== "moodle");
+  const candidates: { id: string; evidence: SourceEvidence }[] = [];
+  for (const source of sources) {
+    const state = snapshot.deadlineStreams?.find((s) => s.sourceId === source.id);
+    if (state) {
+      if (state.accepted && state.accepted.kind !== "removed" && state.acceptedAt && state.sourceUrl)
+        candidates.push({ id: source.id, evidence: { source: "moodle", date: state.accepted, observedAt: state.acceptedAt, url: state.sourceUrl } });
+      continue;
+    }
+    if (source.state === "ambiguous") continue;
+    const record = records.find((r) => r.id === source.recordId);
+    const urls = record && "observations" in record ? record.observations.map((o) => "sourceUrl" in o ? o.sourceUrl : undefined) : [];
+    for (const evidence of a.sources.filter((e) => e.source === "moodle" && e.url && urls.includes(e.url))) {
+      const owners = sources.filter((other) => {
+        const otherRecord = records.find((r) => r.id === other.recordId);
+        return otherRecord?.observations.some((o) => "sourceUrl" in o && o.sourceUrl === evidence.url);
+      });
+      if (owners.length === 1) candidates.push({ id: source.id, evidence });
+    }
+  }
+  candidates.sort((a, b) => {
+    const x = instantMicros(a.evidence.observedAt), y = instantMicros(b.evidence.observedAt);
+    if (x !== y) return x === null ? 1 : y === null ? -1 : x > y ? -1 : 1;
+    return a.id === b.id ? 0 : a.id > b.id ? -1 : 1;
+  });
+  if (candidates[0]) current.push(candidates[0].evidence);
+  return current;
+}
+
 export function isOutstanding(a: Assessment, o?: Overlay): boolean {
   if (o?.hidden) return false;
   const st = a.submission?.status;
@@ -62,16 +95,21 @@ export function isOutstanding(a: Assessment, o?: Overlay): boolean {
   return st !== "submitted";
 }
 
-export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Settings): AssessmentView {
-  const sourceDate = reconciledSourceDate(a.sources);
+export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Settings, snapshot?: Snapshot): AssessmentView {
+  const sources = snapshot ? effectiveSources(snapshot, a) : a.sources;
+  const sourceDate = sources.length ? reconciledSourceDate(sources) : { kind: "unknown" as const };
   const date = o?.dateOverride ?? sourceDate;
-  const m = latest(a.sources, "moodle");
-  const sy = latest(a.sources, "syllabus");
+  const m = latest(sources, "moodle");
+  const sy = latest(sources, "syllabus");
   const conflict = m && sy && m.date.kind !== "unknown" && sy.date.kind !== "unknown" && !sameDate(m.date, sy.date)
     ? { moodle: m.date, syllabus: sy.date, comparison: m.date.kind === sy.date.kind ? "different" as const : "incomparable" as const }
     : undefined;
+  const removedBaseline = snapshot && o?.overrideBase && snapshot.changes.some((change) =>
+    resolveAssessmentId(snapshot, change.assessmentId) === resolveAssessmentId(snapshot, a.id) &&
+    change.to.kind === "removed" && change.from.kind !== "removed" && sameDate(change.from, o.overrideBase!) &&
+    snapshot.deadlineStreams?.some((stream) => stream.sourceId === change.sourceId && stream.accepted?.kind === "removed"));
   const overrideDisagreement =
-    o?.dateOverride && o.overrideBase && !sameDate(o.overrideBase, sourceDate)
+    o?.dateOverride && o.overrideBase && (!sameDate(o.overrideBase, sourceDate) || removedBaseline)
       ? { was: o.overrideBase, now: sourceDate }
       : undefined;
   const st = a.submission?.status;
@@ -92,10 +130,10 @@ export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Setting
   };
 }
 
-export function viewAll(as: Assessment[], overlays: Overlay[], s: Settings): AssessmentView[] {
+export function viewAll(as: Assessment[], overlays: Overlay[], s: Settings, snapshot?: Snapshot): AssessmentView[] {
   const byId = new Map(overlays.map((o) => [o.assessmentId, o]));
   return as
     .filter((a) => s.trackedCourseIds.includes(a.courseId) || a.personal)
-    .map((a) => viewAssessment(a, byId.get(a.id), s))
+    .map((a) => viewAssessment(a, byId.get(a.id), s, snapshot))
     .sort((x, y) => x.sort - y.sort);
 }

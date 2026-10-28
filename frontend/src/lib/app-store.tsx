@@ -120,7 +120,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const derived = useMemo(() => {
     if (!snap) return { views: [], weeks: [], unallocated: [], currentWeek: null };
-    const views = viewAll(snap.reconciliation?.logicalAssessments ?? snap.assessments, snap.reconciliation?.logicalOverlays ?? snap.overlays, snap.settings);
+    const views = viewAll(snap.reconciliation?.logicalAssessments ?? snap.assessments, snap.reconciliation?.logicalOverlays ?? snap.overlays, snap.settings, snap);
     const { weeks, unallocated } = weeklyLoad(views, snap.settings);
     const start = Date.parse(snap.settings.semesterStart);
     const currentWeek = Math.floor((Date.now() - start) / (7 * 86_400_000)) + 1;

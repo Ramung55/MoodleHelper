@@ -66,7 +66,9 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 )}
                 {changes.map((c) => (
                   <p key={c.id} className="mt-2 text-sm text-muted-foreground">
-                    Moodle changed: {formatDate(c.from, tz)} → {formatDate(c.to, tz)}
+                    {c.sourceId ? "Moodle" : "Source (unattributed)"} changed: {c.from.kind === "removed" ? "Removed" : formatDate(c.from, tz)} → {c.to.kind === "removed" ? "Removed" : formatDate(c.to, tz)}
+                    {c.sourceUrl && <> · <a href={c.sourceUrl}>Source</a></>}
+                    {c.sourceObservedAt && <> · Observed {c.sourceObservedAt}</>} · Detected {c.detectedAt}
                   </p>
                 ))}
               </section>

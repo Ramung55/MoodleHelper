@@ -211,12 +211,45 @@ class CourseSyncState(WireModel):
     progress: float = Field(ge=0, le=100)
 
 
+class DeadlineRemoved(WireModel):
+    kind: Literal['removed']
+
+
+DeadlineAssertion = DateValue | DeadlineRemoved
+AcceptedDeadlineAssertion = ExactDate | CalendarDate | TeachingWeek | DeadlineRemoved
+
+
+class DeadlineStreamEmpty(WireModel):
+    model_config = ConfigDict(strict=True, extra='forbid', allow_inf_nan=False, json_schema_extra=omit_absence_defaults)
+    sourceId: str
+    assessmentId: str
+    watermark: str
+    established: Literal[False]
+
+
+class DeadlineStreamAccepted(WireModel):
+    model_config = ConfigDict(strict=True, extra='forbid', allow_inf_nan=False, json_schema_extra=omit_absence_defaults)
+    sourceId: str
+    assessmentId: str
+    watermark: str
+    established: bool
+    accepted: AcceptedDeadlineAssertion
+    acceptedAt: str
+    sourceUrl: str
+
+
+DeadlineStream = DeadlineStreamEmpty | DeadlineStreamAccepted
+
+
 class DeadlineChange(WireModel):
     id: str
     assessmentId: str
-    from_: DateValue = Field(alias="from")
-    to: DateValue
+    from_: DeadlineAssertion = Field(alias="from")
+    to: DeadlineAssertion
     detectedAt: str
+    sourceId: str = None
+    sourceUrl: str = None
+    sourceObservedAt: str = None
 
 
 class Alert(WireModel):
@@ -274,6 +307,55 @@ class Settings(SettingsPatch):
     ai: AiSettings
 
 
+class ReconciliationSelection(WireModel):
+    left: str
+    right: str
+
+
+class ReconciliationDecision(WireModel):
+    pairId: str
+    fingerprint: str
+    reviewRevision: str
+    kind: Literal['confirm', 'reject']
+    choices: dict[str, str]
+
+
+class ReconciliationSource(WireModel):
+    id: str
+    courseId: str
+    assessmentId: str
+    kind: Literal['moodle', 'syllabus']
+    state: Literal['ambiguous'] = None
+    recordId: str = None
+    documentId: str = None
+    candidateId: str = None
+
+
+class ReconciliationPair(WireModel):
+    id: str
+    left: str
+    right: str
+    fingerprint: str
+    reviewRevision: str
+    status: Literal['pending', 'confirmed', 'rejected']
+    canonicalId: str = None
+    choices: dict[str, str] = None
+
+
+class ReconciliationAlias(WireModel):
+    originalId: str
+    canonicalId: str
+
+
+class Reconciliation(WireModel):
+    sources: list[ReconciliationSource]
+    pairs: list[ReconciliationPair]
+    aliases: list[ReconciliationAlias]
+    logicalAssessments: list[Assessment]
+    logicalOverlays: list[Overlay]
+    overlayEdits: list[Overlay]
+
+
 # BEGIN GENERATED COLLECTION MODELS
 class CollectionWire(WireModel):
     model_config = ConfigDict(strict=True, extra="forbid", allow_inf_nan=False, json_schema_extra=omit_absence_defaults)
@@ -301,6 +383,7 @@ class RawAssignmentObservation(CollectionWire):
     sourceUrl: str
     title: str
     observedAt: str
+    syntheticDeadlineRemoval: Literal[True] = None
     baseDates: AssignmentDates
     individualExtensions: list[IndividualExtension]
     effectiveDates: AssignmentDates
@@ -400,6 +483,7 @@ class RawQuizObservation(CollectionWire):
     sourceUrl: str
     title: str
     observedAt: str
+    syntheticDeadlineRemoval: Literal[True] = None
     opening: CollectedDateObservation = None
     closing: CollectedDateObservation = None
     attemptInformation: QuizKnownAttempts | CollectedUnknown
@@ -595,58 +679,10 @@ class PageRefreshInput(CollectionWire):
 
 # END GENERATED COLLECTION MODELS
 
-class ReconciliationSelection(WireModel):
-    left: str
-    right: str
-
-
-class ReconciliationDecision(WireModel):
-    pairId: str
-    fingerprint: str
-    reviewRevision: str
-    kind: Literal['confirm', 'reject']
-    choices: dict[str, str]
-
-
-class ReconciliationSource(WireModel):
-    id: str
-    courseId: str
-    assessmentId: str
-    kind: Literal['moodle', 'syllabus']
-    state: Literal['ambiguous'] = None
-    recordId: str = None
-    documentId: str = None
-    candidateId: str = None
-
-
-class ReconciliationPair(WireModel):
-    id: str
-    left: str
-    right: str
-    fingerprint: str
-    reviewRevision: str
-    status: Literal['pending', 'confirmed', 'rejected']
-    canonicalId: str = None
-    choices: dict[str, str] = None
-
-
-class ReconciliationAlias(WireModel):
-    originalId: str
-    canonicalId: str
-
-
-class Reconciliation(WireModel):
-    sources: list[ReconciliationSource]
-    pairs: list[ReconciliationPair]
-    aliases: list[ReconciliationAlias]
-    logicalAssessments: list[Assessment]
-    logicalOverlays: list[Overlay]
-    overlayEdits: list[Overlay]
-
-
 class Snapshot(WireModel):
     collection: SnapshotCollection = None
     reconciliation: Reconciliation = None
+    deadlineStreams: list[DeadlineStream] = None
     courses: list[Course]
     assessments: list[Assessment]
     overlays: list[Overlay]

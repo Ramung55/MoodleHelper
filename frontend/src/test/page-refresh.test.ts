@@ -42,8 +42,8 @@ function bridge(source:()=>PageSource,options:{grant?:()=>Promise<boolean>;fetch
 }
 function fixture(input=assignmentInput()):PageSource{return {url:input.finalUrl,documentKey:input.document,input};}
 function setup(initial=fixture(),registry=syntheticFixtureRegistry(),overrides:Parameters<typeof bridge>[1]={}) {
-  let source=initial;const b=bridge(()=>source,overrides);const coordinator=createPageRefresh({source:()=>source,repository:b.repository,registry,clock:()=>time});
-  return {coordinator,...b,set:(next:PageSource)=>{source=next;coordinator.notify();},get source(){return source;}};
+  let source=initial, observedAt=time;const b=bridge(()=>source,overrides);const coordinator=createPageRefresh({source:()=>source,repository:b.repository,registry,clock:()=>observedAt});
+  return {coordinator,...b,setTime:(next:string)=>{observedAt=next;},set:(next:PageSource)=>{source=next;coordinator.notify();},get source(){return source;}};
 }
 const materialInput=(html:string,path='/course/view.php?id=101')=>({document:new DOMParser().parseFromString(html,'text/html'),requestedUrl:origin+path,finalUrl:origin+path,httpStatus:200,networkFailure:false});
 const course=(body='')=>`${account}<main data-region="course-content"><h1>Synthetic course</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><section data-region="course-section"><h2>Week 1</h2>${body||'<p data-region="materials-empty">No materials</p>'}</section></main>`;
@@ -74,7 +74,7 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
     for(const key of ['overlays','materials','sync'] as const)expect(saved[key]).toEqual(seed[key]);
     expect(saved.assessments.slice(0,seed.assessments.length)).toEqual(seed.assessments);
     expect(saved.assessments.at(-1)).toMatchObject({title:'Fictional assignment',courseId:'c-csc'});
-    f.set(fixture(assignmentInput(assignment().replace('Fictional   assignment','Changed synthetic assignment'))));await until(()=>f.coordinator.state.receipts.length===4);
+    f.setTime('2026-10-27T12:31:00.12+05:00');f.set(fixture(assignmentInput(assignment().replace('Fictional   assignment','Changed synthetic assignment'))));await until(()=>f.coordinator.state.receipts.length===4);
     saved=await json('/api/snapshot');expect(saved.collection!.records).toHaveLength(1);expect(saved.collection!.records[0]!.observations).toHaveLength(2);
     const backup=previewRestore(JSON.stringify(makeBackup(saved)),seed);expect(backup.ok).toBe(true);if(!backup.ok)throw Error('backup');expect(backup.backup.data).toEqual(saved);
     f.coordinator.stop();await stop();await start();expect(await json('/api/snapshot')).toEqual(saved);
