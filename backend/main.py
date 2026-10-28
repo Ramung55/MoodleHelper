@@ -1,6 +1,7 @@
 """ASGI application entry point."""
 
 import os
+from collections.abc import Callable
 from uuid import uuid4
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -19,7 +20,10 @@ from backend.collection import CollectionService, CollectionRejected
 from backend.scan_queue import ScanQueueService
 
 
-def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None) -> FastAPI:
+def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None,
+               store_factory: Callable[[], SnapshotStore] | None = None) -> FastAPI:
+    if store is not None and store_factory is not None:
+        raise ValueError('Provide either store or store_factory, not both.')
     raw_concurrency = os.environ.get('MOODLE_HELPER_QUEUE_CONCURRENCY', '1')
     if raw_concurrency not in ('1', '2', '3', '4'):
         raise ValueError('MOODLE_HELPER_QUEUE_CONCURRENCY must be an integer from 1 to 4.')
@@ -29,6 +33,8 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     @asynccontextmanager
     async def lifespan(app):
         selected = store
+        if selected is None and store_factory is not None:
+            selected = store_factory()
         if selected is None:
             configuration = DatabaseConfig.from_environment(os.environ)
             selected = SQLiteStore(configuration.url, configuration.namespace)
@@ -40,7 +46,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         try:
             yield
         finally:
-            if store is None:
+            if store is None and hasattr(selected, 'close'):
                 selected.close()
 
     app = FastAPI(title="Moodle Helper", version="0.1.0",
