@@ -181,7 +181,7 @@ export function Syllabus() {
 
   return (
     <>
-      <PageHeader title="Syllabus review" sub="Local documents stay in this browser. Extract PDF text explicitly below; existing demo candidates are mocked." />
+      <PageHeader title="Syllabus review" sub="Local documents stay in this browser. Extract PDF or DOCX text explicitly below; existing demo candidates are mocked." />
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-lg border bg-card p-4">
           <h2 className="mb-2 text-lg font-semibold">Suggested from Moodle</h2>
@@ -219,7 +219,7 @@ export function Syllabus() {
           </div>)}
           {importing && <Button size="sm" variant="outline" onClick={() => cancellation.current?.abort()}>Cancel import</Button>}
           {!importing && retryFile && <Button size="sm" variant="outline" onClick={() => void onFile(retryFile)}>Retry selected file</Button>}
-          <ul className="mt-3 space-y-2">{showLocalRecords && localDocuments.map((d) => <li key={`${d.datasetId}:${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only){/\.pdf$/i.test(d.name) && <LocalExtraction document={d} />}</li>)}</ul>
+          <ul className="mt-3 space-y-2">{showLocalRecords && localDocuments.map((d) => <li key={`${d.datasetId}:${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only){/\.(pdf|docx)$/i.test(d.name) && <LocalExtraction document={d} />}</li>)}</ul>
           <ul className="mt-4 space-y-2">
             {s.documents.map((d) => (
               <li key={d.id} className="text-sm">

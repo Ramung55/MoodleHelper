@@ -47,3 +47,16 @@ it("discards late results after cancel and aborts work on unmount", async () => 
   // A real worker rejects when destroyed; even a misbehaving late resolver is fenced.
   view.unmount();
 });
+it("aborts a replaced association and permits a new extraction without publishing the old result", async () => {
+  let resolve!: (pages: unknown) => void;
+  mock.extract.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+  const view = render(<LocalExtraction document={association} />); fireEvent.click(screen.getByText("Extract text"));
+  await waitFor(() => expect(mock.extract).toHaveBeenCalledOnce());
+  const signal = mock.extract.mock.calls[0]![1] as AbortSignal;
+  view.rerender(<LocalExtraction document={{ ...association, digest: "replacement" }} />);
+  expect(signal.aborted).toBe(true); expect(screen.getByText("Extract text")).toBeEnabled();
+  await act(async () => { resolve(pages); });
+  expect(screen.queryByText("Задание 1 29 октября")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("Extract text"));
+  expect(await screen.findByText("Задание 1 29 октября")).toBeVisible();
+});
