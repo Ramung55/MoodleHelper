@@ -74,6 +74,16 @@ def propose_reconciliation(body: s.ReconciliationSelection, api: Service):
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
+@router.post('/syllabus-revisions/preview', response_model=s.SyllabusRevisionPreview, operation_id='previewSyllabusRevision', tags=['Assessments'])
+def preview_syllabus_revision(body: s.SyllabusRevisionSelection, api: Service):
+    return api.preview_syllabus_revision(wire(body))
+
+
+@router.post('/syllabus-revisions/confirm', response_model=s.Snapshot, response_model_exclude_none=True, operation_id='confirmSyllabusRevision', tags=['Assessments'])
+def confirm_syllabus_revision(body: s.SyllabusRevisionDecision, api: Service):
+    return api.confirm_syllabus_revision(wire(body))
+
+
 @router.post('/reconciliation/decisions', response_model=s.Snapshot, response_model_exclude_none=True, operation_id='decideReconciliationPair', tags=['Assessments'])
 def decide_reconciliation(body: s.ReconciliationDecision, api: Service):
     try:

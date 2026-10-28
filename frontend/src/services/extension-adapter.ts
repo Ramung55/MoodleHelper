@@ -192,6 +192,8 @@ export class BridgeClient implements MoodleHelperAdapter {
   async proposeReconciliation(left: string, right: string): Promise<Snapshot> {
     return this.send("proposeReconciliationPair", { left, right });
   }
+  async previewSyllabusRevision(sourceId: string, candidateId: string) { return this.send("previewSyllabusRevision", {sourceId, candidateId}); }
+  async confirmSyllabusRevision(decision: import("@/domain/types").SyllabusRevisionDecision): Promise<Snapshot> { return this.send("confirmSyllabusRevision", decision); }
   async decideReconciliation(pairId: string, fingerprint: string, reviewRevision: string, kind: "confirm" | "reject", choices: Record<string, string>): Promise<Snapshot> {
     return this.send("decideReconciliationPair", { pairId, fingerprint, reviewRevision, kind, choices });
   }

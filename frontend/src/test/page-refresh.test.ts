@@ -15,9 +15,10 @@ import { assignment,assignmentInput,dateNode } from './moodle-assignments-fixtur
 import { calendarInput,calendarPage,calendarEvent,calendarDate } from './moodle-calendar-fixtures';
 import { account,origin,login } from './moodle-access-fixtures';
 import { createElement } from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AppProvider } from '@/lib/app-store';
 import { AssessmentSheet } from '@/components/mh/AssessmentSheet';
+import { SyllabusRevisionReview } from '@/components/mh/SyllabusRevisionReview';
 import { HttpAdapter } from '@/services/http-adapter';
 vi.mock('@/services', () => ({ getAdapter: () => api }));
 vi.mock('@/services/extension-adapter', () => ({ detectExtension: async () => false }));
@@ -57,6 +58,36 @@ const materialInput=(html:string,path='/course/view.php?id=101')=>({document:new
 const course=(body='')=>`${account}<main data-region="course-content"><h1>Synthetic course</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><section data-region="course-section"><h2>Week 1</h2>${body||'<p data-region="materials-empty">No materials</p>'}</section></main>`;
 
 describe('#18 real pipeline AC1/AC2/AC5',()=>{
+  it('links a fictional syllabus revision through production controls and the real HTTP adapter',async()=>{
+    const f=setup();f.coordinator.notify();await until(()=>f.coordinator.state.receipts.length===2);f.coordinator.stop();
+    async function reviewed(digest:string,day:string) {
+      const imported=await json('/api/documents/import','POST',{courseId:'c-csc',fileName:`fictional-${digest[0]}.pdf`,contentDigest:digest});
+      const candidate=imported.snapshot.candidates.at(-1);
+      const corrected=await json(`/api/candidates/${encodeURIComponent(candidate.id)}/review`,'POST',{kind:'correct',title:'Fictional assignment',type:'assignment',date:{kind:'exact',iso:day,tz:'Asia/Almaty'}});
+      return {candidate,corrected};
+    }
+    const first=await reviewed('a'.repeat(64),'2026-10-25T18:30:00+05:00');
+    const pair=first.corrected.reconciliation.pairs.find((p:any)=>p.status==='pending');expect(pair).toBeTruthy();
+    await json('/api/reconciliation/decisions','POST',{pairId:pair.id,fingerprint:pair.fingerprint,reviewRevision:pair.reviewRevision,kind:'confirm',choices:{}});
+    const second=await reviewed('b'.repeat(64),'2026-11-12T18:30:00+05:00');
+    const target=second.corrected.reconciliation.sources.find((s:any)=>s.candidateId===first.candidate.id);
+    const canonical=second.corrected.reconciliation.aliases.find((a:any)=>a.originalId===target.assessmentId).canonicalId;
+    await api.updateSettings({reminders:{...second.corrected.settings.reminders,enabled:false}});
+    const view=render(createElement(AppProvider,{children:createElement(SyllabusRevisionReview)}));
+    const candidate=await screen.findByLabelText('Reviewed candidate for revision');
+    fireEvent.change(candidate,{target:{value:second.candidate.id}});
+    fireEvent.change(screen.getByLabelText('Existing syllabus source'),{target:{value:target.id}});
+    fireEvent.click(screen.getByRole('button',{name:'Review revision'}));
+    expect(await screen.findByText(/Current source:/)).toBeInTheDocument();
+    expect(screen.getByText(/Reviewed revision:/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Confirm revision link'}));
+    await waitFor(()=>expect(screen.queryByRole('button',{name:'Confirm revision link'})).not.toBeInTheDocument());
+    const saved=await json('/api/snapshot');expect(saved.syllabusRevisions[0].links[0].candidateId).toBe(second.candidate.id);
+    view.unmount();cleanup();
+    const history=render(createElement(AppProvider,{children:createElement(AssessmentSheet,{id:canonical,onClose:()=>{}})}));
+    expect(await screen.findByText(/Syllabus changed:/)).toBeInTheDocument();
+    history.unmount();cleanup();
+  },15000);
   it.each(['observation','reference'])('rejects an injected folder-child pluginfile %s through the production worker/real HTTP/SQLite without changing saved facts',async(location)=>{
     const html=`${account}<main data-region="activity" data-module-type="folder" data-course-module-id="301"><h1>Synthetic folder</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><span data-role="material-section">Week 2</span><a data-role="destination" href="/pluginfile.php/700/mod_folder/content/1/parent.pdf">Parent file</a><ul data-region="folder-contents"><li data-region="folder-entry" data-entry-kind="folder" data-folder-id="401"><a data-role="entry-link" href="/mod/folder/view.php?id=301&folder=401">Child folder</a><ul><span data-role="folder-empty"></span></ul></li></ul></main>`;
     const source=fixture(materialInput(html,'/mod/folder/view.php?id=301'));const healthy=setup(source);healthy.coordinator.notify();await until(()=>healthy.coordinator.state.receipts.length===1);expect(healthy.coordinator.state.status).toBe('saved');healthy.coordinator.stop();const before=await json('/api/snapshot');

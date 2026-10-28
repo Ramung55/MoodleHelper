@@ -217,6 +217,52 @@ class DeadlineRemoved(WireModel):
 
 DeadlineAssertion = DateValue | DeadlineRemoved
 AcceptedDeadlineAssertion = ExactDate | CalendarDate | TeachingWeek | DeadlineRemoved
+KnownDateValue = ExactDate | CalendarDate | TeachingWeek
+
+
+class SyllabusRevisionSelection(WireModel):
+    sourceId: str
+    candidateId: str
+
+
+class SyllabusRevisionDecision(SyllabusRevisionSelection):
+    revision: Integer = Field(ge=0)
+    fingerprint: str
+
+
+class SyllabusRevisionEvidence(WireModel):
+    documentId: str
+    documentName: str
+    candidateId: str
+    title: str
+    date: KnownDateValue
+    excerpt: str
+    location: str
+    observedAt: str
+    mocked: bool
+
+
+class SyllabusRevisionPreview(SyllabusRevisionDecision):
+    target: SyllabusRevisionEvidence
+    incoming: SyllabusRevisionEvidence
+
+
+class SyllabusRevisionLink(WireModel):
+    candidateId: str
+    documentId: str
+    memberSourceId: str
+    assessmentId: str
+    date: KnownDateValue
+    decidedAt: str
+    revision: Integer = Field(ge=1)
+    fingerprint: str
+
+
+class SyllabusRevisionStream(WireModel):
+    sourceId: str
+    assessmentId: str
+    revision: Integer = Field(ge=1)
+    links: list[SyllabusRevisionLink] = Field(min_length=1)
 
 
 class DeadlineStreamEmpty(WireModel):
@@ -250,6 +296,9 @@ class DeadlineChange(WireModel):
     sourceId: str = None
     sourceUrl: str = None
     sourceObservedAt: str = None
+    sourceKind: Literal['moodle', 'syllabus'] = None
+    sourceDocumentId: str = None
+    sourceCandidateId: str = None
 
 
 class Alert(WireModel):
@@ -683,6 +732,7 @@ class Snapshot(WireModel):
     collection: SnapshotCollection = None
     reconciliation: Reconciliation = None
     deadlineStreams: list[DeadlineStream] = None
+    syllabusRevisions: list[SyllabusRevisionStream] = None
     courses: list[Course]
     assessments: list[Assessment]
     overlays: list[Overlay]

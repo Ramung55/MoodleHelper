@@ -110,6 +110,9 @@ def source(snapshot, identifier):
 
 def relevant_date(snapshot, a, source_association):
     from backend.deadline_tracking import effective_sources
+    revision = next((x for x in snapshot.get('syllabusRevisions', []) if x['sourceId'] == source_association['id']), None)
+    if revision:
+        return revision['links'][-1]['date']
     state = next((x for x in snapshot.get('deadlineStreams', []) if x['sourceId'] == source_association['id']), None)
     if state is not None:
         value = state.get('accepted')
@@ -156,6 +159,10 @@ def compatible(snapshot, left, right, *, allow_ambiguous=False):
 
 def add_pair(snapshot, namespace, first, second, *, automatic=False):
     l = layer(snapshot)
+    members = {v['memberSourceId'] for stream in snapshot.get('syllabusRevisions', []) for v in stream['links']}
+    if first in members or second in members:
+        if automatic: return
+        raise ReconciliationConflict('This source is already linked as a syllabus revision.')
     left, right = sorted((source(snapshot, first), source(snapshot, second)), key=lambda x: x['id'])
     if not compatible(snapshot, left, right):
         if automatic:
@@ -264,6 +271,38 @@ def rebuild_logical(snapshot):
         combined = choose_overlay(snapshot, pair, left, right, pair.get('choices', {}))
         overlays.pop(other['assessmentId'], None)
         overlays[canonical_id] = combined
+    revision_streams = snapshot.get('syllabusRevisions', [])
+    all_members = [link['memberSourceId'] for stream in revision_streams for link in stream['links']]
+    if (len(all_members) != len(set(all_members)) or len({s['sourceId'] for s in revision_streams}) != len(revision_streams) or
+        any(s['sourceId'] in all_members for s in revision_streams)):
+        raise ReconciliationConflict('Syllabus revision ownership is ambiguous. No changes were saved.')
+    for stream in revision_streams:
+        target = source(snapshot, stream['sourceId'])
+        if target['kind'] != 'syllabus' or target['assessmentId'] != stream['assessmentId'] or stream['revision'] != len(stream['links']):
+            raise ReconciliationConflict('A saved syllabus revision is invalid. No changes were saved.')
+        canonical_id = aliases.get(target['assessmentId'])
+        if canonical_id not in logical:
+            raise ReconciliationConflict('A saved syllabus revision target is unavailable.')
+        canonical_groups.add(canonical_id)
+        for index, link in enumerate(stream['links'], 1):
+            member = source(snapshot, link['memberSourceId'])
+            member_id = link['assessmentId']
+            if (link['revision'] != index or member['assessmentId'] != member_id or member['kind'] != 'syllabus' or
+                member['candidateId'] != link['candidateId'] or member['documentId'] != link['documentId'] or
+                member['courseId'] != target['courseId'] or member_id not in logical or member_id in used or
+                member_id in overlays or any(member['id'] in (p['left'],p['right']) for p in l['pairs'])):
+                raise ReconciliationConflict('A saved syllabus revision conflicts with existing data. No changes were saved.')
+            from backend.syllabus_revision import evidence
+            if evidence(snapshot, member)['date'] != link['date'] or assessment(snapshot, member_id)['type'] != assessment(snapshot, target['assessmentId'])['type']:
+                raise ReconciliationConflict('Saved syllabus revision evidence no longer matches. No changes were saved.')
+            original = logical.pop(member_id)
+            merged = logical[canonical_id]
+            existing = {canonical(x) for x in merged['sources']}
+            for evidence in original['sources']:
+                if canonical(evidence) not in existing:
+                    merged['sources'].append(deepcopy(evidence)); existing.add(canonical(evidence))
+            aliases[member_id] = canonical_id
+            used.add(member_id)
     edit_ids = [edit['assessmentId'] for edit in l['overlayEdits']]
     if len(edit_ids) != len(set(edit_ids)):
         raise ReconciliationConflict('Duplicate logical overlays require resolution before reconciliation.')

@@ -1,6 +1,6 @@
 import type { RawCourseObservation } from "@/domain/types";
 import { z } from "zod";
-import { ConnectionState, Snapshot, type Snapshot as SnapshotValue } from "@/domain/types";
+import { ConnectionState, Snapshot, SyllabusRevisionPreview, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
 import type { MoodleHelperAdapter, OverlayPatch, PersonalEventInput, ReviewDecision } from "./adapter";
 
 const connectionSchema = z.object({ state: ConnectionState, message: z.string(), extensionDetected: z.boolean() });
@@ -72,6 +72,8 @@ export class HttpAdapter implements MoodleHelperAdapter {
   }
   review(id: string, decision: ReviewDecision) { return this.request("POST", `/candidates/${encodeURIComponent(id)}/review`, Snapshot, decision); }
   proposeReconciliation(left: string, right: string) { return this.request("POST", "/reconciliation/pairs", Snapshot, { left, right }); }
+  previewSyllabusRevision(sourceId: string, candidateId: string) { return this.request("POST", "/syllabus-revisions/preview", SyllabusRevisionPreview, {sourceId, candidateId}); }
+  confirmSyllabusRevision(decision: SyllabusRevisionDecision) { return this.request("POST", "/syllabus-revisions/confirm", Snapshot, decision); }
   decideReconciliation(pairId: string, fingerprint: string, reviewRevision: string, kind: "confirm" | "reject", choices: Record<string, string>) {
     return this.request("POST", "/reconciliation/decisions", Snapshot, { pairId, fingerprint, reviewRevision, kind, choices });
   }

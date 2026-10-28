@@ -35,13 +35,23 @@ def effective_sources(snapshot, assessment):
     layer = snapshot.get('reconciliation', {})
     aliases = {x['originalId']: x['canonicalId'] for x in layer.get('aliases', [])}
     canonical = aliases.get(assessment['id'], assessment['id'])
+    streams = [stream for stream in snapshot.get('syllabusRevisions', [])
+               if aliases.get(stream['assessmentId'], stream['assessmentId']) == canonical]
+    evidence = list(assessment['sources'])
+    if streams:
+        evidence = [s for s in evidence if s['source'] != 'syllabus']
+        for stream in streams:
+            link = stream['links'][-1]
+            original = next((a for a in snapshot['assessments'] if a['id'] == link['assessmentId']), None)
+            if original:
+                evidence.extend(s for s in original['sources'] if s['source'] == 'syllabus' and s['date'] == link['date'])
     associations = [s for s in layer.get('sources', []) if s['kind'] == 'moodle' and
                     aliases.get(s['assessmentId'], s['assessmentId']) == canonical]
     if not associations:
-        return assessment['sources']
+        return evidence
     states = {s['sourceId']: s for s in snapshot.get('deadlineStreams', [])}
     records = {r['id']: r for r in snapshot.get('collection', {}).get('records', [])}
-    current = [s for s in assessment['sources'] if s['source'] != 'moodle']
+    current = [s for s in evidence if s['source'] != 'moodle']
     untracked = []
     candidates = []
     for association in associations:

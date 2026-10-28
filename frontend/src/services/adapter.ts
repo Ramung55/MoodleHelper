@@ -1,5 +1,6 @@
 import type { RawCourseObservation } from "@/domain/types";
 import type { AssessmentType, ConnectionState, DateValue, Overlay, Settings, Snapshot } from "@/domain/types";
+import type { SyllabusRevisionDecision, SyllabusRevisionPreview } from "@/domain/types";
 
 export interface ConnectionInfo {
   state: ConnectionState;
@@ -54,6 +55,8 @@ export interface MoodleHelperAdapter {
   review(candidateId: string, decision: ReviewDecision): Promise<Snapshot>;
   proposeReconciliation(left: string, right: string): Promise<Snapshot>;
   decideReconciliation(pairId: string, fingerprint: string, reviewRevision: string, kind: "confirm" | "reject", choices: Record<string, string>): Promise<Snapshot>;
+  previewSyllabusRevision(sourceId: string, candidateId: string): Promise<SyllabusRevisionPreview>;
+  confirmSyllabusRevision(decision: SyllabusRevisionDecision): Promise<Snapshot>;
 
   downloadMaterial(id: string): Promise<{ snapshot: Snapshot; supported: boolean; message: string }>;
 

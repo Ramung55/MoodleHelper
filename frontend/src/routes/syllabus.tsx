@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { DateInput } from "@/components/mh/DateInput";
 import { ReconciliationReview } from "@/components/mh/ReconciliationReview";
+import { SyllabusRevisionReview } from "@/components/mh/SyllabusRevisionReview";
 import { CourseTag, EmptyState, PageHeader, TYPE_LABEL } from "@/components/mh/bits";
 import { formatDate } from "@/domain/dates";
 import type { DateValue, ExtractionCandidate } from "@/domain/types";
@@ -88,6 +89,7 @@ function Syllabus() {
       </div>
 
       <ReconciliationReview />
+      <SyllabusRevisionReview />
       <section className="mt-8">
         <h2 className="mb-3 text-xl font-semibold">Needs review ({pending.length})</h2>
         {pending.length === 0 ? <EmptyState title="Review queue is empty" /> : (

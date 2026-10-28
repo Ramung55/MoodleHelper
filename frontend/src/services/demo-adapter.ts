@@ -30,7 +30,7 @@ export const browserKV = (): KV =>
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function emptySnapshot(base: Snapshot): Snapshot {
-  const { collection: _collection, reconciliation: _reconciliation, deadlineStreams: _deadlineStreams, ...retained } = base;
+  const { collection: _collection, reconciliation: _reconciliation, deadlineStreams: _deadlineStreams, syllabusRevisions: _syllabusRevisions, ...retained } = base;
   return { ...retained, courses: [], assessments: [], overlays: [], materials: [], documents: [], candidates: [], sync: [], changes: [], alerts: [], settings: { ...base.settings, trackedCourseIds: [] } };
 }
 
@@ -203,6 +203,8 @@ export class DemoAdapter implements MoodleHelperAdapter {
   async proposeReconciliation(_left: string, _right: string): Promise<Snapshot> {
     throw new Error("Match review requires the local backend. Demo data stays unchanged.");
   }
+  async previewSyllabusRevision(_sourceId: string, _candidateId: string): Promise<never> { throw new Error("Syllabus revision review requires the local backend."); }
+  async confirmSyllabusRevision(_decision: import("@/domain/types").SyllabusRevisionDecision): Promise<Snapshot> { throw new Error("Syllabus revision review requires the local backend."); }
   async decideReconciliation(_pairId: string, _fingerprint: string, _reviewRevision: string, _kind: "confirm" | "reject", _choices: Record<string, string>): Promise<Snapshot> {
     throw new Error("Match review requires the local backend. Demo data stays unchanged.");
   }

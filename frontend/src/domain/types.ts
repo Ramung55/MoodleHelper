@@ -145,6 +145,15 @@ export const DeadlineRemoved = z.object({ kind: z.literal("removed") });
 export const DeadlineAssertion = z.union([DateValue, DeadlineRemoved]);
 export type DeadlineAssertion = z.infer<typeof DeadlineAssertion>;
 export const AcceptedDeadlineAssertion = z.union([DateValue.options[0], DateValue.options[1], DateValue.options[2], DeadlineRemoved]);
+export const KnownDateValue = z.union([DateValue.options[0], DateValue.options[1], DateValue.options[2]]);
+export const SyllabusRevisionSelection = z.object({ sourceId: z.string(), candidateId: z.string() });
+export const SyllabusRevisionDecision = SyllabusRevisionSelection.extend({ revision: z.number().int().min(0), fingerprint: z.string() });
+export type SyllabusRevisionDecision = z.infer<typeof SyllabusRevisionDecision>;
+export const SyllabusRevisionEvidence = z.object({ documentId: z.string(), documentName: z.string(), candidateId: z.string(), title: z.string(), date: KnownDateValue, excerpt: z.string(), location: z.string(), observedAt: z.string(), mocked: z.boolean() });
+export const SyllabusRevisionPreview = SyllabusRevisionDecision.extend({ target: SyllabusRevisionEvidence, incoming: SyllabusRevisionEvidence });
+export type SyllabusRevisionPreview = z.infer<typeof SyllabusRevisionPreview>;
+export const SyllabusRevisionLink = z.object({ candidateId: z.string(), documentId: z.string(), memberSourceId: z.string(), assessmentId: z.string(), date: KnownDateValue, decidedAt: z.string(), revision: z.number().int().min(1), fingerprint: z.string() });
+export const SyllabusRevisionStream = z.object({ sourceId: z.string(), assessmentId: z.string(), revision: z.number().int().min(1), links: z.array(SyllabusRevisionLink).min(1) });
 export const DeadlineStream = z.object({
   sourceId: z.string(), assessmentId: z.string(), watermark: z.string(),
   established: z.boolean(), accepted: AcceptedDeadlineAssertion.optional(),
@@ -160,6 +169,9 @@ export const DeadlineChange = z.object({
   sourceId: z.string().optional(),
   sourceUrl: z.string().optional(),
   sourceObservedAt: z.string().optional(),
+  sourceKind: z.enum(["moodle", "syllabus"]).optional(),
+  sourceDocumentId: z.string().optional(),
+  sourceCandidateId: z.string().optional(),
 });
 export type DeadlineChange = z.infer<typeof DeadlineChange>;
 
@@ -616,6 +628,7 @@ export const Snapshot = z.object({
   collection: SnapshotCollection.optional(),
   reconciliation: Reconciliation.optional(),
   deadlineStreams: z.array(DeadlineStream).optional(),
+  syllabusRevisions: z.array(SyllabusRevisionStream).optional(),
   courses: z.array(Course),
   assessments: z.array(Assessment),
   overlays: z.array(Overlay),

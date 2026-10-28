@@ -58,10 +58,17 @@ export function latest(sources: SourceEvidence[], src: SourceEvidence["source"])
 }
 
 export function effectiveSources(snapshot: Snapshot, a: Assessment): SourceEvidence[] {
+  const revisions = (snapshot.syllabusRevisions ?? []).filter((s) => resolveAssessmentId(snapshot,s.assessmentId) === resolveAssessmentId(snapshot,a.id));
+  const evidence = revisions.length ? a.sources.filter((s) => s.source !== "syllabus") : [...a.sources];
+  for (const revision of revisions) {
+    const link = revision.links.at(-1);
+    const original = snapshot.assessments.find((item) => item.id === link?.assessmentId);
+    if (original && link) evidence.push(...original.sources.filter((item) => item.source === "syllabus" && JSON.stringify(item.date) === JSON.stringify(link.date)));
+  }
   const sources = (snapshot.reconciliation?.sources ?? []).filter((s) => s.kind === "moodle" && resolveAssessmentId(snapshot, s.assessmentId) === resolveAssessmentId(snapshot, a.id));
-  if (!sources.length) return a.sources;
+  if (!sources.length) return evidence;
   const records = snapshot.collection?.records ?? [];
-  const current: SourceEvidence[] = a.sources.filter((s) => s.source !== "moodle");
+  const current: SourceEvidence[] = evidence.filter((s) => s.source !== "moodle");
   const candidates: { id: string; evidence: SourceEvidence }[] = [];
   for (const source of sources) {
     const state = snapshot.deadlineStreams?.find((s) => s.sourceId === source.id);

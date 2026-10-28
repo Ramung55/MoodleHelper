@@ -55,6 +55,17 @@ class BackendService:
         from backend.reconciliation import decide
         return self.store.mutate(lambda snapshot: decide(snapshot, self.store.namespace, decision))
 
+    def preview_syllabus_revision(self, selection: dict) -> dict:
+        from backend.syllabus_revision import preview
+        return preview(self.store.read(), self.store.namespace, selection)
+
+    def confirm_syllabus_revision(self, decision: dict) -> dict:
+        from backend.syllabus_revision import Replay, confirm
+        try:
+            return self.store.mutate(lambda snapshot: confirm(snapshot, self.store.namespace, decision))
+        except Replay:
+            return self.store.read()
+
     def replace_all(self, snapshot: dict) -> dict:
         if 'reconciliation' in snapshot:
             from backend.reconciliation import project_sources
@@ -283,6 +294,7 @@ class BackendService:
             s.pop('collection', None)
             s.pop('reconciliation', None)
             s.pop('deadlineStreams', None)
+            s.pop('syllabusRevisions', None)
             for key in s:
                 if key != "settings":
                     s[key] = []
