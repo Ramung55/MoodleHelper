@@ -74,7 +74,6 @@ class SQLiteStore(SourceUpserts):
                     self._decode(saved)
                 connection.execute(text("INSERT OR IGNORE INTO local_datasets(namespace,dataset_id) VALUES(:namespace,:dataset_id)"),
                                    {**self._key, "dataset_id": str(uuid4())})
-                self._dataset_id = connection.execute(text("SELECT dataset_id FROM local_datasets WHERE namespace=:namespace"), self._key).scalar_one()
         except MigrationError as exc:
             self.close()
             raise StorageError(str(exc)) from exc
@@ -88,7 +87,11 @@ class SQLiteStore(SourceUpserts):
 
     @property
     def dataset_id(self):
-        return self._dataset_id
+        try:
+            with self.engine.connect() as connection:
+                return connection.execute(text("SELECT dataset_id FROM local_datasets WHERE namespace=:namespace"), self._key).scalar_one()
+        except (SQLAlchemyError, sqlite3.Error) as exc:
+            raise storage_failure(exc) from exc
 
     @property
     def _key(self):

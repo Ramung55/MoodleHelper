@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -11,6 +11,10 @@ import { rankSyllabusSuggestions } from "@/domain/syllabus-suggestions";
 import { formatDate } from "@/domain/dates";
 import type { DateValue, ExtractionCandidate } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
+import { currentDataset, listLocalDocuments, saveLocalDocument, type LocalAssociation } from "@/services/local-documents";
+import { validateDocx } from "@/services/validate-docx";
+
+const LOCAL_FILE_LIMIT = 20 * 1024 * 1024;
 
 export const Route = createFileRoute("/syllabus")({
   head: () => ({
@@ -25,11 +29,24 @@ export const Route = createFileRoute("/syllabus")({
 });
 
 export function Syllabus() {
-  const { snap, run, setSnap, adapter } = useApp();
+  const { snap, run } = useApp();
   const s = snap!;
   const fileRef = useRef<HTMLInputElement>(null);
-  const [course, setCourse] = useState(s.settings.trackedCourseIds[0] ?? "");
+  const [course, setCourse] = useState("");
   const [importing, setImporting] = useState(false);
+  const [localDocuments, setLocalDocuments] = useState<LocalAssociation[]>([]);
+  const [localStatus, setLocalStatus] = useState("");
+  const [retryFile, setRetryFile] = useState<File>();
+  const cancellation = useRef<AbortController | null>(null);
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      setLocalDocuments([]);
+      void currentDataset().then(listLocalDocuments).then((rows) => { if (active) setLocalDocuments(rows); }).catch(() => { if (active) setLocalStatus("Local files are unavailable. Check the backend and browser storage, then retry."); });
+    };
+    refresh(); window.addEventListener("focus", refresh);
+    return () => { active = false; window.removeEventListener("focus", refresh); cancellation.current?.abort(); };
+  }, []);
   const pending = s.candidates.filter((c) => c.status === "pending");
   const decided = s.candidates.filter((c) => c.status !== "pending");
   const suggestions = rankSyllabusSuggestions(s);
@@ -44,17 +61,43 @@ export function Syllabus() {
 
   const onFile = async (f?: File) => {
     if (!f) return;
+    const controller = new AbortController(); cancellation.current = controller;
+    setRetryFile(f);
     setImporting(true);
+    setLocalStatus("Queued for local validation.");
     try {
+      if (!s.courses.some((c) => c.id === course)) throw new Error("Choose an existing course first.");
+      if (f.size > LOCAL_FILE_LIMIT) throw new Error("The file exceeds the 20 MiB limit. Choose a smaller file.");
+      if (/\.doc$/i.test(f.name)) throw new Error("Legacy .doc is unsupported. Export it as DOCX.");
+      if (/\.(gdoc|gsheet|gslides)$/i.test(f.name)) throw new Error("Export the Google document as PDF or DOCX and select the exported file.");
+      if (/\.pdf$/i.test(f.name)) throw new Error("PDF validation is not yet available. Select a DOCX file instead.");
+      if (!/\.docx$/i.test(f.name)) throw new Error("Choose a DOCX file. Google Docs must first be exported.");
+      const datasetId = await currentDataset();
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      setLocalStatus("Parsing: validating and hashing locally; no extraction is performed.");
       const bytes = await f.arrayBuffer();
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      await validateDocx(bytes, controller.signal);
+      if (!globalThis.crypto?.subtle) throw new Error("Secure hashing is unavailable in this browser. Use a secure local origin and retry.");
       const hash = await crypto.subtle.digest("SHA-256", bytes);
       const digest = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
-      const { result, snapshot } = await adapter.importDocument(course, f.name, setSnap, digest);
-      setSnap(snapshot);
-      if (!result.ok) toast.error(result.reason);
-      else toast.success("Imported. Review the extracted items below.");
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      let rows = await listLocalDocuments(datasetId);
+      const others = rows.filter((row) => row.digest === digest && row.courseId !== course).map((row) => row.courseId);
+      const confirmed = others;
+      if (others.length && !rows.some((row) => row.digest === digest && row.courseId === course)) {
+        const labels = others.map((id) => s.courses.find((c) => c.id === id)?.code ?? id).join(", ");
+        if (!window.confirm(`This document is already associated with ${labels}. Also associate it with ${s.courses.find((c) => c.id === course)?.code}?`)) throw new DOMException("Cancelled", "AbortError");
+      }
+      const result = await saveLocalDocument({ datasetId, courseId: course, digest, name: f.name, size: f.size, source: selected?.title ?? "Local selection", createdAt: new Date().toISOString() }, f, confirmed, controller.signal);
+      if (result === "confirmation-required") throw new Error("Another course association was added. Retry to review it.");
+      cancellation.current = null;
+      setLocalStatus(result === "duplicate" ? "Already associated with this course." : "Complete: validated and stored locally. Extraction has not been performed.");
+      setRetryFile(undefined);
+      try { rows = await listLocalDocuments(datasetId); setLocalDocuments(rows); }
+      catch { setLocalDocuments([]); setLocalStatus("Saved locally, but the dataset changed or is unavailable. Reconnect to view it."); }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Import failed. Your saved data was not changed.");
+      setLocalStatus(e instanceof DOMException && e.name === "AbortError" ? "Cancelled. No association was added." : `Failed: ${e instanceof Error ? e.message : "Local import failed. Retry."}`);
     } finally {
       setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -63,7 +106,7 @@ export function Syllabus() {
 
   return (
     <>
-      <PageHeader title="Syllabus review" sub="Extraction here is mocked in demo mode. Nothing is read from your file's contents yet." />
+      <PageHeader title="Syllabus review" sub="Local documents stay in this browser. Extraction is not yet available; existing demo candidates are mocked." />
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-lg border bg-card p-4">
           <h2 className="mb-2 text-lg font-semibold">Suggested from Moodle</h2>
@@ -77,7 +120,7 @@ export function Syllabus() {
                 <p>{item.type === "unknown" ? "Unknown type" : item.type} · {item.reason}{item.uncertain && " · Uncertain"}</p>
                 {item.link ? <a href={item.link} target="_blank" rel="noreferrer" className="underline">Original link</a> : <span>Link unavailable</span>}
                 <div className="mt-2 flex gap-2">
-                  {!isDismissed && <Button size="sm" variant="outline" disabled={!s.courses.some((c) => c.id === item.courseId)} onClick={() => { setCourse(item.courseId); setSelected({ id: item.id, title: item.title }); }}>Choose local file for this course</Button>}
+                  {!isDismissed && <Button size="sm" variant="outline" disabled={importing || !s.courses.some((c) => c.id === item.courseId)} onClick={() => { setCourse(item.courseId); setSelected({ id: item.id, title: item.title }); }}>Choose local file for this course</Button>}
                   <Button size="sm" variant="ghost" disabled={saving} onClick={() => void changeDismissal(item.id, !isDismissed)}>{isDismissed ? "Restore" : "Dismiss"}</Button>
                 </div>
               </li>)}</ul></div>;
@@ -85,14 +128,19 @@ export function Syllabus() {
         </section>
         <section className="rounded-lg border bg-card p-4">
           <h2 className="mb-2 text-lg font-semibold">Import a file</h2>
-          <p className="mb-3 text-sm text-muted-foreground">Moodle file retrieval and real file validation/import are not yet available. Choosing a local file uses the existing mock import.</p>
+          <p className="mb-3 text-sm text-muted-foreground">Select a local DOCX up to 20 MiB. PDF validation is not yet available. Files stay in this browser profile and origin; clearing browser storage removes them.</p>
           {selected && <p className="mb-3 text-sm">Selected resource: {selected.title}. Choose a local file below or cancel. <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>Cancel</Button></p>}
           <div className="flex flex-wrap gap-2">
-            <select aria-label="Course for import" className="h-9 rounded-md border bg-card px-2 text-sm" value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); }}>
+            <select aria-label="Course for import" disabled={importing} className="h-9 rounded-md border bg-card px-2 text-sm" value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); }}>
+              <option value="">Choose a course</option>
               {s.courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
             </select>
             <input ref={fileRef} type="file" aria-label="Syllabus file" aria-busy={importing} disabled={importing} className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />
           </div>
+          {localStatus && <p role="status" className="mt-2 text-sm">{localStatus}</p>}
+          {importing && <Button size="sm" variant="outline" onClick={() => cancellation.current?.abort()}>Cancel import</Button>}
+          {!importing && retryFile && <Button size="sm" variant="outline" onClick={() => void onFile(retryFile)}>Retry selected file</Button>}
+          <ul className="mt-3 space-y-2">{localDocuments.map((d) => <li key={`${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only)</li>)}</ul>
           <ul className="mt-4 space-y-2">
             {s.documents.map((d) => (
               <li key={d.id} className="text-sm">
