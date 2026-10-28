@@ -19,7 +19,8 @@ async function decode(data: Uint8Array, compressed: boolean, limit: number, sign
   return result;
 }
 
-export async function readXrefStream(bytes: Uint8Array, text: string, offset: number, end: number, signal: AbortSignal): Promise<{ trailer: string; entries: { object: number; generation: number; inUse: boolean; position: number }[] }> {
+export type XrefEntry = { object: number; generation: number; inUse: boolean; position: number; type: number; index: number };
+export async function readXrefStream(bytes: Uint8Array, text: string, offset: number, end: number, signal: AbortSignal): Promise<{ trailer: string; entries: XrefEntry[] }> {
   const header = /^(\d+)\s+(\d+)\s+obj\s*<<((?:(?!<<|>>)[\s\S]|<<(?:(?!<<|>>)[\s\S])*>>)*)>>\s*stream(?:\r\n|\r|\n)/.exec(text.slice(offset, end));
   if (!header) return fail();
   let dictionary = header[3]!;
@@ -100,6 +101,11 @@ export async function readXrefStream(bytes: Uint8Array, text: string, offset: nu
     if (type === 1 && (position > offset || !text.slice(position).startsWith(`${object} ${generation} obj`))) return fail();
     return { object, generation:type === 2 ? 0 : generation, inUse:type !== 0, position, type, index:type === 2 ? generation : 0 };
   });
+  return { trailer: dictionary, entries };
+}
+
+/** Check compressed-object references after all incremental sections are merged. */
+export async function validateObjectStreams(bytes: Uint8Array, text: string, offset: number, entries: XrefEntry[], signal: AbortSignal): Promise<void> {
   const byObject = new Map(entries.map((entry) => [entry.object, entry]));
   const streams = new Map<number, { ids: number[]; offsets: number[]; length: number }>();
   let totalDecoded = 0;
@@ -135,5 +141,4 @@ export async function readXrefStream(bytes: Uint8Array, text: string, offset: nu
     }
     if (entry.index >= objectStream.ids.length || objectStream.ids[entry.index] !== entry.object) return fail();
   }
-  return { trailer: dictionary, entries };
 }

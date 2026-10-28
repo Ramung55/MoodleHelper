@@ -19,6 +19,29 @@ describe("PDF structural gate", () => {
   it.each(['local-version2.pdf', 'local-incremental.pdf'])("accepts a synthetic valid %s structure", async (name) => {
     await expect(validate(Uint8Array.from(readFileSync(`src/test/fixtures/${name}`)))).resolves.toBeUndefined();
   });
+  it.each(['local-classic-to-stream.pdf','local-stream-to-classic.pdf','local-stream-to-stream.pdf'])("validates mixed revision chain %s and rejects invalid Prev", async (name) => {
+    vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
+    const source = readFileSync(`src/test/fixtures/${name}`), text = source.toString('latin1');
+    await expect(validate(Uint8Array.from(source))).resolves.toBeUndefined();
+    getDocument.mockClear();
+    const latest = [...text.matchAll(/startxref\s+(\d+)/g)].at(-1)![1]!;
+    for (const target of [latest, String(Number(latest)+1), '1']) {
+      const modified = text.replace(/\/Prev\s+\d+/, `/Prev ${target}`);
+      await expect(validate(Uint8Array.from(Buffer.from(modified,'latin1')))).rejects.toThrow(/corrupt/);
+    }
+    expect(getDocument).not.toHaveBeenCalled();
+  });
+  it('resolves compressed objects from an earlier revision and honors a later free entry', async () => {
+    vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
+    const source = readFileSync('src/test/fixtures/local-object-incremental.pdf');
+    await expect(validate(Uint8Array.from(source))).resolves.toBeUndefined();
+    getDocument.mockClear();
+    const text = readFileSync('src/test/fixtures/local-stream-to-classic.pdf','latin1');
+    const invalid = text.replace(/(xref\s+1\s+1\s+\d{10}\s+00000\s+)n/, '$1f');
+    expect(invalid).not.toBe(text);
+    await expect(validate(Uint8Array.from(Buffer.from(invalid,'latin1')))).rejects.toThrow(/corrupt/);
+    expect(getDocument).not.toHaveBeenCalled();
+  });
   it('accepts a bounded compressed xref stream and rejects corruption', async () => {
     vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
     const bytes = Uint8Array.from(readFileSync('src/test/fixtures/local-xref-stream.pdf'));
@@ -72,6 +95,11 @@ describe("PDF structural gate", () => {
     vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
     const bytes = Uint8Array.from(readFileSync('src/test/fixtures/local-object-bomb.pdf'));
     await expect(validate(bytes)).rejects.toThrow(/corrupt/);
+    expect(getDocument).not.toHaveBeenCalled();
+  });
+  it('rejects a cancelled PDF before parser or network activity', async () => {
+    const controller = new AbortController(); controller.abort();
+    await expect(validatePdf(copy().buffer, controller.signal)).rejects.toMatchObject({name:'AbortError'});
     expect(getDocument).not.toHaveBeenCalled();
   });
   it('fails closed on invalid xref-stream widths, ranges, lengths and filters', async () => {
