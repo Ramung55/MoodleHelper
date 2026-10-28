@@ -16,6 +16,16 @@ describe("bounded DOCX validation", () => {
     bytes[55] ^= 1;
     await expect(validate(bytes)).rejects.toThrow(/corrupt/);
   });
+  it("validates streaming ZIP data descriptors and rejects altered descriptor fields", async () => {
+    vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("DecompressionStream", NodeDecompressionStream);
+    const bytes = Uint8Array.from(readFileSync("src/test/fixtures/local-descriptor.docx"));
+    await expect(validate(bytes)).resolves.toBeUndefined();
+    const signature = Uint8Array.of(0x50, 0x4b, 0x07, 0x08);
+    const pos = bytes.findIndex((_, i) => signature.every((b, j) => bytes[i + j] === b));
+    expect(pos).toBeGreaterThan(0);
+    bytes[pos + 4] ^= 1;
+    await expect(validate(bytes)).rejects.toThrow(/corrupt/);
+  });
   it("rejects truncated and CRC-corrupted archives", async () => {
     await expect(validate(copy().slice(0, -10))).rejects.toThrow(/corrupt/);
     const bytes = copy(); bytes[55] ^= 1;

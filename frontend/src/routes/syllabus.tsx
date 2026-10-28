@@ -38,21 +38,43 @@ export function Syllabus() {
   const [localStatus, setLocalStatus] = useState("");
   const [retryFile, setRetryFile] = useState<File>();
   const [interrupted, setInterrupted] = useState<LocalJob[]>([]);
+  const [contextReady, setContextReady] = useState(false);
   const cancellation = useRef<AbortController | null>(null);
   const owner = useRef("");
+  const boundDataset = useRef<string | null>(null);
   useEffect(() => {
     let active = true;
+    let sequence = 0;
     try {
       owner.current = sessionStorage.getItem("moodle-helper-import-tab") ?? crypto.randomUUID();
       sessionStorage.setItem("moodle-helper-import-tab", owner.current);
-      void currentDataset().then((id) => recoverLocalJobs(id, owner.current)).then((jobs) => { if (active) setInterrupted(jobs.filter((job) => job.state === "failed")); }).catch(() => { if (active) setLocalStatus("Could not recover local import status. Check browser storage and retry."); });
     } catch { setLocalStatus("Secure browser storage is unavailable. Local imports cannot start."); }
-    const refresh = () => {
-      setLocalDocuments([]);
-      void currentDataset().then(listLocalDocuments).then((rows) => { if (active) setLocalDocuments(rows); }).catch(() => { if (active) setLocalStatus("Local files are unavailable. Check the backend and browser storage, then retry."); });
+    const refresh = async () => {
+      const request = ++sequence;
+      try {
+        const id = await currentDataset();
+        if (!active || request !== sequence) return;
+        if (boundDataset.current && boundDataset.current !== id) {
+          cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false);
+          setLocalStatus("The dataset changed. Reload the page to continue with the current courses.");
+          return;
+        }
+        if (!boundDataset.current) {
+          const rows = await listLocalDocuments(id);
+          const jobs = await recoverLocalJobs(id, owner.current);
+          if (!active || request !== sequence) return;
+          boundDataset.current = id; setLocalDocuments(rows); setInterrupted(jobs.filter((job) => job.state === "failed")); setContextReady(true);
+        }
+      } catch {
+        if (!active || request !== sequence) return;
+        cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false);
+        setLocalStatus("Local files are unavailable. Check the backend and reload the page.");
+      }
     };
-    refresh(); window.addEventListener("focus", refresh);
-    return () => { active = false; window.removeEventListener("focus", refresh); cancellation.current?.abort(); };
+    const onFocus = () => { void refresh(); };
+    void refresh(); window.addEventListener("focus", onFocus);
+    const timer = window.setInterval(() => { void refresh(); }, 2000);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); cancellation.current?.abort(); };
   }, []);
   const pending = s.candidates.filter((c) => c.status === "pending");
   const decided = s.candidates.filter((c) => c.status !== "pending");
@@ -74,12 +96,14 @@ export function Syllabus() {
     setImporting(true);
     setLocalStatus("Queued for local validation.");
     try {
+      if (!contextReady || !boundDataset.current) throw new Error("Reload the page to reconnect to the current dataset.");
       if (!s.courses.some((c) => c.id === course)) throw new Error("Choose an existing course first.");
       if (f.size > LOCAL_FILE_LIMIT) throw new Error("The file exceeds the 20 MiB limit. Choose a smaller file.");
       if (/\.doc$/i.test(f.name)) throw new Error("Legacy .doc is unsupported. Export it as DOCX.");
       if (/\.(gdoc|gsheet|gslides)$/i.test(f.name)) throw new Error("Export the Google document as PDF or DOCX and select the exported file.");
       if (!/\.(pdf|docx)$/i.test(f.name)) throw new Error("Choose a PDF or DOCX file. Google Docs must first be exported.");
       const datasetId = await currentDataset();
+      if (datasetId !== boundDataset.current) throw new Error("The dataset changed. Reload the page to continue.");
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       if (!owner.current || !crypto.randomUUID) throw new Error("Secure browser storage is unavailable. Retry in a supported browser.");
       job = { datasetId, owner: owner.current, id: crypto.randomUUID(), name: f.name, courseId: course, state: "queued", message: "Queued" };
@@ -152,11 +176,11 @@ export function Syllabus() {
           <p className="mb-3 text-sm text-muted-foreground">Select a local PDF or DOCX up to 20 MiB. Some PDF and ZIP structures are unsupported; export a new copy if validation fails. Files stay in this browser profile and origin; clearing browser storage removes them.</p>
           {selected && <p className="mb-3 text-sm">Selected resource: {selected.title}. Choose a local file below or cancel. <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>Cancel</Button></p>}
           <div className="flex flex-wrap gap-2">
-            <select aria-label="Course for import" disabled={importing} className="h-9 rounded-md border bg-card px-2 text-sm" value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); }}>
+            <select aria-label="Course for import" disabled={importing || !contextReady} className="h-9 rounded-md border bg-card px-2 text-sm" value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); }}>
               <option value="">Choose a course</option>
               {s.courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
             </select>
-            <input ref={fileRef} type="file" aria-label="Syllabus file" aria-busy={importing} disabled={importing} className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" aria-label="Syllabus file" aria-busy={importing} disabled={importing || !contextReady} className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />
           </div>
           {localStatus && <p role="status" className="mt-2 text-sm">{localStatus}</p>}
           {interrupted.map((job) => <p key={job.id} className="mt-2 text-sm">{job.name}: {job.message}</p>)}
