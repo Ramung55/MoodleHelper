@@ -129,7 +129,7 @@ class BackendService:
         def apply(snapshot):
             records = [r for r in snapshot.get('collection', {}).get('records', [])
                        if r['kind'] == 'material' and r['id'] == record_id]
-            if len(records) != 1 or not any(o['kind'] == 'file' for o in records[0]['observations']):
+            if len(records) != 1 or not any(o['kind'] != 'folder' for o in records[0]['observations']):
                 raise ValueError('Suggestion is no longer available. Refresh and try again.')
             ids = set(snapshot.get('dismissedSyllabusSuggestions', []))
             if dismissed:

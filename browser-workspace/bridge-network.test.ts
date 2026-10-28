@@ -284,6 +284,17 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
       expect(s.sync.length).toBeGreaterThan(0),
     );
     expect(sync.sync.every((c) => c.status !== "syncing")).toBe(true);
+    const ref = { sourcePageUrl: "https://moodle.sdu.edu.kz/course/view.php?id=101", sourceUrl: "https://moodle.sdu.edu.kz/mod/resource/view.php?id=201", observedAt: "2026-10-25T12:00:00Z", location: "course.material" as const };
+    const observation = { ...ref, sourceCourseId: "101", sourceCourseModuleId: "201", sourceModuleType: "resource" as const, resourceKey: "bridge-resource", kind: "file" as const, title: { kind: "known" as const, value: "Syllabus" }, section: { kind: "unknown" as const }, fileType: { kind: "known" as const, value: "pdf" as const }, mimeType: { kind: "unknown" as const }, references: [ref] };
+    await client.replaceAll({ ...original, collection: { records: [{ id: "bridge-record", courseId: original.courses[0]!.id, kind: "material", firstObservedAt: ref.observedAt, lastObservedAt: ref.observedAt, observations: [observation] }], reviews: [], refreshes: [] } });
+    const beforeSuggestion = traffic.length;
+    expect((await client.setSyllabusSuggestionDismissal("bridge-record", true)).dismissedSyllabusSuggestions).toEqual(["bridge-record"]);
+    expect((await client.load()).dismissedSyllabusSuggestions).toEqual(["bridge-record"]);
+    expect((await client.setSyllabusSuggestionDismissal("bridge-record", false)).dismissedSyllabusSuggestions).toEqual([]);
+    await expect(client.setSyllabusSuggestionDismissal("missing", true)).rejects.toMatchObject({ code: "VALIDATION" });
+    const suggestionTraffic = traffic.slice(beforeSuggestion);
+    expect(suggestionTraffic.filter((entry) => entry.url.endsWith("/syllabus-suggestions/dismissal")).map((entry) => entry.status)).toEqual([200, 200, 422]);
+    expect(suggestionTraffic.every((entry) => !/pluginfile|documents\/import|materials\/.*download/.test(entry.url))).toBe(true);
     expect(await client.replaceAll(original)).toEqual(original);
     expect((await client.deleteLocalData()).courses).toEqual([]);
     expect((await client.resetDemo()).courses.length).toBeGreaterThan(0);

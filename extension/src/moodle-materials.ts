@@ -74,7 +74,7 @@ const known = <T>(value: T): Metadata<T> => ({ kind: "known", value });
 const normalizedText = (node?: Element | null): string => (node?.textContent ?? "").replace(/\s+/gu, " ").trim();
 // PM 275c369: URL-shaped labels cannot leak rejected hrefs through metadata.
 // Ordinary prose receives no speculative secret filtering.
-const unsafeLabel = (value: string): boolean => /[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value) ||
+export const unsafeLabel = (value: string): boolean => /[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value) ||
   /(?:^|\s)(?:javascript:|data:|file:|mailto:|\/\/|\/course\/|\/mod\/|\/pluginfile\.php\/)/i.test(value);
 const label = (node?: Element | null): Metadata<string> => {
   const value = normalizedText(node);
@@ -128,7 +128,7 @@ function safeFolder(value: string | null, moduleId: string, folderId: string): S
   const href = moodleHref(value);
   return href === `${origin}/mod/folder/view.php?id=${moduleId}&folder=${folderId}` ? { url: href } : { reason: "unsafe_url" };
 }
-function safeDestination(value: string | null, moduleType: ModuleType, pluginOnly = false): SafeDestination {
+export function safeDestination(value: string | null, moduleType: ModuleType, pluginOnly = false): SafeDestination {
   const href = moodleHref(value);
   if (href) {
     const match = /^https:\/\/moodle\.sdu\.edu\.kz\/pluginfile\.php\/([1-9][0-9]*)\/mod_(resource|folder)\/content\/([1-9][0-9]*)\/([^?]+)(\?forcedownload=1)?$/.exec(href);

@@ -23,8 +23,22 @@ describe("syllabus suggestions", () => {
     const rows = rankSyllabusSuggestions(snapshot(child, folder, conflict, unsafe, conflictingLinks, child));
     expect(rows.map((r) => r.id).sort()).toEqual(["child", "conflict", "links", "unsafe"]);
     expect(rows.find((r) => r.id === "child")?.link).toBeUndefined();
-    expect(rows.find((r) => r.id === "links")?.link).toBeUndefined();
+    expect(rows.find((r) => r.id === "links")?.link).toBe(ref.sourceUrl);
     expect(rows.find((r) => r.id === "conflict")).toMatchObject({ uncertain: true, type: "conflicting types" });
     expect(rows.find((r) => r.id === "unsafe")).toMatchObject({ title: "Unknown title", uncertain: true, link: undefined });
   });
+  it("accepts validated child and external destinations and hides URL-shaped labels", () => {
+    const child = record("child-file", "Силлабус", "pdf"); const o = child.observations[0]!;
+    o.parentResourceKey = "parent"; o.sourceModuleType = "folder"; o.sourceContextId = "701";
+    o.destinationUrl = "https://moodle.sdu.edu.kz/pluginfile.php/701/mod_folder/content/2/syllabus.pdf";
+    const external = record("external", "Syllabus", "pdf"); external.observations[0]!.destinationUrl = "https://docs.example/course.pdf?id=42";
+    const invalid = record("invalid", "javascript:alert(1)", "unknown");
+    const alternate = record("alternate", "Syllabus", "pdf"); alternate.observations[0]!.destinationUrl = "https://docs.example/a.pdf"; alternate.observations[0]!.references = [{ ...ref, destinationUrl: "https://docs.example/b.pdf" }];
+    const rows = rankSyllabusSuggestions(snapshot(child, external, invalid, alternate));
+    expect(rows.find((r) => r.id === "child-file")?.link).toBe(o.destinationUrl);
+    expect(rows.find((r) => r.id === "external")?.link).toBe("https://docs.example/course.pdf?id=42");
+    expect(rows.find((r) => r.id === "alternate")).toMatchObject({ uncertain: true, link: undefined });
+    expect(rows.find((r) => r.id === "invalid")?.title).toBe("Unknown title");
+  });
+
 });

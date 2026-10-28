@@ -16,7 +16,8 @@ import { calendarInput,calendarPage,calendarEvent,calendarDate } from './moodle-
 import { account,origin,login } from './moodle-access-fixtures';
 import { createElement } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { AppProvider } from '@/lib/app-store';
+import { AppProvider, useApp } from '@/lib/app-store';
+import { Syllabus } from '@/routes/syllabus';
 import { AssessmentSheet } from '@/components/mh/AssessmentSheet';
 import { SyllabusRevisionReview } from '@/components/mh/SyllabusRevisionReview';
 import { HttpAdapter } from '@/services/http-adapter';
@@ -172,6 +173,12 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
     const root=saved.collection!.records.find(r=>(r.observations[0] as any).kind==='folder')!.observations[0] as any;
     const child=saved.collection!.records.find(r=>(r.observations[0] as any).kind==='file')!.observations[0] as any;
     expect(root.listingScope).toBe('supplied_listing_only');expect(root.references[0].listingChildResourceKeys).toEqual([child.resourceKey]);expect(root).not.toHaveProperty('listingChildResourceKeys');expect(child.fileType).toEqual({kind:'unknown'});expect(child.parentResourceKey).toBe(root.resourceKey);expect(saved.collection!.refreshes[0]!.scope).toBe('supplied_pages_only');f.coordinator.stop();
+    const calls:string[]=[];const originalFetch=globalThis.fetch;const spy=vi.spyOn(globalThis,'fetch').mockImplementation((url,init)=>{calls.push(String(url));return originalFetch(url,init);});
+    function Harness(){const {snap}=useApp();return snap?createElement(Syllabus):createElement('p',null,'Loading');}
+    const view=render(createElement(AppProvider,{children:createElement(Harness)}));
+    const link=await screen.findByRole('link',{name:'Original link'});expect(link).toHaveAttribute('href',origin+'/pluginfile.php/701/mod_folder/content/2/slides.pptx');
+    fireEvent.click(screen.getByRole('button',{name:'Choose local file for this course'}));expect(screen.getByLabelText('Course for import')).toHaveValue(seed.courses[0]!.id);
+    expect(calls.some(url=>/pluginfile|documents\/import/.test(url))).toBe(false);view.unmount();cleanup();spy.mockRestore();
   });
   it('executes typed synthetic quiz and submission mocks while real adapters remain unavailable',async()=>{
     const registry=syntheticFixtureRegistry();expect(registry.quiz.availability).toBe('unavailable');expect(registry.submission.availability).toBe('unavailable');
