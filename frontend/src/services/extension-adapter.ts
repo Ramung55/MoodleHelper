@@ -205,6 +205,9 @@ export class BridgeClient implements MoodleHelperAdapter {
   saveAlerts(alerts: Snapshot["alerts"]): Promise<Snapshot> {
     return this.send("saveAlerts", alerts);
   }
+  setSyllabusSuggestionDismissal(recordId: string, dismissed: boolean): Promise<Snapshot> {
+    return this.send("setSyllabusSuggestionDismissal", { recordId, dismissed });
+  }
   updateSettings(patch: Partial<Settings>): Promise<Snapshot> {
     return this.send("updateSettings", patch);
   }

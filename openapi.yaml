@@ -41,6 +41,31 @@ tags:
 - name: AI availability
 - name: Scan
 paths:
+  /api/syllabus-suggestions/dismissal:
+    post:
+      operationId: setSyllabusSuggestionDismissal
+      parameters:
+      - $ref: '#/components/parameters/BridgeBinding'
+      tags: [Syllabus]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyllabusSuggestionDismissal'
+      responses:
+        '200':
+          description: Updated snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+        default:
+          $ref: '#/components/responses/ProposedHttpFailure'
+        '422':
+          $ref: '#/components/responses/ProposedHttpFailure'
+        '409':
+          $ref: '#/components/responses/ProposedHttpFailure'
   /api/syllabus-revisions/preview:
     post:
       operationId: previewSyllabusRevision
@@ -2468,9 +2493,24 @@ components:
       description: Shallow Partial<Settings>. When a nested object is present, all
         of its members are required. updateSettings merges top-level fields, not nested
         fields.
+    SyllabusSuggestionDismissal:
+      type: object
+      additionalProperties: false
+      properties:
+        recordId:
+          type: string
+          minLength: 1
+          maxLength: 8192
+        dismissed:
+          type: boolean
+      required: [recordId, dismissed]
     Snapshot:
       type: object
       properties:
+        dismissedSyllabusSuggestions:
+          type: array
+          items:
+            type: string
         courses:
           type: array
           items:

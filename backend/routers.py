@@ -26,6 +26,14 @@ router = APIRouter(prefix="/api", dependencies=[Depends(bridge_header)], respons
 context_router = APIRouter(prefix="/api", responses={"default": {"model": s.ProposedHttpError}, 422: {"model": s.ProposedHttpError}})
 
 
+@router.post('/syllabus-suggestions/dismissal', response_model=s.Snapshot, response_model_exclude_none=True, operation_id='setSyllabusSuggestionDismissal', tags=['Syllabus'])
+def set_syllabus_suggestion_dismissal(body: s.SyllabusSuggestionDismissal, api: Service):
+    try:
+        return api.set_syllabus_suggestion_dismissal(body.recordId, body.dismissed)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @context_router.get("/bridge-context", response_model=s.BridgeContext, operation_id="bridgeContext", tags=["Connection"])
 def bridge_context(request: Request):
     return {"version": "1", "binding": request.app.state.bridge_binding}

@@ -125,6 +125,20 @@ class BackendService:
     def set_tracked_courses(self, ids: list[str]) -> dict:
         return self.update_settings({"trackedCourseIds": ids})
 
+    def set_syllabus_suggestion_dismissal(self, record_id: str, dismissed: bool) -> dict:
+        def apply(snapshot):
+            records = [r for r in snapshot.get('collection', {}).get('records', [])
+                       if r['kind'] == 'material' and r['id'] == record_id]
+            if len(records) != 1 or not any(o['kind'] == 'file' for o in records[0]['observations']):
+                raise ValueError('Suggestion is no longer available. Refresh and try again.')
+            ids = set(snapshot.get('dismissedSyllabusSuggestions', []))
+            if dismissed:
+                ids.add(record_id)
+            else:
+                ids.discard(record_id)
+            snapshot['dismissedSyllabusSuggestions'] = sorted(ids)
+        return self.store.mutate(apply)
+
     def update_settings(self, patch: dict) -> dict:
         def apply(s):
             s["settings"].update(patch)

@@ -325,3 +325,31 @@ describe("actual FastAPI HTTP integration", () => {
     expect(synced.sync.find((c) => c.courseId === "c-phy")?.status).toBe("failed");
   });
 });
+
+it("selects and dismisses a collected suggestion through the real backend", async () => {
+  const { Syllabus } = await import("@/routes/syllabus");
+  const original = await api.load();
+  const ref = { sourcePageUrl: "https://moodle.sdu.edu.kz/course/view.php?id=101", sourceUrl: "https://moodle.sdu.edu.kz/mod/resource/view.php?id=201", observedAt: "2026-10-25T12:00:00Z", location: "course.material" as const };
+  const obs = { ...ref, sourceCourseId: "101", sourceCourseModuleId: "201", sourceModuleType: "resource" as const, resourceKey: "stable-key", kind: "file" as const, title: { kind: "known" as const, value: "Syllabus" }, section: { kind: "unknown" as const }, fileType: { kind: "known" as const, value: "pdf" as const }, mimeType: { kind: "unknown" as const }, references: [ref] };
+  const courseId = original.courses[1]!.id;
+  await api.replaceAll({ ...original, collection: { records: [{ id: "stable-id", courseId, kind: "material", firstObservedAt: ref.observedAt, lastObservedAt: ref.observedAt, observations: [obs] }], reviews: [], refreshes: [] } });
+  const calls: string[] = []; const underlying = globalThis.fetch;
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => { calls.push(`${init?.method ?? "GET"} ${String(input)}`); return underlying(input, init); });
+  try {
+    function Harness() { const { snap } = useApp(); return snap ? createElement(Syllabus) : createElement("p", null, "Loading"); }
+    const view = render(createElement(AppProvider, { children: createElement(Harness) }));
+    fireEvent.click(await screen.findByRole("button", { name: "Choose local file for this course" }));
+    expect(screen.getByLabelText("Course for import")).toHaveValue(courseId);
+    expect(screen.getByText(/Selected resource: Syllabus/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(calls.some((c) => /documents\/import|pluginfile|materials\/.*download/.test(c))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await screen.findByRole("button", { name: "Restore" });
+    view.unmount(); cleanup(); await stopServer(); await startServer();
+    expect((await api.load()).dismissedSyllabusSuggestions).toEqual(["stable-id"]);
+    const again = render(createElement(AppProvider, { children: createElement(Harness) }));
+    fireEvent.click(await screen.findByRole("button", { name: "Restore" }));
+    await screen.findByRole("button", { name: "Dismiss" });
+    again.unmount(); cleanup();
+  } finally { spy.mockRestore(); await api.replaceAll(original); }
+});

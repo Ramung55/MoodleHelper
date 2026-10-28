@@ -728,7 +728,13 @@ class PageRefreshInput(CollectionWire):
 
 # END GENERATED COLLECTION MODELS
 
+class SyllabusSuggestionDismissal(CollectionWire):
+    recordId: str = Field(min_length=1, max_length=8192)
+    dismissed: bool
+
+
 class Snapshot(WireModel):
+    dismissedSyllabusSuggestions: list[str] = None
     collection: SnapshotCollection = None
     reconciliation: Reconciliation = None
     deadlineStreams: list[DeadlineStream] = None

@@ -7,6 +7,7 @@ import { DateInput } from "@/components/mh/DateInput";
 import { ReconciliationReview } from "@/components/mh/ReconciliationReview";
 import { SyllabusRevisionReview } from "@/components/mh/SyllabusRevisionReview";
 import { CourseTag, EmptyState, PageHeader, TYPE_LABEL } from "@/components/mh/bits";
+import { rankSyllabusSuggestions } from "@/domain/syllabus-suggestions";
 import { formatDate } from "@/domain/dates";
 import type { DateValue, ExtractionCandidate } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
@@ -23,7 +24,7 @@ export const Route = createFileRoute("/syllabus")({
   component: Syllabus,
 });
 
-function Syllabus() {
+export function Syllabus() {
   const { snap, run, setSnap, adapter } = useApp();
   const s = snap!;
   const fileRef = useRef<HTMLInputElement>(null);
@@ -31,7 +32,15 @@ function Syllabus() {
   const [importing, setImporting] = useState(false);
   const pending = s.candidates.filter((c) => c.status === "pending");
   const decided = s.candidates.filter((c) => c.status !== "pending");
-  const suggestions = s.materials.filter((m) => m.syllabusSuggestion);
+  const suggestions = rankSyllabusSuggestions(s);
+  const [selected, setSelected] = useState<{ id: string; title: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const dismissed = new Set(s.dismissedSyllabusSuggestions ?? []);
+  const changeDismissal = async (id: string, value: boolean) => {
+    setSaving(true);
+    try { await run((a) => a.setSyllabusSuggestionDismissal(id, value)); }
+    finally { setSaving(false); }
+  };
 
   const onFile = async (f?: File) => {
     if (!f) return;
@@ -58,20 +67,28 @@ function Syllabus() {
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-lg border bg-card p-4">
           <h2 className="mb-2 text-lg font-semibold">Suggested from Moodle</h2>
-          <ul className="space-y-2 text-sm">
-            {suggestions.map((m) => (
-              <li key={m.id} className="flex items-center justify-between gap-2">
-                <span><span className="font-medium">{m.title}</span> <CourseTag course={s.courses.find((c) => c.id === m.courseId)} className="ml-1" /></span>
-                <Button size="sm" variant="outline" onClick={() => toast.info("Fetching Moodle files requires the Chrome extension.")}>Import</Button>
-              </li>
-            ))}
-          </ul>
+          {suggestions.length === 0 && <p className="text-sm">No collected file suggestions yet.</p>}
+          {[false, true].map((isDismissed) => {
+            const rows = suggestions.filter((item) => dismissed.has(item.id) === isDismissed);
+            return <div key={String(isDismissed)}>{isDismissed && <h3 className="mt-4 font-semibold">Dismissed suggestions</h3>}
+              {isDismissed && rows.length === 0 && <p className="text-sm">No dismissed suggestions.</p>}
+              <ul className="space-y-2 text-sm">{rows.map((item) => <li key={item.id} className="rounded border p-2">
+                <p className="font-medium">{item.title} {s.courses.find((c) => c.id === item.courseId)?.code ?? "Unknown course"}</p>
+                <p>{item.type === "unknown" ? "Unknown type" : item.type} · {item.reason}{item.uncertain && " · Uncertain"}</p>
+                {item.link ? <a href={item.link} target="_blank" rel="noreferrer" className="underline">Original link</a> : <span>Link unavailable</span>}
+                <div className="mt-2 flex gap-2">
+                  {!isDismissed && <Button size="sm" variant="outline" disabled={!s.courses.some((c) => c.id === item.courseId)} onClick={() => { setCourse(item.courseId); setSelected({ id: item.id, title: item.title }); }}>Choose local file for this course</Button>}
+                  <Button size="sm" variant="ghost" disabled={saving} onClick={() => void changeDismissal(item.id, !isDismissed)}>{isDismissed ? "Restore" : "Dismiss"}</Button>
+                </div>
+              </li>)}</ul></div>;
+          })}
         </section>
         <section className="rounded-lg border bg-card p-4">
           <h2 className="mb-2 text-lg font-semibold">Import a file</h2>
-          <p className="mb-3 text-sm text-muted-foreground">Text-based PDF or DOCX, English or Russian. Scanned pages need local OCR (not available yet).</p>
+          <p className="mb-3 text-sm text-muted-foreground">Moodle file retrieval and real file validation/import are not yet available. Choosing a local file uses the existing mock import.</p>
+          {selected && <p className="mb-3 text-sm">Selected resource: {selected.title}. Choose a local file below or cancel. <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>Cancel</Button></p>}
           <div className="flex flex-wrap gap-2">
-            <select aria-label="Course for import" className="h-9 rounded-md border bg-card px-2 text-sm" value={course} onChange={(e) => setCourse(e.target.value)}>
+            <select aria-label="Course for import" className="h-9 rounded-md border bg-card px-2 text-sm" value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); }}>
               {s.courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
             </select>
             <input ref={fileRef} type="file" aria-label="Syllabus file" aria-busy={importing} disabled={importing} className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />

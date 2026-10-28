@@ -625,6 +625,7 @@ export type PageRefreshInput = z.infer<typeof PageRefreshInput>;
 // END GENERATED COLLECTION MODELS
 
 export const Snapshot = z.object({
+  dismissedSyllabusSuggestions: z.array(z.string()).optional(),
   collection: SnapshotCollection.optional(),
   reconciliation: Reconciliation.optional(),
   deadlineStreams: z.array(DeadlineStream).optional(),

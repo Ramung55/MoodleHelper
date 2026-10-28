@@ -217,6 +217,14 @@ export class DemoAdapter implements MoodleHelperAdapter {
   async saveAlerts(alerts: Snapshot["alerts"]) {
     return this.mutate((s) => ({ ...s, alerts }));
   }
+  async setSyllabusSuggestionDismissal(recordId: string, dismissed: boolean) {
+    return this.mutate((s) => {
+      if (!s.collection?.records.some((r) => r.kind === "material" && r.id === recordId && r.observations.some((o) => o.kind === "file"))) throw new Error("Suggestion is no longer available. Refresh and try again.");
+      const ids = new Set(s.dismissedSyllabusSuggestions ?? []);
+      if (dismissed) ids.add(recordId); else ids.delete(recordId);
+      return { ...s, dismissedSyllabusSuggestions: [...ids].sort() };
+    });
+  }
   async updateSettings(patch: Partial<Snapshot["settings"]>) {
     return this.mutate((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
   }

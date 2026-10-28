@@ -79,6 +79,7 @@ export class HttpAdapter implements MoodleHelperAdapter {
   }
   downloadMaterial(id: string) { return this.request("POST", `/materials/${encodeURIComponent(id)}/download`, downloadSchema); }
   saveAlerts(alerts: SnapshotValue["alerts"]) { return this.request("PUT", "/alerts", Snapshot, alerts); }
+  setSyllabusSuggestionDismissal(recordId: string, dismissed: boolean) { return this.request("POST", "/syllabus-suggestions/dismissal", Snapshot, { recordId, dismissed }); }
   updateSettings(patch: Partial<SnapshotValue["settings"]>) { return this.request("PATCH", "/settings", Snapshot, patch); }
   deleteLocalData() { return this.request("DELETE", "/local-data", Snapshot); }
   resetDemo() { return this.request("POST", "/demo/reset", Snapshot); }
