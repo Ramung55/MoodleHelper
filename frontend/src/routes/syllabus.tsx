@@ -11,7 +11,7 @@ import { rankSyllabusSuggestions } from "@/domain/syllabus-suggestions";
 import { formatDate } from "@/domain/dates";
 import type { DateValue, ExtractionCandidate } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
-import { currentDataset, listLocalDocuments, saveLocalDocument, updateLocalJob, recoverLocalJobs, type LocalAssociation, type LocalJob } from "@/services/local-documents";
+import { currentDataset, listLocalDocuments, saveLocalDocument, updateLocalJob, recoverLocalJobs, acquireLocalJobLease, type LocalAssociation, type LocalJob } from "@/services/local-documents";
 import { validateDocx } from "@/services/validate-docx";
 
 const LOCAL_FILE_LIMIT = 20 * 1024 * 1024;
@@ -70,17 +70,17 @@ export function Syllabus() {
           const rows = await listLocalDocuments(id);
           const jobs = await recoverLocalJobs(id, owner.current);
           if (!active || request !== sequence) return;
-          boundDataset.current = id; setLocalDocuments(rows); setInterrupted(jobs.filter((job) => job.state === "failed")); setContextReady(true); setShowLocalRecords(!document.hidden);
+          boundDataset.current = id; setLocalDocuments(rows); setInterrupted(jobs.filter((job) => job.state === "failed" || (job.leaseVersion !== 1 && (job.state === "queued" || job.state === "parsing")))); setContextReady(true); setShowLocalRecords(!document.hidden);
         } else if (reveal && !document.hidden) {
           const rows = await listLocalDocuments(id);
           if (!active || request !== sequence || contextGeneration.current !== generation) return;
           setLocalDocuments(rows); setShowLocalRecords(true);
         }
-      } catch {
+      } catch (error) {
         if (!active || request !== sequence) return;
         contextGeneration.current++;
         cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false); setShowLocalRecords(false);
-        setLocalStatus("Local files are unavailable. Check the backend and reload the page.");
+        setLocalStatus(error instanceof Error && /Web Locks/.test(error.message) ? error.message : "Local files are unavailable. Check the backend and reload the page.");
       } finally {
         if (request === sequence) revealPending = false;
       }
@@ -110,6 +110,7 @@ export function Syllabus() {
     const controller = new AbortController(); cancellation.current = controller;
     let job: LocalJob | undefined;
     let jobGeneration: number | undefined;
+    let releaseLease: (() => void) | undefined;
     setRetryFile(f);
     setImporting(true);
     setLocalStatus("Queued for local validation.");
@@ -126,7 +127,9 @@ export function Syllabus() {
       jobGeneration = generation;
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       if (!owner.current || !crypto.randomUUID) throw new Error("Secure browser storage is unavailable. Retry in a supported browser.");
-      job = { datasetId, owner: owner.current, id: crypto.randomUUID(), name: f.name, courseId: course, state: "queued", message: "Queued" };
+      job = { datasetId, owner: owner.current, id: crypto.randomUUID(), name: f.name, courseId: course, state: "queued", message: "Queued", leaseVersion: 1 };
+      releaseLease = await acquireLocalJobLease(job);
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       await updateLocalJob(job);
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       job = { ...job, state: "parsing", message: "Validating locally" };
@@ -169,6 +172,7 @@ export function Syllabus() {
       if (jobGeneration === undefined || jobGeneration === contextGeneration.current) setLocalStatus(message);
       if (job) { try { await updateLocalJob({ ...job, state: cancelled ? "cancelled" : "failed", message }); } catch { /* dataset/storage unavailable; recovery will report interruption */ } }
     } finally {
+      releaseLease?.();
       setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
     }

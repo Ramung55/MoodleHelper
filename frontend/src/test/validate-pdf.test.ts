@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Blob as NodeBlob } from "node:buffer";
 import { DecompressionStream as NodeDecompressionStream } from "node:stream/web";
+import { deflateSync, inflateSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const getDocument = vi.hoisted(() => vi.fn());
 vi.mock("pdfjs-dist", () => ({ getDocument, GlobalWorkerOptions: {}, VerbosityLevel: { ERRORS: 0 } }));
@@ -25,6 +26,36 @@ describe("PDF structural gate", () => {
     getDocument.mockClear();
     const position = Buffer.from(bytes).indexOf(Buffer.from('stream\n')) + 7;
     bytes[position + 3] ^= 1;
+    await expect(validate(bytes)).rejects.toThrow(/corrupt/);
+    expect(getDocument).not.toHaveBeenCalled();
+  });
+  it('accepts a compressed catalog object and rejects corrupted streams and indexes', async () => {
+    vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
+    const bytes = Uint8Array.from(readFileSync('src/test/fixtures/local-object-stream.pdf'));
+    await expect(validate(bytes)).resolves.toBeUndefined();
+    getDocument.mockClear();
+    const text = Buffer.from(bytes).toString('latin1');
+    const objectData = text.indexOf('stream\n') + 7;
+    const broken = Uint8Array.from(bytes); broken[objectData + 3] ^= 1;
+    await expect(validate(broken)).rejects.toThrow(/corrupt/);
+    for (const modified of [text.replace('/N 1', '/N 2'), text.replace('/First 4', '/First 9')]) {
+      await expect(validate(Uint8Array.from(Buffer.from(modified, 'latin1')))).rejects.toThrow(/corrupt/);
+    }
+    const lastStream = text.lastIndexOf('stream\n', text.lastIndexOf('endstream'));
+    const xrefHeaderStart = text.lastIndexOf('5 0 obj', lastStream);
+    const header = text.slice(xrefHeaderStart, lastStream + 7);
+    const length = Number(/\/Length (\d+)/.exec(header)![1]);
+    const start = lastStream + 7;
+    const payload = inflateSync(Buffer.from(bytes).subarray(start, start + length));
+    payload[13] = 1; // compressed object's index points past the only object
+    const compressed = deflateSync(payload);
+    const rebuilt = Buffer.concat([Buffer.from(bytes).subarray(0, xrefHeaderStart), Buffer.from(header.replace(/\/Length \d+/, `/Length ${compressed.length}`), 'latin1'), compressed, Buffer.from(bytes).subarray(start + length)]);
+    await expect(validate(Uint8Array.from(rebuilt))).rejects.toThrow(/corrupt/);
+    expect(getDocument).not.toHaveBeenCalled();
+  });
+  it('rejects a compressed object stream exceeding the bounded expanded size', async () => {
+    vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
+    const bytes = Uint8Array.from(readFileSync('src/test/fixtures/local-object-bomb.pdf'));
     await expect(validate(bytes)).rejects.toThrow(/corrupt/);
     expect(getDocument).not.toHaveBeenCalled();
   });

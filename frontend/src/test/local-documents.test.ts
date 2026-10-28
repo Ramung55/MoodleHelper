@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { currentDataset, saveLocalDocument } from "@/services/local-documents";
+import { acquireLocalJobLease, currentDataset, saveLocalDocument } from "@/services/local-documents";
 afterEach(() => vi.unstubAllGlobals());
 describe("local dataset binding", () => {
   it("requests only the opaque context without credentials", async () => {
@@ -17,5 +17,23 @@ describe("local dataset binding", () => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     await expect(saveLocalDocument({ datasetId: "d", courseId: "c", digest: "x", name: "a", size: 1, source: "local", createdAt: "now" }, new Blob(), [], controller.signal)).rejects.toMatchObject({ name: "AbortError" });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("holds a per-attempt browser lock until released, so a live attempt cannot be recovered", async () => {
+    const active = new Set<string>();
+    const locks = { request: async (name: string, _options: unknown, callback: (lock: object | null) => Promise<void>) => {
+      if (active.has(name)) return callback(null);
+      active.add(name); try { await callback({ name }); } finally { active.delete(name); }
+    } };
+    vi.stubGlobal("navigator", { locks });
+    const job = { datasetId: "d", owner: "tab", id: "attempt", name: "x", courseId: "c", state: "queued" as const, message: "", leaseVersion: 1 as const };
+    const release = await acquireLocalJobLease(job);
+    await expect(acquireLocalJobLease(job)).rejects.toThrow(/already active/);
+    release();
+    await vi.waitFor(() => expect(active.size).toBe(0));
+    const releaseAgain = await acquireLocalJobLease(job); releaseAgain();
+  });
+  it("fails closed when Web Locks is unavailable", async () => {
+    vi.stubGlobal("navigator", {});
+    await expect(acquireLocalJobLease({ datasetId: "d", owner: "tab", id: "attempt", name: "x", courseId: "c", state: "queued", message: "" })).rejects.toThrow(/Web Locks/);
   });
 });

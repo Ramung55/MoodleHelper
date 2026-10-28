@@ -21,7 +21,23 @@ function database(): Promise<IDBDatabase> {
   });
 }
 
-export type LocalJob = { datasetId: string; owner: string; id: string; name: string; courseId: string; state: "queued" | "parsing" | "failed" | "cancelled"; message: string };
+export type LocalJob = { datasetId: string; owner: string; id: string; name: string; courseId: string; state: "queued" | "parsing" | "failed" | "cancelled"; message: string; leaseVersion?: 1 };
+
+const lockName = (job: LocalJob) => `moodle-helper-import:${job.datasetId}:${job.id}`;
+
+/** The lock is released automatically if the tab or browser process dies. */
+export async function acquireLocalJobLease(job: LocalJob): Promise<() => void> {
+  if (!navigator.locks) throw new Error("This browser cannot safely recover interrupted imports. Use a browser with Web Locks support.");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let ready!: (release: () => void) => void, reject!: (error: Error) => void;
+  const acquired = new Promise<() => void>((resolve, rejectPromise) => { ready = resolve; reject = rejectPromise; });
+  void navigator.locks.request(lockName(job), { ifAvailable: true }, async (lock) => {
+    if (!lock) { reject(new Error("This local import is already active.")); return; }
+    ready(release); await held;
+  }).catch(() => reject(new Error("Could not secure the local import. Retry.")));
+  return acquired;
+}
 
 /** Tab-owned job markers contain metadata only, so a reload can request reselection. */
 export async function updateLocalJob(job: LocalJob): Promise<void> {
@@ -37,21 +53,42 @@ export async function updateLocalJob(job: LocalJob): Promise<void> {
   } finally { db.close(); }
 }
 
-export async function recoverLocalJobs(datasetId: string, owner: string): Promise<LocalJob[]> {
+export async function recoverLocalJobs(datasetId: string, _owner: string): Promise<LocalJob[]> {
   if (await currentDataset() !== datasetId) throw new Error("The dataset changed. Reconnect and retry.");
+  if (!navigator.locks) throw new Error("This browser cannot safely recover interrupted imports. Use a browser with Web Locks support.");
   const db = await database();
   try {
     const jobs = await new Promise<LocalJob[]>((resolve, reject) => {
-      const tx = db.transaction("jobs", "readwrite"), store = tx.objectStore("jobs");
-      const request = store.getAll(IDBKeyRange.bound([datasetId, owner], [datasetId, owner, []]));
-      let rows: LocalJob[] = [];
-      request.onsuccess = () => {
-        rows = request.result.map((job: LocalJob) => job.state === "queued" || job.state === "parsing" ? { ...job, state: "failed", message: "Interrupted. Reselect the file to retry." } : job);
-        rows.forEach((job) => store.put(job));
-      };
-      tx.oncomplete = () => resolve(rows);
+      const tx = db.transaction("jobs", "readonly"), store = tx.objectStore("jobs");
+      const request = store.getAll(IDBKeyRange.bound([datasetId], [datasetId, []]));
+      tx.oncomplete = () => resolve(request.result as LocalJob[]);
       tx.onabort = () => reject(new Error("Could not recover local import status."));
     });
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i]!;
+      if (job.state !== "queued" && job.state !== "parsing") continue;
+      if (job.leaseVersion !== 1) {
+        jobs[i] = { ...job, message: "Older import status cannot be confirmed. If no other tab is working on it, reselect the file." };
+        continue;
+      }
+      await navigator.locks.request(lockName(job), { ifAvailable: true }, async (lock) => {
+        if (!lock) return; // Another live tab owns this attempt.
+        if (await currentDataset() !== datasetId) throw new Error("The dataset changed. Reconnect and retry.");
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction("jobs", "readwrite"), store = tx.objectStore("jobs");
+          const request = store.get([job.datasetId, job.owner, job.id]);
+          request.onsuccess = () => {
+            const current = request.result as LocalJob | undefined;
+            if (current?.leaseVersion === 1 && (current.state === "queued" || current.state === "parsing")) {
+              jobs[i] = { ...current, state: "failed", message: "Interrupted. Reselect the file to retry." };
+              store.put(jobs[i]);
+            }
+          };
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(new Error("Could not recover local import status."));
+        });
+      });
+    }
     if (await currentDataset() !== datasetId) throw new Error("The dataset changed. Reconnect and retry.");
     return jobs;
   } finally { db.close(); }

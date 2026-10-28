@@ -10,6 +10,7 @@ vi.mock('@/services/validate-docx', () => ({ validateDocx: async () => {} }));
 vi.mock('@/services/local-documents', () => ({
   currentDataset: async () => { if (mock.unavailable) throw new Error('offline'); return mock.dataset; },
   recoverLocalJobs: async () => [], updateLocalJob: async () => {},
+  acquireLocalJobLease: async () => () => {},
   saveLocalDocument: async () => 'stored',
   listLocalDocuments: async () => { mock.calls++; if (mock.calls === mock.delayAt) return new Promise(resolve => { mock.delayed = resolve; }); return mock.calls === 1 ? mock.initialRows : []; },
 }));
