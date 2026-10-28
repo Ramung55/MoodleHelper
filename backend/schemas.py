@@ -826,6 +826,11 @@ class ProposedHttpError(WireModel):
     message: str
 
 
+class LocalContext(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    datasetId: str
+
+
 class BridgeContext(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     version: Literal["1"]

@@ -41,6 +41,29 @@ tags:
 - name: AI availability
 - name: Scan
 paths:
+  /api/local-context:
+    get:
+      operationId: localContext
+      tags: [Local data]
+      summary: Identify the current local dataset for browser storage
+      description: >-
+        Returns only an opaque random persistent dataset ID selected by the backend
+        at startup. No client selector is accepted. This localhost endpoint is not
+        authentication. Browser files remain scoped to their browser profile and
+        dashboard origin and require separate backup or reselection.
+      responses:
+        '200':
+          description: Current dataset identity
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [datasetId]
+                properties:
+                  datasetId: {type: string}
+        default:
+          $ref: '#/components/responses/ProposedHttpFailure'
   /api/syllabus-suggestions/dismissal:
     post:
       operationId: setSyllabusSuggestionDismissal
@@ -438,9 +461,9 @@ paths:
       operationId: importDocument
       tags:
       - Documents
-      summary: Import a syllabus by its supplied filename
-      description: Filename-only JSON matching the current adapter, not a multipart
-        file upload. The UI supplies File.name and never reads or passes file bytes.
+      summary: Legacy filename and optional digest mock import
+      description: Filename and optional digest JSON, not a multipart
+        file upload. Browser-local imports do not call this endpoint or send file bytes.
         Current demo only checks the extension (PDF/DOCX), simulates extraction, and
         adds a mocked candidate. Unsupported formats return 200 with result.ok=false
         and reason, not a fabricated HTTP validation error. onProgress callbacks are

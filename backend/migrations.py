@@ -1,7 +1,8 @@
 """Small transactional SQLite migrations; caller owns BEGIN/COMMIT/ROLLBACK."""
 from sqlalchemy import Connection
+from uuid import uuid4
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class MigrationError(RuntimeError):
@@ -70,7 +71,13 @@ def version_six_to_seven(connection: Connection) -> None:
         FOREIGN KEY(namespace,run_id) REFERENCES queue_runs(namespace,id))""")
 
 
-MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven}
+def version_seven_to_eight(connection: Connection) -> None:
+    connection.exec_driver_sql("CREATE TABLE local_datasets (namespace TEXT PRIMARY KEY, dataset_id TEXT NOT NULL UNIQUE)")
+    for namespace in connection.exec_driver_sql("SELECT namespace FROM snapshots").scalars().all():
+        connection.exec_driver_sql("INSERT INTO local_datasets(namespace,dataset_id) VALUES(?,?)", (namespace, str(uuid4())))
+
+
+MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight}
 
 
 def upgrade(connection: Connection) -> None:

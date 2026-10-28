@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -71,6 +72,9 @@ class SQLiteStore(SourceUpserts):
                                        {**self._key, "snapshot": json.dumps(data, ensure_ascii=False, allow_nan=False)})
                 else:
                     self._decode(saved)
+                connection.execute(text("INSERT OR IGNORE INTO local_datasets(namespace,dataset_id) VALUES(:namespace,:dataset_id)"),
+                                   {**self._key, "dataset_id": str(uuid4())})
+                self._dataset_id = connection.execute(text("SELECT dataset_id FROM local_datasets WHERE namespace=:namespace"), self._key).scalar_one()
         except MigrationError as exc:
             self.close()
             raise StorageError(str(exc)) from exc
@@ -81,6 +85,10 @@ class SQLiteStore(SourceUpserts):
     @property
     def namespace(self):
         return self._namespace
+
+    @property
+    def dataset_id(self):
+        return self._dataset_id
 
     @property
     def _key(self):

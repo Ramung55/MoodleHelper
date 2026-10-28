@@ -26,6 +26,13 @@ router = APIRouter(prefix="/api", dependencies=[Depends(bridge_header)], respons
 context_router = APIRouter(prefix="/api", responses={"default": {"model": s.ProposedHttpError}, 422: {"model": s.ProposedHttpError}})
 
 
+@context_router.get('/local-context', response_model=s.LocalContext, operation_id='localContext', tags=['Local data'])
+def local_context(request: Request):
+    if request.query_params:
+        raise HTTPException(status_code=422, detail='This endpoint accepts no selectors.')
+    return {'datasetId': request.app.state.service.store.dataset_id}
+
+
 @router.post('/syllabus-suggestions/dismissal', response_model=s.Snapshot, response_model_exclude_none=True, operation_id='setSyllabusSuggestionDismissal', tags=['Syllabus'])
 def set_syllabus_suggestion_dismissal(body: s.SyllabusSuggestionDismissal, api: Service):
     try:

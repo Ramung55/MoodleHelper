@@ -4,6 +4,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from threading import RLock
 from typing import Protocol
+from uuid import uuid4
 
 from backend.identity import namespace_key
 from backend.sample_data import build_sample_snapshot
@@ -14,6 +15,7 @@ from backend.domain_validation import merge_source_evidence, validate_record
 
 class SnapshotStore(Protocol):
     namespace: str
+    dataset_id: str
     def read(self) -> dict: ...
     def replace(self, snapshot: dict) -> dict: ...
     def mutate(self, operation: Callable[[dict], None]) -> dict: ...
@@ -56,6 +58,7 @@ class InMemoryStore(SourceUpserts):
 
     def __init__(self, snapshot: dict | None = None):
         self._lock = RLock()
+        self.dataset_id = str(uuid4())
         self._snapshot = self._validated(build_sample_snapshot() if snapshot is None else snapshot)
 
     @staticmethod
