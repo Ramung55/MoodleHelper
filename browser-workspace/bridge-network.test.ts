@@ -200,6 +200,8 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
     // be rejected locally because the adapter used an unregistered operation.
     await expect(client.proposeReconciliation("missing-left", "missing-right")).rejects.toMatchObject({ code: "REVIEW_CONFLICT" });
     await expect(client.decideReconciliation("missing", "fingerprint", "revision", "reject", {})).rejects.toMatchObject({ code: "REVIEW_CONFLICT" });
+    await expect(client.previewSyllabusRevision("missing", "missing")).rejects.toMatchObject({ code: "REVIEW_CONFLICT" });
+    await expect(client.confirmSyllabusRevision({sourceId:"missing",candidateId:"missing",revision:0,fingerprint:"missing"})).rejects.toMatchObject({ code: "REVIEW_CONFLICT" });
     expect(traffic.some((t) => t.url.endsWith("/reconciliation/pairs") && t.status === 409)).toBe(true);
     expect(traffic.some((t) => t.url.endsWith("/reconciliation/decisions") && t.status === 409)).toBe(true);
     const discovered = await client.ingestCourseDiscovery([

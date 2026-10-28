@@ -110,7 +110,7 @@ export function createWorker(options: {
         signal: controller.signal,
       });
       if (response.status === 409) {
-        if (path === "/api/reconciliation/pairs" || path === "/api/reconciliation/decisions") {
+        if (path === "/api/reconciliation/pairs" || path === "/api/reconciliation/decisions" || path === "/api/syllabus-revisions/preview" || path === "/api/syllabus-revisions/confirm") {
           // The binding middleware uses this fixed response when the backend
           // restarted. Other 409s on these routes are review conflicts.
           const text = await response.text();

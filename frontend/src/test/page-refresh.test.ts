@@ -59,14 +59,18 @@ const course=(body='')=>`${account}<main data-region="course-content"><h1>Synthe
 
 describe('#18 real pipeline AC1/AC2/AC5',()=>{
   it('links a fictional syllabus revision through production controls and the real HTTP adapter',async()=>{
-    const f=setup();f.coordinator.notify();await until(()=>f.coordinator.state.receipts.length===2);f.coordinator.stop();
+    const f=setup();f.coordinator.notify();await until(()=>f.coordinator.state.receipts.length===2);
+    const initial=await api.load();const originalSource=initial.reconciliation!.sources.find((s)=>s.kind==='moodle')!;
+    await api.updateOverlay(originalSource.assessmentId,{dateOverride:{kind:'week',week:7},hidden:true});
+    f.setTime('2026-10-27T12:31:00.12+05:00');f.set(fixture(assignmentInput(assignment(dateNode('due','2026-10-28T18:30:00+05:00')))));
+    await until(()=>f.coordinator.state.receipts.length===4);f.coordinator.stop();
     async function reviewed(digest:string,day:string) {
       const imported=await json('/api/documents/import','POST',{courseId:'c-csc',fileName:`fictional-${digest[0]}.pdf`,contentDigest:digest});
       const candidate=imported.snapshot.candidates.at(-1);
       const corrected=await json(`/api/candidates/${encodeURIComponent(candidate.id)}/review`,'POST',{kind:'correct',title:'Fictional assignment',type:'assignment',date:{kind:'exact',iso:day,tz:'Asia/Almaty'}});
       return {candidate,corrected};
     }
-    const first=await reviewed('a'.repeat(64),'2026-10-25T18:30:00+05:00');
+    const first=await reviewed('a'.repeat(64),'2026-10-28T18:30:00+05:00');
     const pair=first.corrected.reconciliation.pairs.find((p:any)=>p.status==='pending');expect(pair).toBeTruthy();
     await json('/api/reconciliation/decisions','POST',{pairId:pair.id,fingerprint:pair.fingerprint,reviewRevision:pair.reviewRevision,kind:'confirm',choices:{}});
     const second=await reviewed('b'.repeat(64),'2026-11-12T18:30:00+05:00');
@@ -84,8 +88,14 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
     await waitFor(()=>expect(screen.queryByRole('button',{name:'Confirm revision link'})).not.toBeInTheDocument());
     const saved=await json('/api/snapshot');expect(saved.syllabusRevisions[0].links[0].candidateId).toBe(second.candidate.id);
     view.unmount();cleanup();
+    const backup=previewRestore(JSON.stringify(makeBackup(saved)),seed);expect(backup.ok).toBe(true);if(!backup.ok)throw Error('backup');
+    await stop();await start();expect(await api.load()).toEqual(saved);
+    expect(await json('/api/snapshot','PUT',backup.backup.data)).toEqual(saved);
     const history=render(createElement(AppProvider,{children:createElement(AssessmentSheet,{id:canonical,onClose:()=>{}})}));
     expect(await screen.findByText(/Syllabus changed:/)).toBeInTheDocument();
+    expect(screen.getByText(/Moodle changed:/)).toBeInTheDocument();
+    expect(screen.getByText('The source date changed after you edited it')).toBeInTheDocument();
+    expect(screen.getByText(/Your date:/)).toHaveTextContent('Week 7');
     history.unmount();cleanup();
   },15000);
   it.each(['observation','reference'])('rejects an injected folder-child pluginfile %s through the production worker/real HTTP/SQLite without changing saved facts',async(location)=>{
