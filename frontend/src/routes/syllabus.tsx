@@ -42,6 +42,7 @@ export function Syllabus() {
   const cancellation = useRef<AbortController | null>(null);
   const owner = useRef("");
   const boundDataset = useRef<string | null>(null);
+  const contextGeneration = useRef(0);
   useEffect(() => {
     let active = true;
     let sequence = 0;
@@ -55,6 +56,7 @@ export function Syllabus() {
         const id = await currentDataset();
         if (!active || request !== sequence) return;
         if (boundDataset.current && boundDataset.current !== id) {
+          contextGeneration.current++;
           cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false);
           setLocalStatus("The dataset changed. Reload the page to continue with the current courses.");
           return;
@@ -67,6 +69,7 @@ export function Syllabus() {
         }
       } catch {
         if (!active || request !== sequence) return;
+        contextGeneration.current++;
         cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false);
         setLocalStatus("Local files are unavailable. Check the backend and reload the page.");
       }
@@ -74,7 +77,7 @@ export function Syllabus() {
     const onFocus = () => { void refresh(); };
     void refresh(); window.addEventListener("focus", onFocus);
     const timer = window.setInterval(() => { void refresh(); }, 2000);
-    return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); cancellation.current?.abort(); };
+    return () => { active = false; contextGeneration.current++; window.clearInterval(timer); window.removeEventListener("focus", onFocus); cancellation.current?.abort(); };
   }, []);
   const pending = s.candidates.filter((c) => c.status === "pending");
   const decided = s.candidates.filter((c) => c.status !== "pending");
@@ -92,6 +95,7 @@ export function Syllabus() {
     if (!f) return;
     const controller = new AbortController(); cancellation.current = controller;
     let job: LocalJob | undefined;
+    let jobGeneration: number | undefined;
     setRetryFile(f);
     setImporting(true);
     setLocalStatus("Queued for local validation.");
@@ -104,6 +108,8 @@ export function Syllabus() {
       if (!/\.(pdf|docx)$/i.test(f.name)) throw new Error("Choose a PDF or DOCX file. Google Docs must first be exported.");
       const datasetId = await currentDataset();
       if (datasetId !== boundDataset.current) throw new Error("The dataset changed. Reload the page to continue.");
+      const generation = contextGeneration.current;
+      jobGeneration = generation;
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       if (!owner.current || !crypto.randomUUID) throw new Error("Secure browser storage is unavailable. Retry in a supported browser.");
       job = { datasetId, owner: owner.current, id: crypto.randomUUID(), name: f.name, courseId: course, state: "queued", message: "Queued" };
@@ -133,15 +139,20 @@ export function Syllabus() {
       const result = await saveLocalDocument({ datasetId, courseId: course, digest, name: f.name, size: f.size, source: selected?.title ?? "Local selection", createdAt: new Date().toISOString() }, f, confirmed, controller.signal, job);
       if (result === "confirmation-required") throw new Error("Another course association was added. Retry to review it.");
       cancellation.current = null;
+      if (contextGeneration.current !== generation || boundDataset.current !== datasetId) return;
       setInterrupted((jobs) => jobs.filter((entry) => entry.name !== f.name || entry.courseId !== course));
       setLocalStatus(result === "duplicate" ? "Already associated with this course." : "Complete: validated and stored locally. Extraction has not been performed.");
       setRetryFile(undefined);
-      try { rows = await listLocalDocuments(datasetId); setLocalDocuments(rows); }
-      catch { setLocalDocuments([]); setLocalStatus("Saved locally, but the dataset changed or is unavailable. Reconnect to view it."); }
+      try {
+        rows = await listLocalDocuments(datasetId);
+        if (contextGeneration.current === generation && boundDataset.current === datasetId) setLocalDocuments(rows);
+      } catch {
+        if (contextGeneration.current === generation) { setLocalDocuments([]); setLocalStatus("Saved locally, but the dataset changed or is unavailable. Reconnect to view it."); }
+      }
     } catch (e) {
       const cancelled = e instanceof DOMException && e.name === "AbortError";
       const message = cancelled ? "Cancelled. No association was added." : `Failed: ${e instanceof Error ? e.message : "Local import failed. Retry."}`;
-      setLocalStatus(message);
+      if (jobGeneration === undefined || jobGeneration === contextGeneration.current) setLocalStatus(message);
       if (job) { try { await updateLocalJob({ ...job, state: cancelled ? "cancelled" : "failed", message }); } catch { /* dataset/storage unavailable; recovery will report interruption */ } }
     } finally {
       setImporting(false);
