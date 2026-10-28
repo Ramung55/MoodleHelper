@@ -13,6 +13,8 @@ import { TrackedCourses } from "@/routes/settings";
 import { collectMoodleCourses } from "../../../extension/src/moodle-courses";
 import { card, list, page } from "./moodle-courses-fixtures";
 import { makeBackup, previewRestore } from "@/domain/backup";
+import { AddEvent } from "@/routes/deadlines";
+import { AssessmentSheet } from "@/components/mh/AssessmentSheet";
 
 // Only the service locator/extension handshake are injected; all data operations
 // below use production HttpAdapter, FastAPI and a real file SQLite database.
@@ -85,6 +87,48 @@ afterAll(async () => {
 });
 
 describe("actual FastAPI HTTP integration", () => {
+  it("creates, edits, reopens, syncs and deletes a personal event without merging an imported title", async () => {
+    const original = await api.load();
+    let id: string | undefined;
+    try {
+      await api.updateSettings({ reminders: { enabled: false, hoursBefore: 24, busyWeek: false }, timezone: "Asia/Almaty" });
+      const imported = original.assessments.find((a) => !a.personal)!;
+      function Create() { const { snap } = useApp(); return snap ? createElement(AddEvent, { open: true, onClose: () => {} }) : createElement("p", null, "Loading"); }
+      const create = render(createElement(AppProvider, { children: createElement(Create) }));
+      fireEvent.change(await screen.findByLabelText("Title"), { target: { value: imported.title } });
+      fireEvent.change(screen.getByLabelText("Course"), { target: { value: imported.courseId } });
+      fireEvent.change(screen.getByLabelText("Date form"), { target: { value: "exact" } });
+      fireEvent.change(screen.getByLabelText("Date and time"), { target: { value: "2026-10-29T15:30" } });
+      fireEvent.click(screen.getByRole("button", { name: "Add event" }));
+      await waitFor(async () => {
+        const saved = await api.load(); id = saved.assessments.find((a) => a.personal && a.title === imported.title)?.id;
+        expect(id).toBeTruthy();
+      });
+      create.unmount(); cleanup();
+      function Detail() { const { snap } = useApp(); return snap ? createElement(AssessmentSheet, { id: id!, onClose: () => {} }) : createElement("p", null, "Loading"); }
+      let detail = render(createElement(AppProvider, { children: createElement(Detail) }));
+      expect(await screen.findByLabelText("Display title")).toHaveValue(imported.title);
+      expect(screen.getByLabelText("Date and time")).toHaveValue("2026-10-29T15:30");
+      fireEvent.change(screen.getByLabelText("Display title"), { target: { value: "Edited personal event" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await waitFor(async () => expect((await api.load()).overlays.find((o) => o.assessmentId === id)?.titleOverride).toBe("Edited personal event"));
+      detail.unmount(); cleanup(); await stopServer(); await startServer();
+      const synced = await api.syncAll(() => {});
+      expect(synced.assessments.find((a) => a.id === id)?.sources[0]).toMatchObject({ source: "personal", date: { kind: "exact", iso: "2026-10-29T10:30:00.000Z", tz: "Asia/Almaty" } });
+      expect(synced.assessments.find((a) => a.id === imported.id)).toEqual(imported);
+      expect(synced.assessments.filter((a) => a.title === imported.title)).toHaveLength(2);
+      detail = render(createElement(AppProvider, { children: createElement(Detail) }));
+      expect(await screen.findByLabelText("Display title")).toHaveValue("Edited personal event");
+      fireEvent.click(screen.getByRole("button", { name: "Delete event" }));
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect((await api.load()).assessments.some((a) => a.id === id)).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Delete event" }));
+      fireEvent.click(screen.getByRole("button", { name: "Confirm deletion" }));
+      await waitFor(async () => expect((await api.load()).assessments.some((a) => a.id === id)).toBe(false));
+      expect((await api.load()).assessments.find((a) => a.id === imported.id)).toEqual(imported);
+      detail.unmount(); cleanup();
+    } finally { cleanup(); await api.replaceAll(original); }
+  });
   it("saves actual Settings choices, ingests real parser observations, refreshes and reopens across process restart", async () => {
     const original = await api.load();
     try {

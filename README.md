@@ -179,6 +179,14 @@ namespace from SQLite without reseeding saved or deliberately emptied data.
 Do not expose either development server publicly. A production build succeeds,
 but a deployed host must separately proxy `/api`; no hosting is configured here.
 
+In Deadlines, **Personal event** creates a course-associated event with a date,
+exact time or teaching week. Exact times use the timezone configured in Settings,
+independent of the browser timezone; nonexistent local times show a field error.
+Personal edits keep the same event identifier and separate original source facts.
+Deletion asks for confirmation. Failed saves retain the entered values for retry.
+Personal events persist in SQLite across reopening, backend restart and the
+existing simulated sync; this does not claim live Moodle collection.
+
 Run frontend checks from `frontend/`:
 
 ```powershell

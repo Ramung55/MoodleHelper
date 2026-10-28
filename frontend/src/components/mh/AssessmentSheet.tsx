@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,8 @@ import { useApp } from "@/lib/app-store";
 import { CourseTag, SubmissionBadge, TYPE_LABEL } from "./bits";
 import { DateInput } from "./DateInput";
 import type { DateValue, DeadlineAssertion } from "@/domain/types";
+import { personalDateError } from "@/domain/personal-event";
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 function historyDate(value: DeadlineAssertion, timezone: string): string {
   if (value.kind === "removed") return "Removed";
@@ -22,10 +24,15 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
   const v = views.find((x) => x.a.id === resolvedId);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState<DateValue | undefined>();
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [pending, setPending] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const busy = useRef(false);
 
   useEffect(() => {
-    setTitle(v?.overlay?.titleOverride ?? "");
-    setDate(v?.overlay?.dateOverride);
+    setTitle(v?.a.personal ? v.title : v?.overlay?.titleOverride ?? "");
+    setDate(v?.a.personal ? v.date : v?.overlay?.dateOverride);
+    setErrors({}); setConfirmDelete(false);
   }, [v?.a.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!snap) return null;
@@ -35,7 +42,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
   const rawSources = v ? (snap.reconciliation?.sources ?? []).filter((source) => resolveAssessmentId(snap, source.assessmentId) === v.a.id && source.recordId) : [];
 
   return (
-    <Sheet open={!!v} onOpenChange={(o) => !o && onClose()}>
+    <Sheet open={!!v} onOpenChange={(o) => !o && !busy.current && onClose()}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
         {v && (
           <>
@@ -116,7 +123,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 <h3 className="text-sm font-semibold">Your changes</h3>
                 <p className="text-xs text-muted-foreground">These never change Moodle or the original source facts.</p>
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={v.completed} onChange={(e) => run((a) => a.updateOverlay(v.a.id, { completed: e.target.checked }))} />
+                  <input type="checkbox" disabled={pending} checked={v.completed} onChange={(e) => run((a) => a.updateOverlay(v.a.id, { completed: e.target.checked }))} />
                   I've finished this (personal check)
                 </label>
                 {v.completed && v.needsAttention && (
@@ -124,22 +131,52 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 )}
                 <div className="space-y-1">
                   <Label htmlFor="ttl">Display title</Label>
-                  <Input id="ttl" placeholder={v.a.title} value={title} onChange={(e) => setTitle(e.target.value)} />
+                  <Input id="ttl" disabled={pending} aria-invalid={!!errors.title} aria-describedby="personal-title-error" placeholder={v.a.title} value={title} onChange={(e) => setTitle(e.target.value)} />
+                  {errors.title && <p id="personal-title-error" role="alert" className="text-sm text-destructive">{errors.title}</p>}
                 </div>
                 <div className="space-y-1">
                   <Label>Your date</Label>
-                  <DateInput value={date} onChange={setDate} allowEmpty />
+                  <fieldset disabled={pending}><DateInput value={date} onChange={setDate} allowEmpty={!v.a.personal} personalTimezone={v.a.personal ? tz : undefined} errorId="personal-date-error" /></fieldset>
+                  {errors.date && <p id="personal-date-error" role="alert" className="text-sm text-destructive">{errors.date}</p>}
                 </div>
+                {errors.save && <p role="alert" className="text-sm text-destructive">{errors.save}</p>}
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => run((a) => a.updateOverlay(v.a.id, { titleOverride: title || undefined, dateOverride: date }))}>Save changes</Button>
-                  <Button size="sm" variant="outline" onClick={() => run((a) => a.updateOverlay(v.a.id, { hidden: !v.hidden }))}>
+                  <Button size="sm" disabled={pending} onClick={async () => {
+                    if (busy.current) return;
+                    const invalid: Record<string, string> = {};
+                    if (v.a.personal) {
+                      if (!title.trim()) invalid.title = "Enter a title.";
+                      const error = personalDateError(date); if (error) invalid.date = error;
+                    }
+                    setErrors(invalid); if (Object.keys(invalid).length) return;
+                    busy.current = true; setPending(true);
+                    const ok = await run((a) => a.updateOverlay(v.a.id, { titleOverride: (v.a.personal ? title.trim() : title) || undefined, dateOverride: date }));
+                    busy.current = false; setPending(false);
+                    if (!ok) setErrors({ save: "Changes were not saved. Your entries are retained; retry when the backend is available." });
+                  }}>{pending ? "Saving…" : "Save changes"}</Button>
+                  <Button size="sm" disabled={pending} variant="outline" onClick={() => run((a) => a.updateOverlay(v.a.id, { hidden: !v.hidden }))}>
                     {v.hidden ? "Restore item" : "Hide item"}
                   </Button>
                   {v.a.personal && (
-                    <Button size="sm" variant="destructive" onClick={() => { void run((a) => a.deletePersonalEvent(v.a.id)).then((ok) => ok && onClose()); }}>Delete event</Button>
+                    <Button size="sm" disabled={pending} variant="destructive" onClick={() => setConfirmDelete(true)}>Delete event</Button>
                   )}
                 </div>
               </section>
+              {v.a.personal && <AlertDialog open={confirmDelete} onOpenChange={(open) => !busy.current && setConfirmDelete(open)}>
+                <AlertDialogContent>
+                  <AlertDialogHeader><AlertDialogTitle>Delete personal event?</AlertDialogTitle><AlertDialogDescription>Delete “{v.title}” and its personal changes? Other events and Moodle records will remain.</AlertDialogDescription></AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <Button variant="outline" disabled={pending} onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                    <Button variant="destructive" disabled={pending} onClick={async () => {
+                      if (busy.current) return;
+                      busy.current = true; setPending(true); setErrors({});
+                      const ok = await run((a) => a.deletePersonalEvent(v.a.id));
+                      busy.current = false; setPending(false); setConfirmDelete(false);
+                      if (ok) onClose(); else setErrors({ save: "The event was not deleted. Retry when the backend is available." });
+                    }}>{pending ? "Deleting…" : "Confirm deletion"}</Button>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>}
             </div>
           </>
         )}
