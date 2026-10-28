@@ -91,6 +91,29 @@ describe("PDF structural gate", () => {
     await expect(validate(Uint8Array.from(Buffer.from(text.replace('/Columns 7','/Columns 8'),'latin1')))).rejects.toThrow(/corrupt/);
     expect(getDocument).not.toHaveBeenCalled();
   });
+  it.each([0,1,2,3,4])('reconstructs PNG predictor row filter %i', async (mode) => {
+    vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
+    const source=readFileSync('src/test/fixtures/local-predictor.pdf'), text=source.toString('latin1');
+    const headerStart=text.indexOf('4 0 obj'), start=text.indexOf('stream\n',headerStart)+7;
+    const header=text.slice(headerStart,start), length=Number(/\/Length (\d+)/.exec(header)![1]);
+    const previousEncoding=inflateSync(source.subarray(start,start+length));
+    const plain=Buffer.alloc(35);
+    for(let row=0;row<5;row++) for(let col=0;col<7;col++) plain[row*7+col]=(previousEncoding[row*8+col+1]!+(row?plain[(row-1)*7+col]!:0))&255;
+    const encoded=Buffer.alloc(40);
+    for(let row=0;row<5;row++) {
+      encoded[row*8]=mode;
+      for(let col=0;col<7;col++) {
+        const i=row*7+col,left=col?plain[i-1]!:0,above=row?plain[i-7]!:0,upperLeft=row&&col?plain[i-8]!:0;
+        let prediction=0;
+        if(mode===1) prediction=left; else if(mode===2) prediction=above; else if(mode===3) prediction=Math.floor((left+above)/2);
+        else if(mode===4){const p=left+above-upperLeft,a=Math.abs(p-left),b=Math.abs(p-above),c=Math.abs(p-upperLeft);prediction=a<=b&&a<=c?left:b<=c?above:upperLeft;}
+        encoded[row*8+col+1]=(plain[i]!-prediction)&255;
+      }
+    }
+    const packed=deflateSync(encoded);
+    const rebuilt=Buffer.concat([source.subarray(0,headerStart),Buffer.from(header.replace(/\/Length \d+/,`/Length ${packed.length}`),'latin1'),packed,source.subarray(start+length)]);
+    await expect(validate(Uint8Array.from(rebuilt))).resolves.toBeUndefined();
+  });
   it('rejects a compressed object stream exceeding the bounded expanded size', async () => {
     vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('DecompressionStream', NodeDecompressionStream);
     const bytes = Uint8Array.from(readFileSync('src/test/fixtures/local-object-bomb.pdf'));
