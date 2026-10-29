@@ -35,7 +35,7 @@ function Card({ to, search, title, value, tone, children }: { to: string; search
 }
 
 export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAttestation} = {}) {
-  const { snap, views, weeks, currentWeek, syncAll, syncing } = useApp();
+  const { snap, views, weeks, workloadError, currentWeek, syncAll, syncing } = useApp();
   const s = snap!;
   const tz = s.settings.timezone;
   const now = Date.now();
@@ -58,17 +58,18 @@ export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAtt
           </Button>
         }
       />
+      {workloadError && <p role="alert" className="mb-4 text-destructive">{workloadError} <Link to="/settings" className="underline">Review workload weights</Link></p>}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card to="/deadlines" search={{ status: "outstanding" }} title="Outstanding this week" value={thisWeek?.outstanding ?? 0}>
+        <Card to="/deadlines" search={{ status: "outstanding" }} title="Outstanding this week" value={workloadError ? "Unavailable" : thisWeek?.outstanding ?? 0}>
           {thisWeek ? `${thisWeek.total} total · weighted ${thisWeek.weighted}` : "—"}
         </Card>
-        <Card to="/planner" title="Busy weeks ahead" value={overloaded.length} tone={overloaded.length ? "warn" : undefined}>
-          {overloaded.length ? overloaded.map((w) => `Week ${w.week}`).join(", ") : "No overload warnings"}
+        <Card to="/planner" title="Busy weeks ahead" value={workloadError ? "Unavailable" : overloaded.length} tone={overloaded.length ? "warn" : undefined}>
+          {workloadError ? "Workload weights need attention" : overloaded.length ? overloaded.map((w) => `Week ${w.week}`).join(", ") : "No overload warnings"}
         </Card>
         <Card to="/syllabus" title="Needs syllabus review" value={review} tone={review ? "warn" : undefined}>
           Uncertain dates are never confirmed automatically
         </Card>
-        <Card to="/deadlines" search={{ status: "attention" }} title="Drafts & resubmissions" value={attention.length} tone={attention.length ? "bad" : undefined}>
+        <Card to="/deadlines" search={{ status: "attention" }} title="Needs submission" value={attention.length} tone={attention.length ? "bad" : undefined}>
           {attention.map((a) => a.title).join(" · ") || "Nothing pending in Moodle"}
         </Card>
         <Card to="/settings" title="Successful full sync" value={fullSyncFreshness(s.settings.trackedCourseIds,fullSyncAttestation,s.settings.timezone).startsWith('Synthetic example') ? 'Example' : 'Never'}>

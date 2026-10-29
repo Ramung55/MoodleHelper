@@ -128,7 +128,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                   I've finished this (personal check)
                 </label>
                 {v.completed && v.needsAttention && (
-                  <p className="text-xs text-destructive">Moodle still shows {v.a.submission?.status === "draft" ? "a draft" : "a resubmission request"} — it stays visible.</p>
+                  <p className="text-xs text-destructive">Moodle still shows {v.a.submission?.status === "draft" ? "a draft" : v.a.submission?.status === "not_submitted" ? "not submitted" : "a resubmission request"} — it stays visible.</p>
                 )}
                 <div className="space-y-1">
                   <Label htmlFor="ttl">Display title</Label>

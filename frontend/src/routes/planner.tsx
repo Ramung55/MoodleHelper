@@ -20,7 +20,7 @@ export const Route = createFileRoute("/planner")({
 });
 
 function Planner() {
-  const { snap, weeks, unallocated, currentWeek } = useApp();
+  const { snap, weeks, unallocated, unallocatedSummary, workloadError, currentWeek } = useApp();
   const s = snap!.settings;
   return (
     <>
@@ -28,6 +28,7 @@ function Planner() {
         title="Weekly planner"
         sub={`Weights: exam ${s.weights.exam}, assignment ${s.weights.assignment}, quiz ${s.weights.quiz}. Warning above ${s.thresholds.maxOutstanding} outstanding or weighted ${s.thresholds.maxWeighted}. Scores are estimates, not study hours.`}
       />
+      {workloadError && <p role="alert" className="mb-4 text-destructive">{workloadError} <Link to="/settings" className="underline">Review workload weights</Link></p>}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {weeks.map((w) => {
           const r = mapTeachingWeek(w.week, s.teachingCalendar);
@@ -64,13 +65,14 @@ function Planner() {
       </div>
       <section className="mt-8">
         <h2 className="mb-2 text-xl font-semibold">Unallocated</h2>
-        <p className="mb-2 text-sm text-muted-foreground">Events without a resolvable date or outside the semester. They are not counted in any week.</p>
+        {unallocatedSummary && <p className="mb-2 text-sm">{unallocatedSummary.total} total · {unallocatedSummary.outstanding} outstanding · weighted {unallocatedSummary.weighted}</p>}
+        <p className="mb-2 text-sm text-muted-foreground">Missing or unresolved teaching calendar, undated events, breaks and dates outside the semester are not counted in a teaching week.</p>
         <ul className="divide-y rounded-lg border bg-card">
-          {unallocated.length === 0 && <li className="p-4 text-sm text-muted-foreground">Nothing unallocated.</li>}
+          {unallocated.length === 0 && <li className="p-4 text-sm text-muted-foreground">{workloadError ? "Totals unavailable until the workload error is resolved." : "Nothing unallocated."}</li>}
           {unallocated.map((v) => (
             <li key={v.a.id} className="flex justify-between p-3 text-sm">
               <Link to="/deadlines" search={{ id: v.a.id }} className="font-medium hover:underline">{v.title}</Link>
-              <span className="text-muted-foreground">{formatDate(v.date, s.timezone)}</span>
+              <span className="text-muted-foreground">{formatDate(v.date, s.timezone)}{!v.teachingMapping.resolved && <span className="block text-xs">{v.teachingMapping.reason}</span>}</span>
             </li>
           ))}
         </ul>

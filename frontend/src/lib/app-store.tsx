@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { toast } from "sonner";
 import { resolveAssessmentId, viewAll, type AssessmentView } from "@/domain/assessments";
 import { eligibleAlerts } from "@/domain/alerts";
-import { weeklyLoad, type WeekLoad } from "@/domain/workload";
+import { weeklyLoad, type WeekLoad, type WorkloadTotals } from "@/domain/workload";
 import { mapTeachingDate } from "@/domain/teaching-weeks";
 import type { Snapshot } from "@/domain/types";
 import { getAdapter, type MoodleHelperAdapter } from "@/services";
@@ -17,6 +17,8 @@ interface AppState {
   views: AssessmentView[];
   weeks: WeekLoad[];
   unallocated: AssessmentView[];
+  unallocatedSummary: WorkloadTotals | null;
+  workloadError: string | null;
   currentWeek: number | null;
   syncing: boolean;
   retryLoad: () => void;
@@ -120,17 +122,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [adapter, enqueue]);
 
   const derived = useMemo(() => {
-    if (!snap) return { views: [], weeks: [], unallocated: [], currentWeek: null };
+    if (!snap) return { views: [], weeks: [], unallocated: [], unallocatedSummary: null, workloadError: null, currentWeek: null };
     const views = viewAll(snap.reconciliation?.logicalAssessments ?? snap.assessments, snap.reconciliation?.logicalOverlays ?? snap.overlays, snap.settings, snap);
-    const { weeks, unallocated } = weeklyLoad(views, snap.settings);
     const today = mapTeachingDate({ kind: "exact", iso: new Date().toISOString(), tz: "UTC" }, snap.settings.teachingCalendar);
     const currentWeek = today.resolved ? today.week : null;
-    return { views, weeks, unallocated, currentWeek };
+    try { return { views, ...weeklyLoad(views, snap.settings, snap), workloadError: null, currentWeek }; }
+    catch (failure) { return { views, weeks: [], unallocated: [], unallocatedSummary: null, workloadError: failure instanceof Error ? failure.message : "Workload is unavailable. Check workload settings.", currentWeek }; }
   }, [snap]);
 
   // Persist newly eligible alerts (delivery keys prevent repeats)
   useEffect(() => {
-    if (!snap) return;
+    if (!snap || derived.workloadError) return;
     const changes = snap.changes.map((change) => ({ ...change, assessmentId: resolveAssessmentId(snap, change.assessmentId) }));
     const fresh = eligibleAlerts(derived.views, derived.weeks, changes, snap.settings, Date.now(), snap.alerts);
     if (fresh.length) void run((a) => a.saveAlerts([...fresh, ...snap.alerts]));

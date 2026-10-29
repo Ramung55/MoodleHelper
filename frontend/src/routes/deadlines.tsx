@@ -83,7 +83,7 @@ function Deadlines() {
         <select aria-label="Status" className={sel} value={search.status ?? ""} onChange={(e) => set({ status: e.target.value || undefined })}>
           <option value="">All visible</option>
           <option value="outstanding">Outstanding</option>
-          <option value="attention">Draft / resubmit</option>
+          <option value="attention">Not submitted / draft / resubmit</option>
           <option value="done">Done</option>
           <option value="hidden">Hidden</option>
         </select>

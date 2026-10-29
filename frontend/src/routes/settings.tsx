@@ -15,6 +15,7 @@ import { useApp } from "@/lib/app-store";
 import { BridgeClient } from "@/services/extension-adapter";
 import { BridgeError } from "../../../shared/src/bridge";
 import { TeachingCalendarSettings } from "@/components/mh/TeachingCalendarSettings";
+import { WorkloadWeights } from "@/components/mh/WorkloadWeights";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -158,11 +159,7 @@ function SettingsPage() {
 
         <Section title="Workload">
           <p className="mb-2 text-xs text-muted-foreground">Estimates, not study hours.</p>
-          <div className="grid grid-cols-4 gap-2">
-            {(["exam", "assignment", "quiz", "other"] as const).map((k) => (
-              <div key={k} className="space-y-1"><Label htmlFor={`w-${k}`} className="capitalize">{k}</Label><Input id={`w-${k}`} type="number" min={0} value={st.weights[k]} onChange={(e) => upd({ weights: { ...st.weights, [k]: num(e.target.value) } })} /></div>
-            ))}
-          </div>
+          <WorkloadWeights />
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div className="space-y-1"><Label htmlFor="mo">Warn above outstanding</Label><Input id="mo" type="number" min={0} value={st.thresholds.maxOutstanding} onChange={(e) => upd({ thresholds: { ...st.thresholds, maxOutstanding: num(e.target.value) } })} /></div>
             <div className="space-y-1"><Label htmlFor="mw">Warn above weighted</Label><Input id="mw" type="number" min={0} value={st.thresholds.maxWeighted} onChange={(e) => upd({ thresholds: { ...st.thresholds, maxWeighted: num(e.target.value) } })} /></div>

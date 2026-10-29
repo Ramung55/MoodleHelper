@@ -82,8 +82,8 @@ describe("submission & completion", () => {
   it("draft stays outstanding even when personally completed", () => {
     expect(isOutstanding(mk({ submission: { status: "draft", observedAt: t } }), { assessmentId: "x", hidden: false, completed: true })).toBe(true);
   });
-  it("personal completion clears a not-submitted item", () => {
-    expect(isOutstanding(mk({ submission: { status: "not_submitted", observedAt: t } }), { assessmentId: "x", hidden: false, completed: true })).toBe(false);
+  it("not-submitted source remains actionable after personal completion", () => {
+    expect(isOutstanding(mk({ submission: { status: "not_submitted", observedAt: t } }), { assessmentId: "x", hidden: false, completed: true })).toBe(true);
   });
   it("hidden items are never outstanding", () => {
     expect(isOutstanding(mk({}), { assessmentId: "x", hidden: true, completed: false })).toBe(false);

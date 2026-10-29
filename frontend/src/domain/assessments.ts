@@ -24,7 +24,7 @@ export interface AssessmentView {
   hidden: boolean;
   completed: boolean;
   outstanding: boolean;
-  /** Draft or reopened stays visible even if personally completed */
+  /** Actionable source states take precedence over personal completion. */
   needsAttention: boolean;
   sort: number;
 }
@@ -103,8 +103,8 @@ export function effectiveSources(snapshot: Snapshot, a: Assessment): SourceEvide
 
 export function isOutstanding(a: Assessment, o?: Overlay): boolean {
   if (o?.hidden) return false;
-  const st = a.submission?.status;
-  if (st === "draft" || st === "reopened") return true;
+  const st = a.personal ? undefined : a.submission?.status;
+  if (st === "draft" || st === "not_submitted" || st === "reopened") return true;
   if (o?.completed) return false;
   return st !== "submitted";
 }
@@ -126,7 +126,7 @@ export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Setting
     o?.dateOverride && o.overrideBase && (!sameDate(o.overrideBase, sourceDate) || removedBaseline)
       ? { was: o.overrideBase, now: sourceDate }
       : undefined;
-  const st = a.submission?.status;
+  const st = a.personal ? undefined : a.submission?.status;
   const teachingMapping = mapTeachingDate(date, s.teachingCalendar);
   return {
     a,
@@ -142,7 +142,7 @@ export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Setting
     hidden: !!o?.hidden,
     completed: !!o?.completed,
     outstanding: isOutstanding(a, o),
-    needsAttention: !o?.hidden && (st === "draft" || st === "reopened"),
+    needsAttention: !o?.hidden && (st === "draft" || st === "not_submitted" || st === "reopened"),
     sort: date.kind === "week" ? teachingMapping.resolved ? Date.parse(teachingMapping.start) : Infinity : sortKey(date, s.semesterStart),
   };
 }
