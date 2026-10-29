@@ -14,6 +14,7 @@ import type { AiAvailability } from "@/services/adapter";
 import { useApp } from "@/lib/app-store";
 import { BridgeClient } from "@/services/extension-adapter";
 import { BridgeError } from "../../../shared/src/bridge";
+import { TeachingCalendarSettings } from "@/components/mh/TeachingCalendarSettings";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -141,7 +142,9 @@ function SettingsPage() {
           <Button className="mt-3" onClick={syncAll} disabled={syncing}>{syncing ? "Syncing…" : "Sync all courses (demo)"}</Button>
         </Section>
 
-        <Section title="Semester">
+        <TeachingCalendarSettings />
+        <Section title="Legacy semester / display settings">
+          <p className="mb-2 text-xs text-muted-foreground">Historical compatibility fields only; these do not configure the explicit teaching calendar.</p>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1"><Label htmlFor="ss">Week 1 starts</Label><Input id="ss" type="date" value={st.semesterStart} onChange={(e) => e.target.value && upd({ semesterStart: e.target.value })} /></div>
             <div className="space-y-1"><Label htmlFor="sw">Weeks</Label><Input id="sw" type="number" min={1} max={30} value={st.semesterWeeks} onChange={(e) => upd({ semesterWeeks: Math.min(30, Math.max(1, num(e.target.value))) })} /></div>

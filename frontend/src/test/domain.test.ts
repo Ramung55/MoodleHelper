@@ -10,7 +10,8 @@ import { buildDemoSnapshot } from "@/services/fixtures";
 import { DemoAdapter, type KV } from "@/services/demo-adapter";
 
 const snap = buildDemoSnapshot(Date.UTC(2026, 9, 24, 9));
-const S = snap.settings;
+// Workload/matching tests explicitly configure their calendar; demo defaults remain unverified.
+const S = { ...snap.settings, teachingCalendar: { startDate: snap.settings.semesterStart, endDate: new Date(Date.parse(snap.settings.semesterStart) + (15 * 7 - 1) * 86400000).toISOString().slice(0, 10), timezone: "Asia/Almaty", excludedWeekStarts: [] } };
 const t = "2026-10-01T00:00:00Z";
 it('retains submicrosecond exact deadline differences and offset equality', () => {
   const value = {kind:'exact' as const, iso:'2026-11-01T10:00:00.0000001Z', tz:'UTC'};

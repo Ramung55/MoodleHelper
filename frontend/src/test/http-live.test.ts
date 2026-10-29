@@ -87,6 +87,19 @@ afterAll(async () => {
 });
 
 describe("actual FastAPI HTTP integration", () => {
+  it("persists an explicit teaching calendar across restart and restores the legacy snapshot", async () => {
+    const original = await api.load();
+    const calendar = { startDate: "2027-01-04", endDate: "2027-02-28", timezone: "Asia/Qyzylorda", excludedWeekStarts: ["2027-01-18"] };
+    try {
+      const saved = await api.updateSettings({ teachingCalendar: calendar });
+      expect(saved.settings.teachingCalendar).toEqual(calendar);
+      expect(saved.assessments).toEqual(original.assessments);
+      expect(saved.overlays).toEqual(original.overlays);
+      await stopServer(); await startServer();
+      expect((await api.load()).settings.teachingCalendar).toEqual(calendar);
+    } finally { await api.replaceAll(original); }
+    expect((await api.load()).settings.teachingCalendar).toEqual(original.settings.teachingCalendar);
+  });
   it("creates, edits, reopens, syncs and deletes a personal event without merging an imported title", async () => {
     const original = await api.load();
     let id: string | undefined;

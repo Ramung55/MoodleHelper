@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { resolveAssessmentId, viewAll, type AssessmentView } from "@/domain/assessments";
 import { eligibleAlerts } from "@/domain/alerts";
 import { weeklyLoad, type WeekLoad } from "@/domain/workload";
+import { mapTeachingDate } from "@/domain/teaching-weeks";
 import type { Snapshot } from "@/domain/types";
 import { getAdapter, type MoodleHelperAdapter } from "@/services";
 import type { ConnectionInfo } from "@/services/adapter";
@@ -122,8 +123,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!snap) return { views: [], weeks: [], unallocated: [], currentWeek: null };
     const views = viewAll(snap.reconciliation?.logicalAssessments ?? snap.assessments, snap.reconciliation?.logicalOverlays ?? snap.overlays, snap.settings, snap);
     const { weeks, unallocated } = weeklyLoad(views, snap.settings);
-    const start = Date.parse(snap.settings.semesterStart);
-    const currentWeek = Math.floor((Date.now() - start) / (7 * 86_400_000)) + 1;
+    const today = mapTeachingDate({ kind: "exact", iso: new Date().toISOString(), tz: "UTC" }, snap.settings.teachingCalendar);
+    const currentWeek = today.resolved ? today.week : null;
     return { views, weeks, unallocated, currentWeek };
   }, [snap]);
 

@@ -44,6 +44,7 @@ export function AssessmentRow({ v, onOpen }: { v: AssessmentView; onOpen: (id: s
       </div>
       <div className="flex flex-col items-start gap-1 sm:items-end">
         <span className="font-mono text-sm font-semibold text-foreground">{formatDate(v.date, tz)}</span>
+        {v.date.kind === "week" && <span className="text-xs text-muted-foreground">{v.teachingMapping.resolved ? `${v.teachingMapping.start} – ${v.teachingMapping.end} · ${v.teachingMapping.timezone}` : v.teachingMapping.reason}</span>}
         {!v.a.personal && <SubmissionBadge status={v.a.submission?.status} />}
       </div>
     </button>

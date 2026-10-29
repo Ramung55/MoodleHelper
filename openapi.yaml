@@ -2456,6 +2456,36 @@ components:
       required:
       - enabled
       - consentGiven
+    TeachingCalendar:
+      type: object
+      additionalProperties: false
+      description: >-
+        Explicit inclusive calendar boundaries and IANA calendar timezone. Domain
+        validation requires real dates, start<=end, a whole number of anchored
+        seven-day slots (at most 60), 1..30 nonexcluded teaching slots, and unique
+        excluded starts aligned to the anchor and fully within the calendar.
+        Partial weeks and irregular overrides are unsupported. Legacy settings
+        never imply this group. When supplied it replaces the whole saved group;
+        omission retains it, null is invalid, and [] clears only exclusions.
+      properties:
+        startDate:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        endDate:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 100
+        excludedWeekStarts:
+          type: array
+          maxItems: 59
+          uniqueItems: true
+          items:
+            type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+      required: [startDate, endDate, timezone, excludedWeekStarts]
     Settings:
       type: object
       properties:
@@ -2472,6 +2502,8 @@ components:
           maximum: 30
         timezone:
           type: string
+        teachingCalendar:
+          $ref: '#/components/schemas/TeachingCalendar'
         weights:
           $ref: '#/components/schemas/Weights'
         thresholds:
@@ -2505,6 +2537,8 @@ components:
           maximum: 30
         timezone:
           type: string
+        teachingCalendar:
+          $ref: '#/components/schemas/TeachingCalendar'
         weights:
           $ref: '#/components/schemas/Weights'
         thresholds:

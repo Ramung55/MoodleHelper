@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { teachingCalendarError } from "../../../shared/src/teaching-calendar.js";
 
 /** Four date forms are kept separate; never collapse week/unknown into an exact time. */
 export const DateValue = z.discriminatedUnion("kind", [
@@ -186,11 +187,17 @@ export const Alert = z.object({
 });
 export type Alert = z.infer<typeof Alert>;
 
+export const TeachingCalendar = z.object({
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  timezone: z.string().min(1).max(100), excludedWeekStarts: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(59),
+}).strict().superRefine((value, context) => { const message = teachingCalendarError(value); if (message) context.addIssue({ code: z.ZodIssueCode.custom, message }); });
+export type TeachingCalendar = z.infer<typeof TeachingCalendar>;
 export const Settings = z.object({
   trackedCourseIds: z.array(z.string()),
   semesterStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   semesterWeeks: z.number().int().min(1).max(30),
   timezone: z.string(),
+  teachingCalendar: TeachingCalendar.optional(),
   weights: z.object({ exam: z.number(), assignment: z.number(), quiz: z.number(), other: z.number() }),
   thresholds: z.object({ maxOutstanding: z.number(), maxWeighted: z.number() }),
   reminders: z.object({ enabled: z.boolean(), hoursBefore: z.number(), busyWeek: z.boolean() }),

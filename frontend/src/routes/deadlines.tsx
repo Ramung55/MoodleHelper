@@ -10,7 +10,7 @@ import { AssessmentSheet } from "@/components/mh/AssessmentSheet";
 import { DateInput } from "@/components/mh/DateInput";
 import { EmptyState, PageHeader, TYPE_LABEL } from "@/components/mh/bits";
 import type { AssessmentView } from "@/domain/assessments";
-import { weekRange } from "@/domain/dates";
+import { mapTeachingWeek } from "@/domain/teaching-weeks";
 import type { AssessmentType, DateValue } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
 import { personalDateError } from "@/domain/personal-event";
@@ -99,10 +99,10 @@ function Deadlines() {
       ) : (
         <div className="space-y-8">
           {[...groups].map(([k, items]) => {
-            const wk = byWeek && k.startsWith("Week") ? weekRange(Number(k.slice(5)), s.settings.semesterStart) : null;
+            const wk = byWeek && k.startsWith("Week") ? mapTeachingWeek(Number(k.slice(5)), s.settings.teachingCalendar) : null;
             return (
               <section key={k}>
-                <h2 className="mb-2 text-lg font-semibold">{k}{wk && <span className="ml-2 text-sm font-normal text-muted-foreground">{wk.start} – {wk.end}</span>}</h2>
+                <h2 className="mb-2 text-lg font-semibold">{k}{wk?.resolved && <span className="ml-2 text-sm font-normal text-muted-foreground">{wk.start} – {wk.end}</span>}</h2>
                 <div className="space-y-2">{items.map((v) => <AssessmentRow key={v.a.id} v={v} onOpen={(id) => set({ id })} />)}</div>
               </section>
             );

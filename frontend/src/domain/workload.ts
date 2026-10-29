@@ -1,5 +1,6 @@
 import type { AssessmentView } from "./assessments";
 import type { Settings } from "./types";
+import { teachingSlots } from "./teaching-weeks";
 
 export interface WeekLoad {
   week: number;
@@ -21,7 +22,9 @@ export function weightOf(v: AssessmentView, s: Settings): number {
 export function weeklyLoad(views: AssessmentView[], s: Settings): { weeks: WeekLoad[]; unallocated: AssessmentView[] } {
   const map = new Map<number, WeekLoad>();
   const unallocated: AssessmentView[] = [];
-  for (let w = 1; w <= s.semesterWeeks; w++) {
+  for (const slot of s.teachingCalendar ? teachingSlots(s.teachingCalendar) : []) {
+    const w = slot.week;
+    if (w === null) continue;
     map.set(w, { week: w, total: 0, outstanding: 0, weighted: 0, items: [], overloaded: false });
   }
   for (const v of views) {

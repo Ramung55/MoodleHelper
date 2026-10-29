@@ -4,7 +4,7 @@ All entry points operate on the caller's transaction-owned Snapshot. They never
 fetch Moodle, mutate raw collection observations, or infer a dataset identity.
 """
 from copy import deepcopy
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from hashlib import sha256
 import json
 import re
@@ -58,7 +58,8 @@ def date_day(value, settings):
             return date.fromisoformat(value['date'])
         if value['kind'] == 'exact':
             parsed = instant(value['iso'])
-            zone = timezone.utc if settings['timezone'] == 'UTC' else ZoneInfo(settings['timezone'])
+            zone_name = settings.get('teachingCalendar', {}).get('timezone', settings['timezone'])
+            zone = timezone.utc if zone_name == 'UTC' else ZoneInfo(zone_name)
             return parsed.astimezone(zone).date() if parsed else None
     except (ValueError, KeyError, ZoneInfoNotFoundError, OverflowError):
         pass
@@ -70,7 +71,7 @@ def compatible_dates(a, b, settings):
     if a['kind'] == 'unknown' or b['kind'] == 'unknown':
         return False
     if a['kind'] == b['kind'] == 'week':
-        return a['week'] == b['week']
+        return a['week'] == b['week'] and teaching_week_start(a['week'], settings) is not None
     if a['kind'] == b['kind'] == 'exact':
         first, second = instant(a['iso']), instant(b['iso'])
         if first and first == second:
@@ -81,12 +82,27 @@ def compatible_dates(a, b, settings):
     week, day = (a, db) if a['kind'] == 'week' else (b, da)
     if week['kind'] != 'week' or day is None:
         return False
+    start = teaching_week_start(week['week'], settings)
+    return start is not None and start <= day <= start + timedelta(days=6)
+
+
+def teaching_week_start(week, settings):
+    """Only explicitly configured full-week slots establish a week/date map."""
+    from backend.schemas import TeachingCalendar
     try:
-        start = date.fromisoformat(settings['semesterStart'])
-        delta = (day - start).days
-        return delta >= 0 and delta // 7 + 1 == week['week']
-    except (ValueError, KeyError):
-        return False
+        calendar = TeachingCalendar.model_validate(settings.get('teachingCalendar'))
+        if type(week) is not int or not 1 <= week <= 30:
+            return None
+        at, end, counter = date.fromisoformat(calendar.startDate), date.fromisoformat(calendar.endDate), 0
+        while at <= end:
+            if at.isoformat() not in calendar.excludedWeekStarts:
+                counter += 1
+                if counter == week:
+                    return at
+            at += timedelta(days=7)
+    except (ValueError, TypeError):
+        pass
+    return None
 
 
 def layer(snapshot):

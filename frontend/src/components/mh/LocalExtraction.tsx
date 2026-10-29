@@ -8,9 +8,11 @@ import { detectAssessmentMentions, type AssessmentMention } from "@/domain/asses
 import { parseSyllabusMention, type ParsedAssessmentMention } from "@/domain/syllabus-dates";
 import { Input } from "@/components/ui/input";
 import { LocalOcr } from "./LocalOcr";
+import { parseTeachingWeek } from "@/domain/teaching-weeks";
+import type { TeachingCalendar } from "@/domain/types";
 
 /** Result and preview URLs live only for this visible, dataset-bound row. */
-export function LocalExtraction({ document: association }: { document: LocalAssociation }) {
+export function LocalExtraction({ document: association, teachingCalendar }: { document: LocalAssociation; teachingCalendar?: TeachingCalendar }) {
   const [result, setResult] = useState<Exclude<Extraction, { format: "ocr" }>>();
   const [mentions, setMentions] = useState<AssessmentMention[]>();
   const [parsedDates, setParsedDates] = useState<ParsedAssessmentMention[]>();
@@ -128,6 +130,7 @@ export function LocalExtraction({ document: association }: { document: LocalAsso
         </fieldset>
         {mentions.length === 0 && <p>No supported assessment keywords were found.</p>}
         {mentions.map((mention) => <details key={mention.id} className="rounded border p-2"><summary className="cursor-pointer">{mention.title} · {mention.type} · Unconfirmed</summary>
+          {(() => { const week = parseTeachingWeek(mention, teachingCalendar); return week.expressions.length > 0 && <p>Teaching week preview: {week.mapping.resolved ? `Week ${week.mapping.week}: ${week.mapping.start} – ${week.mapping.end} · ${week.mapping.timezone} (no exact due date)` : week.mapping.reason}</p>; })()}
           <blockquote className="whitespace-pre-wrap">{mention.excerpt}</blockquote>
           <p className="text-xs">Original mention offsets {mention.mention.start}–{mention.mention.end}; source {mention.location.kind}; SHA-256 {mention.digest}</p>
           <pre className="whitespace-pre-wrap break-all text-xs">{JSON.stringify(mention.location, null, 2)}</pre>

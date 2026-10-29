@@ -1,4 +1,5 @@
-import { compareSubmicro, instantMicros, sameDate, sortKey, weekOf } from "./dates";
+import { compareSubmicro, instantMicros, sameDate, sortKey } from "./dates";
+import { mapTeachingDate, type TeachingMapping } from "./teaching-weeks";
 import type { Assessment, DateValue, Overlay, Settings, SourceEvidence, Snapshot } from "./types";
 
 export function resolveAssessmentId(snapshot: Snapshot, id: string): string {
@@ -15,6 +16,7 @@ export interface AssessmentView {
   sourceDate: DateValue;
   sourceKind?: SourceEvidence["source"];
   week: number | null;
+  teachingMapping: TeachingMapping;
   /** Moodle and syllabus disagree */
   conflict?: { moodle: DateValue; syllabus: DateValue; comparison: "different" | "incomparable" };
   /** Source date moved after the student set an override */
@@ -125,6 +127,7 @@ export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Setting
       ? { was: o.overrideBase, now: sourceDate }
       : undefined;
   const st = a.submission?.status;
+  const teachingMapping = mapTeachingDate(date, s.teachingCalendar);
   return {
     a,
     overlay: o,
@@ -132,14 +135,15 @@ export function viewAssessment(a: Assessment, o: Overlay | undefined, s: Setting
     date,
     sourceDate,
     sourceKind: m?.date.kind !== "unknown" && m ? "moodle" : sy?.date.kind !== "unknown" && sy ? "syllabus" : undefined,
-    week: weekOf(date, s.semesterStart, s.timezone),
+    week: teachingMapping.resolved ? teachingMapping.week : null,
+    teachingMapping,
     conflict,
     overrideDisagreement,
     hidden: !!o?.hidden,
     completed: !!o?.completed,
     outstanding: isOutstanding(a, o),
     needsAttention: !o?.hidden && (st === "draft" || st === "reopened"),
-    sort: sortKey(date, s.semesterStart),
+    sort: date.kind === "week" ? teachingMapping.resolved ? Date.parse(teachingMapping.start) : Infinity : sortKey(date, s.semesterStart),
   };
 }
 

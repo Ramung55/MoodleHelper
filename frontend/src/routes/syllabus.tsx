@@ -219,7 +219,7 @@ export function Syllabus() {
           </div>)}
           {importing && <Button size="sm" variant="outline" onClick={() => cancellation.current?.abort()}>Cancel import</Button>}
           {!importing && retryFile && <Button size="sm" variant="outline" onClick={() => void onFile(retryFile)}>Retry selected file</Button>}
-          <ul className="mt-3 space-y-2">{showLocalRecords && localDocuments.map((d) => <li key={`${d.datasetId}:${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only){/\.(pdf|docx)$/i.test(d.name) && <LocalExtraction document={d} />}</li>)}</ul>
+          <ul className="mt-3 space-y-2">{showLocalRecords && localDocuments.map((d) => <li key={`${d.datasetId}:${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only){/\.(pdf|docx)$/i.test(d.name) && <LocalExtraction document={d} teachingCalendar={s.settings.teachingCalendar} />}</li>)}</ul>
           <ul className="mt-4 space-y-2">
             {s.documents.map((d) => (
               <li key={d.id} className="text-sm">
@@ -294,3 +294,4 @@ function CandidateCard({ c, onDecide }: { c: ExtractionCandidate; onDecide: (d: 
     </article>
   );
 }
+

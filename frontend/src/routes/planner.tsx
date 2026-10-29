@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertTriangle } from "lucide-react";
 import { PageHeader, TYPE_LABEL } from "@/components/mh/bits";
-import { formatDate, weekRange } from "@/domain/dates";
+import { formatDate } from "@/domain/dates";
+import { mapTeachingWeek } from "@/domain/teaching-weeks";
 import { weightOf } from "@/domain/workload";
 import { useApp } from "@/lib/app-store";
 import { cn } from "@/lib/utils";
@@ -29,7 +30,8 @@ function Planner() {
       />
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {weeks.map((w) => {
-          const r = weekRange(w.week, s.semesterStart);
+          const r = mapTeachingWeek(w.week, s.teachingCalendar);
+          if (!r.resolved) return null;
           return (
             <section key={w.week} aria-label={`Week ${w.week}`} className={cn("rounded-lg border bg-card p-4", w.overloaded && "border-warning ring-1 ring-warning", w.week === currentWeek && "outline outline-2 outline-primary")}>
               <div className="flex items-baseline justify-between">

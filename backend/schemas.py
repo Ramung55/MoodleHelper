@@ -334,11 +334,25 @@ class AiSettings(WireModel):
     consentGiven: bool
 
 
+class TeachingCalendar(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    startDate: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    endDate: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    timezone: str = Field(min_length=1, max_length=100)
+    excludedWeekStarts: list[Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]] = Field(max_length=59, json_schema_extra={'uniqueItems': True})
+
+    @model_validator(mode='after')
+    def valid_calendar(self):
+        from backend.teaching_calendar import validate_teaching_calendar
+        return validate_teaching_calendar(self)
+
+
 class SettingsPatch(WireModel):
     trackedCourseIds: list[str] = None
     semesterStart: str = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     semesterWeeks: Integer = Field(default=None, ge=1, le=30)
     timezone: str = None
+    teachingCalendar: TeachingCalendar = None
     weights: Weights = None
     thresholds: Thresholds = None
     reminders: ReminderSettings = None

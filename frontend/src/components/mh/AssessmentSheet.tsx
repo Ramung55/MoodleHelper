@@ -60,6 +60,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
               <section>
                 <h3 className="mb-2 text-sm font-semibold">Deadline</h3>
                 <p className="font-mono text-lg font-semibold">{formatDate(v.date, tz)}</p>
+                {v.date.kind === "week" && <p>{v.teachingMapping.resolved ? `${v.teachingMapping.start} – ${v.teachingMapping.end} · ${v.teachingMapping.timezone}` : v.teachingMapping.reason}</p>}
                 {v.week && <p className="text-xs text-muted-foreground">Teaching week {v.week}</p>}
                 {v.a.availableFrom && <p className="text-xs text-muted-foreground">Opens {new Date(v.a.availableFrom).toLocaleString("en-GB", { timeZone: tz })}</p>}
                 {v.conflict && (

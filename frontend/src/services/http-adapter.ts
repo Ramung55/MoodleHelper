@@ -1,6 +1,6 @@
 import type { RawCourseObservation } from "@/domain/types";
 import { z } from "zod";
-import { ConnectionState, Snapshot, SyllabusRevisionPreview, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
+import { ConnectionState, Snapshot, TeachingCalendar, SyllabusRevisionPreview, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
 import type { MoodleHelperAdapter, OverlayPatch, PersonalEventInput, ReviewDecision } from "./adapter";
 
 const connectionSchema = z.object({ state: ConnectionState, message: z.string(), extensionDetected: z.boolean() });
@@ -80,7 +80,7 @@ export class HttpAdapter implements MoodleHelperAdapter {
   downloadMaterial(id: string) { return this.request("POST", `/materials/${encodeURIComponent(id)}/download`, downloadSchema); }
   saveAlerts(alerts: SnapshotValue["alerts"]) { return this.request("PUT", "/alerts", Snapshot, alerts); }
   setSyllabusSuggestionDismissal(recordId: string, dismissed: boolean) { return this.request("POST", "/syllabus-suggestions/dismissal", Snapshot, { recordId, dismissed }); }
-  updateSettings(patch: Partial<SnapshotValue["settings"]>) { return this.request("PATCH", "/settings", Snapshot, patch); }
+  async updateSettings(patch: Partial<SnapshotValue["settings"]>) { if (Object.hasOwn(patch, "teachingCalendar")) TeachingCalendar.parse(patch.teachingCalendar); return this.request("PATCH", "/settings", Snapshot, patch); }
   deleteLocalData() { return this.request("DELETE", "/local-data", Snapshot); }
   resetDemo() { return this.request("POST", "/demo/reset", Snapshot); }
   aiAvailability() { return this.request("GET", "/ai/availability", aiSchema); }

@@ -1,7 +1,7 @@
 // Focused runnable probe against the actual Zod definitions, no duplicate schema.
 import fs from "node:fs";
 import { createRequire } from "node:module";
-const require = createRequire(new URL("../frontend/package.json", import.meta.url));
+const require = createRequire(new URL("../frontend/src/domain/types.ts", import.meta.url));
 const ts = require("typescript");
 const source = fs.readFileSync(new URL("../frontend/src/domain/types.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
