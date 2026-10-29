@@ -2015,9 +2015,10 @@ components:
     LocalExactDate:
       type: object
       additionalProperties: false
+      description: Canonical explicit instant. Clock/offset hours00..23 and minutes/seconds00..59 are checked before datetime parsing; real calendar validation also applies. Legacy DateValue is unchanged.
       properties:
         kind: {type: string, const: exact}
-        iso: {type: string, minLength: 1, maxLength: 128}
+        iso: {type: string, minLength: 1, maxLength: 128, pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$'}
         tz: {type: string, minLength: 1, maxLength: 100}
       required: [kind, iso, tz]
     LocalCalendarDate:

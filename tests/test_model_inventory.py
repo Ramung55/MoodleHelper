@@ -14,6 +14,48 @@ from backend.sample_data import build_sample_snapshot
 ROOT = Path(__file__).parents[1]
 
 
+@pytest.mark.parametrize('iso,valid', [
+    ('2027-03-12T14:00:00+05:99', False), ('2027-03-12T14:00:00-05:99', False),
+    ('2027-03-12T14:00:00+00:60', False), ('2027-03-12T14:00:00-00:60', False),
+    ('2027-03-12T14:00:00+24:00', False), ('2027-03-12T14:00:00-24:00', False),
+    ('2027-03-12T14:00:00+23:60', False), ('2027-03-12T14:00:00-23:60', False),
+    ('2027-03-12T14:00:00+0500', False), ('2027-03-12T14:00:00+5:00', False),
+    ('2027-03-12T14:00:00-05:0', False),
+    ('2027-03-12T24:00:00Z', False), ('2027-03-12T14:60:00Z', False),
+    ('2027-03-12T14:00:60Z', False), ('2027-03-12 14:00:00Z', False),
+    ('2027-03-12T14:00:00z', False), ('2027-03-12T14:00:00.1234567Z', False),
+    ('2027-03-12T14:00:00+05:59', True), ('2027-03-12T14:00:00-05:59', True),
+    ('2027-03-12T14:00:00+23:59', True), ('2027-03-12T14:00:00-23:59', True),
+    ('2027-03-12T00:00:00Z', True), ('2027-03-12T23:59:59.123456Z', True),
+])
+def test_local_exact_component_ranges_match_zod_and_reject_atomically(client, iso, valid):
+    from test_local_syllabus import request
+    body, headers = request(client)
+    body['proposals'][0]['date'] = dict(kind='exact', iso=iso, tz='UTC')
+    before = client.get('/api/snapshot').json()
+    if valid:
+        assert schemas.LocalSyllabusInput.model_validate(body).proposals[0].date.iso == iso
+    else:
+        with pytest.raises(ValidationError): schemas.LocalSyllabusInput.model_validate(body)
+    assert zod('LocalSyllabusInput', body)['success'] is valid
+    response = client.post('/api/local-syllabus/route', json=body, headers=headers)
+    assert response.status_code == (200 if valid else 422), response.text
+    if valid:
+        route = response.json()['routes'][0]
+        assert route['disposition'] == 'auto'
+        event = next(item for item in response.json()['snapshot']['assessments'] if item['id'] == route['assessmentId'])
+        assert event['sources'][0]['date']['iso'] == iso
+    else:
+        # Exact Snapshot equality covers documents, candidates, events and receipts.
+        assert client.get('/api/snapshot').json() == before
+
+
+def test_local_timestamp_fix_does_not_tighten_legacy_date_value():
+    value = dict(kind='exact', iso='2027-03-12T14:00:00+05:99', tz='legacy arbitrary label')
+    assert schemas.ExactDate.model_validate(value).model_dump() == value
+    assert zod('DateValue', value) == {'success': True, 'value': value}
+
+
 def test_local_metadata_input_and_unknown_language_snapshot_zod_python_parity(client):
     from test_local_syllabus import request
     body, headers = request(client)

@@ -98,7 +98,8 @@ class LocalPolicyFacts(LocalClosed):
 
 class LocalExactDate(LocalClosed):
     kind: Literal['exact']
-    iso: str = Field(min_length=1, max_length=128)
+    # Lexical bounds precede normalization-prone datetime parsing.
+    iso: str = Field(min_length=1, max_length=128, pattern=r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$')
     tz: str = Field(min_length=1, max_length=100)
 
     @model_validator(mode='after')
@@ -106,7 +107,9 @@ class LocalExactDate(LocalClosed):
         from datetime import datetime
         import re
         from backend.teaching_calendar import SUPPORTED_TIMEZONES
-        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})', self.iso) or self.tz not in SUPPORTED_TIMEZONES:
+        # fromisoformat normalizes offset minute overflow (e.g. +05:99).
+        # Validate every component lexically before invoking the date parser.
+        if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])', self.iso) or self.tz not in SUPPORTED_TIMEZONES:
             raise ValueError('Use a resolved explicit instant and supported timezone.')
         try:
             datetime.fromisoformat(self.iso.replace('Z', '+00:00'))
