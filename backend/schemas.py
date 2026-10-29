@@ -68,6 +68,119 @@ class UnknownDate(WireModel):
 DateValue = Annotated[ExactDate | CalendarDate | TeachingWeek | UnknownDate, Field(discriminator="kind")]
 
 
+class LocalClosed(WireModel):
+    model_config = ConfigDict(extra='forbid')
+
+
+LocalOpaque = Annotated[str, Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9_-]+$')]
+LocalDigest = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+LocalVersion = Literal['local-syllabus-1']
+LocalPolicyReason = Literal['clear_explicit', 'incomplete_extraction', 'evidence_missing', 'location_missing', 'source_unavailable', 'context_unverified', 'association_ambiguous', 'date_missing', 'date_not_explicit', 'year_inferred', 'locale_ambiguous', 'contradictory', 'policy_or_heading', 'conflicting_match', 'mapping_unresolved', 'timezone_unresolved', 'language_unknown', 'ocr_review', 'ocr_low_quality', 'ocr_synthetic', 'ocr_provenance_missing', 'week_only']
+
+
+class LocalPolicyFacts(LocalClosed):
+    complete: bool
+    evidenceRetained: bool
+    traceable: bool
+    sourceAvailable: bool
+    contextVerified: bool
+    singleAssociation: bool
+    explicitDate: bool
+    inferredYear: bool
+    localeAmbiguous: bool
+    contradictory: bool
+    policyOrHeading: bool
+    conflictingMatch: bool
+    mappingResolved: bool
+    timezoneResolved: bool
+    ocr: Literal['none', 'review', 'low_quality', 'synthetic', 'missing_provenance']
+
+
+class LocalExactDate(LocalClosed):
+    kind: Literal['exact']
+    iso: str = Field(min_length=1, max_length=128)
+    tz: str = Field(min_length=1, max_length=100)
+
+    @model_validator(mode='after')
+    def calendar_valid(self):
+        from datetime import datetime
+        import re
+        from backend.teaching_calendar import SUPPORTED_TIMEZONES
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})', self.iso) or self.tz not in SUPPORTED_TIMEZONES:
+            raise ValueError('Use a resolved explicit instant and supported timezone.')
+        try:
+            datetime.fromisoformat(self.iso.replace('Z', '+00:00'))
+        except ValueError:
+            raise ValueError('The explicit timestamp is not calendar-valid.') from None
+        return self
+
+
+class LocalCalendarDate(LocalClosed):
+    kind: Literal['date']
+    date: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+
+    @model_validator(mode='after')
+    def calendar_valid(self):
+        from datetime import date
+        date.fromisoformat(self.date)
+        return self
+
+
+class LocalTeachingWeek(LocalClosed):
+    kind: Literal['week']
+    week: Integer = Field(ge=1, le=30)
+
+
+class LocalUnknownDate(LocalClosed):
+    kind: Literal['unknown']
+
+
+LocalSyllabusDate = Annotated[LocalExactDate | LocalCalendarDate | LocalTeachingWeek | LocalUnknownDate, Field(discriminator='kind')]
+
+
+class LocalSyllabusProposal(LocalClosed):
+    mentionId: LocalOpaque
+    locationId: LocalOpaque
+    title: str = Field(min_length=1, max_length=512)
+    type: AssessmentType
+    date: LocalSyllabusDate
+    language: Literal['en', 'ru'] = None
+    facts: LocalPolicyFacts
+
+
+class LocalSyllabusInput(LocalClosed):
+    datasetId: str = Field(min_length=1, max_length=128)
+    courseId: str = Field(min_length=1, max_length=128)
+    digest: LocalDigest
+    format: Literal['pdf', 'docx']
+    pipelineVersion: LocalVersion
+    proposals: list[LocalSyllabusProposal] = Field(max_length=1000)
+
+
+class LocalEvidenceRef(LocalClosed):
+    datasetId: str = Field(min_length=1, max_length=128)
+    courseId: str = Field(min_length=1, max_length=128)
+    digest: LocalDigest
+    mentionId: LocalOpaque
+    locationId: LocalOpaque
+    pipelineVersion: LocalVersion
+
+
+class LocalSyllabusRoute(LocalClosed):
+    mentionId: str
+    documentId: str
+    candidateId: str
+    assessmentId: str = None
+    disposition: Literal['auto', 'review', 'retained']
+    reasons: list[LocalPolicyReason] = Field(max_length=32)
+
+
+class LocalRoutingReceipt(LocalClosed):
+    evidence: LocalEvidenceRef
+    fingerprint: LocalDigest
+    route: LocalSyllabusRoute
+
+
 class KnownString(WireModel):
     kind: Literal["known"]
     value: str
@@ -107,6 +220,7 @@ class Course(WireModel):
 
 
 class SourceEvidence(WireModel):
+    localEvidence: LocalEvidenceRef = None
     source: Literal["moodle", "syllabus", "personal"]
     date: DateValue
     excerpt: str = None
@@ -174,6 +288,7 @@ class Material(WireModel):
 
 
 class ImportedDocument(WireModel):
+    localDigest: LocalDigest = None
     id: str
     courseId: str
     name: str
@@ -193,13 +308,14 @@ class ExtractionCandidate(WireModel):
     type: AssessmentType
     date: DateValue
     rawDateText: str
-    language: Literal["en", "ru"]
+    language: Literal["en", "ru", "unknown"]
     confidence: float = Field(ge=0, le=1)
     excerpt: str
     location: str
     status: Literal["pending", "confirmed", "corrected", "rejected", "auto"]
     matchAssessmentId: str = None
     reason: str = None
+    localEvidence: LocalEvidenceRef = None
 
 
 class CourseSyncState(WireModel):
@@ -764,6 +880,7 @@ class SyllabusSuggestionDismissal(CollectionWire):
 
 
 class Snapshot(WireModel):
+    localSyllabusReceipts: list[LocalRoutingReceipt] = None
     dismissedSyllabusSuggestions: list[str] = None
     collection: SnapshotCollection = None
     reconciliation: Reconciliation = None
@@ -779,6 +896,11 @@ class Snapshot(WireModel):
     changes: list[DeadlineChange]
     alerts: list[Alert]
     settings: Settings
+
+
+class LocalSyllabusResult(LocalClosed):
+    snapshot: Snapshot
+    routes: list[LocalSyllabusRoute] = Field(max_length=1000)
 
 
 class ConnectionInfo(WireModel):

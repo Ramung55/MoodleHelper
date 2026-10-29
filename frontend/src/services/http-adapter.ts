@@ -1,6 +1,6 @@
 import type { RawCourseObservation } from "@/domain/types";
 import { z } from "zod";
-import { ConnectionState, Snapshot, TeachingCalendar, SyllabusRevisionPreview, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
+import { ConnectionState, Snapshot, TeachingCalendar, SyllabusRevisionPreview, LocalSyllabusInput, LocalSyllabusResult, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
 import type { MoodleHelperAdapter, OverlayPatch, PersonalEventInput, ReviewDecision } from "./adapter";
 
 const connectionSchema = z.object({ state: ConnectionState, message: z.string(), extensionDetected: z.boolean() });
@@ -48,6 +48,20 @@ export class HttpAdapter implements MoodleHelperAdapter {
 
   connection() { return this.request("GET", "/connection", connectionSchema); }
   load() { return this.request("GET", "/snapshot", Snapshot); }
+  /** Browser-to-localhost only; deliberately absent from the Chrome adapter catalog. */
+  async routeLocalSyllabus(input: LocalSyllabusInput, signal?: AbortSignal): Promise<LocalSyllabusResult> {
+    const body = LocalSyllabusInput.parse(input), base = this.baseUrl.replace(/\/$/, "");
+    const encoded = JSON.stringify(body);
+    if (new TextEncoder().encode(encoded).length > 1024 * 1024) throw new Error("Local routing metadata exceeds the 1 MiB request limit. Route fewer proposals.");
+    const context = await this.fetcher(`${base}/api/bridge-context`, { credentials: "omit", cache: "no-store", signal });
+    if (!context.ok) throw new Error("Could not verify the local process. Reconnect before routing.");
+    const binding = z.object({ version: z.literal("1"), binding: z.string().min(1) }).strict().parse(await context.json());
+    signal?.throwIfAborted();
+    const response = await this.fetcher(`${base}/api/local-syllabus/route`, { method: "POST", credentials: "omit", cache: "no-store", signal, headers: { Accept: "application/json", "Content-Type": "application/json", "X-Moodle-Helper-Bridge-Binding": binding.binding }, body: encoded });
+    const result: unknown = await response.json();
+    if (!response.ok) throw new Error(z.object({ message: z.string() }).safeParse(result).data?.message ?? "Local routing failed. Retry the same stored proposal to reconcile its outcome.");
+    return LocalSyllabusResult.parse(result);
+  }
   replaceAll(snapshot: SnapshotValue) { return this.request("PUT", "/snapshot", Snapshot, snapshot); }
   ingestCourseDiscovery(observations: RawCourseObservation[]) { return this.request("POST", "/courses/discovery", Snapshot, { observations }); }
   setTrackedCourses(ids: string[]) { return this.request("PUT", "/tracked-courses", Snapshot, ids); }

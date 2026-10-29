@@ -58,6 +58,27 @@ def collection_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bri
 collection_router = APIRouter(prefix='/api/collection', dependencies=[Depends(collection_binding)], responses={'default': {'model':s.ProposedHttpError},422:{'model':s.ProposedHttpError},409:{'model':s.ProposedHttpError}})
 
 
+def local_syllabus_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bridge-Binding', description='Required current process binding from /api/bridge-context.')]):
+    pass
+
+
+local_syllabus_router = APIRouter(prefix='/api/local-syllabus', dependencies=[Depends(local_syllabus_binding)], responses={'default': {'model': s.ProposedHttpError}, 422: {'model': s.ProposedHttpError}, 409: {'model': s.ProposedHttpError}})
+
+
+@local_syllabus_router.post('/route', response_model=s.LocalSyllabusResult, response_model_exclude_none=True, operation_id='routeLocalSyllabus', tags=['Documents'])
+def route_local_syllabus(body: s.LocalSyllabusInput, api: Service, request: Request):
+    from backend.local_syllabus import route
+    from backend.reconciliation import ReconciliationConflict
+    if request.query_params:
+        raise HTTPException(status_code=422, detail='This endpoint accepts no selectors.')
+    try:
+        return route(api, wire(body))
+    except ReconciliationConflict:
+        raise
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @collection_router.post('/visits', response_model=s.PageVisitToken, operation_id='beginPageVisit', tags=['Collection'])
 def begin_page_visit(body: s.BeginPageVisit, request: Request):
     return request.app.state.collection.begin(wire(body))

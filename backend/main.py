@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from backend.routers import router, context_router, collection_router, queue_router, scan_router
+from backend.routers import router, context_router, collection_router, queue_router, scan_router, local_syllabus_router
 from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
 from backend.services import BackendService, SyncUnavailable, SYNC_UNAVAILABLE
 from backend.reconciliation import ReconciliationConflict
@@ -64,9 +64,10 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         binding = request.headers.get("X-Moodle-Helper-Bridge-Binding")
         collection_write = request.url.path in ['/api/collection/visits', '/api/collection/refresh']
         queue_write = request.url.path.startswith(('/api/queue/', '/api/scan/')) and request.method not in ['GET','HEAD','OPTIONS']
-        if (collection_write or queue_write) and binding != getattr(app.state, 'bridge_binding', None):
+        local_syllabus_write = request.url.path == '/api/local-syllabus/route' and request.method == 'POST'
+        if (collection_write or queue_write or local_syllabus_write) and binding != getattr(app.state, 'bridge_binding', None):
             return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
-        if request.url.path.startswith(('/api/collection', '/api/queue/', '/api/scan/')):
+        if request.url.path.startswith(('/api/collection', '/api/queue/', '/api/scan/')) or local_syllabus_write:
             chunks = []
             size = 0
             async for chunk in request.stream():
@@ -138,6 +139,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     app.include_router(router)
     app.include_router(context_router)
     app.include_router(collection_router)
+    app.include_router(local_syllabus_router)
     return app
 
 

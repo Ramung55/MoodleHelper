@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { teachingCalendarError } from "../../../shared/src/teaching-calendar.js";
+import { teachingCalendarError, realCalendarDate, teachingTimezones } from "../../../shared/src/teaching-calendar.js";
 
 /** Four date forms are kept separate; never collapse week/unknown into an exact time. */
 export const DateValue = z.discriminatedUnion("kind", [
@@ -12,6 +12,26 @@ export type DateValue = z.infer<typeof DateValue>;
 
 export const AssessmentType = z.enum(["assignment", "quiz", "exam", "other"]);
 export type AssessmentType = z.infer<typeof AssessmentType>;
+
+const LocalOpaque = z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/), LocalDigest = z.string().regex(/^[0-9a-f]{64}$/), LocalVersion = z.literal("local-syllabus-1");
+export const LocalPolicyReason = z.enum(["clear_explicit", "incomplete_extraction", "evidence_missing", "location_missing", "source_unavailable", "context_unverified", "association_ambiguous", "date_missing", "date_not_explicit", "year_inferred", "locale_ambiguous", "contradictory", "policy_or_heading", "conflicting_match", "mapping_unresolved", "timezone_unresolved", "language_unknown", "ocr_review", "ocr_low_quality", "ocr_synthetic", "ocr_provenance_missing", "week_only"]);
+export const LocalPolicyFacts = z.object({ complete: z.boolean(), evidenceRetained: z.boolean(), traceable: z.boolean(), sourceAvailable: z.boolean(), contextVerified: z.boolean(), singleAssociation: z.boolean(), explicitDate: z.boolean(), inferredYear: z.boolean(), localeAmbiguous: z.boolean(), contradictory: z.boolean(), policyOrHeading: z.boolean(), conflictingMatch: z.boolean(), mappingResolved: z.boolean(), timezoneResolved: z.boolean(), ocr: z.enum(["none", "review", "low_quality", "synthetic", "missing_provenance"]) }).strict();
+export type LocalPolicyFacts = z.infer<typeof LocalPolicyFacts>;
+export const LocalSyllabusDate = z.union([
+  z.object({ kind: z.literal("exact"), iso: z.string().min(1).max(128), tz: z.string().min(1).max(100) }).strict().refine(value => /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(value.iso) && realCalendarDate(value.iso.slice(0, 10)) && Number.isFinite(Date.parse(value.iso)) && teachingTimezones.includes(value.tz)),
+  z.object({ kind: z.literal("date"), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict().refine(value => realCalendarDate(value.date)),
+  z.object({ kind: z.literal("week"), week: z.number().int().min(1).max(30) }).strict(),
+  z.object({ kind: z.literal("unknown") }).strict(),
+]);
+export const LocalSyllabusProposal = z.object({ mentionId: LocalOpaque, locationId: LocalOpaque, title: z.string().min(1).max(512), type: AssessmentType, date: LocalSyllabusDate, language: z.enum(["en", "ru"]).optional(), facts: LocalPolicyFacts }).strict();
+export type LocalSyllabusProposal = z.infer<typeof LocalSyllabusProposal>;
+export const LocalSyllabusInput = z.object({ datasetId: z.string().min(1).max(128), courseId: z.string().min(1).max(128), digest: LocalDigest, format: z.enum(["pdf", "docx"]), pipelineVersion: LocalVersion, proposals: z.array(LocalSyllabusProposal).max(1000) }).strict();
+export type LocalSyllabusInput = z.infer<typeof LocalSyllabusInput>;
+export const LocalEvidenceRef = z.object({ datasetId: z.string().min(1).max(128), courseId: z.string().min(1).max(128), digest: LocalDigest, mentionId: LocalOpaque, locationId: LocalOpaque, pipelineVersion: LocalVersion }).strict();
+export type LocalEvidenceRef = z.infer<typeof LocalEvidenceRef>;
+export const LocalSyllabusRoute = z.object({ mentionId: z.string(), documentId: z.string(), candidateId: z.string(), assessmentId: z.string().optional(), disposition: z.enum(["auto", "review", "retained"]), reasons: z.array(LocalPolicyReason).max(32) }).strict();
+export type LocalSyllabusRoute = z.infer<typeof LocalSyllabusRoute>;
+export const LocalRoutingReceipt = z.object({ evidence: LocalEvidenceRef, fingerprint: LocalDigest, route: LocalSyllabusRoute }).strict();
 
 export const SubmissionStatus = z.enum(["submitted", "draft", "not_submitted", "reopened", "unknown"]);
 export type SubmissionStatus = z.infer<typeof SubmissionStatus>;
@@ -42,6 +62,7 @@ export const Course = z.object({
 export type Course = z.infer<typeof Course>;
 
 export const SourceEvidence = z.object({
+  localEvidence: LocalEvidenceRef.optional(),
   source: z.enum(["moodle", "syllabus", "personal"]),
   date: DateValue,
   excerpt: z.string().optional(),
@@ -102,6 +123,7 @@ export const Material = z.object({
 export type Material = z.infer<typeof Material>;
 
 export const ImportedDocument = z.object({
+  localDigest: LocalDigest.optional(),
   id: z.string(),
   courseId: z.string(),
   name: z.string(),
@@ -122,13 +144,14 @@ export const ExtractionCandidate = z.object({
   type: AssessmentType,
   date: DateValue,
   rawDateText: z.string(),
-  language: z.enum(["en", "ru"]),
+  language: z.enum(["en", "ru", "unknown"]),
   confidence: z.number().min(0).max(1),
   excerpt: z.string(),
   location: z.string(),
   status: z.enum(["pending", "confirmed", "corrected", "rejected", "auto"]),
   matchAssessmentId: z.string().optional(),
   reason: z.string().optional(),
+  localEvidence: LocalEvidenceRef.optional(),
 });
 export type ExtractionCandidate = z.infer<typeof ExtractionCandidate>;
 
@@ -635,6 +658,7 @@ export type PageRefreshInput = z.infer<typeof PageRefreshInput>;
 // END GENERATED COLLECTION MODELS
 
 export const Snapshot = z.object({
+  localSyllabusReceipts: z.array(LocalRoutingReceipt).optional(),
   dismissedSyllabusSuggestions: z.array(z.string()).optional(),
   collection: SnapshotCollection.optional(),
   reconciliation: Reconciliation.optional(),
@@ -652,3 +676,5 @@ export const Snapshot = z.object({
   settings: Settings,
 });
 export type Snapshot = z.infer<typeof Snapshot>;
+export const LocalSyllabusResult = z.object({ snapshot: Snapshot, routes: z.array(LocalSyllabusRoute).max(1000) }).strict();
+export type LocalSyllabusResult = z.infer<typeof LocalSyllabusResult>;

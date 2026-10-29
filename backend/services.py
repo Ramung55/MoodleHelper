@@ -270,6 +270,8 @@ class BackendService:
             t = stamp()
             evidence = {"source": "syllabus", "date": candidate["date"], "excerpt": candidate["excerpt"],
                         "location": candidate["location"], "observedAt": t}
+            if candidate.get('localEvidence'):
+                evidence['localEvidence'] = deepcopy(candidate['localEvidence'])
             # Preserve the legacy same-syllabus candidate review behavior when
             # the existing target is unambiguous and has no Moodle evidence.
             # Moodle/syllabus association always requires a separate pair review.
