@@ -14,6 +14,7 @@ vi.mock("pdfjs-dist", async () => {
 });
 import { extractPdf } from "@/services/extract-pdf";
 import { detectAssessmentMentions } from "@/domain/assessment-mentions";
+import { parseSyllabusMention } from "@/domain/syllabus-dates";
 const file = (name = "extraction-bilingual.pdf") => new Blob([readFileSync(`src/test/fixtures/${name}`)]);
 beforeEach(() => { tasks.destroy = []; });
 
@@ -43,6 +44,7 @@ describe("real local PDF extraction", () => {
     expect(proposals[2]!.location).toMatchObject({ kind: "pdf_row", page: 2, items: expect.any(Array) });
     const reordered = await detectAssessmentMentions({ format: "pdf", datasetId: "d", courseId: "c", digest: "version", complete: true, pages: [...pages].reverse() }, new AbortController().signal);
     expect(reordered.map((p) => p.id).sort()).toEqual(proposals.map((p) => p.id).sort());
+    expect(proposals.map((p) => parseSyllabusMention(p).dates[0]!.date)).toEqual([{ kind: "date", date: "2026-10-29" }, { kind: "date", date: "2026-11-05" }, { kind: "date", date: "2026-10-29" }, { kind: "date", date: "2026-11-05" }]);
   });
   it.each(["local-truncated.pdf", "local-encrypted.pdf", "local-encrypted-marker.pdf"])("rejects %s without successful empty output", async (name) => {
     await expect(extractPdf(file(name), new AbortController().signal, vi.fn())).rejects.toThrow(/corrupt|unsupported|protected/i);

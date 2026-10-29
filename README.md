@@ -196,6 +196,10 @@ inventing pages. See [DOCX support and limits](_docs/docx-extraction-26.md).
 After extraction, **Find assessments** previews deterministic English/Russian
 mentions with original row evidence. All proposals remain unconfirmed and dates
 are unknown until the separate date/review workflow. See [detector scope](_docs/assessment-mentions-28.md).
+**Interpret explicit dates** then previews supported dates using only optional
+document/course date order, stated timezone and explicit semester bounds that you
+supply. Ambiguous or missing information stays unresolved, and every result stays
+unconfirmed. See [date grammar and context rules](_docs/syllabus-dates-29.md).
 
 Run frontend checks from `frontend/`:
 

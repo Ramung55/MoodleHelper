@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { LocalExtraction } from "@/components/mh/LocalExtraction";
+import { webcrypto } from "node:crypto";
 const mock = vi.hoisted(() => ({ read: vi.fn(), context: vi.fn(), extract: vi.fn() }));
 vi.mock("@/services/local-documents", () => ({ readLocalDocument: mock.read, currentDataset: mock.context }));
 vi.mock("@/services/extract-pdf", () => ({ extractPdf: mock.extract }));
@@ -11,7 +12,7 @@ beforeEach(() => {
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:local-preview") });
   Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 it("extracts only on explicit action, renders inert page evidence and revokes local original preview", async () => {
   const view = render(<LocalExtraction document={association} />);
   expect(mock.read).not.toHaveBeenCalled(); expect(mock.extract).not.toHaveBeenCalled();
@@ -68,4 +69,19 @@ it("clears local evidence when assessment detection finds a changed dataset", as
   expect(await screen.findByText(/Detection failed: The dataset changed/)).toBeVisible();
   expect(screen.queryByText("Задание 1 29 октября")).not.toBeInTheDocument();
   expect(screen.queryByText("Possible assessments · unconfirmed")).not.toBeInTheDocument();
+});
+it("shows missing-year uncertainty until explicit semester bounds justify a unique year", async () => {
+  vi.stubGlobal("crypto", webcrypto);
+  render(<LocalExtraction document={association} />); fireEvent.click(screen.getByText("Extract text"));
+  await screen.findByText("Задание 1 29 октября"); fireEvent.click(screen.getByText("Find assessments"));
+  await screen.findByText("Possible assessments · unconfirmed");
+  fireEvent.click(screen.getByText("Задание 1 · assignment · Unconfirmed"));
+  fireEvent.click(screen.getByText("Interpret explicit dates"));
+  expect(await screen.findByText(/Missing year; no explicit semester/)).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Explicit semester start"), { target: { value: "2026-09-01" } });
+  fireEvent.change(screen.getByLabelText("Explicit semester end"), { target: { value: "2026-12-31" } });
+  expect(screen.queryByText(/Missing year; no explicit semester/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("Interpret explicit dates"));
+  expect(await screen.findByText('{"kind":"date","date":"2026-10-29"}')).toBeVisible();
+  expect(screen.getByText(/Year inferred from explicit semester/)).toBeVisible();
 });

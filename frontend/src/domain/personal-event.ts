@@ -17,10 +17,10 @@ export function zonedInput(iso: string, timezone: string): string {
 }
 
 /** Resolve wall-clock input in the configured zone, independent of browser timezone. */
-export function zonedInstant(local: string, timezone: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local) || !calendarDate(local.slice(0, 10))) return null;
+export function zonedInstants(local: string, timezone: string): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local) || !calendarDate(local.slice(0, 10))) return [];
   const wall = Date.parse(`${local}:00Z`);
-  if (!Number.isFinite(wall) || new Date(wall).toISOString().slice(0, 16) !== local) return null;
+  if (!Number.isFinite(wall) || new Date(wall).toISOString().slice(0, 16) !== local) return [];
   try {
     new Intl.DateTimeFormat("en", { timeZone: timezone });
     const candidates = new Set<number>();
@@ -31,9 +31,11 @@ export function zonedInstant(local: string, timezone: string): string | null {
       candidates.add(wall - (displayed - sample));
     }
     const matches = [...candidates].filter((instant) => zonedInput(new Date(instant).toISOString(), timezone) === local).sort((a, b) => a - b);
-    return matches.length ? new Date(matches[0]!).toISOString() : null;
-  } catch { return null; }
+    return matches.map((instant) => new Date(instant).toISOString());
+  } catch { return []; }
 }
+
+export function zonedInstant(local: string, timezone: string): string | null { return zonedInstants(local, timezone)[0] ?? null; }
 
 export function personalDateError(date: DateValue | undefined): string | null {
   if (!date || date.kind === "unknown") return "Choose a date, date and time, or teaching week.";

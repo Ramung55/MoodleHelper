@@ -7,6 +7,7 @@ import { extractDocx } from "@/services/extract-docx";
 import { LocalExtraction } from "@/components/mh/LocalExtraction";
 import { webcrypto } from "node:crypto";
 import { detectAssessmentMentions } from "@/domain/assessment-mentions";
+import { parseSyllabusMention } from "@/domain/syllabus-dates";
 const mock = vi.hoisted(() => ({ read: vi.fn(), context: vi.fn() }));
 vi.mock("@/services/local-documents", () => ({ readLocalDocument: mock.read, currentDataset: mock.context }));
 const file = (name = "extraction-bilingual.docx") => new NodeBlob([readFileSync(`src/test/fixtures/${name}`)]);
@@ -26,6 +27,7 @@ describe("native DOCX extraction", () => {
     const proposals = await detectAssessmentMentions({ format: "docx", datasetId: "d", courseId: "c", digest: "version", complete: true, blocks }, new AbortController().signal);
     expect(proposals.map((p) => p.type)).toEqual(["assignment", "exam"]);
     expect(proposals[1]!.location).toMatchObject({ kind: "docx_row", table: 2, row: 1 });
+    expect(proposals.map((p) => parseSyllabusMention(p).dates[0]!.date)).toEqual([{ kind: "date", date: "2026-10-29" }, { kind: "date", date: "2026-11-05" }]);
   });
   it.each(["local-valid.docx", "local-deflated.docx", "local-descriptor.docx"])("uses the same bounded reader for supported ZIP layout %s", async (name) => {
     // Existing empty validation fixtures remain valid containers, but not false extraction successes.
@@ -67,6 +69,9 @@ describe("native DOCX extraction", () => {
     expect(await screen.findByText("Possible assessments · unconfirmed")).toBeVisible();
     expect(screen.getByText("Assignment 1 · assignment · Unconfirmed")).toBeVisible();
     expect(screen.getByText("Экзамен · exam · Unconfirmed")).toBeVisible();
+    fireEvent.click(screen.getByText("Экзамен · exam · Unconfirmed"));
+    fireEvent.click(screen.getByText("Interpret explicit dates"));
+    expect(await screen.findByText('{"kind":"date","date":"2026-11-05"}')).toBeVisible();
     expect(fetcher).not.toHaveBeenCalled();
   });
   it("propagates cancellation into an active decompression reader", async () => {
