@@ -7,10 +7,11 @@ import { currentDataset, readLocalDocument, type LocalAssociation } from "@/serv
 import { detectAssessmentMentions, type AssessmentMention } from "@/domain/assessment-mentions";
 import { parseSyllabusMention, type ParsedAssessmentMention } from "@/domain/syllabus-dates";
 import { Input } from "@/components/ui/input";
+import { LocalOcr } from "./LocalOcr";
 
 /** Result and preview URLs live only for this visible, dataset-bound row. */
 export function LocalExtraction({ document: association }: { document: LocalAssociation }) {
-  const [result, setResult] = useState<Extraction>();
+  const [result, setResult] = useState<Exclude<Extraction, { format: "ocr" }>>();
   const [mentions, setMentions] = useState<AssessmentMention[]>();
   const [parsedDates, setParsedDates] = useState<ParsedAssessmentMention[]>();
   const [dateOrder, setDateOrder] = useState("");
@@ -39,7 +40,7 @@ export function LocalExtraction({ document: association }: { document: LocalAsso
       const file = await readLocalDocument(association, abort.signal);
       if (!valid()) return;
       const identity = { datasetId: association.datasetId, courseId: association.courseId, digest: association.digest, complete: true as const };
-      let extracted: Extraction;
+      let extracted: Exclude<Extraction, { format: "ocr" }>;
       if (/\.docx$/i.test(association.name)) {
         const { extractDocx } = await import("@/services/extract-docx"); if (!valid()) return;
         const blocks = await extractDocx(file, abort.signal, (block, total) => {
@@ -111,6 +112,7 @@ export function LocalExtraction({ document: association }: { document: LocalAsso
   };
   return <div className="mt-2 space-y-2 break-normal">
     <Button size="sm" variant="outline" disabled={pending} onClick={() => void extract()}>Extract text</Button>
+    {/\.pdf$/i.test(association.name) && <LocalOcr document={association} onInspect={inspect} />}
     {pending && <><Button size="sm" variant="ghost" onClick={() => { controller.current?.abort(); setResult(undefined); setMentions(undefined); setParsedDates(undefined); setStatus("Extraction cancelled. No complete result was saved."); }}>Cancel extraction</Button><Progress value={progress} aria-label={`Extracting text from ${association.name}`} /></>}
     {status && <p role="status">{status}</p>}
     {result && <div className="space-y-3">

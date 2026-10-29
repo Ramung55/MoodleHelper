@@ -6,7 +6,7 @@ export type MentionLocation =
   | { kind: "pdf_row"; page: number; items: TextEvidence[] }
   | { kind: "docx_paragraph"; paragraph: DocxParagraph }
   | { kind: "docx_row"; part: "word/document.xml"; bodyBlock: number; table: number; row: number; cells: { cell: number; paragraphs: DocxParagraph[] }[] }
-  | { kind: "ocr_region"; page: number; bounds: number[]; synthetic: boolean };
+  | { kind: "ocr_region"; page: number; bounds: number[]; synthetic: boolean; confidence?: number; reviewNeeded?: boolean; engine?: string; dpi?: number };
 export type MentionUnit = { text: string; location: MentionLocation };
 export type AssessmentMention = Identity & {
   id: string; detectorVersion: typeof MENTION_DETECTOR_VERSION;
@@ -29,6 +29,7 @@ const canonical = (value: unknown): string => {
 };
 
 export function mentionUnits(extraction: LocalExtraction): MentionUnit[] {
+  if (extraction.format === "ocr") return extraction.pages.filter((page) => page.status !== "failed").flatMap((page) => page.regions.map((region) => ({ text: region.text, location: { kind: "ocr_region" as const, page: page.page, bounds: region.bounds, synthetic: false, confidence: region.confidence, reviewNeeded: page.status === "review_needed", engine: extraction.engine, dpi: extraction.dpi } })));
   if (extraction.format === "pdf") return extraction.pages.flatMap((page) => page.rows.map((row) => ({ text: row.text, location: { kind: "pdf_row" as const, page: page.page, items: row.items } })));
   return extraction.blocks.flatMap((block): MentionUnit[] => block.kind === "paragraph"
     ? [{ text: block.paragraph.text, location: { kind: "docx_paragraph", paragraph: block.paragraph } }]

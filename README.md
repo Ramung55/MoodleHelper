@@ -201,6 +201,13 @@ document/course date order, stated timezone and explicit semester bounds that yo
 supply. Ambiguous or missing information stays unresolved, and every result stays
 unconfirmed. See [date grammar and context rules](_docs/syllabus-dates-29.md).
 
+For scanned PDFs, expand **OCR selected scanned PDF pages**, select original page
+numbers and English/Russian/both, then start local OCR. Defaults are 20 pages,
+120 DPI and 60 seconds/page; limits, cancellation and incomplete/review-needed
+results are visible. The approved local worker/models are prepared automatically
+before frontend dev/tests/build. No OCR/AI account or content upload is needed.
+See [OCR setup, limits, asset hashes and verification boundary](_docs/local-ocr-27.md).
+
 Run frontend checks from `frontend/`:
 
 ```powershell
