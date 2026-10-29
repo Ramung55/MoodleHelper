@@ -14,6 +14,7 @@ import { useApp } from "@/lib/app-store";
 import { currentDataset, listLocalDocuments, saveLocalDocument, updateLocalJob, recoverLocalJobs, acquireLocalJobLease, type LocalAssociation, type LocalJob } from "@/services/local-documents";
 import { validateDocx } from "@/services/validate-docx";
 import { LocalExtraction } from "@/components/mh/LocalExtraction";
+import { LocalEvidenceView } from "@/components/mh/LocalEvidenceView";
 
 const LOCAL_FILE_LIMIT = 20 * 1024 * 1024;
 
@@ -219,7 +220,7 @@ export function Syllabus() {
           </div>)}
           {importing && <Button size="sm" variant="outline" onClick={() => cancellation.current?.abort()}>Cancel import</Button>}
           {!importing && retryFile && <Button size="sm" variant="outline" onClick={() => void onFile(retryFile)}>Retry selected file</Button>}
-          <ul className="mt-3 space-y-2">{showLocalRecords && localDocuments.map((d) => <li key={`${d.datasetId}:${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only){/\.(pdf|docx)$/i.test(d.name) && <LocalExtraction document={d} teachingCalendar={s.settings.teachingCalendar} />}</li>)}</ul>
+          <ul className="mt-3 space-y-2">{showLocalRecords && localDocuments.map((d) => <li key={`${d.datasetId}:${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only){/\.(pdf|docx)$/i.test(d.name) && <LocalExtraction document={d} teachingCalendar={s.settings.teachingCalendar} commitRoute={(work) => run(() => work())} />}</li>)}</ul>
           <ul className="mt-4 space-y-2">
             {s.documents.map((d) => (
               <li key={d.id} className="text-sm">
@@ -267,11 +268,10 @@ function CandidateCard({ c, onDecide }: { c: ExtractionCandidate; onDecide: (d: 
           <p className="font-semibold">{c.title} <span className="text-xs uppercase text-muted-foreground">{TYPE_LABEL[c.type]} · {c.language.toUpperCase()}</span></p>
           <CourseTag course={snap!.courses.find((x) => x.id === c.courseId)} />
         </div>
-        <span className="rounded bg-warning px-2 py-0.5 text-xs text-warning-foreground">Confidence {Math.round(c.confidence * 100)}%</span>
+        <span className="rounded bg-warning px-2 py-0.5 text-xs text-warning-foreground">{c.localEvidence ? "Deterministic policy · review required" : `Confidence ${Math.round(c.confidence * 100)}%`}</span>
       </div>
-      <blockquote className="mt-3 border-l-2 pl-3 text-sm italic">“{c.excerpt}”</blockquote>
-      <p className="text-xs text-muted-foreground">{c.location}</p>
-      <p className="mt-2 text-sm">Proposed: <strong>{formatDate(c.date, snap!.settings.timezone)}</strong> from “{c.rawDateText}”</p>
+      {c.localEvidence ? <LocalEvidenceView reference={c.localEvidence} /> : <><blockquote className="mt-3 border-l-2 pl-3 text-sm italic">“{c.excerpt}”</blockquote><p className="text-xs text-muted-foreground">{c.location}</p></>}
+      <p className="mt-2 text-sm">Proposed: <strong>{formatDate(c.date, snap!.settings.timezone)}</strong>{!c.localEvidence && <> from “{c.rawDateText}”</>}</p>
       {c.reason && <p className="text-sm text-muted-foreground">Why review: {c.reason}</p>}
       {match && <p className="text-sm">Possible related item: <strong>{match.title}</strong>. Moodle and syllabus matches are reviewed separately.</p>}
       {editing && (
@@ -294,4 +294,5 @@ function CandidateCard({ c, onDecide }: { c: ExtractionCandidate; onDecide: (d: 
     </article>
   );
 }
+
 

@@ -6,14 +6,15 @@ export type LocalAssociation = {
 
 const DB_NAME = "moodle-helper-local-documents";
 
-function database(): Promise<IDBDatabase> {
+export function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (!globalThis.indexedDB) { reject(new Error("Browser storage is unavailable.")); return; }
-    const open = indexedDB.open(DB_NAME, 2);
+    const open = indexedDB.open(DB_NAME, 3);
     open.onupgradeneeded = () => {
       if (!open.result.objectStoreNames.contains("blobs")) open.result.createObjectStore("blobs", { keyPath: ["datasetId", "digest"] });
       if (!open.result.objectStoreNames.contains("associations")) open.result.createObjectStore("associations", { keyPath: ["datasetId", "courseId", "digest"] });
       if (!open.result.objectStoreNames.contains("jobs")) open.result.createObjectStore("jobs", { keyPath: ["datasetId", "owner", "id"] });
+      if (!open.result.objectStoreNames.contains("evidence")) open.result.createObjectStore("evidence", { keyPath: ["datasetId", "courseId", "digest", "mentionId", "pipelineVersion"] });
     };
     open.onerror = () => reject(new Error("Could not open browser storage."));
     open.onblocked = () => reject(new Error("Browser storage is blocked by another tab."));

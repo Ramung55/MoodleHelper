@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { formatDate } from "@/domain/dates";
+import { LocalEvidenceView } from "./LocalEvidenceView";
 import { resolveAssessmentId } from "@/domain/assessments";
 import { useApp } from "@/lib/app-store";
 import { CourseTag, SubmissionBadge, TYPE_LABEL } from "./bits";
@@ -103,8 +104,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                   {v.a.sources.map((s, i) => (
                     <li key={i} className="rounded-md border bg-muted/40 p-3 text-sm">
                       <p className="font-medium capitalize">{s.source} · {formatDate(s.date, tz)}</p>
-                      {s.excerpt && <p className="text-muted-foreground">“{s.excerpt}”</p>}
-                      {s.location && <p className="text-xs text-muted-foreground">{s.location}</p>}
+                      {s.localEvidence ? <LocalEvidenceView reference={s.localEvidence} /> : <>{s.excerpt && <p className="text-muted-foreground">“{s.excerpt}”</p>}{s.location && <p className="text-xs text-muted-foreground">{s.location}</p>}</>}
                       {s.url && (
                         <a className="text-xs text-primary underline" href={s.url} target="_blank" rel="noreferrer">Open in Moodle</a>
                       )}

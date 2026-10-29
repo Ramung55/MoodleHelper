@@ -72,3 +72,61 @@ def test_invalid_or_conflicting_batch_is_atomic_and_context_is_required(client):
     changed = deepcopy(body); changed['proposals'][0]['title'] = 'Changed immutable metadata'
     assert submit(client, changed, headers).status_code == 409
     assert client.get('/api/snapshot').json() == first
+
+
+def test_current_backend_map_overrides_stale_browser_week_assertion(client):
+    body, headers = request(client); body['proposals'][0]['date'] = {'kind':'week','week':2}
+    body['proposals'][0]['facts']['mappingResolved'] = True
+    calendar = dict(startDate='2027-01-04',endDate='2027-02-28',timezone='UTC',excludedWeekStarts=[])
+    client.patch('/api/settings', json={'teachingCalendar': calendar})
+    # Current #52 uncertainty, despite the earlier browser preview being mapped.
+    calendar['partialBreaks'] = [dict(startDate='2027-01-13',endDate='2027-01-13',numbering='unresolved')]
+    client.patch('/api/settings', json={'teachingCalendar': calendar})
+    result = submit(client, body, headers).json()
+    assert result['routes'][0]['disposition'] == 'review'
+    assert 'mapping_unresolved' in result['routes'][0]['reasons']
+    missing = client.get('/api/snapshot').json(); del missing['settings']['teachingCalendar']
+    client.put('/api/snapshot', json=missing)
+    fresh = deepcopy(body); fresh['proposals'][0]['mentionId'] = 'another-mention'
+    no_map = submit(client, fresh, headers).json()
+    assert no_map['routes'][0]['disposition'] == 'review' and 'mapping_unresolved' in no_map['routes'][0]['reasons']
+
+
+def test_two_tabs_route_once_and_conflicting_batch_rolls_back(client):
+    from concurrent.futures import ThreadPoolExecutor
+    body, headers = request(client)
+    before = client.get('/api/snapshot').json()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: submit(client, body, headers), range(2)))
+    assert all(response.status_code == 200 for response in results)
+    assert sorted(response.json()['routes'][0]['disposition'] for response in results) == ['auto', 'retained']
+    after = client.get('/api/snapshot').json()
+    assert len(after['assessments']) == len(before['assessments']) + 1
+    assert len(after['localSyllabusReceipts']) == 1
+    batch = deepcopy(body)
+    batch['proposals'].insert(0, {**deepcopy(body['proposals'][0]), 'mentionId':'first-new-item'})
+    batch['proposals'][1]['title'] = 'Changed prior immutable proposal'
+    assert submit(client, batch, headers).status_code == 409
+    assert client.get('/api/snapshot').json() == after
+
+
+def test_failed_sqlite_commit_rolls_back_documents_candidates_events_and_receipts(tmp_path):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import URL, event
+    from sqlalchemy.exc import OperationalError
+    from backend.main import create_app
+    from backend.sqlite_store import SQLiteStore
+    store = SQLiteStore(URL.create('sqlite', database=str(tmp_path / 'local-route.sqlite3')))
+    try:
+        with TestClient(create_app(store)) as client:
+            body, headers = request(client); before = client.get('/api/snapshot').json()
+            def fail(_connection, _cursor, statement, _parameters, _context, _many):
+                if statement.startswith('UPDATE snapshots'): raise OperationalError(statement, {}, Exception('disk full'))
+            event.listen(store.engine, 'after_cursor_execute', fail)
+            try:
+                response = submit(client, body, headers)
+                assert response.status_code == 503
+            finally: event.remove(store.engine, 'after_cursor_execute', fail)
+            assert client.get('/api/snapshot').json() == before
+            assert submit(client, body, headers).status_code == 200
+    finally: store.close()

@@ -22,7 +22,7 @@ def policy(proposal, settings):
     for flag, code in [('inferredYear', 'year_inferred'), ('localeAmbiguous', 'locale_ambiguous'), ('contradictory', 'contradictory'), ('policyOrHeading', 'policy_or_heading'), ('conflictingMatch', 'conflicting_match')]:
         if facts[flag]: reasons.append(code)
     if value['kind'] == 'unknown': reasons.append('date_missing')
-    if value['kind'] == 'exact' and not facts['timezoneResolved']: reasons.append('timezone_unresolved')
+    if not facts['timezoneResolved']: reasons.append('timezone_unresolved')
     if value['kind'] == 'week':
         from backend.reconciliation import teaching_week_range
         reasons.append('week_only')

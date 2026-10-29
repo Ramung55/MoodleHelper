@@ -2,9 +2,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { LocalExtraction } from "@/components/mh/LocalExtraction";
 import { webcrypto } from "node:crypto";
-const mock = vi.hoisted(() => ({ read: vi.fn(), context: vi.fn(), extract: vi.fn() }));
+import { buildDemoSnapshot } from "@/services/fixtures";
+const mock = vi.hoisted(() => ({ read: vi.fn(), context: vi.fn(), extract: vi.fn(), route: vi.fn() }));
 vi.mock("@/services/local-documents", () => ({ readLocalDocument: mock.read, currentDataset: mock.context }));
 vi.mock("@/services/extract-pdf", () => ({ extractPdf: mock.extract }));
+vi.mock("@/services/route-local-syllabus", () => ({ routeLocalProposals: mock.route }));
 const association = { datasetId: "dataset", courseId: "course", digest: "digest", name: "source.pdf", size: 10, source: "Local selection", createdAt: "now" };
 const pages = [{ page: 2, width: 500, height: 400, status: "text", rows: [{ text: "Задание 1 29 октября", items: [{ text: "Задание 1", page: 2, transform: [12, 0, 0, 12, 40, 290], width: 100, height: 12 }] }] }];
 beforeEach(() => {
@@ -98,4 +100,27 @@ it("does not turn malformed written clock-zone evidence into an exact preview us
   expect(screen.getByText('{"kind":"unknown"}')).toBeVisible();
   expect(screen.getByText(/complete written expression requires review/)).toBeVisible();
   expect(screen.queryByText(/"kind":"exact"/)).not.toBeInTheDocument();
+});
+it.each(["cancel", "context-change", "reject", "complete"])("fences mounted local routing outcome: %s", async mode => {
+  vi.stubGlobal("crypto", webcrypto);
+  const text = "Assignment 1 due 29 October 2027";
+  mock.extract.mockResolvedValue([{ ...pages[0], rows: [{ text, items: [{ ...pages[0].rows[0].items[0], text }] }] }]);
+  let resolve!: (value: unknown) => void, reject!: (error: Error) => void;
+  mock.route.mockImplementation(() => new Promise((yes, no) => { resolve = yes; reject = no; }));
+  const publish = vi.fn();
+  const commit = vi.fn(async work => { try { const snapshot = await work(); publish(snapshot); return true; } catch { return false; } });
+  const mounted = render(<LocalExtraction document={association} commitRoute={commit} />);
+  fireEvent.click(screen.getByText("Extract text")); await screen.findByText(text);
+  fireEvent.click(screen.getByText("Find assessments")); await screen.findByText("Possible assessments · unconfirmed");
+  fireEvent.click(screen.getByText("Interpret explicit dates")); await screen.findByText('{"kind":"date","date":"2027-10-29"}');
+  fireEvent.click(screen.getByText("Retain evidence and route proposals")); await waitFor(() => expect(mock.route).toHaveBeenCalledOnce());
+  if (mode === "cancel") fireEvent.click(screen.getByText("Cancel routing"));
+  if (mode === "context-change") mounted.rerender(<LocalExtraction document={{ ...association, datasetId: "changed" }} commitRoute={commit} />);
+  await act(async () => {
+    if (mode === "reject") reject(new Error("Final context unavailable"));
+    else resolve({ snapshot: buildDemoSnapshot(), routes: [{ mentionId: "stored-mention", documentId: "registered-doc", candidateId: "registered-candidate", disposition: "auto", reasons: ["clear_explicit"] }] });
+  });
+  if (mode === "complete") { expect(publish).toHaveBeenCalledOnce(); expect(screen.getByRole("status")).toHaveTextContent("1 stored proposals routed"); }
+  else { expect(publish).not.toHaveBeenCalled(); expect(screen.queryByText(/1 stored proposals routed/)).not.toBeInTheDocument(); }
+  if (mode === "cancel") expect(screen.getByRole("status")).toHaveTextContent("may already be committed");
 });

@@ -9,10 +9,11 @@ import { parseSyllabusMention, type ParsedAssessmentMention } from "@/domain/syl
 import { Input } from "@/components/ui/input";
 import { LocalOcr } from "./LocalOcr";
 import { parseTeachingWeek } from "@/domain/teaching-weeks";
-import type { TeachingCalendar } from "@/domain/types";
+import type { TeachingCalendar, Snapshot } from "@/domain/types";
+import { routeLocalProposals } from "@/services/route-local-syllabus";
 
 /** Result and preview URLs live only for this visible, dataset-bound row. */
-export function LocalExtraction({ document: association, teachingCalendar }: { document: LocalAssociation; teachingCalendar?: TeachingCalendar }) {
+export function LocalExtraction({ document: association, teachingCalendar, commitRoute }: { document: LocalAssociation; teachingCalendar?: TeachingCalendar; commitRoute?: (work: () => Promise<Snapshot>) => Promise<boolean> }) {
   const [result, setResult] = useState<Exclude<Extraction, { format: "ocr" }>>();
   const [mentions, setMentions] = useState<AssessmentMention[]>();
   const [parsedDates, setParsedDates] = useState<ParsedAssessmentMention[]>();
@@ -26,9 +27,11 @@ export function LocalExtraction({ document: association, teachingCalendar }: { d
   const [preview, setPreview] = useState<{ url: string; page: number }>();
   const controller = useRef<AbortController | undefined>(undefined);
   const generation = useRef(0);
+  const routing = useRef(false);
   const previewUrl = useRef<string | undefined>(undefined);
   const revoke = () => { if (previewUrl.current) URL.revokeObjectURL(previewUrl.current); previewUrl.current = undefined; };
   useEffect(() => {
+    routing.current = false;
     controller.current = undefined; setResult(undefined); setMentions(undefined); setParsedDates(undefined); setDateOrder(""); setSourceTimezone(""); setSemesterStart(""); setSemesterEnd(""); setStatus(""); setPending(false); setPreview(undefined);
     return () => { generation.current++; controller.current?.abort(); revoke(); };
   }, [association.datasetId, association.courseId, association.digest]);
@@ -112,15 +115,33 @@ export function LocalExtraction({ document: association, teachingCalendar }: { d
       previewUrl.current = url; setPreview({ url, page });
     } catch (error) { if (attempt === generation.current) setStatus(error instanceof Error ? error.message : "The original local document is unavailable."); }
   };
+  const route = async () => {
+    if (!result || !mentions || !parsedDates || !commitRoute || controller.current) return;
+    const abort = new AbortController(); controller.current = abort; routing.current = true;
+    const attempt = ++generation.current, valid = () => attempt === generation.current && !abort.signal.aborted;
+    setPending(true); setStatus("Retaining original evidence locally before sending derived metadata to the local backend…");
+    try {
+      let count = 0;
+      const ok = await commitRoute(async () => {
+        if (!valid()) throw new DOMException("Routing cancelled", "AbortError");
+        const routed = await routeLocalProposals(association, result, mentions, parsedDates, teachingCalendar, abort.signal);
+        if (!valid()) throw new DOMException("Routing outcome needs reconciliation", "AbortError");
+        count = routed.routes.length; return routed.snapshot;
+      });
+      if (valid()) setStatus(ok ? `${count} stored proposals routed. The backend owns accepted events; originals and audit remain in this browser. Replays retain prior decisions.` : "Routing was not confirmed. Original evidence remains stored; retry the same proposals to reconcile the outcome.");
+    } catch (failure) { if (attempt === generation.current) setStatus(abort.signal.aborted ? "Routing cancelled. An in-flight backend outcome may already be committed; retry the same stored proposals to reconcile." : `Routing failed: ${failure instanceof Error ? failure.message : "Retry the same stored proposals."}`); }
+    finally { if (attempt === generation.current) { controller.current = undefined; routing.current = false; setPending(false); } }
+  };
   return <div className="mt-2 space-y-2 break-normal">
     <Button size="sm" variant="outline" disabled={pending} onClick={() => void extract()}>Extract text</Button>
     {/\.pdf$/i.test(association.name) && <LocalOcr document={association} onInspect={inspect} />}
-    {pending && <><Button size="sm" variant="ghost" onClick={() => { controller.current?.abort(); setResult(undefined); setMentions(undefined); setParsedDates(undefined); setStatus("Extraction cancelled. No complete result was saved."); }}>Cancel extraction</Button><Progress value={progress} aria-label={`Extracting text from ${association.name}`} /></>}
+    {pending && <><Button size="sm" variant="ghost" onClick={() => { controller.current?.abort(); if (routing.current) setStatus("Routing cancelled. An in-flight backend outcome may already be committed; retry the same stored proposals to reconcile."); else { setResult(undefined); setMentions(undefined); setParsedDates(undefined); setStatus("Extraction cancelled. No complete result was saved."); } }}>{routing.current ? "Cancel routing" : "Cancel extraction"}</Button><Progress value={progress} aria-label={`Extracting text from ${association.name}`} /></>}
     {status && <p role="status">{status}</p>}
     {result && <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Session-local evidence · SHA-256 {result.digest}. Reopening requires extraction again.</p>
+      <p className="text-xs text-muted-foreground">Current extraction preview · SHA-256 {result.digest}. Reopening this preview requires extraction again; explicit routing retains originals and audit separately in this browser.</p>
       <Button size="sm" variant="outline" disabled={pending} onClick={() => void findMentions()}>Find assessments</Button>
       {mentions && <section className="space-y-2"><h3 className="font-semibold">Possible assessments · unconfirmed</h3>
+        {commitRoute && <div className="rounded border p-2 text-xs"><p>Explicit routing retains original text, dates, location and audit in this browser. Only derived title/type/date and opaque identifiers/policy facts go to the local backend. Files, excerpts, raw date wording and geometry are never sent. Clear explicit evidence may add one backend event; uncertainty and all OCR require review.</p><Button size="sm" variant="outline" disabled={pending || !parsedDates || !mentions.length} onClick={() => void route()}>Retain evidence and route proposals</Button></div>}
         <fieldset disabled={pending} className="space-y-2 rounded border p-2"><legend className="text-sm font-medium">Explicit document context (optional)</legend>
           <p className="text-xs">Only supply metadata stated by the document/course. Browser language, current year and dashboard settings are not inferred.</p>
           <label className="block text-xs">Document numeric date order<select aria-label="Document numeric date order" className="ml-2 rounded border bg-card p-1" value={dateOrder} onChange={(event) => { setDateOrder(event.target.value); setParsedDates(undefined); }}><option value="">Unspecified</option><option value="DMY">Day / month / year</option><option value="MDY">Month / day / year</option></select></label>

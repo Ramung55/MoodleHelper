@@ -1,4 +1,4 @@
-/** Session-local evidence. Never sent to the backend or interpreted as assessments. */
+/** Original extraction stays in the browser. Explicit routing sends a separate closed metadata DTO. */
 export type TextEvidence = { text: string; page: number; transform: number[]; width: number; height: number };
 export type TextRow = { text: string; items: TextEvidence[] };
 export type ExtractedPage = { page: number; width: number; height: number; status: "text" | "ocr_needed" | "blank"; rows: TextRow[] };

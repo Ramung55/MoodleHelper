@@ -15,6 +15,17 @@ import { card, list, page } from "./moodle-courses-fixtures";
 import { makeBackup, previewRestore } from "@/domain/backup";
 import { AddEvent } from "@/routes/deadlines";
 import { AssessmentSheet } from "@/components/mh/AssessmentSheet";
+import { Blob as NodeBlob } from "node:buffer";
+import { readFileSync } from "node:fs";
+import { webcrypto } from "node:crypto";
+import { DecompressionStream as NativeDecompressionStream } from "node:stream/web";
+import { extractDocx } from "@/services/extract-docx";
+import { detectAssessmentMentions } from "@/domain/assessment-mentions";
+import { parseSyllabusMention } from "@/domain/syllabus-dates";
+import { saveLocalDocument } from "@/services/local-documents";
+import { readLocalEvidence } from "@/services/local-evidence";
+import { routeLocalProposals } from "@/services/route-local-syllabus";
+import { indexedDbFixture } from "./indexeddb-fixture";
 
 // Only the service locator/extension handshake are injected; all data operations
 // below use production HttpAdapter, FastAPI and a real file SQLite database.
@@ -87,6 +98,68 @@ afterAll(async () => {
 });
 
 describe("actual FastAPI HTTP integration", () => {
+  it("routes actual local evidence with metadata-only HTTP, retains review decisions and replays after SQLite restart", async () => {
+    const original = await api.load(), nativeFetch = globalThis.fetch, storage = indexedDbFixture(), requests: string[] = [];
+    const datasetId = (await (await nativeFetch(`${base}/api/local-context`)).json()).datasetId;
+    vi.stubGlobal("indexedDB", storage.indexedDB); vi.stubGlobal("IDBKeyRange", storage.IDBKeyRange);
+    vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("DecompressionStream", NativeDecompressionStream);
+    vi.stubGlobal("fetch", async (url: any, init?: RequestInit) => {
+      const target = String(url).startsWith("/") ? base + url : String(url);
+      if (target.endsWith("/api/local-syllabus/route") && init?.method === "POST") requests.push(String(init.body));
+      return nativeFetch(target, init);
+    });
+    const prepare = async (name: string) => {
+      const bytes = readFileSync(`src/test/fixtures/${name}`), blob = new NodeBlob([bytes]) as unknown as Blob;
+      const hashed = await webcrypto.subtle.digest("SHA-256", bytes), digest = Array.from(new Uint8Array(hashed), byte => byte.toString(16).padStart(2, "0")).join("");
+      const association = { datasetId, courseId: "c-csc", digest, name, size: blob.size, source: "Synthetic local fixture", createdAt: new Date().toISOString() };
+      await saveLocalDocument(association, blob, [], new AbortController().signal);
+      const blocks = await extractDocx(blob, new AbortController().signal, vi.fn());
+      const extraction = { format: "docx" as const, complete: true as const, datasetId, courseId: association.courseId, digest, blocks };
+      const mentions = await detectAssessmentMentions(extraction, new AbortController().signal), parsed = mentions.map(mention => parseSyllabusMention(mention));
+      return { association, extraction, mentions, parsed };
+    };
+    try {
+      const clear = await prepare("extraction-bilingual.docx");
+      const result = await routeLocalProposals(clear.association, clear.extraction, clear.mentions, clear.parsed, undefined, new AbortController().signal, api);
+      expect(result.routes.map(route => route.disposition)).toEqual(["auto", "auto"]);
+      expect(result.snapshot.assessments).toHaveLength(original.assessments.length + 2);
+      for (const route of result.routes) {
+        const candidate = result.snapshot.candidates.find(candidate => candidate.id === route.candidateId)!;
+        const local = await readLocalEvidence(candidate.localEvidence!);
+        expect(local.record!.original.mention.rawScheduleText).toContain(candidate.language === "ru" ? "5 ноября 2026" : "29 October 2026");
+        expect(local.record!.receipt?.assessmentId).toBe(route.assessmentId);
+      }
+      expect(requests).toHaveLength(1);
+      const wire = JSON.parse(requests[0]);
+      expect(Object.keys(wire).sort()).toEqual(["courseId", "datasetId", "digest", "format", "pipelineVersion", "proposals"]);
+      for (const proposal of wire.proposals) expect(Object.keys(proposal).sort()).toEqual(["date", "facts", "language", "locationId", "mentionId", "title", "type"]);
+      for (const prohibited of ["29 October 2026", "5 ноября 2026", "word/document.xml", "bodyBlock", "excerpt", "rawScheduleText", "transform", "Content_Types", "example.invalid"]) expect(requests[0]).not.toContain(prohibited);
+      const calendar = { startDate: "2027-01-04", endDate: "2027-02-28", timezone: "UTC", excludedWeekStarts: [] };
+      await api.updateSettings({ teachingCalendar: calendar });
+      const week = await prepare("teaching-weeks.docx");
+      const queued = await routeLocalProposals(week.association, week.extraction, week.mentions, week.parsed, calendar, new AbortController().signal, api);
+      expect(queued.routes.every(route => route.disposition === "review")).toBe(true);
+      const route = queued.routes.find(route => queued.snapshot.candidates.find(candidate => candidate.id === route.candidateId)?.date.kind === "week")!;
+      const candidate = queued.snapshot.candidates.find(candidate => candidate.id === route.candidateId)!;
+      expect(candidate.date).toEqual({ kind: "week", week: 6 });
+      const originalLocal = await readLocalEvidence(candidate.localEvidence!);
+      await api.review(candidate.id, { kind: "correct", title: "Reviewed original week", type: "exam", date: { kind: "week", week: 3 } });
+      await stopServer(); await startServer();
+      const bodyCount = requests.length;
+      const replay = await routeLocalProposals(week.association, week.extraction, week.mentions, week.parsed, calendar, new AbortController().signal, api);
+      expect(requests).toHaveLength(bodyCount);
+      expect(replay.routes.every(route => route.disposition === "retained")).toBe(true);
+      expect(replay.snapshot.candidates.find(item => item.id === candidate.id)).toMatchObject({ status: "corrected", date: { kind: "week", week: 3 } });
+      expect((await readLocalEvidence(candidate.localEvidence!)).record!.original).toEqual(originalLocal.record!.original);
+      storage.controls.remove("blobs", [datasetId, week.association.digest]);
+      const lostSource = await routeLocalProposals(week.association, week.extraction, week.mentions, week.parsed, calendar, new AbortController().signal, api);
+      expect(lostSource.routes.every(route => route.disposition === "retained")).toBe(true);
+      expect((await readLocalEvidence(candidate.localEvidence!)).sourceAvailable).toBe(false);
+      const beforeCollision = await api.load(), conflicting = JSON.parse(requests[0]); conflicting.proposals[0].title = "Changed immutable title";
+      await expect(api.routeLocalSyllabus(conflicting)).rejects.toThrow(/identity changed/);
+      expect(await api.load()).toEqual(beforeCollision);
+    } finally { vi.unstubAllGlobals(); await api.replaceAll(original); }
+  }, 25_000);
   it("persists an explicit teaching calendar across restart and restores the legacy snapshot", async () => {
     const original = await api.load();
     const calendar = { startDate: "2027-01-04", endDate: "2027-02-28", timezone: "Asia/Qyzylorda", excludedWeekStarts: ["2027-01-18"], partialBreaks: [{ startDate: "2027-01-13", endDate: "2027-01-13", numbering: "preserve" as const }], weekOverrides: [{ week: 2, startDate: "2027-01-11", endDate: "2027-01-16" }] };
