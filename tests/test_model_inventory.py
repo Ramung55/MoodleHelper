@@ -14,6 +14,24 @@ from backend.sample_data import build_sample_snapshot
 ROOT = Path(__file__).parents[1]
 
 
+def test_local_metadata_input_and_unknown_language_snapshot_zod_python_parity(client):
+    from test_local_syllabus import request
+    body, headers = request(client)
+    assert schemas.LocalSyllabusInput.model_validate(body).model_dump(by_alias=True, exclude_unset=True) == body
+    assert zod('LocalSyllabusInput', body) == {'success': True, 'value': body}
+    for change in [dict(excerpt='forbidden'), dict(confidence=1), dict(date={'kind':'unknown','note':'raw wording'}), dict(date={'kind':'date','date':'2027-02-29'}), dict(date={'kind':'exact','iso':'2027-03-12T24:00:00Z','tz':'UTC'})]:
+        invalid = deepcopy(body); invalid['proposals'][0].update(change)
+        with pytest.raises(ValidationError): schemas.LocalSyllabusInput.model_validate(invalid)
+        assert not zod('LocalSyllabusInput', invalid)['success']
+    del body['proposals'][0]['language']
+    result = client.post('/api/local-syllabus/route', json=body, headers=headers)
+    assert result.status_code == 200
+    value = result.json()
+    assert value['routes'][0]['disposition'] == 'review'
+    assert 'language_unknown' in value['routes'][0]['reasons']
+    assert zod('LocalSyllabusResult', value) == {'success': True, 'value': value}
+
+
 def test_optional_calendar_new_group_zod_python_parity():
     calendar = dict(startDate="2027-01-04", endDate="2027-02-28", timezone="Asia/Qyzylorda", excludedWeekStarts=["2027-01-18"])
     value = build_sample_snapshot()

@@ -294,5 +294,3 @@ function CandidateCard({ c, onDecide }: { c: ExtractionCandidate; onDecide: (d: 
     </article>
   );
 }
-
-
