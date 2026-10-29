@@ -334,12 +334,28 @@ class AiSettings(WireModel):
     consentGiven: bool
 
 
+class PartialTeachingBreak(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    startDate: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    endDate: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    numbering: Literal['preserve', 'unresolved']
+
+
+class TeachingWeekOverride(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    week: Integer = Field(ge=1, le=30)
+    startDate: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    endDate: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+
+
 class TeachingCalendar(WireModel):
     model_config = ConfigDict(extra='forbid')
     startDate: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
     endDate: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
     timezone: str = Field(min_length=1, max_length=100)
     excludedWeekStarts: list[Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]] = Field(max_length=59, json_schema_extra={'uniqueItems': True})
+    partialBreaks: list[PartialTeachingBreak] = Field(default=None, max_length=60)
+    weekOverrides: list[TeachingWeekOverride] = Field(default=None, max_length=30)
 
     @model_validator(mode='after')
     def valid_calendar(self):

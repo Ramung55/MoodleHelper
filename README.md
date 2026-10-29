@@ -424,7 +424,7 @@ hydration, Tab/Shift+Tab order, Enter activation, painted focus or mobile layout
 
 ### Explicit teaching calendar
 
-Settings → Explicit teaching calendar saves both inclusive semester boundaries, the calendar timezone and excluded full-week start dates after showing a draft preview. Legacy/sample semester values do not establish a verified map. Teaching weeks pause across excluded seven-day slots; week-only source evidence retains its original precision. See [_docs/teaching-calendar-30.md](_docs/teaching-calendar-30.md) for supported wording, validation, the break example and timezone runtime limits.
+Settings → Explicit teaching calendar saves both inclusive semester boundaries, the calendar timezone and excluded full-week start dates after showing a draft preview. Legacy/sample semester values do not establish a verified map. Teaching weeks pause across excluded seven-day slots; week-only source evidence retains its original precision. See [_docs/teaching-calendar-30.md](_docs/teaching-calendar-30.md) for supported wording, validation, the break example and timezone runtime limits. [Partial holidays and explicit irregular ranges](_docs/irregular-calendar-52.md) retain uncertain numbering until individual ranges are supplied and recalculate workload through the same mapper.
 
 ### Resumable mock queue
 

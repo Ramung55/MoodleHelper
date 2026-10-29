@@ -50,7 +50,7 @@ export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAtt
     <>
       <PageHeader
         title="Overview"
-        sub={currentWeek ? `Teaching week ${currentWeek} of ${weeks.length}` : s.settings.teachingCalendar ? "Today is outside a configured teaching week" : "Teaching calendar is not configured"}
+        sub={currentWeek ? `Teaching week ${currentWeek} · ${weeks.length} resolved ranges` : s.settings.teachingCalendar ? "Today is outside a resolved teaching week" : "Teaching calendar is not configured"}
         actions={
           <Button onClick={syncAll} disabled={syncing}>
             <RefreshCw className={cn("mr-2 h-4 w-4", syncing && "animate-spin")} aria-hidden />

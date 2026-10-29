@@ -89,7 +89,7 @@ afterAll(async () => {
 describe("actual FastAPI HTTP integration", () => {
   it("persists an explicit teaching calendar across restart and restores the legacy snapshot", async () => {
     const original = await api.load();
-    const calendar = { startDate: "2027-01-04", endDate: "2027-02-28", timezone: "Asia/Qyzylorda", excludedWeekStarts: ["2027-01-18"] };
+    const calendar = { startDate: "2027-01-04", endDate: "2027-02-28", timezone: "Asia/Qyzylorda", excludedWeekStarts: ["2027-01-18"], partialBreaks: [{ startDate: "2027-01-13", endDate: "2027-01-13", numbering: "preserve" as const }], weekOverrides: [{ week: 2, startDate: "2027-01-11", endDate: "2027-01-16" }] };
     try {
       const saved = await api.updateSettings({ teachingCalendar: calendar });
       expect(saved.settings.teachingCalendar).toEqual(calendar);

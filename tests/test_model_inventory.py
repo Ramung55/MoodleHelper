@@ -27,6 +27,17 @@ def test_optional_calendar_new_group_zod_python_parity():
         assert not zod("Snapshot", value)["success"]
 
 
+def test_irregular_calendar_new_group_zod_python_parity():
+    calendar = dict(startDate="2027-01-04", endDate="2027-02-28", timezone="UTC", excludedWeekStarts=[], partialBreaks=[dict(startDate="2027-01-13", endDate="2027-01-13", numbering="unresolved")], weekOverrides=[dict(week=2, startDate="2027-01-11", endDate="2027-01-16")])
+    value = build_sample_snapshot(); value["settings"]["teachingCalendar"] = calendar
+    assert schemas.Snapshot.model_validate(value).model_dump(by_alias=True, exclude_unset=True) == value
+    assert zod("Snapshot", value) == {"success": True, "value": value}
+    for changed in [{"partialBreaks": None}, {"weekOverrides": None}, {"partialBreaks": [dict(startDate="2027-01-13", endDate="2027-01-13")]}, {"weekOverrides": calendar["weekOverrides"] * 2}, {"weekOverrides": [dict(week=2, startDate="2027-01-11", endDate="2027-03-01")]}]:
+        value["settings"]["teachingCalendar"] = {**calendar, **changed}
+        with pytest.raises(ValidationError): schemas.Snapshot.model_validate(value)
+        assert not zod("Snapshot", value)["success"]
+
+
 def zod(model, value):
     result = subprocess.run(["node", str(ROOT / "tests/zod_model_probe.mjs")],
                             input=json.dumps({"model": model, "value": value}),

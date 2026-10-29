@@ -1,15 +1,16 @@
-import { realCalendarDate, teachingCalendarError, teachingSlots } from "../../../shared/src/teaching-calendar.js";
+import { realCalendarDate, teachingCalendarError, teachingSlots, teachingRanges, type PartialBreak } from "../../../shared/src/teaching-calendar.js";
 import type { DateValue, TeachingCalendar } from "./types";
 import type { AssessmentMention } from "./assessment-mentions";
-export { teachingCalendarError, teachingSlots };
-export type TeachingMapping = { resolved: true; week: number; start: string; end: string; timezone: string } | { resolved: false; reason: string };
+export { teachingCalendarError, teachingSlots, teachingRanges };
+export type TeachingMapping = { resolved: true; week: number; start: string; end: string; timezone: string; holidays?: PartialBreak[]; override?: boolean } | { resolved: false; reason: string };
 
 export function mapTeachingWeek(week: number, calendar?: TeachingCalendar): TeachingMapping {
   if (!Number.isInteger(week) || week < 1 || week > 30) return { resolved: false, reason: "Week number must be an integer from 1 to 30." };
   if (!calendar) return { resolved: false, reason: "Teaching calendar is not configured; legacy semester fields are not a verified map." };
   const reason = teachingCalendarError(calendar); if (reason) return { resolved: false, reason };
-  const slot = teachingSlots(calendar).find((value) => value.week === week);
-  return slot ? { resolved: true, week, start: slot.start, end: slot.end, timezone: calendar.timezone } : { resolved: false, reason: "Week reference is outside the configured teaching calendar." };
+  const slot = teachingRanges(calendar).find((value) => value.week === week);
+  if (slot && !slot.resolved) return { resolved: false, reason: slot.reason };
+  return slot ? { ...slot, resolved: true, timezone: calendar.timezone } : { resolved: false, reason: "Week reference is outside the configured teaching calendar." };
 }
 export function mapTeachingDate(value: DateValue, calendar?: TeachingCalendar): TeachingMapping {
   if (value.kind === "week") return mapTeachingWeek(value.week, calendar);
@@ -26,10 +27,11 @@ export function mapTeachingDate(value: DateValue, calendar?: TeachingCalendar): 
     } catch { return { resolved: false, reason: "Calendar timezone is unavailable in this browser." }; }
   } else return { resolved: false, reason: "The source date or teaching week is unknown." };
   if (!realCalendarDate(date)) return { resolved: false, reason: "The source calendar date is invalid." };
-  const slot = teachingSlots(calendar).find((candidate) => date >= candidate.start && date <= candidate.end);
-  if (!slot) return { resolved: false, reason: "The source date is outside the explicit semester boundaries." };
-  if (slot.week === null) return { resolved: false, reason: "The source date falls in an excluded full-week break." };
-  return { resolved: true, week: slot.week, start: slot.start, end: slot.end, timezone: calendar.timezone };
+  if (date < calendar.startDate || date > calendar.endDate) return { resolved: false, reason: "The source date is outside the explicit semester boundaries." };
+  const matches = teachingRanges(calendar).filter(candidate => candidate.resolved && date >= candidate.start && date <= candidate.end);
+  if (matches.length === 1 && matches[0].resolved) return { ...matches[0], timezone: calendar.timezone };
+  if (teachingSlots(calendar).some(slot => slot.week === null && date >= slot.start && date <= slot.end)) return { resolved: false, reason: "The source date falls in an excluded full-week break." };
+  return { resolved: false, reason: "The source day has no unique resolved teaching range; institutional numbering or an uncovered interval needs review." };
 }
 export function parseTeachingWeek(mention: AssessmentMention, calendar?: TeachingCalendar): { parentId: string; rawText: string; expressions: { text: string; start: number; end: number; week: number }[]; value: DateValue; mapping: TeachingMapping } {
   const rawText = mention.rawScheduleText;

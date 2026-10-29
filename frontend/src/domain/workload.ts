@@ -1,6 +1,6 @@
 import { resolveAssessmentId, viewAssessment, type AssessmentView } from "./assessments";
 import type { Settings, Snapshot } from "./types";
-import { teachingSlots } from "./teaching-weeks";
+import { teachingRanges } from "./teaching-weeks";
 
 export interface WorkloadTotals { total: number; outstanding: number; weighted: number }
 export interface WeekLoad extends WorkloadTotals { week: number; items: AssessmentView[]; overloaded: boolean }
@@ -51,8 +51,8 @@ export function weeklyLoad(views: AssessmentView[], s: Settings, snapshot?: Snap
   const error = weightsError(s.weights); if (error) throw new Error(error);
   const map = new Map<number, WeekLoad>();
   const unallocated: AssessmentView[] = [], unallocatedSummary = { total: 0, outstanding: 0, weighted: 0 };
-  for (const slot of s.teachingCalendar ? teachingSlots(s.teachingCalendar) : []) {
-    if (slot.week !== null) map.set(slot.week, { week: slot.week, total: 0, outstanding: 0, weighted: 0, items: [], overloaded: false });
+  for (const slot of s.teachingCalendar ? teachingRanges(s.teachingCalendar) : []) {
+    if (slot.resolved) map.set(slot.week, { week: slot.week, total: 0, outstanding: 0, weighted: 0, items: [], overloaded: false });
   }
   const add = (totals: WorkloadTotals, value: AssessmentView) => {
     totals.total++;

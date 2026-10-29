@@ -4,7 +4,7 @@ Settings → Explicit teaching calendar accepts both inclusive boundaries, a cal
 
 The optional nonnullable `teachingCalendar` group is a complete nested replacement under the existing shallow settings PATCH. Omission retains it; an empty exclusion list clears breaks. There is no null/reset operation. PATCH and Snapshot restore validate the complete group before atomic persistence.
 
-Supported calendars contain 1–60 complete seven-day slots anchored exactly at the entered start, with 1–30 nonexcluded teaching weeks. Break starts must be unique, aligned and wholly within the explicit boundaries. Partial weeks and irregular overrides are unresolved (#52); no end date, Monday alignment or institutional numbering is inferred.
+The baseline contains 1–60 complete seven-day slots anchored exactly at the entered start, with 1–30 nonexcluded teaching weeks. Break starts must be unique, aligned and wholly within the explicit boundaries. Optional partial-holiday policies and explicit irregular ranges are described in [#52's extension](irregular-calendar-52.md); no end date, Monday alignment or institutional numbering is inferred.
 
 Example: 2027-01-04 through 2027-02-28, excluding 2027-01-18. Week 2 is Jan 11–17, Jan 18–24 is a break, Week 3 is Jan 25–31, and Week 6 is Feb 15–21. The break pauses the teaching counter.
 

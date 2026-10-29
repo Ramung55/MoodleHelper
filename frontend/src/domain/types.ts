@@ -187,9 +187,12 @@ export const Alert = z.object({
 });
 export type Alert = z.infer<typeof Alert>;
 
+export const PartialTeachingBreak = z.object({ startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), numbering: z.enum(["preserve", "unresolved"]) }).strict();
+export const TeachingWeekOverride = z.object({ week: z.number().int().min(1).max(30), startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict();
 export const TeachingCalendar = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   timezone: z.string().min(1).max(100), excludedWeekStarts: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(59),
+  partialBreaks: z.array(PartialTeachingBreak).max(60).optional(), weekOverrides: z.array(TeachingWeekOverride).max(30).optional(),
 }).strict().superRefine((value, context) => { const message = teachingCalendarError(value); if (message) context.addIssue({ code: z.ZodIssueCode.custom, message }); });
 export type TeachingCalendar = z.infer<typeof TeachingCalendar>;
 export const Settings = z.object({

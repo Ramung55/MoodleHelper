@@ -9,12 +9,32 @@ import { webcrypto } from "node:crypto";
 import { detectAssessmentMentions } from "@/domain/assessment-mentions";
 import { parseSyllabusMention } from "@/domain/syllabus-dates";
 import { parseTeachingWeek } from "@/domain/teaching-weeks";
+import { viewAssessment } from "@/domain/assessments";
+import { weeklyLoad } from "@/domain/workload";
+import { buildDemoSnapshot } from "@/services/fixtures";
 const mock = vi.hoisted(() => ({ read: vi.fn(), context: vi.fn() }));
 vi.mock("@/services/local-documents", () => ({ readLocalDocument: mock.read, currentDataset: mock.context }));
 const file = (name = "extraction-bilingual.docx") => new NodeBlob([readFileSync(`src/test/fixtures/${name}`)]);
 beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("DecompressionStream", NativeDecompressionStream); mock.read.mockResolvedValue(file()); mock.context.mockResolvedValue("dataset"); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("native DOCX extraction", () => {
+  it("preserves actual bilingual week wording and locations under explicit irregular ranges", async () => {
+    const blocks = await extractDocx(file("teaching-weeks.docx") as unknown as Blob, new AbortController().signal, vi.fn());
+    const mentions = (await detectAssessmentMentions({ format: "docx", datasetId: "d", courseId: "c", digest: "original-digest", complete: true, blocks }, new AbortController().signal)).slice(0, 2);
+    const original = structuredClone(mentions), settings = buildDemoSnapshot().settings;
+    const calendar = { startDate: "2027-01-04", endDate: "2027-02-28", timezone: "UTC", excludedWeekStarts: [], partialBreaks: [{ startDate: "2027-01-13", endDate: "2027-01-13", numbering: "unresolved" as const }] };
+    expect(mentions.every(mention => !parseTeachingWeek(mention, calendar).mapping.resolved)).toBe(true);
+    const explicit = { ...calendar, weekOverrides: [{ week: 6, startDate: "2027-01-11", endDate: "2027-01-16" }] };
+    const sources = mentions.map(mention => ({ id: mention.id, courseId: "c-csc", title: mention.title, type: mention.type, personal: false, sources: [{ source: "syllabus" as const, date: parseTeachingWeek(mention, explicit).value, excerpt: mention.rawScheduleText, location: JSON.stringify(mention.location), observedAt: "2027-01-01T00:00:00Z" }], firstObservedAt: "2027-01-01T00:00:00Z", lastObservedAt: "2027-01-01T00:00:00Z" }));
+    for (const source of sources) expect(source.sources[0].date).toEqual({ kind: "week", week: 6 });
+    const result = weeklyLoad(sources.map(source => viewAssessment(source, undefined, { ...settings, teachingCalendar: explicit })), { ...settings, teachingCalendar: explicit });
+    expect(result.weeks.find(week => week.week === 6)).toMatchObject({ total: 2, outstanding: 2, weighted: 6 });
+    expect(result.weeks.find(week => week.week === 6)!.items.every(item => item.teachingMapping.resolved && item.teachingMapping.start === "2027-01-11" && item.teachingMapping.end === "2027-01-16")).toBe(true);
+    expect(mentions).toEqual(original);
+    const changed = { ...explicit, weekOverrides: [{ ...explicit.weekOverrides[0], endDate: "2027-01-15" }] };
+    expect(mentions.map(mention => parseTeachingWeek(mention, changed).mapping)).toEqual([expect.objectContaining({ start: "2027-01-11", end: "2027-01-15" }), expect.objectContaining({ start: "2027-01-11", end: "2027-01-15" })]);
+    expect(mentions.map(mention => mention.rawScheduleText)).toEqual(["Exam Week 6", "Экзамен неделя 6"]);
+  });
   it("maps actual bilingual week evidence and refreshes rendered ranges without rewriting the source", async () => {
     const calendar = { startDate: "2027-01-04", endDate: "2027-02-28", timezone: "UTC", excludedWeekStarts: ["2027-01-18"] };
     const blob = file("teaching-weeks.docx"); mock.read.mockResolvedValue(blob);

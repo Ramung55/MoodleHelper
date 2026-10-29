@@ -82,24 +82,24 @@ def compatible_dates(a, b, settings):
     week, day = (a, db) if a['kind'] == 'week' else (b, da)
     if week['kind'] != 'week' or day is None:
         return False
-    start = teaching_week_start(week['week'], settings)
-    return start is not None and start <= day <= start + timedelta(days=6)
+    interval = teaching_week_range(week['week'], settings)
+    return interval is not None and interval['start'] <= day <= interval['end']
 
 
 def teaching_week_start(week, settings):
+    interval = teaching_week_range(week, settings)
+    return interval['start'] if interval else None
+
+
+def teaching_week_range(week, settings):
     """Only explicitly configured full-week slots establish a week/date map."""
     from backend.schemas import TeachingCalendar
+    from backend.teaching_calendar import teaching_ranges
     try:
         calendar = TeachingCalendar.model_validate(settings.get('teachingCalendar'))
         if type(week) is not int or not 1 <= week <= 30:
             return None
-        at, end, counter = date.fromisoformat(calendar.startDate), date.fromisoformat(calendar.endDate), 0
-        while at <= end:
-            if at.isoformat() not in calendar.excludedWeekStarts:
-                counter += 1
-                if counter == week:
-                    return at
-            at += timedelta(days=7)
+        return next((item for item in teaching_ranges(calendar) if item['week'] == week and item['resolved']), None)
     except (ValueError, TypeError):
         pass
     return None

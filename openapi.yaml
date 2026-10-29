@@ -2456,6 +2456,35 @@ components:
       required:
       - enabled
       - consentGiven
+    PartialTeachingBreak:
+      type: object
+      additionalProperties: false
+      properties:
+        startDate:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        endDate:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        numbering:
+          type: string
+          enum: [preserve, unresolved]
+      required: [startDate, endDate, numbering]
+    TeachingWeekOverride:
+      type: object
+      additionalProperties: false
+      properties:
+        week:
+          type: integer
+          minimum: 1
+          maximum: 30
+        startDate:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+        endDate:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+      required: [week, startDate, endDate]
     TeachingCalendar:
       type: object
       additionalProperties: false
@@ -2464,7 +2493,13 @@ components:
         validation requires real dates, start<=end, a whole number of anchored
         seven-day slots (at most 60), 1..30 nonexcluded teaching slots, and unique
         excluded starts aligned to the anchor and fully within the calendar.
-        Partial weeks and irregular overrides are unsupported. Legacy settings
+        Optional partialBreaks annotate shorter-than-seven-day intervals within
+        one anchored slot; explicit numbering preserve continues baseline numbers,
+        unresolved makes that and following baseline weeks unresolved. Optional
+        weekOverrides replace only named week ranges. The complete resolved map
+        must have no inclusive overlaps or override/full-exclusion conflicts.
+        Omitted optional arrays mean empty under complete-group replacement.
+        Legacy settings
         never imply this group. When supplied it replaces the whole saved group;
         omission retains it, null is invalid, and [] clears only exclusions.
       properties:
@@ -2485,6 +2520,16 @@ components:
           items:
             type: string
             pattern: ^\d{4}-\d{2}-\d{2}$
+        partialBreaks:
+          type: array
+          maxItems: 60
+          items:
+            $ref: '#/components/schemas/PartialTeachingBreak'
+        weekOverrides:
+          type: array
+          maxItems: 30
+          items:
+            $ref: '#/components/schemas/TeachingWeekOverride'
       required: [startDate, endDate, timezone, excludedWeekStarts]
     Settings:
       type: object
