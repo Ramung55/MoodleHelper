@@ -85,3 +85,17 @@ it("shows missing-year uncertainty until explicit semester bounds justify a uniq
   expect(await screen.findByText('{"kind":"date","date":"2026-10-29"}')).toBeVisible();
   expect(screen.getByText(/Year inferred from explicit semester/)).toBeVisible();
 });
+it("does not turn malformed written clock-zone evidence into an exact preview using supplied context", async () => {
+  vi.stubGlobal("crypto", webcrypto);
+  const text = "Exam due 2027-03-12T14:00, XYZ";
+  mock.extract.mockResolvedValue([{ ...pages[0], rows: [{ text, items: [{ ...pages[0]!.rows[0]!.items[0], text }] }] }]);
+  render(<LocalExtraction document={association} />); fireEvent.click(screen.getByText("Extract text"));
+  await screen.findByText(text); fireEvent.click(screen.getByText("Find assessments"));
+  await screen.findByText("Possible assessments · unconfirmed"); fireEvent.click(screen.getByText("Exam · exam · Unconfirmed"));
+  fireEvent.change(screen.getByLabelText("Document timezone"), { target: { value: "Asia/Almaty" } });
+  fireEvent.click(screen.getByText("Interpret explicit dates"));
+  expect(await screen.findByText(/Original date expression: 2027-03-12T14:00, XYZ/)).toBeVisible();
+  expect(screen.getByText('{"kind":"unknown"}')).toBeVisible();
+  expect(screen.getByText(/complete written expression requires review/)).toBeVisible();
+  expect(screen.queryByText(/"kind":"exact"/)).not.toBeInTheDocument();
+});

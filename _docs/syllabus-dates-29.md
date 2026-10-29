@@ -27,12 +27,29 @@ is case-insensitive and preserves exact original wording. This is not universal
 natural-language parsing: relative prose, ordinal-day suffixes, two-digit or other
 unsupported years, 12-hour clocks, seconds and ambiguous zone abbreviations stay
 unresolved. Written clocks are never silently reduced to date-only output.
-Immediately associated clock/zone tokens are checked in full, including attached
-or spaced AM/PM and unknown zone words (also Unicode words/spacing and bracketed
-forms). Unsupported suffixes remain in the original expression and prevent a
-trusted-context timezone fallback. A supported prefix such as `Z` or `UTC` never
-validates a longer unknown token. Multiple zone tokens are unresolved. Only
-explicit conjunctions and opens/closes/due label words terminate these tokens.
+The bounded continuation lexer commits date-attached `T` to clock evidence even
+when the clock is incomplete (`T`, `T14`, `T99`, `T14:`). `at`/`в` followed by a
+numeric/sign/colon clock-looking payload, AM/PM, noon/midnight or Russian
+полдень/полночь likewise commits; a bare trailing introducer is incomplete. These
+never degrade to date-only. Ordinary location prose (`at campus`, `в аудитории`)
+does not introduce a clock.
+
+After the clock token, a cursor classifies whole zone-looking tokens before any
+trusted-context fallback. Finite signals include uppercase abbreviation-like
+words, reserved Z/UTC/GMT prefixes, sign/numeric fragments, slash identifiers,
+AM/PM and reserved clock words. Attached/spaced/Unicode forms, multiple tokens,
+malformed offsets/fractions, wrappers including missing closing delimiters, and
+punctuation followed by such tokens remain fully retained and unresolved. No
+supported prefix validates a longer unknown token. Wrappers are outside the
+supported zone grammar. An unclosed wrapper retains its first associated token
+without swallowing unrelated trailing prose.
+
+Ordinary lowercase/mixed-case prose (`submit online`, `in room 5`, `please upload
+work`), sentence punctuation not followed by a zone-looking token, role clauses
+and conjunctions leading to those clauses terminate the expression. A conjunction
+leading to another zone/clock token stays ambiguous instead. Uppercase prose or
+reserved-prefix words that look like a zone are conservatively unresolved; this
+finite lexical ambiguity is intentional, not arbitrary prose understanding.
 
 ## Explicit context and precision
 

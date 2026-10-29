@@ -96,4 +96,25 @@ describe("explicit local syllabus dates", () => {
     const [proposal] = await parse(`Exam due ${expression}`, { timezone: { zone: "Asia/Almaty", source: "course" } });
     expect(proposal).toMatchObject({ state: "proposed", date: { kind: "exact", iso: expected }, expression });
   });
+  it.each([
+    "2027-03-12T", "2027-03-12T14", "2027-03-12T99", "2027-03-12T14:", "2027-03-12T14:0", "2027-03-12T14:000",
+    "2027-03-12 at", "2027-03-12 в", "2027-03-12 at 3 PM", "2027-03-12 at noon", "2027-03-12 at midnight", "2027-03-12 в полдень", "2027-03-12 в полночь", "2027-03-12 at +3",
+    "2027-03-12T14:00 (XYZ", "2027-03-12T14:00 [XYZ", "2027-03-12T14:00, XYZ", "2027-03-12T14:00, (XYZ", "2027-03-12T14:00. XYZ",
+    "2027-03-12T14:00+", "2027-03-12T14:00+05", "2027-03-12T14:00+05:", "2027-03-12T14:00+05:00.5", "2027-03-12T14:00.5",
+    "2027-03-12T14:00 at 3 PM", "2027-03-12T14:00 at noon", "2027-03-12T14:00 and UTC", "2027-03-12T14:00 and at midnight",
+  ])("fails closed after committed clock/suffix lexical evidence: %s", async (expression) => {
+    const source = await mention(`Exam due ${expression}`);
+    const [proposal] = parseSyllabusMention(source, { timezone: { zone: "Asia/Almaty", source: "course" } }).dates;
+    expect(proposal).toMatchObject({ date: { kind: "unknown" }, state: "unresolved", expression });
+    expect(proposal!.reasons.join(" ")).toMatch(/Unsupported/);
+    expect(source.rawScheduleText.slice(proposal!.start, proposal!.end)).toBe(expression);
+  });
+  it.each([
+    ["2027-03-12 at campus", "date"], ["2027-03-12 в аудитории", "date"], ["2027-03-12 submit online", "date"],
+    ["2027-03-12 at 14:00 submit online", "exact"], ["2027-03-12 at 14:00 in room 5", "exact"],
+    ["2027-03-12 at 14:00 please upload work", "exact"], ["2027-03-12T14:00, please upload work", "exact"],
+    ["2027-03-12T14:00. please upload work", "exact"], ["2027-03-12T14:00Z.", "exact"], ["2027-03-12T14:00 Asia/Almaty.", "exact"],
+  ])("keeps ordinary prose/punctuation outside supported date expressions: %s", async (text, kind) => {
+    expect((await parse(`Exam due ${text}`, { timezone: { zone: "Asia/Almaty", source: "course" } }))[0]!.date.kind).toBe(kind);
+  });
 });
