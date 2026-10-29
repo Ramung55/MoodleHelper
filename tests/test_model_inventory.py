@@ -14,6 +14,19 @@ from backend.sample_data import build_sample_snapshot
 ROOT = Path(__file__).parents[1]
 
 
+def test_optional_calendar_new_group_zod_python_parity():
+    calendar = dict(startDate="2027-01-04", endDate="2027-02-28", timezone="Asia/Qyzylorda", excludedWeekStarts=["2027-01-18"])
+    value = build_sample_snapshot()
+    value["settings"]["teachingCalendar"] = calendar
+    assert schemas.Snapshot.model_validate(value).model_dump(by_alias=True, exclude_unset=True) == value
+    assert zod("Snapshot", value) == {"success": True, "value": value}
+    for changed in [None, {}, {**calendar, "startDate": "2027-02-29"}, {**calendar, "timezone": "XYZ"}, {**calendar, "excludedWeekStarts": ["2027-01-19"]}, {**calendar, "excludedWeekStarts": ["2027-01-18"] * 2}]:
+        value["settings"]["teachingCalendar"] = changed
+        with pytest.raises(ValidationError):
+            schemas.Snapshot.model_validate(value)
+        assert not zod("Snapshot", value)["success"]
+
+
 def zod(model, value):
     result = subprocess.run(["node", str(ROOT / "tests/zod_model_probe.mjs")],
                             input=json.dumps({"model": model, "value": value}),

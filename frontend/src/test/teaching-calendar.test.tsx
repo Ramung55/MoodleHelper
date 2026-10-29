@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { TeachingCalendarSettings } from "@/components/mh/TeachingCalendarSettings";
 import { mapTeachingDate, mapTeachingWeek, parseTeachingWeek, teachingCalendarError, teachingSlots } from "@/domain/teaching-weeks";
@@ -32,7 +32,7 @@ it("maps actual bilingual detector evidence and retains identity and raw wording
     expect(parsed.value).toEqual({ kind: "week", week: 6 });
     expect(parsed.mapping).toMatchObject({ start: "2027-02-15", end: "2027-02-21" });
     expect(parseTeachingWeek(mention, { ...calendar, excludedWeekStarts: [] }).mapping).toMatchObject({ start: "2027-02-08" });
-    expect(parseTeachingWeek({ ...mention, rawScheduleText: text + "–7" }, calendar).mapping.resolved).toBe(false);
+    for (const suffix of ["–7", "/7", " to 7", " through 7", ", 7", " или 7", " по 7"]) expect(parseTeachingWeek({ ...mention, rawScheduleText: text + suffix }, calendar).mapping.resolved).toBe(false);
     expect(parseTeachingWeek({ ...mention, rawScheduleText: text + " Week 7" }, calendar).mapping.resolved).toBe(false);
   }
 });
@@ -51,4 +51,20 @@ it("previews every draft slot, preserves failed edits, and cancels without write
   fireEvent.click(screen.getByText("Cancel calendar draft"));
   expect(screen.getByLabelText("Excluded full-week start dates")).toHaveValue("2027-01-18");
   expect(updateSettings).toHaveBeenCalledTimes(1);
+});
+it("saves the complete group once while pending and keeps the previous map active", async () => {
+  const snap = buildDemoSnapshot(); snap.settings.teachingCalendar = calendar;
+  let finish!: (value: boolean) => void;
+  const updateSettings = vi.fn();
+  state.app = { snap, run: vi.fn(async fn => { await fn({ updateSettings }); return new Promise<boolean>(resolve => { finish = resolve; }); }) };
+  render(<TeachingCalendarSettings />);
+  fireEvent.change(screen.getByLabelText("Excluded full-week start dates"), { target: { value: "" } });
+  const form = screen.getByText("Save teaching calendar").closest("form")!;
+  fireEvent.submit(form); fireEvent.submit(form);
+  expect(updateSettings).toHaveBeenCalledExactlyOnceWith({ teachingCalendar: { ...calendar, excludedWeekStarts: [] } });
+  expect(screen.getByLabelText("Inclusive calendar start")).toBeDisabled();
+  expect(snap.settings.teachingCalendar).toEqual(calendar);
+  await act(async () => {});
+  await act(async () => { finish(true); });
+  expect(screen.getByLabelText("Inclusive calendar start")).not.toBeDisabled();
 });

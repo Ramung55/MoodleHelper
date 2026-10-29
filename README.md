@@ -422,6 +422,10 @@ production client entry assets. Router DOM tests separately exercise actual
 shell/provider/router rendering and handlers. Neither establishes real browser
 hydration, Tab/Shift+Tab order, Enter activation, painted focus or mobile layout.
 
+### Explicit teaching calendar
+
+Settings → Explicit teaching calendar saves both inclusive semester boundaries, the calendar timezone and excluded full-week start dates after showing a draft preview. Legacy/sample semester values do not establish a verified map. Teaching weeks pause across excluded seven-day slots; week-only source evidence retains its original precision. See [_docs/teaching-calendar-30.md](_docs/teaching-calendar-30.md) for supported wording, validation, the break example and timezone runtime limits.
+
 ### Resumable mock queue
 
 The extension has a synthetic queue worker backed by the local SQLite database. It does not contact Moodle or change the Snapshot. The fixed `/api/queue` endpoints in `openapi.yaml` create and inspect runs, cancel them, and claim, renew or finish jobs. Writes require the current `/api/bridge-context` binding. Course IDs must already exist in the active startup-selected dataset. Starts accept 1–100 unique IDs and a bounded idempotency key; repeating the key with the same IDs returns the same run. Overlapping active courses share a job. A later run can scan again after a terminal job.

@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { catalog } from "../shared/src/bridge";
 
 describe("emitted browser modules", () => {
   for (const name of ["shared"]) {
@@ -9,7 +10,7 @@ describe("emitted browser modules", () => {
       await access(fileURLToPath(artifact));
       const module = await import(/* @vite-ignore */ artifact.href);
       expect(module.catalog).toBeDefined();
-      expect(Object.keys(module.catalog)).toHaveLength(22);
+      expect(Object.keys(module.catalog).sort()).toEqual(Object.keys(catalog).sort());
     });
   }
 });

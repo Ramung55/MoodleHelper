@@ -35,7 +35,7 @@ export function parseTeachingWeek(mention: AssessmentMention, calendar?: Teachin
   const rawText = mention.rawScheduleText;
   const matches = [...rawText.matchAll(/(?<![\p{L}\p{N}])(?:weeks?|недел(?:я|и|е|ю))[ \t]+(-?\d+(?:[.,]\d+)?)(?![\p{L}\p{N}])/giu)];
   const expressions = matches.map((match) => ({ text: match[0], start: match.index!, end: match.index! + match[0].length, week: Number(match[1]!.replace(",", ".")) }));
-  if (expressions.some((expression) => /^\s*(?:[–—-]\s*\d|(?:and|or|и|или)\s+\d)/iu.test(rawText.slice(expression.end)))) return { parentId: mention.id, rawText, expressions, value: { kind: "unknown" }, mapping: { resolved: false, reason: "Multiple/ranged week references need review." } };
+  if (expressions.some((expression) => /^\s*(?:[–—/&+-]\s*\d|,\s+\d|(?:and|or|to|through|и|или|до|по)\s+\d)/iu.test(rawText.slice(expression.end)))) return { parentId: mention.id, rawText, expressions, value: { kind: "unknown" }, mapping: { resolved: false, reason: "Multiple/ranged week references need review." } };
   if (expressions.length !== 1 || mention.reasons.some((reason) => reason.startsWith("Multiple assessment mentions"))) return { parentId: mention.id, rawText, expressions, value: { kind: "unknown" }, mapping: { resolved: false, reason: expressions.length ? "Multiple/conflicting week or assessment mentions need review." : "No supported explicit teaching-week wording was found." } };
   const week = expressions[0]!.week; const mapping = mapTeachingWeek(week, calendar);
   return { parentId: mention.id, rawText, expressions, value: Number.isInteger(week) && week >= 1 && week <= 30 ? { kind: "week", week } : { kind: "unknown" }, mapping };

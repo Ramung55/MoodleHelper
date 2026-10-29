@@ -8,12 +8,33 @@ import { LocalExtraction } from "@/components/mh/LocalExtraction";
 import { webcrypto } from "node:crypto";
 import { detectAssessmentMentions } from "@/domain/assessment-mentions";
 import { parseSyllabusMention } from "@/domain/syllabus-dates";
+import { parseTeachingWeek } from "@/domain/teaching-weeks";
 const mock = vi.hoisted(() => ({ read: vi.fn(), context: vi.fn() }));
 vi.mock("@/services/local-documents", () => ({ readLocalDocument: mock.read, currentDataset: mock.context }));
 const file = (name = "extraction-bilingual.docx") => new NodeBlob([readFileSync(`src/test/fixtures/${name}`)]);
 beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("DecompressionStream", NativeDecompressionStream); mock.read.mockResolvedValue(file()); mock.context.mockResolvedValue("dataset"); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("native DOCX extraction", () => {
+  it("maps actual bilingual week evidence and refreshes rendered ranges without rewriting the source", async () => {
+    const calendar = { startDate: "2027-01-04", endDate: "2027-02-28", timezone: "UTC", excludedWeekStarts: ["2027-01-18"] };
+    const blob = file("teaching-weeks.docx"); mock.read.mockResolvedValue(blob);
+    const blocks = await extractDocx(blob as unknown as Blob, new AbortController().signal, vi.fn());
+    const proposals = await detectAssessmentMentions({ format: "docx", datasetId: "dataset", courseId: "course", digest: "digest", complete: true, blocks }, new AbortController().signal);
+    const parsed = proposals.map(mention => parseTeachingWeek(mention, calendar));
+    expect(parsed.slice(0, 2).map(p => p.mapping)).toEqual([expect.objectContaining({ start: "2027-02-15", end: "2027-02-21" }), expect.objectContaining({ start: "2027-02-15", end: "2027-02-21" })]);
+    expect(parsed.slice(2).every(p => !p.mapping.resolved)).toBe(true);
+    const association = { datasetId: "dataset", courseId: "course", digest: "digest", name: "teaching-weeks.docx", size: blob.size, source: "Local", createdAt: "now" };
+    const view = render(<LocalExtraction document={association} teachingCalendar={calendar} />);
+    fireEvent.click(screen.getByText("Extract text"));
+    fireEvent.click(await screen.findByText("Find assessments"));
+    await screen.findByText("Possible assessments · unconfirmed");
+    expect(screen.getAllByText(/Teaching week preview: Week 6: 2027-02-15/)).toHaveLength(2);
+    view.rerender(<LocalExtraction document={association} teachingCalendar={{ ...calendar, excludedWeekStarts: [] }} />);
+    expect(screen.getAllByText(/Teaching week preview: Week 6: 2027-02-08/)).toHaveLength(2);
+    expect(screen.getByText("Экзамен неделя 6", { selector: "blockquote" })).toBeInTheDocument();
+    expect(proposals[1]!.location.kind).toBe("docx_paragraph");
+    expect(parsed[1]!.value).toEqual({ kind: "week", week: 6 });
+  });
   it.each(["extraction-bilingual.docx", "extraction-bilingual-deflated.docx"])("reads bilingual paragraphs/tables and exact locations from %s without fetching relationships", async (name) => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher); const progress = vi.fn();
     const blocks = await extractDocx(file(name) as unknown as Blob, new AbortController().signal, progress);

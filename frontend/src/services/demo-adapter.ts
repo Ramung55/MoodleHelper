@@ -1,7 +1,7 @@
 import type { RawCourseObservation } from "@/domain/types";
 import { effectiveSources, reconciledSourceDate } from "@/domain/assessments";
 import { candidateToAssessment, checkFormat } from "@/domain/extraction";
-import { Snapshot as SnapshotSchema, type Snapshot } from "@/domain/types";
+import { Snapshot as SnapshotSchema, TeachingCalendar, type Snapshot } from "@/domain/types";
 import type { MoodleHelperAdapter, PersonalEventInput, ReviewDecision } from "./adapter";
 import { buildDemoSnapshot } from "./fixtures";
 
@@ -226,6 +226,7 @@ export class DemoAdapter implements MoodleHelperAdapter {
     });
   }
   async updateSettings(patch: Partial<Snapshot["settings"]>) {
+    if (Object.hasOwn(patch, "teachingCalendar")) TeachingCalendar.parse(patch.teachingCalendar);
     return this.mutate((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
   }
   async replaceAll(next: Snapshot) {
