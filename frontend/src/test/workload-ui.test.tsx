@@ -61,3 +61,12 @@ it("reports invalid legacy saved configuration without crashing or publishing a 
   fireEvent.change(exam, { target: { value: "3" } });
   await waitFor(() => expect(screen.getByTestId("totals")).toHaveTextContent('"weighted":7'));
 });
+it("rejects an overflowing proposed aggregate before saving or replacing prior totals", async () => {
+  saved.reconciliation!.logicalAssessments.find(item => item.id === "d-submitted")!.submission!.status = "draft";
+  mount(); const exam = await screen.findByLabelText("exam");
+  expect(screen.getByTestId("totals")).toHaveTextContent('"weighted":10');
+  fireEvent.change(exam, { target: { value: String(Number.MAX_VALUE) } });
+  expect(screen.getByRole("alert")).toHaveTextContent("exceeds the supported numeric range");
+  expect(state.adapter.updateSettings).not.toHaveBeenCalled(); expect(saved.settings.weights.exam).toBe(3);
+  expect(screen.getByTestId("totals")).toHaveTextContent('"weighted":10');
+});

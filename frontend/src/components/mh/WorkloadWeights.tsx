@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useApp } from "@/lib/app-store";
-import { weightsError } from "@/domain/workload";
+import { weeklyLoad, weightsError } from "@/domain/workload";
 import type { Settings } from "@/domain/types";
 const kinds = ["exam", "assignment", "quiz", "other"] as const;
 const strings = (weights: Settings["weights"]) => Object.fromEntries(kinds.map(kind => [kind, String(weights[kind])])) as Record<typeof kinds[number], string>;
 /** Retains the existing immediate-save controls; invalid input never changes saved weights. */
 export function WorkloadWeights() {
-  const { snap, run } = useApp(); const saved = snap!.settings.weights;
+  const { snap, run, views } = useApp(); const saved = snap!.settings.weights;
   const [draft, setDraft] = useState(() => strings(saved)), [error, setError] = useState(weightsError(saved));
   const [pending, setPending] = useState(false); const busy = useRef(false), dirty = useRef(false);
   useEffect(() => { if (!dirty.current) { setDraft(strings(saved)); setError(weightsError(saved)); } }, [saved]);
@@ -18,6 +18,8 @@ export function WorkloadWeights() {
     const next = { ...draft, [kind]: event.target.value }; setDraft(next);
     const weights = Object.fromEntries(kinds.map(key => [key, next[key].trim() ? Number(next[key]) : undefined])) as Settings["weights"];
     const message = weightsError(weights); setError(message); if (message) return;
+    try { weeklyLoad(views, { ...snap!.settings, weights }, snap!); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : "Workload cannot be calculated with these weights."); return; }
     busy.current = true; setPending(true);
     const ok = await run(api => api.updateSettings({ weights }));
     busy.current = false; setPending(false);
