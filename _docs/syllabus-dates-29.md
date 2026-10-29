@@ -27,6 +27,12 @@ is case-insensitive and preserves exact original wording. This is not universal
 natural-language parsing: relative prose, ordinal-day suffixes, two-digit or other
 unsupported years, 12-hour clocks, seconds and ambiguous zone abbreviations stay
 unresolved. Written clocks are never silently reduced to date-only output.
+Immediately associated clock/zone tokens are checked in full, including attached
+or spaced AM/PM and unknown zone words (also Unicode words/spacing and bracketed
+forms). Unsupported suffixes remain in the original expression and prevent a
+trusted-context timezone fallback. A supported prefix such as `Z` or `UTC` never
+validates a longer unknown token. Multiple zone tokens are unresolved. Only
+explicit conjunctions and opens/closes/due label words terminate these tokens.
 
 ## Explicit context and precision
 

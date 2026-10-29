@@ -83,18 +83,36 @@ export function parseSyllabusMention(mention: AssessmentMention, context: Syllab
     const label = /(?:opens?|opening|available from|closes?|closing|due|deadline|открытие|начало|закрытие|срок|до)[ \t]*[:—-]?[ \t]*$/iu.exec(prefix)?.[0].trim();
     const proposal: SyllabusDateProposal = { id: "", parentId: mention.id, expression: "", start: expression.start, end: expression.end, label, date: { kind: "unknown" }, status: "unconfirmed", state: "unresolved", reasons: [] };
     const tail = text.slice(expression.end);
-    const time = /^(?:T|[ \t]+(?:at[ \t]+|в[ \t]+)?)(\d{1,2}):(\d{2})(:\d{2})?(?:[ \t]*(Z(?![A-Za-z])|[+-]\d{2}:\d{2}|[A-Za-z_+-]+\/[A-Za-z_+-]+(?:\/[A-Za-z_+-]+)?|UTC(?![A-Za-z])))?/i.exec(tail);
-    if (time) proposal.end += time[0].length;
+    const time = /^(?:T|[ \t]+(?:at[ \t]+|в[ \t]+)?)(\d{1,2}):(\d{2})(:\d{2})?(?!\d)/i.exec(tail);
+    let suffixLength = 0, unsupportedSuffix = false;
+    if (time) {
+      // Validate whole adjacent tokens, never a supported prefix of AM/PM or a zone.
+      // Only explicit grammar separators terminate the associated clock expression.
+      const boundary = /^(?:and|or|opens?|opening|closes?|closing|due|deadline|и|или|начало|закрытие|срок)$/iu;
+      const tokens: { value: string; wrapped: boolean }[] = [];
+      for (let count = 0; count < 3; count++) {
+        const suffix = /^[^\S\r\n]*(?:\(([^)\r\n]+)\)|\[([^\]\r\n]+)\]|([\p{L}][\p{L}\p{N}_+./:-]*|[+-][\p{L}\p{N}_+./:-]+|[.:]\d+))/u.exec(tail.slice(time[0].length + suffixLength));
+        if (!suffix) break;
+        const value = suffix[1] ?? suffix[2] ?? suffix[3]!;
+        if (!suffix[1] && !suffix[2] && boundary.test(value)) break;
+        tokens.push({ value, wrapped: !!(suffix[1] || suffix[2]) }); suffixLength += suffix[0].length;
+      }
+      if (tokens.length) {
+        const token = tokens[0]!;
+        const supported = /^(?:Z|UTC|[+-]\d{2}:\d{2}|[A-Za-z_+-]+\/[A-Za-z_+-]+(?:\/[A-Za-z_+-]+)?)$/iu.test(token.value);
+        unsupportedSuffix = tokens.length !== 1 || token.wrapped || !supported;
+        if (!unsupportedSuffix) time[4] = /^(?:Z|UTC)$/iu.test(token.value) ? token.value.toUpperCase() : token.value;
+      }
+      proposal.end += time[0].length + suffixLength;
+    }
     const unsupportedYear = !expression.yearText && /^[, \t]+\d+(?![\d:])/u.exec(tail);
     const unsupportedClock = !time && /^(?:T|[ \t]+(?:at[ \t]+|в[ \t]+)?)(?:\d{1,2}:\d*|\d{1,2}[ \t]*(?:am|pm)\b)/iu.exec(tail);
-    const unsupportedZone = time && /^[ \t]*(?:(?:EST|EDT|CST|CDT|MST|MDT|PST|PDT|GMT|BST|CET|CEST)\b|[+-]\d+(?::\d+)?|[.:]\d+)/iu.exec(tail.slice(time[0].length));
     if (unsupportedYear) proposal.end += unsupportedYear[0].length;
     else if (unsupportedClock) proposal.end += unsupportedClock[0].length;
-    else if (unsupportedZone) proposal.end += unsupportedZone[0].length;
     proposal.expression = text.slice(proposal.start, proposal.end);
     proposal.id = `${mention.id}/date:${proposal.start}:${proposal.end}:${label ?? ""}`;
     if (/(?:after|before|around|approximately|после|около)[ \t]*$/iu.test(prefix)) { proposal.reasons.push("Relative date wording is unsupported; preserve it for review."); return proposal; }
-    if (unsupportedYear || unsupportedClock || unsupportedZone) { proposal.reasons.push("Unsupported year, clock or timezone wording; original expression requires review."); return proposal; }
+    if (unsupportedYear || unsupportedClock || unsupportedSuffix) { proposal.reasons.push("Unsupported year, clock or timezone wording; the complete written expression requires review and cannot use a fallback timezone."); return proposal; }
     const date = dateFields(expression, context, proposal);
     if (!date) return proposal;
     if (!time) { proposal.date = { kind: "date", date }; proposal.state = "proposed"; return proposal; }

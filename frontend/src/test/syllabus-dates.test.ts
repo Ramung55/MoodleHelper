@@ -72,4 +72,28 @@ describe("explicit local syllabus dates", () => {
   it.each(["Exam 14:00 on 12 March 2027", "Exam 12 March 2027 14:00Z and 15:00Z", "Exam after 12 March 2027", "Exam March 12th 2027"])("keeps unsupported association/relative grammar unresolved: %s", async (text) => {
     expect((await parse(text, { timezone: { zone: "UTC", source: "course" }, semester: { start: "2027-01-01", end: "2027-06-30" } }))[0]!.date.kind).toBe("unknown");
   });
+  it.each([
+    "March 12, 2027 at 3:30 PM", "12 March 2027 12:00am", "12 March 2027 3:30pm", "12 March 2027 3:30 p.m.",
+    "12 March 2027 13:00 XYZ", "12 March 2027 13:00xyz", "12 March 2027 13:00 (XYZ)", "12 March 2027 13:00[XYZ]",
+    "12 March 2027 13:00 Zebra", "12 March 2027 13:00Zfoo", "12 March 2027 13:00UTCfoo", "12 March 2027 13:00+05:00XYZ",
+    "12 March 2027 13:00 UTC +05:00", "12 March 2027 13:00PM XYZ",
+    "12 March 2027 13:00\u00a0XYZ", "12 March 2027 3:30\u202fPM", "12 March 2027 13:00 МСК", "12 March 2027 3:30ＰＭ",
+  ])("retains complete unsupported clock/zone expression without trusted-zone fallback: %s", async (expression) => {
+    const source = await mention(`Exam due ${expression}`);
+    const withContext = parseSyllabusMention(source, { timezone: { zone: "Asia/Almaty", source: "course" } }).dates[0]!;
+    const withoutContext = parseSyllabusMention(source).dates[0]!;
+    expect(withContext).toMatchObject({ date: { kind: "unknown" }, state: "unresolved", expression });
+    expect(withContext.reasons.join(" ")).toMatch(/Unsupported.*clock or timezone/);
+    expect(withContext.id).toBe(withoutContext.id); expect(withContext.parentId).toBe(source.id);
+    expect(source.rawScheduleText.slice(withContext.start, withContext.end)).toBe(expression);
+  });
+  it.each([
+    ["12 March 2027 13:00", "2027-03-12T08:00:00.000Z"],
+    ["12 March 2027 13:00Z", "2027-03-12T13:00:00Z"],
+    ["12 March 2027 13:00+05:00", "2027-03-12T13:00:00+05:00"],
+    ["12 March 2027 13:00 Asia/Almaty", "2027-03-12T08:00:00.000Z"],
+  ])("preserves legitimate complete 24-hour grammar with context: %s", async (expression, expected) => {
+    const [proposal] = await parse(`Exam due ${expression}`, { timezone: { zone: "Asia/Almaty", source: "course" } });
+    expect(proposal).toMatchObject({ state: "proposed", date: { kind: "exact", iso: expected }, expression });
+  });
 });
