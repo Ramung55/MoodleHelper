@@ -35,6 +35,12 @@ fixed messages, never engine exception text, document bytes or OCR excerpts in l
 Context/unmount/replacement generations and final context verification prevent
 late publication after detected changes. The inherited #24 best-effort context
 polling is not instantaneous authentication or privacy against other local clients.
+The mounted UI verifies both generation/controller ownership and abort state after
+recognition and final context verification. That final context GET is abortable.
+Cancelling during its response cannot promote finished engine output to a complete
+job: only already visible incomplete progress remains, and a changed/rejected
+context clears those rows. Late completion/progress after cancel or replacement
+cannot publish a complete result.
 
 ## Evidence and quality
 

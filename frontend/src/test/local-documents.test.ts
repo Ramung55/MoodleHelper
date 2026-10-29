@@ -32,6 +32,11 @@ describe("local dataset binding", () => {
     expect(await currentDataset()).toBe("12345678-1234-4123-8123-123456789abc");
     expect(fetcher).toHaveBeenCalledWith("/api/local-context", expect.objectContaining({ method: "GET", credentials: "omit", cache: "no-store" }));
   });
+  it("passes a caller abort signal to context verification without changing its wire request", async () => {
+    const controller = new AbortController(); const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ datasetId: "12345678-1234-4123-8123-123456789abc" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetcher); await currentDataset(controller.signal);
+    expect(fetcher).toHaveBeenCalledWith("/api/local-context", expect.objectContaining({ method: "GET", credentials: "omit", signal: controller.signal }));
+  });
   it("fails closed on invalid or extra context data", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ datasetId: "bad", namespace: "secret" }), { status: 200 })));
     await expect(currentDataset()).rejects.toThrow(/invalid/);

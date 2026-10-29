@@ -94,8 +94,8 @@ export async function recoverLocalJobs(datasetId: string, _owner: string): Promi
   } finally { db.close(); }
 }
 
-export async function currentDataset(): Promise<string> {
-  const response = await fetch("/api/local-context", { method: "GET", credentials: "omit", cache: "no-store", headers: { Accept: "application/json" } });
+export async function currentDataset(signal?: AbortSignal): Promise<string> {
+  const response = await fetch("/api/local-context", { method: "GET", credentials: "omit", cache: "no-store", headers: { Accept: "application/json" }, ...(signal ? { signal } : {}) });
   if (!response.ok) throw new Error("Could not identify the current dataset. Reconnect and retry.");
   const value: unknown = await response.json();
   if (!value || typeof value !== "object" || Object.keys(value).length !== 1 ||
