@@ -202,6 +202,11 @@ def alerts(body: list[s.Alert], api: Service):
     return api.save_alerts([wire(alert) for alert in body])
 
 
+@router.post("/alerts/update", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="updateAlerts", tags=["Alerts"])
+def update_alerts(body: s.AlertUpdateInput, api: Service):
+    return api.update_alerts(body.ids, body.action)
+
+
 @router.patch("/settings", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="updateSettings", tags=["Settings"])
 def settings(body: s.SettingsPatch, api: Service):
     return api.update_settings(wire(body))
@@ -300,3 +305,13 @@ def reconcile_reminders(body: s.ReminderReconcileInput, request: Request):
 @reminder_router.post('/dispatch', response_model=s.ReminderDispatchResult, response_model_exclude_none=True, operation_id='dispatchReminders', tags=['Reminders'], dependencies=[Depends(reminder_binding)])
 def dispatch_reminders(body: s.ReminderDispatchInput, request: Request):
     return reminders(request).dispatch(wire(body))
+
+
+@reminder_router.post('/delivery-status', response_model=s.ReminderDeliveryReceipt, response_model_exclude_none=True, operation_id='reminderDeliveryStatus', tags=['Reminders'], dependencies=[Depends(reminder_binding)])
+def reminder_delivery_status(body: s.ReminderDeliveryStatusInput, request: Request):
+    return reminders(request).delivery_status(wire(body))
+
+
+@reminder_router.post('/notification-target', response_model=s.ReminderNotificationTarget, response_model_exclude_none=True, operation_id='reminderNotificationTarget', tags=['Reminders'], dependencies=[Depends(reminder_binding)])
+def reminder_notification_target(body: s.ReminderNotificationTargetInput, request: Request):
+    return reminders(request).notification_target(wire(body))

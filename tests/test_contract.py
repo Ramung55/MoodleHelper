@@ -95,8 +95,9 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
     internal |= {('get','/api/local-context')}
     internal |= {('post','/api/local-syllabus/route')}
     internal |= {('get','/api/reminders/plan'), ('post','/api/reminders/reconcile'), ('post','/api/reminders/dispatch')}
+    internal |= {('post','/api/reminders/delivery-status'), ('post','/api/reminders/notification-target'), ('post','/api/alerts/update')}
     assert actual_operations == expected_operations == {(method, path) for method, path, _ in OPERATIONS} | internal
-    assert len(actual_operations) == 46
+    assert len(actual_operations) == 49
     assert not generated["components"].get("securitySchemes")
     for method, path in expected_operations:
         expected = contract["paths"][path][method]

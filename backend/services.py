@@ -67,6 +67,8 @@ class BackendService:
             return self.store.read()
 
     def replace_all(self, snapshot: dict) -> dict:
+        from backend.alert_delivery import neutralize_imported
+        snapshot = neutralize_imported(deepcopy(snapshot))
         if 'reconciliation' in snapshot:
             from backend.reconciliation import project_sources
             snapshot = deepcopy(snapshot)
@@ -309,8 +311,21 @@ class BackendService:
         return {"snapshot": s, "supported": False, "message": message}
 
     def save_alerts(self, alerts: list[dict]) -> dict:
+        from backend.alert_delivery import merge_legacy_save
         def apply(s):
-            s["alerts"] = alerts
+            s["alerts"] = merge_legacy_save(s["alerts"], alerts)
+        return self.store.mutate(apply)
+
+    def update_alerts(self, ids: list[str], action: str) -> dict:
+        """Narrow idempotent read/delete; never overwrites concurrent appends or delivery state."""
+        wanted = set(ids)
+        def apply(s):
+            if action == 'delete':
+                s["alerts"] = [a for a in s["alerts"] if a["id"] not in wanted]
+            else:
+                for alert in s["alerts"]:
+                    if alert["id"] in wanted:
+                        alert["read"] = True
         return self.store.mutate(apply)
 
     def delete_local_data(self) -> dict:

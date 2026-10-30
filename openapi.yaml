@@ -1758,6 +1758,162 @@ paths:
                 $ref: '#/components/schemas/ProposedHttpError'
           description: Service Unavailable
       security: []
+  /api/alerts/update:
+    post:
+      tags:
+      - Alerts
+      summary: Update Alerts
+      operationId: updateAlerts
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: false
+        schema:
+          type: string
+          description: Optional process binding precondition. Absence preserves legacy clients; mismatch
+            rejects before parsing or service work.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Optional process binding precondition. Absence preserves legacy clients; mismatch rejects
+          before parsing or service work.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertUpdateInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+  /api/reminders/delivery-status:
+    post:
+      tags:
+      - Reminders
+      summary: Reminder Delivery Status
+      operationId: reminderDeliveryStatus
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding from /api/bridge-context. Absent or stale returns
+            409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding from /api/bridge-context. Absent or stale returns
+          409 before processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderDeliveryStatusInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderDeliveryReceipt'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Service Unavailable
+  /api/reminders/notification-target:
+    post:
+      tags:
+      - Reminders
+      summary: Reminder Notification Target
+      operationId: reminderNotificationTarget
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding from /api/bridge-context. Absent or stale returns
+            409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding from /api/bridge-context. Absent or stale returns
+          409 before processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderNotificationTargetInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderNotificationTarget'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Service Unavailable
 components:
   schemas:
     ReminderDeliveryRequest:
@@ -1890,6 +2046,12 @@ components:
         nextWakeAt:
           type: string
           title: Nextwakeat
+        pendingDeliveries:
+          items:
+            $ref: '#/components/schemas/ReminderPendingDelivery'
+          type: array
+          maxItems: 20
+          title: Pendingdeliveries
       type: object
       required:
       - datasetId
@@ -1948,6 +2110,12 @@ components:
         nextWakeAt:
           type: string
           title: Nextwakeat
+        pendingDeliveries:
+          items:
+            $ref: '#/components/schemas/ReminderPendingDelivery'
+          type: array
+          maxItems: 20
+          title: Pendingdeliveries
       type: object
       required:
       - datasetId
@@ -3022,10 +3190,10 @@ components:
       - to
       - detectedAt
     Alert:
-      type: object
       properties:
         id:
           type: string
+          title: Id
         kind:
           type: string
           enum:
@@ -3033,16 +3201,27 @@ components:
           - busy_week
           - change
           - sync
+          title: Kind
         message:
           type: string
+          title: Message
         assessmentId:
           type: string
+          title: Assessmentid
         deliveryKey:
           type: string
+          title: Deliverykey
         createdAt:
           type: string
+          title: Createdat
         read:
           type: boolean
+          title: Read
+        context:
+          $ref: '#/components/schemas/AlertContext'
+        delivery:
+          $ref: '#/components/schemas/AlertDelivery'
+      type: object
       required:
       - id
       - kind
@@ -3050,6 +3229,7 @@ components:
       - deliveryKey
       - createdAt
       - read
+      title: Alert
     Weights:
       type: object
       properties:
@@ -5359,6 +5539,331 @@ components:
           const: Live course sync is unavailable until Moodle access is verified.
       required:
       - message
+    AlertChange:
+      properties:
+        changeId:
+          type: string
+          maxLength: 128
+          title: Changeid
+        sourceId:
+          type: string
+          maxLength: 512
+          title: Sourceid
+        detectedAt:
+          type: string
+          maxLength: 64
+          title: Detectedat
+        sourceObservedAt:
+          type: string
+          maxLength: 64
+          title: Sourceobservedat
+        from:
+          anyOf:
+          - oneOf:
+            - $ref: '#/components/schemas/ExactDate'
+            - $ref: '#/components/schemas/CalendarDate'
+            - $ref: '#/components/schemas/TeachingWeek'
+            - $ref: '#/components/schemas/UnknownDate'
+            discriminator:
+              propertyName: kind
+              mapping:
+                date: '#/components/schemas/CalendarDate'
+                exact: '#/components/schemas/ExactDate'
+                unknown: '#/components/schemas/UnknownDate'
+                week: '#/components/schemas/TeachingWeek'
+          - $ref: '#/components/schemas/DeadlineRemoved'
+          title: From
+        to:
+          anyOf:
+          - oneOf:
+            - $ref: '#/components/schemas/ExactDate'
+            - $ref: '#/components/schemas/CalendarDate'
+            - $ref: '#/components/schemas/TeachingWeek'
+            - $ref: '#/components/schemas/UnknownDate'
+            discriminator:
+              propertyName: kind
+              mapping:
+                date: '#/components/schemas/CalendarDate'
+                exact: '#/components/schemas/ExactDate'
+                unknown: '#/components/schemas/UnknownDate'
+                week: '#/components/schemas/TeachingWeek'
+          - $ref: '#/components/schemas/DeadlineRemoved'
+          title: To
+      type: object
+      required:
+      - changeId
+      - detectedAt
+      - from
+      - to
+      title: AlertChange
+      description: '#39 typed source-change evidence; old/new kept even when the source now lacks a date.'
+    AlertContext:
+      properties:
+        destination:
+          type: string
+          enum:
+          - assessment
+          - week
+          - alerts
+          title: Destination
+        reason:
+          type: string
+          enum:
+          - deadline_due
+          - busy_week
+          - catch_up
+          - source_change
+          - source_change_hidden
+          title: Reason
+        courseId:
+          type: string
+          maxLength: 512
+          title: Courseid
+        assessmentId:
+          type: string
+          maxLength: 512
+          title: Assessmentid
+        week:
+          type: integer
+          maximum: 30.0
+          minimum: 1.0
+          title: Week
+        precision:
+          type: string
+          enum:
+          - exact
+          - date
+          - week
+          - unknown
+          title: Precision
+        change:
+          $ref: '#/components/schemas/AlertChange'
+      type: object
+      required:
+      - destination
+      - reason
+      title: AlertContext
+      description: Closed destination mapping; never an arbitrary URL.
+    AlertDelivery:
+      properties:
+        channel:
+          type: string
+          enum:
+          - dashboard
+          - os
+          title: Channel
+        state:
+          type: string
+          enum:
+          - dashboard_only
+          - pending
+          - issued
+          - shown
+          - denied
+          - failed
+          - unknown
+          title: State
+        attemptId:
+          type: string
+          maxLength: 128
+          title: Attemptid
+        errorCode:
+          type: string
+          enum:
+          - create_failed
+          - permission_denied
+          - unavailable
+          - ineligible
+          - stale
+          - disabled
+          title: Errorcode
+        updatedAt:
+          type: string
+          maxLength: 64
+          title: Updatedat
+      type: object
+      required:
+      - channel
+      - state
+      - updatedAt
+      title: AlertDelivery
+    AlertUpdateInput:
+      properties:
+        ids:
+          items:
+            type: string
+            maxLength: 512
+            minLength: 1
+          type: array
+          maxItems: 1000
+          minItems: 1
+          title: Ids
+        action:
+          type: string
+          enum:
+          - read
+          - delete
+          title: Action
+      additionalProperties: false
+      type: object
+      required:
+      - ids
+      - action
+      title: AlertUpdateInput
+    ReminderPendingDelivery:
+      properties:
+        deliveryKey:
+          type: string
+          maxLength: 160
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~:-]+$
+          title: Deliverykey
+        notificationId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Notificationid
+      type: object
+      required:
+      - deliveryKey
+      - notificationId
+      title: ReminderPendingDelivery
+    ReminderDeliveryStatusInput:
+      properties:
+        datasetId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Datasetid
+        expectedGeneration:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Expectedgeneration
+        deliveryKey:
+          type: string
+          maxLength: 160
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~:-]+$
+          title: Deliverykey
+        attemptId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Attemptid
+        state:
+          type: string
+          enum:
+          - issued
+          - shown
+          - failed
+          - denied
+          title: State
+        fixedErrorCode:
+          type: string
+          enum:
+          - create_failed
+          - permission_denied
+          - unavailable
+          title: Fixederrorcode
+      additionalProperties: false
+      type: object
+      required:
+      - datasetId
+      - expectedGeneration
+      - deliveryKey
+      - attemptId
+      - state
+      title: ReminderDeliveryStatusInput
+    ReminderDeliveryReceipt:
+      properties:
+        deliveryKey:
+          type: string
+          maxLength: 160
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~:-]+$
+          title: Deliverykey
+        notificationId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Notificationid
+        state:
+          type: string
+          enum:
+          - dashboard_only
+          - pending
+          - issued
+          - shown
+          - denied
+          - failed
+          - unknown
+          title: State
+        reserved:
+          type: boolean
+          title: Reserved
+        title:
+          type: string
+          maxLength: 100
+          title: Title
+        message:
+          type: string
+          maxLength: 300
+          title: Message
+      type: object
+      required:
+      - deliveryKey
+      - notificationId
+      - state
+      - reserved
+      title: ReminderDeliveryReceipt
+    ReminderNotificationTargetInput:
+      properties:
+        datasetId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Datasetid
+        notificationId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Notificationid
+      additionalProperties: false
+      type: object
+      required:
+      - datasetId
+      - notificationId
+      title: ReminderNotificationTargetInput
+    ReminderNotificationTarget:
+      properties:
+        destination:
+          type: string
+          enum:
+          - assessment
+          - week
+          - alerts
+          title: Destination
+        assessmentId:
+          type: string
+          maxLength: 512
+          title: Assessmentid
+        week:
+          type: integer
+          maximum: 30.0
+          minimum: 1.0
+          title: Week
+      type: object
+      required:
+      - destination
+      title: ReminderNotificationTarget
   responses:
     ProposedHttpFailure:
       description: Proposed HTTP failure convention only. The current frontend rejects

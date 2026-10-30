@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from backend.submission_retention import _instant as instant
+from backend import alert_delivery
 
 
 def order(value):
@@ -131,6 +132,7 @@ def apply_observations(snapshot, incoming):
                 snapshot['changes'].append(dict(id=uuid4().hex, assessmentId=state['assessmentId'],
                     **{'from':deepcopy(old)}, to=deepcopy(value), detectedAt=datetime.now(timezone.utc).isoformat(),
                     sourceId=source_id, sourceUrl=raw['sourceUrl'], sourceObservedAt=raw['observedAt']))
+                alert_delivery.change_alert(snapshot, snapshot['changes'][-1])  # #39
             state.update(accepted=deepcopy(value), acceptedAt=raw['observedAt'], sourceUrl=raw['sourceUrl'])
             if value['kind'] != 'removed':
                 state['established'] = True

@@ -150,8 +150,12 @@ def test_confirmed_alias_overlay_history_and_restore(harness):
     assert change['assessmentId'] == alias_record['canonicalId']
     assert change['from'] == first['effectiveDates']['due']['value']
     assert change['to'] == updated['effectiveDates']['due']['value']
-    assert client.put('/api/snapshot', json=result).json() == result
-    assert store.read() == result
+    # #39: restored notification records are history, never pending OS replay.
+    from backend.alert_delivery import neutralize_imported
+    expected = neutralize_imported(deepcopy(result))
+    assert all(a.get('delivery', {}).get('state') != 'pending' for a in expected['alerts'])
+    assert client.put('/api/snapshot', json=result).json() == expected
+    assert store.read() == expected
 
 
 def test_overlay_and_source_ingestion_race_preserves_both(harness):

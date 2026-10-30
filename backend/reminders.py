@@ -243,6 +243,7 @@ class MemoryLedger:
     def transaction(self, store):
         with self._lock:
             requested, receipts = dict(self.requested), dict(self.receipts)
+            self._store = store
             try:
                 yield store.read(), self
             except BaseException:
@@ -261,6 +262,9 @@ class MemoryLedger:
 
     def save_receipt(self, idem, response):
         self.receipts[idem] = json.dumps(response)
+
+    def save_snapshot(self, snapshot):
+        self._store.replace(snapshot)
 
 
 class SqlLedger:
@@ -314,6 +318,14 @@ class _Rows:
         self.connection.execute(text('INSERT INTO reminder_receipts(namespace,idem,response) VALUES(:n,:i,:r)'),
                                 {'n': self.namespace, 'i': idem, 'r': json.dumps(response)})
 
+    def save_snapshot(self, snapshot):
+        # Same BEGIN IMMEDIATE transaction as the ledger rows (#39 atomic alert insert).
+        from sqlalchemy import text
+        from backend.storage import InMemoryStore
+        validated = InMemoryStore._validated(snapshot)
+        self.connection.execute(text('UPDATE snapshots SET snapshot=:s,revision=revision+1 WHERE namespace=:n'),
+                                {'n': self.namespace, 's': json.dumps(validated, ensure_ascii=False, allow_nan=False)})
+
 
 class ReminderService:
     def __init__(self, store, clock=None, resolver=zoneinfo_resolver):
@@ -345,6 +357,7 @@ class ReminderService:
         now = self.clock()
         with self.ledger.transaction(self.store) as (snapshot, rows):
             current = self._with_status(plan(snapshot, self.store.namespace, self.store.dataset_id, now, self.resolver), rows, now)
+            current['pendingDeliveries'] = alert_delivery.pending(snapshot, self.store.namespace)
         items = current['items']
         start = 0
         if cursor is not None:
@@ -378,7 +391,7 @@ class ReminderService:
             if saved is not None:
                 if saved['datasetId'] != body['datasetId']:
                     raise ReminderConflict('Idempotency key belongs to another context.')
-                return dict(saved, replayed=True)
+                return dict(saved, replayed=True, pendingDeliveries=alert_delivery.pending(snapshot, self.store.namespace))
             current = plan(snapshot, self.store.namespace, self.store.dataset_id, now, self.resolver)
             if current['generation'] != body['expectedGeneration']:
                 raise ReminderConflict('Reminder plan changed. Reconcile before dispatching.')
@@ -392,10 +405,16 @@ class ReminderService:
 
             def target(item):
                 return {k: item[k] for k in ('deliveryKey', 'kind', 'assessmentId', 'week', 'dueAt') if k in item} | {'itemId': item['id']}
+            dates = {v['assessment']['id']: v['date'] for v in logical_views(snapshot)}
+
+            def alert_target(item):
+                return dict(target(item), precision=item.get('precision'), date=dates.get(item.get('assessmentId')))
+            created = False
             for item in on_time:
                 request_id = 'rq-' + digest('single', item['deliveryKey'])[:32]
                 rows.mark(item['deliveryKey'], request_id)
                 requests.append(dict(requestId=request_id, kind=item['kind'], state='requested', total=1, targets=[target(item)]))
+                created |= alert_delivery.reminder_alert(snapshot, item['kind'], [alert_target(item)], request_id, now)
             if missed:
                 keys = sorted(i['deliveryKey'] for i in missed)
                 request_id = 'rq-' + digest('catch_up', self.store.namespace, keys)[:32]
@@ -403,10 +422,80 @@ class ReminderService:
                     rows.mark(item['deliveryKey'], request_id)
                 requests.append(dict(requestId=request_id, kind='catch_up', state='requested', total=len(missed),
                                      targets=[target(i) for i in missed[:PAGE]]))
+                created |= alert_delivery.reminder_alert(snapshot, 'catch_up', [alert_target(i) for i in missed], request_id, now)
+            if created:
+                rows.save_snapshot(snapshot)
             status = self._with_status(current, rows, now)
             response = dict(datasetId=current['datasetId'], generation=current['generation'], serverTime=iso(now),
                             replayed=False, requests=requests[:PAGE])
             if 'nextWakeAt' in status:
                 response['nextWakeAt'] = status['nextWakeAt']
             rows.save_receipt(idem, response)
-            return response
+            # Pending OS deliveries are listed live (never from the stored receipt), so a
+            # lost dispatch response is picked up on the next wake without a re-request.
+            return dict(response, pendingDeliveries=alert_delivery.pending(snapshot, self.store.namespace))
+
+    def delivery_status(self, body: dict) -> dict:
+        """Atomic OS-attempt reservation and fixed outcome acknowledgements (#39)."""
+        self._check(body['datasetId'])
+        now = self.clock()
+        with self.ledger.transaction(self.store) as (snapshot, rows):
+            current = plan(snapshot, self.store.namespace, self.store.dataset_id, now, self.resolver)
+            if current['generation'] != body['expectedGeneration']:
+                raise ReminderConflict('Reminder plan changed. Reconcile before delivering.')
+            alert = next((a for a in snapshot['alerts'] if a['deliveryKey'] == body['deliveryKey']), None)
+            if alert is None or not alert.get('delivery'):
+                raise ReminderConflict('Alert is no longer available for delivery.')
+            delivery, wanted, attempt = alert['delivery'], body['state'], body['attemptId']
+            nid = alert_delivery.notification_id(self.store.namespace, alert['deliveryKey'])
+
+            def receipt(reserved=False):
+                result = dict(deliveryKey=alert['deliveryKey'], notificationId=nid, state=alert['delivery']['state'], reserved=reserved)
+                if reserved:
+                    result.update(title=alert_delivery.TITLE, message=alert['message'][:300])
+                return result
+            if delivery['state'] == wanted and delivery.get('attemptId') == attempt:
+                return receipt()  # Duplicate acknowledgement: no-op, never a second reservation.
+            if wanted in ('issued', 'denied'):
+                if delivery['state'] != 'pending':
+                    return receipt()  # Already reserved or finished by some attempt: no new OS create.
+                update = dict(channel='os', state=wanted, attemptId=attempt, updatedAt=alert_delivery.now_iso(now))
+                if wanted == 'denied':
+                    update['errorCode'] = 'permission_denied'
+                elif not snapshot['settings']['reminders']['enabled']:
+                    update.update(channel='dashboard', state='dashboard_only', errorCode='disabled')
+                elif not alert_delivery.still_eligible(snapshot, alert):
+                    update.update(channel='dashboard', state='dashboard_only', errorCode='ineligible')
+                elif now - (parse_instant(alert['createdAt']) or now) > alert_delivery.STALE:
+                    update.update(channel='dashboard', state='dashboard_only', errorCode='stale')
+                alert['delivery'] = update
+                rows.save_snapshot(snapshot)
+                return receipt(reserved=update['state'] == 'issued')
+            # shown / failed: only the attempt that holds the reservation may finish it.
+            if delivery['state'] != 'issued' or delivery.get('attemptId') != attempt:
+                raise ReminderConflict('Delivery attempt does not hold this reservation.')
+            update = dict(delivery, state=wanted, updatedAt=alert_delivery.now_iso(now))
+            if wanted == 'failed':
+                update['errorCode'] = body.get('fixedErrorCode') or 'create_failed'
+            alert['delivery'] = update
+            rows.save_snapshot(snapshot)
+            return receipt()
+
+    def notification_target(self, body: dict) -> dict:
+        """Closed destination for a clicked notification; never a URL from the payload."""
+        self._check(body['datasetId'])
+        snapshot = self.store.read()
+        for alert in snapshot['alerts']:
+            if alert_delivery.notification_id(self.store.namespace, alert['deliveryKey']) != body['notificationId']:
+                continue
+            context = alert.get('context') or {}
+            target = context.get('assessmentId') or alert.get('assessmentId')
+            if context.get('destination') == 'week' and context.get('week'):
+                return dict(destination='week', week=context['week'])
+            if context.get('destination', 'assessment') == 'assessment' and target:
+                return dict(destination='assessment', assessmentId=target)
+            break
+        return dict(destination='alerts')
+
+
+from backend import alert_delivery  # noqa: E402  (after definitions: alert_delivery imports helpers from here)

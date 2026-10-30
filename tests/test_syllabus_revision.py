@@ -6,6 +6,7 @@ from sqlalchemy import event, URL
 from fastapi.testclient import TestClient
 from backend.main import create_app
 from backend.sqlite_store import SQLiteStore
+from backend.alert_delivery import neutralize_imported
 from test_page_refresh import harness, assignment, begin, refresh, result
 from test_reconciliation import collect_assignment, make_pair, decision
 from test_deadline_tracking import ingest, observed
@@ -37,7 +38,7 @@ def test_reviewed_revision_preserves_alias_evidence_and_retry(harness):
     assert aliases['syl-'+incoming['id']]==aliases['syl-'+original['id']]
     assert confirm(client,offered.json()).json()==saved
     assert store.read()==saved
-    assert client.put('/api/snapshot',json=saved).json()==saved
+    assert client.put('/api/snapshot',json=saved).json()==neutralize_imported(deepcopy(saved))  # #39 no OS replay after restore
 
 
 def test_stale_retry_multiple_revisions_and_return(harness):
@@ -120,9 +121,9 @@ def test_two_mutable_streams_and_override_survive_restart_and_restore(harness):
     assert {c['sourceId'] for c in events}=={target['id'],moodle['id']}
     assert next(c for c in events if c['sourceId']==moodle['id'])['to']=={'kind':'week','week':8}
     assert next(c for c in events if c['sourceId']==target['id'])['to']=={'kind':'week','week':9}
-    assert client.put('/api/snapshot',json=saved).json()==saved
+    assert client.put('/api/snapshot',json=saved).json()==neutralize_imported(deepcopy(saved))  # #39 no OS replay after restore
     reopened=SQLiteStore(URL.create('sqlite',database=str(path)),namespace=store.namespace)
-    try: assert reopened.read()==saved
+    try: assert reopened.read()==neutralize_imported(deepcopy(saved))
     finally: reopened.close()
 
 

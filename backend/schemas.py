@@ -451,6 +451,39 @@ class DeadlineChange(WireModel):
     sourceCandidateId: str = None
 
 
+class AlertChange(WireModel):
+    """#39 typed source-change evidence; old/new kept even when the source now lacks a date."""
+    changeId: str = Field(max_length=128)
+    sourceId: str = Field(default=None, max_length=512)
+    detectedAt: str = Field(max_length=64)
+    sourceObservedAt: str = Field(default=None, max_length=64)
+    from_: DeadlineAssertion = Field(alias="from")
+    to: DeadlineAssertion
+
+
+class AlertContext(WireModel):
+    """Closed destination mapping; never an arbitrary URL."""
+    destination: Literal['assessment', 'week', 'alerts']
+    reason: Literal['deadline_due', 'busy_week', 'catch_up', 'source_change', 'source_change_hidden']
+    courseId: str = Field(default=None, max_length=512)
+    assessmentId: str = Field(default=None, max_length=512)
+    week: Integer = Field(default=None, ge=1, le=30)
+    precision: Literal['exact', 'date', 'week', 'unknown'] = None
+    change: AlertChange = None
+
+
+AlertDeliveryState = Literal['dashboard_only', 'pending', 'issued', 'shown', 'denied', 'failed', 'unknown']
+AlertDeliveryError = Literal['create_failed', 'permission_denied', 'unavailable', 'ineligible', 'stale', 'disabled']
+
+
+class AlertDelivery(WireModel):
+    channel: Literal['dashboard', 'os']
+    state: AlertDeliveryState
+    attemptId: str = Field(default=None, max_length=128)
+    errorCode: AlertDeliveryError = None
+    updatedAt: str = Field(max_length=64)
+
+
 class Alert(WireModel):
     id: str
     kind: Literal["deadline", "busy_week", "change", "sync"]
@@ -459,6 +492,14 @@ class Alert(WireModel):
     deliveryKey: str
     createdAt: str
     read: bool
+    context: AlertContext = None
+    delivery: AlertDelivery = None
+
+
+class AlertUpdateInput(WireModel):
+    model_config = ConfigDict(strict=True, extra='forbid', allow_inf_nan=False, json_schema_extra=omit_absence_defaults)
+    ids: list[Annotated[str, Field(min_length=1, max_length=512)]] = Field(min_length=1, max_length=1000)
+    action: Literal['read', 'delete']
 
 
 class Weights(WireModel):
@@ -1272,9 +1313,15 @@ class SyncUnavailableError(QueueModel):
 # Reminder plan (#38). Backend-derived; the worker never supplies timestamps or targets.
 ReminderOpaqueId = Annotated[str, Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9._~-]+$')]
 ReminderKind = Literal['deadline', 'busy_week']
+AlertDeliveryKey = Annotated[str, Field(min_length=1, max_length=160, pattern=r'^[A-Za-z0-9._~:-]+$')]
 ReminderReason = Literal['disabled', 'invalid_lead_time', 'timezone_data_unavailable', 'calendar_missing', 'calendar_invalid', 'date_unknown',
                          'week_outside_calendar', 'date_outside_calendar', 'local_time_ambiguous', 'invalid_weights']
 ReminderItemStatus = Literal['scheduled', 'due', 'requested', 'unscheduled']
+
+
+class ReminderPendingDelivery(WireModel):
+    deliveryKey: AlertDeliveryKey
+    notificationId: ReminderOpaqueId
 
 
 class ReminderPlanItem(WireModel):
@@ -1301,6 +1348,7 @@ class ReminderPlan(WireModel):
     items: list[ReminderPlanItem] = Field(max_length=100)
     nextCursor: ReminderOpaqueId = None
     nextWakeAt: str = None
+    pendingDeliveries: list[ReminderPendingDelivery] = Field(default=None, max_length=20)
 
 
 class ReminderReconcileInput(WireModel):
@@ -1333,6 +1381,37 @@ class ReminderDeliveryRequest(WireModel):
     targets: list[ReminderDeliveryTarget] = Field(max_length=100)
 
 
+class ReminderDeliveryStatusInput(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    datasetId: ReminderOpaqueId
+    expectedGeneration: ReminderOpaqueId
+    deliveryKey: AlertDeliveryKey
+    attemptId: ReminderOpaqueId
+    state: Literal['issued', 'shown', 'failed', 'denied']
+    fixedErrorCode: Literal['create_failed', 'permission_denied', 'unavailable'] = None
+
+
+class ReminderDeliveryReceipt(WireModel):
+    deliveryKey: AlertDeliveryKey
+    notificationId: ReminderOpaqueId
+    state: AlertDeliveryState
+    reserved: bool
+    title: str = Field(default=None, max_length=100)
+    message: str = Field(default=None, max_length=300)
+
+
+class ReminderNotificationTargetInput(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    datasetId: ReminderOpaqueId
+    notificationId: ReminderOpaqueId
+
+
+class ReminderNotificationTarget(WireModel):
+    destination: Literal['assessment', 'week', 'alerts']
+    assessmentId: str = Field(default=None, max_length=512)
+    week: Integer = Field(default=None, ge=1, le=30)
+
+
 class ReminderDispatchResult(WireModel):
     datasetId: str = Field(max_length=128)
     generation: ReminderOpaqueId
@@ -1340,3 +1419,4 @@ class ReminderDispatchResult(WireModel):
     replayed: bool
     requests: list[ReminderDeliveryRequest] = Field(max_length=100)
     nextWakeAt: str = None
+    pendingDeliveries: list[ReminderPendingDelivery] = Field(default=None, max_length=20)

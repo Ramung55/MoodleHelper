@@ -6,6 +6,7 @@ from uuid import uuid4
 from backend.deadline_tracking import equal
 from backend.domain_validation import validate_date
 from backend.reconciliation import ReconciliationConflict, assessment, canonical, digest, key, source
+from backend import alert_delivery
 
 
 def fail():
@@ -114,3 +115,4 @@ def confirm(snapshot, namespace, body):
             **{'from':deepcopy(offered['target']['date'])},to=deepcopy(offered['incoming']['date']),
             detectedAt=now,sourceId=target['id'],sourceKind='syllabus',sourceDocumentId=member['documentId'],
             sourceCandidateId=member['candidateId'],sourceObservedAt=offered['incoming']['observedAt']))
+        alert_delivery.change_alert(snapshot, snapshot['changes'][-1])  # #39
