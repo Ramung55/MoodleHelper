@@ -32,6 +32,15 @@ export type LocalEvidenceRef = z.infer<typeof LocalEvidenceRef>;
 export const LocalSyllabusRoute = z.object({ mentionId: z.string(), documentId: z.string(), candidateId: z.string(), assessmentId: z.string().optional(), disposition: z.enum(["auto", "review", "retained"]), reasons: z.array(LocalPolicyReason).max(32) }).strict();
 export type LocalSyllabusRoute = z.infer<typeof LocalSyllabusRoute>;
 export const LocalRoutingReceipt = z.object({ evidence: LocalEvidenceRef, fingerprint: LocalDigest, route: LocalSyllabusRoute }).strict();
+/** #32 review: server routing fingerprint (not the browser original hash), stable decision id and evidence mode. */
+export const LocalEvidenceMode = z.enum(["original-available", "stored-evidence-only", "unavailable"]);
+export type LocalEvidenceMode = z.infer<typeof LocalEvidenceMode>;
+export const LocalReviewContext = z.object({ datasetId: z.string().min(1).max(128), pipelineVersion: LocalVersion, proposalFingerprint: LocalDigest, decisionId: LocalOpaque, evidenceMode: LocalEvidenceMode, acknowledgedStoredOnly: z.boolean() }).strict();
+export type LocalReviewContext = z.infer<typeof LocalReviewContext>;
+export const LocalReviewValues = z.object({ title: z.string().min(1).max(512), type: AssessmentType, date: LocalSyllabusDate }).strict();
+export type LocalReviewValues = z.infer<typeof LocalReviewValues>;
+export const LocalReviewReceipt = z.object({ decisionId: z.string(), proposalFingerprint: LocalDigest, requestFingerprint: LocalDigest, kind: z.enum(["confirm", "correct", "reject"]), originalValues: LocalReviewValues, correctedValues: LocalReviewValues.optional(), evidenceMode: LocalEvidenceMode, acknowledgedStoredOnly: z.boolean(), decidedAt: z.string(), assessmentId: z.string().optional() }).strict();
+export type LocalReviewReceipt = z.infer<typeof LocalReviewReceipt>;
 
 export const SubmissionStatus = z.enum(["submitted", "draft", "not_submitted", "reopened", "unknown"]);
 export type SubmissionStatus = z.infer<typeof SubmissionStatus>;
@@ -63,6 +72,8 @@ export type Course = z.infer<typeof Course>;
 
 export const SourceEvidence = z.object({
   localEvidence: LocalEvidenceRef.optional(),
+  localDecisionId: z.string().optional(),
+  localReviewMode: z.enum(["original-available", "stored-evidence-only"]).optional(),
   source: z.enum(["moodle", "syllabus", "personal"]),
   date: DateValue,
   excerpt: z.string().optional(),
@@ -152,6 +163,7 @@ export const ExtractionCandidate = z.object({
   matchAssessmentId: z.string().optional(),
   reason: z.string().optional(),
   localEvidence: LocalEvidenceRef.optional(),
+  localDecision: LocalReviewReceipt.optional(),
 });
 export type ExtractionCandidate = z.infer<typeof ExtractionCandidate>;
 

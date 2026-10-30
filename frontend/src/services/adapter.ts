@@ -1,6 +1,6 @@
 import type { RawCourseObservation } from "@/domain/types";
 import type { AssessmentType, ConnectionState, DateValue, Overlay, Settings, Snapshot } from "@/domain/types";
-import type { SyllabusRevisionDecision, SyllabusRevisionPreview } from "@/domain/types";
+import type { LocalReviewContext, SyllabusRevisionDecision, SyllabusRevisionPreview } from "@/domain/types";
 
 export interface ConnectionInfo {
   state: ConnectionState;
@@ -16,10 +16,12 @@ export interface PersonalEventInput {
   date: DateValue;
 }
 
-export type ReviewDecision =
+/** localReview is required by the backend only for registered local (#31) candidates. */
+export type ReviewDecision = (
   | { kind: "confirm" }
   | { kind: "reject" }
-  | { kind: "correct"; title: string; date: DateValue; type: AssessmentType };
+  | { kind: "correct"; title: string; date: DateValue; type: AssessmentType }
+) & { localReview?: LocalReviewContext };
 
 export type ImportResult = { ok: true } | { ok: false; reason: string };
 

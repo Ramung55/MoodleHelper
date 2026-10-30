@@ -1,14 +1,41 @@
 import { currentDataset, database } from "./local-documents";
 import type { AssessmentMention } from "@/domain/assessment-mentions";
 import type { SyllabusDateProposal } from "@/domain/syllabus-dates";
-import type { DateValue, LocalEvidenceRef, LocalSyllabusProposal, LocalSyllabusRoute } from "@/domain/types";
+import type { AssessmentType, DateValue, LocalEvidenceMode, LocalEvidenceRef, LocalReviewReceipt, LocalSyllabusProposal, LocalSyllabusRoute } from "@/domain/types";
 
+/** #32 append-only review audit. Original proposal/source text is never rewritten by these entries. */
+export type LocalReviewAuditEntry = {
+  kind: "review-requested" | "review-committed" | "review-unknown" | "review-failed"; at: string;
+  decisionId: string; decision: "confirm" | "correct" | "reject";
+  candidateId: string; documentId: string;
+  /** Browser original-evidence hash; absent for an audit-only (unavailable original) entry. */
+  originalFingerprint?: string;
+  /** Server metadata routing fingerprint; deliberately different from originalFingerprint. */
+  routingFingerprint: string;
+  evidenceMode: LocalEvidenceMode; acknowledgedStoredOnly: boolean;
+  proposedValues: { title: string; type: AssessmentType; date: DateValue };
+  correctedValues?: { title: string; type: AssessmentType; date: DateValue };
+  backendReceipt?: LocalReviewReceipt; message?: string;
+};
 export type LocalEvidenceRecord = LocalEvidenceRef & {
   fingerprint: string; format: "pdf" | "docx";
   original: { mention: AssessmentMention; dates: SyllabusDateProposal[]; week: DateValue };
   proposal: LocalSyllabusProposal;
   state: "pending" | "routed"; receipt?: LocalSyllabusRoute;
-  audit: { kind: "retained" | "routed"; at: string }[];
+  audit: ({ kind: "retained" | "routed"; at: string } | LocalReviewAuditEntry)[];
+};
+/** PM-approved audit-only shape at the registered key: never an original, never routable or confirmable. */
+export type LocalAuditOnlyRecord = LocalEvidenceRef & {
+  originalState: "unavailable"; candidateId: string; documentId: string; routingFingerprint: string;
+  audit: LocalReviewAuditEntry[];
+  /** Preserved, uninterpreted prior corrupt/mismatched row (never shown or logged). */
+  quarantined?: unknown;
+};
+export const MAX_REVIEW_AUDIT = 64;
+const isAuditOnly = (value: unknown): value is LocalAuditOnlyRecord => !!value && typeof value === "object" && (value as LocalAuditOnlyRecord).originalState === "unavailable" && Array.isArray((value as LocalAuditOnlyRecord).audit);
+const isOriginal = (value: unknown): value is LocalEvidenceRecord => {
+  const row = value as LocalEvidenceRecord | undefined;
+  return !!row && typeof row === "object" && !isAuditOnly(row) && typeof row.fingerprint === "string" && !!row.original && typeof row.original.mention?.excerpt === "string" && Array.isArray(row.original.dates) && !!row.proposal && Array.isArray(row.audit);
 };
 export function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -40,7 +67,8 @@ export async function retainLocalEvidence(records: LocalEvidenceRecord[], signal
         const request = store.get(key(record));
         request.onsuccess = () => {
           const previous = request.result as LocalEvidenceRecord | undefined;
-          if (previous && previous.fingerprint !== record.fingerprint) { collision = true; tx.abort(); return; }
+          // An audit-only/corrupt row needs explicit recovery; never overwrite it silently.
+          if (previous && (!isOriginal(previous) || previous.fingerprint !== record.fingerprint)) { collision = true; tx.abort(); return; }
           result[index] = previous ?? record;
           if (!previous) store.add(record);
         };
@@ -52,15 +80,22 @@ export async function retainLocalEvidence(records: LocalEvidenceRecord[], signal
     await check(scope.datasetId, signal); return saved;
   } finally { db.close(); }
 }
-export async function readLocalEvidence(ref: LocalEvidenceRef, signal?: AbortSignal): Promise<{ record?: LocalEvidenceRecord; sourceAvailable: boolean }> {
+export type LocalEvidenceRead = { record?: LocalEvidenceRecord; sourceAvailable: boolean; auditOnly?: LocalAuditOnlyRecord; corrupt?: boolean };
+export async function readLocalEvidence(ref: LocalEvidenceRef, signal?: AbortSignal): Promise<LocalEvidenceRead> {
   await check(ref.datasetId, signal); const db = await database();
   try {
-    const result = await new Promise<{ record?: LocalEvidenceRecord; sourceAvailable: boolean }>((resolve, reject) => {
+    const result = await new Promise<LocalEvidenceRead>((resolve, reject) => {
       const tx = db.transaction(["evidence", "associations", "blobs"], "readonly");
       const evidence = tx.objectStore("evidence").get(key(ref));
       const association = tx.objectStore("associations").get([ref.datasetId, ref.courseId, ref.digest]);
       const blob = tx.objectStore("blobs").get([ref.datasetId, ref.digest]);
-      tx.oncomplete = () => resolve({ record: evidence.result, sourceAvailable: !!association.result && blob.result?.file instanceof Blob });
+      tx.oncomplete = () => {
+        const row: unknown = evidence.result, sourceAvailable = !!association.result && blob.result?.file instanceof Blob;
+        if (isAuditOnly(row)) resolve({ sourceAvailable, auditOnly: row });
+        else if (row === undefined) resolve({ sourceAvailable });
+        else if (isOriginal(row)) resolve({ record: row, sourceAvailable });
+        else resolve({ sourceAvailable, corrupt: true });
+      };
       tx.onabort = () => reject(new Error("Could not read stored local evidence."));
     });
     await check(ref.datasetId, signal); return result;
@@ -89,5 +124,43 @@ export async function markLocalRoutes(records: LocalEvidenceRecord[], routes: Lo
       tx.onabort = () => { signal.removeEventListener("abort", abort); reject(new Error("Routing outcome is not locally reconciled. Retry the same stored proposal; no new identity was assigned.")); };
     });
     await check(records[0].datasetId, signal);
+  } finally { db.close(); }
+}
+
+/**
+ * Durable pending/outcome review audit. An original record gets the entry appended (originals untouched);
+ * a missing/corrupt/mismatched original gets the explicit audit-only wrapper, preserving any raw row.
+ * Throws (and the caller sends nothing) on quota/storage/context failure or a changed original fingerprint.
+ */
+export async function appendLocalReviewAudit(ref: LocalEvidenceRef, entry: LocalReviewAuditEntry, signal?: AbortSignal): Promise<void> {
+  await check(ref.datasetId, signal); const db = await database();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("evidence", "readwrite"), store = tx.objectStore("evidence");
+      let problem = "Review audit could not be stored locally (storage or quota). Nothing was sent.";
+      const request = store.get(key(ref));
+      request.onsuccess = () => {
+        const current: unknown = request.result;
+        const fail = (message: string) => { problem = message; tx.abort(); };
+        const reviews = (rows: unknown[]) => rows.filter(row => String((row as { kind?: string }).kind).startsWith("review-")).length;
+        if (isOriginal(current) && entry.evidenceMode !== "unavailable") {
+          if (current.fingerprint !== entry.originalFingerprint || current.locationId !== ref.locationId) return fail("Stored original evidence changed. Reload before reviewing; nothing was sent.");
+          if (reviews(current.audit) >= MAX_REVIEW_AUDIT) return fail("The local review audit limit was reached. Nothing was sent.");
+          store.put({ ...current, audit: [...current.audit, entry] });
+        } else if (isAuditOnly(current)) {
+          if (current.candidateId !== entry.candidateId || current.documentId !== entry.documentId) return fail("Audit-only evidence belongs to another candidate. Nothing was sent.");
+          if (current.audit.length >= MAX_REVIEW_AUDIT) return fail("The local review audit limit was reached. Nothing was sent.");
+          store.put({ ...current, audit: [...current.audit, entry] });
+        } else {
+          if (entry.evidenceMode !== "unavailable") return fail("Original local evidence is unavailable. Only Reject can be recorded.");
+          const wrapper: LocalAuditOnlyRecord = { datasetId: ref.datasetId, courseId: ref.courseId, digest: ref.digest, mentionId: ref.mentionId, locationId: ref.locationId, pipelineVersion: ref.pipelineVersion, originalState: "unavailable", candidateId: entry.candidateId, documentId: entry.documentId, routingFingerprint: entry.routingFingerprint, audit: [entry], ...(current === undefined ? {} : { quarantined: current }) };
+          store.put(wrapper);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(new Error(problem));
+      tx.onerror = () => {};
+    });
+    await check(ref.datasetId, signal);
   } finally { db.close(); }
 }

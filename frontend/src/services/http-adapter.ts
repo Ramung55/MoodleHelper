@@ -1,6 +1,6 @@
 import type { RawCourseObservation } from "@/domain/types";
 import { z } from "zod";
-import { ConnectionState, Snapshot, TeachingCalendar, SyllabusRevisionPreview, LocalSyllabusInput, LocalSyllabusResult, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
+import { ConnectionState, Snapshot, TeachingCalendar, LocalReviewContext, LocalSyllabusDate, SyllabusRevisionPreview, LocalSyllabusInput, LocalSyllabusResult, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
 import type { MoodleHelperAdapter, OverlayPatch, PersonalEventInput, ReviewDecision } from "./adapter";
 
 const connectionSchema = z.object({ state: ConnectionState, message: z.string(), extensionDetected: z.boolean() });
@@ -12,6 +12,11 @@ const aiSchema = z.union([
   z.object({ available: z.literal(false), reason: z.string() }),
   z.object({ available: z.literal(true), provider: z.string(), retention: z.string() }),
 ]);
+
+/** The backend answered definitively (any HTTP status); network loss or an unreadable body stays uncertain. */
+export class BackendResponseError extends Error {
+  constructor(message: string, readonly status: number) { super(message); this.name = "BackendResponseError"; }
+}
 
 /** HTTP transport for the local fictional-data backend. No fallback to fixtures. */
 export class HttpAdapter implements MoodleHelperAdapter {
@@ -39,7 +44,7 @@ export class HttpAdapter implements MoodleHelperAdapter {
     }
     if (!response.ok) {
       const error = z.object({ message: z.string() }).safeParse(payload);
-      throw new Error(error.success ? error.data.message : `Backend request failed (HTTP ${response.status}).`);
+      throw new BackendResponseError(error.success ? error.data.message : `Backend request failed (HTTP ${response.status}).`, response.status);
     }
     const parsed = schema.safeParse(payload);
     if (!parsed.success) throw new Error(`The backend returned an invalid response (${parsed.error.issues[0]?.path.join(".") || "response"}).`);
@@ -84,7 +89,31 @@ export class HttpAdapter implements MoodleHelperAdapter {
     onProgress(result.snapshot);
     return result;
   }
-  review(id: string, decision: ReviewDecision) { return this.request("POST", `/candidates/${encodeURIComponent(id)}/review`, Snapshot, decision); }
+  review(id: string, decision: ReviewDecision) {
+    if (!decision.localReview) return this.request("POST", `/candidates/${encodeURIComponent(id)}/review`, Snapshot, decision);
+    return this.reviewLocal(id, decision);
+  }
+  /** Registered local candidate: strict metadata-only body plus the current process binding (#32). */
+  private async reviewLocal(id: string, decision: ReviewDecision) {
+    LocalReviewContext.parse(decision.localReview);
+    const body = decision.kind === "correct" ? { kind: decision.kind, title: decision.title, type: decision.type, date: LocalSyllabusDate.parse(decision.date), localReview: decision.localReview } : { kind: decision.kind, localReview: decision.localReview };
+    const base = this.baseUrl.replace(/\/$/, "");
+    let context: Response;
+    try { context = await this.fetcher(`${base}/api/bridge-context`, { credentials: "omit", cache: "no-store" }); }
+    catch { throw new BackendResponseError("Could not verify the local process. Nothing was saved; reconnect and retry.", 0); }
+    const binding = context.ok ? z.object({ version: z.literal("1"), binding: z.string().min(1) }).strict().safeParse(await context.json().catch(() => null)) : undefined;
+    if (!binding?.success) throw new BackendResponseError("Could not verify the local process. Nothing was saved; reconnect and retry.", context.status || 0);
+    let response: Response;
+    try {
+      response = await this.fetcher(`${base}/api/candidates/${encodeURIComponent(id)}/review`, { method: "POST", credentials: "omit", cache: "no-store", headers: { Accept: "application/json", "Content-Type": "application/json", "X-Moodle-Helper-Bridge-Binding": binding.data.binding }, body: JSON.stringify(body) });
+    } catch { throw new Error("The review result is unknown: the local backend did not answer. Retry to reconcile the same decision."); }
+    let payload: unknown;
+    try { payload = await response.json(); } catch { throw response.ok ? new Error("The review result is unknown: the backend response was unreadable. Retry to reconcile the same decision.") : new BackendResponseError(`Review failed (HTTP ${response.status}).`, response.status); }
+    if (!response.ok) throw new BackendResponseError(z.object({ message: z.string() }).safeParse(payload).data?.message ?? `Review failed (HTTP ${response.status}).`, response.status);
+    const parsed = Snapshot.safeParse(payload);
+    if (!parsed.success) throw new Error("The review result is unknown: the backend response was invalid. Retry to reconcile the same decision.");
+    return parsed.data;
+  }
   proposeReconciliation(left: string, right: string) { return this.request("POST", "/reconciliation/pairs", Snapshot, { left, right }); }
   previewSyllabusRevision(sourceId: string, candidateId: string) { return this.request("POST", "/syllabus-revisions/preview", SyllabusRevisionPreview, {sourceId, candidateId}); }
   confirmSyllabusRevision(decision: SyllabusRevisionDecision) { return this.request("POST", "/syllabus-revisions/confirm", Snapshot, decision); }
