@@ -10,22 +10,27 @@ import { AssessmentSheet } from "@/components/mh/AssessmentSheet";
 import { DateInput } from "@/components/mh/DateInput";
 import { EmptyState, PageHeader, TYPE_LABEL } from "@/components/mh/bits";
 import type { AssessmentView } from "@/domain/assessments";
-import { mapTeachingWeek } from "@/domain/teaching-weeks";
+import { dayGroup, matchStatus, STATUS_FILTERS, weekGroup, type Group } from "@/domain/deadline-display";
 import type { AssessmentType, DateValue } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
 import { personalDateError } from "@/domain/personal-event";
 
 type Search = { course?: string; type?: string; status?: string; id?: string; group?: string; week?: number };
 
+export function parseDeadlineSearch(s: Record<string, unknown>): Search {
+  const week = typeof s.week === "number" || typeof s.week === "string" ? Number(s.week) : NaN;
+  return {
+    course: typeof s.course === "string" && s.course ? s.course : undefined,
+    type: typeof s.type === "string" && Object.hasOwn(TYPE_LABEL, s.type) ? s.type : undefined,
+    status: typeof s.status === "string" && (STATUS_FILTERS as readonly string[]).includes(s.status) ? s.status : undefined,
+    id: typeof s.id === "string" && s.id ? s.id : undefined,
+    group: s.group === "day" ? "day" : undefined,
+    week: Number.isInteger(week) && week > 0 && week < 100 ? week : undefined,
+  };
+}
+
 export const Route = createFileRoute("/deadlines")({
-  validateSearch: (s: Record<string, unknown>): Search => ({
-    course: typeof s.course === "string" ? s.course : undefined,
-    type: typeof s.type === "string" ? s.type : undefined,
-    status: typeof s.status === "string" ? s.status : undefined,
-    id: typeof s.id === "string" ? s.id : undefined,
-    group: typeof s.group === "string" ? s.group : undefined,
-    week: s.week != null && !Number.isNaN(Number(s.week)) ? Number(s.week) : undefined,
-  }),
+  validateSearch: parseDeadlineSearch,
   head: () => ({
     meta: [
       { title: "Deadlines — Moodle Helper" },
@@ -37,44 +42,57 @@ export const Route = createFileRoute("/deadlines")({
   component: Deadlines,
 });
 
-function matchStatus(v: AssessmentView, st?: string) {
-  switch (st) {
-    case "outstanding": return v.outstanding;
-    case "attention": return v.needsAttention;
-    case "done": return v.completed || v.a.submission?.status === "submitted";
-    case "hidden": return v.hidden;
-    default: return !v.hidden;
-  }
-}
+const STATUS_LABEL: Record<string, string> = { outstanding: "Outstanding", attention: "Not submitted / draft / resubmit", done: "Done", hidden: "Hidden" };
 
 function Deadlines() {
   const search = Route.useSearch();
   const nav = useNavigate({ from: "/deadlines" });
+  const set = (p: Partial<Search>) => nav({ search: (old) => ({ ...old, ...p }) });
+  return <DeadlineList search={search} set={set} />;
+}
+
+export function DeadlineList({ search, set }: { search: Search; set: (p: Partial<Search>) => void }) {
   const { snap, views } = useApp();
   const [adding, setAdding] = useState(false);
   const s = snap!;
-  const set = (p: Partial<Search>) => nav({ search: (old) => ({ ...old, ...p }) });
+  const tz = s.settings.timezone;
 
-  const list = views.filter(
+  // Course choices: tracked courses plus any course with a visible item (e.g. personal events on untracked courses).
+  const courseIds = new Set([...s.settings.trackedCourseIds, ...views.map((v) => v.a.courseId)]);
+  const courseChoices = s.courses.filter((c) => courseIds.has(c.id));
+  const unknownCourse = !!search.course && !courseChoices.some((c) => c.id === search.course);
+  const list = unknownCourse ? [] : views.filter(
     (v) => (!search.course || v.a.courseId === search.course) && (!search.type || v.a.type === search.type) && matchStatus(v, search.status) && (search.week == null || v.week === search.week),
   );
   const byWeek = search.group !== "day";
-  const groups = new Map<string, AssessmentView[]>();
+  const groups = new Map<string, { g: Group; items: AssessmentView[] }>();
   for (const v of list) {
-    let key: string;
-    if (byWeek) key = v.week ? `Week ${v.week}` : "Unallocated";
-    else key = v.date.kind === "exact" ? new Date(v.date.iso).toLocaleDateString("en-GB", { timeZone: s.settings.timezone, weekday: "long", day: "numeric", month: "long" }) : v.date.kind === "date" ? v.date.date : v.week ? `Week ${v.week} (no exact day)` : "Unallocated";
-    groups.set(key, [...(groups.get(key) ?? []), v]);
+    const g = byWeek ? weekGroup(v) : dayGroup(v, tz);
+    const entry = groups.get(g.key) ?? { g, items: [] };
+    entry.items.push(v);
+    groups.set(g.key, entry);
   }
+  const ordered = [...groups.values()].sort((a, b) => a.g.order - b.g.order);
+  const filtered = !!(search.course || search.type || search.status || search.week != null);
+  const visibleTotal = views.filter((v) => !v.hidden).length;
+  const filterText = [
+    search.course && (s.courses.find((c) => c.id === search.course)?.code ?? "Unavailable course"),
+    search.type && TYPE_LABEL[search.type as keyof typeof TYPE_LABEL],
+    search.status ? STATUS_LABEL[search.status] : "All visible",
+    search.week != null && `Week ${search.week}`,
+  ].filter(Boolean).join(" · ");
+  const reset = () => set({ course: undefined, type: undefined, status: undefined, week: undefined });
+  const now = new Date();
 
-  const sel = "h-9 rounded-md border bg-card px-2 text-sm";
+  const sel = "h-9 rounded-md border bg-card px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
   return (
     <>
-      <PageHeader title="Deadlines" sub={`${list.length} shown`} actions={<Button onClick={() => setAdding(true)}><Plus className="mr-2 h-4 w-4" aria-hidden />Personal event</Button>} />
+      <PageHeader title="Deadlines" sub={<span role="status">{list.length} shown · {filterText}</span>} actions={<Button onClick={() => setAdding(true)}><Plus className="mr-2 h-4 w-4" aria-hidden />Personal event</Button>} />
       <div className="mb-6 flex flex-wrap gap-2" role="group" aria-label="Filters">
-        <select aria-label="Course" className={sel} value={search.course ?? ""} onChange={(e) => set({ course: e.target.value || undefined })}>
+        <select aria-label="Course" className={sel} value={unknownCourse ? "__unknown" : search.course ?? ""} onChange={(e) => set({ course: e.target.value || undefined })}>
           <option value="">All courses</option>
-          {s.courses.filter((c) => s.settings.trackedCourseIds.includes(c.id)).map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
+          {unknownCourse && <option value="__unknown" disabled>Unavailable course</option>}
+          {courseChoices.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
         </select>
         <select aria-label="Type" className={sel} value={search.type ?? ""} onChange={(e) => set({ type: e.target.value || undefined })}>
           <option value="">All types</option>
@@ -82,31 +100,32 @@ function Deadlines() {
         </select>
         <select aria-label="Status" className={sel} value={search.status ?? ""} onChange={(e) => set({ status: e.target.value || undefined })}>
           <option value="">All visible</option>
-          <option value="outstanding">Outstanding</option>
-          <option value="attention">Not submitted / draft / resubmit</option>
-          <option value="done">Done</option>
-          <option value="hidden">Hidden</option>
+          {STATUS_FILTERS.map((k) => <option key={k} value={k}>{STATUS_LABEL[k]}</option>)}
         </select>
-        <select aria-label="Group by" className={sel} value={byWeek ? "week" : "day"} onChange={(e) => set({ group: e.target.value })}>
+        <select aria-label="Group by" className={sel} value={byWeek ? "week" : "day"} onChange={(e) => set({ group: e.target.value === "day" ? "day" : undefined })}>
           <option value="week">Group by week</option>
           <option value="day">Group by day</option>
         </select>
-        {search.week != null && <Button variant="outline" size="sm" onClick={() => set({ week: undefined })}>Week {search.week} ✕</Button>}
+        {search.week != null && <Button variant="outline" size="sm" aria-label={`Clear week ${search.week} filter`} onClick={() => set({ week: undefined })}>Week {search.week} ✕</Button>}
+        {filtered && <Button variant="ghost" size="sm" onClick={reset}>Reset filters</Button>}
       </div>
 
       {list.length === 0 ? (
-        <EmptyState title="No assessments match these filters" />
+        unknownCourse ? (
+          <EmptyState title="This course filter is not available">The course in the link is not tracked or no longer exists. <Button variant="link" className="h-auto p-0" onClick={reset}>Reset filters</Button></EmptyState>
+        ) : !filtered && visibleTotal === 0 ? (
+          <EmptyState title="No deadlines yet">Sync Moodle, import a syllabus or add a personal event.</EmptyState>
+        ) : (
+          <EmptyState title="No assessments match these filters"><Button variant="link" className="h-auto p-0" onClick={reset}>Reset filters</Button></EmptyState>
+        )
       ) : (
         <div className="space-y-8">
-          {[...groups].map(([k, items]) => {
-            const wk = byWeek && k.startsWith("Week") ? mapTeachingWeek(Number(k.slice(5)), s.settings.teachingCalendar) : null;
-            return (
-              <section key={k}>
-                <h2 className="mb-2 text-lg font-semibold">{k}{wk?.resolved && <span className="ml-2 text-sm font-normal text-muted-foreground">{wk.start} – {wk.end}</span>}</h2>
-                <div className="space-y-2">{items.map((v) => <AssessmentRow key={v.a.id} v={v} onOpen={(id) => set({ id })} />)}</div>
-              </section>
-            );
-          })}
+          {ordered.map(({ g, items }) => (
+            <section key={g.key} aria-label={`${g.label} (${items.length})`}>
+              <h2 className="mb-2 text-lg font-semibold">{g.label}{g.detail && <span className="ml-2 text-sm font-normal text-muted-foreground">{g.detail}</span>}</h2>
+              <div className="space-y-2">{items.map((v) => <AssessmentRow key={v.a.id} v={v} now={now} onOpen={(id) => set({ id })} />)}</div>
+            </section>
+          ))}
         </div>
       )}
       <AssessmentSheet id={search.id ?? null} onClose={() => set({ id: undefined })} />

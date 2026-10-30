@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { formatDate } from "@/domain/dates";
+import { displayDate as formatDate, dueState, redactUnsafeLinks, safeSourceHref, sourceFreshness } from "@/domain/deadline-display";
 import { LocalEvidenceView } from "./LocalEvidenceView";
 import { resolveAssessmentId } from "@/domain/assessments";
 import { useApp } from "@/lib/app-store";
@@ -39,6 +39,13 @@ export function dirtyOverlayPatch(saved: { titleOverride?: string; dateOverride?
   return patch;
 }
 
+/** Source links are revalidated at the display boundary; unsafe ones are never echoed. */
+export function SourceLink({ url, label }: { url: string; label: string }) {
+  const href = safeSourceHref(url);
+  if (!href) return <span className="text-xs text-muted-foreground">Source link unavailable</span>;
+  return <a className="text-xs text-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={href} target="_blank" rel="noreferrer noopener">{label}</a>;
+}
+
 export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
   const { views, snap, run } = useApp();
   const resolvedId = id && snap ? resolveAssessmentId(snap, id) : id;
@@ -49,6 +56,8 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
   const [pending, setPending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const busy = useRef(false);
+  const lastId = useRef<string | null>(null);
+  if (resolvedId) lastId.current = resolvedId;
   const mutate = async (fn: Parameters<typeof run>[0], failure: string, after?: () => void) => {
     if (busy.current) return false;
     busy.current = true; setPending(true); setErrors({});
@@ -71,15 +80,29 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
   const originals = v && snap.reconciliation ? snap.reconciliation.aliases.filter((alias) => alias.canonicalId === v.a.id && alias.originalId !== v.a.id).map((alias) => snap.assessments.find((item) => item.id === alias.originalId)).filter((item) => !!item) : [];
   const saved = v?.overlay;
   const hasDateOverride = !!saved?.dateOverride;
+  const due = v ? dueState(v, tz, new Date()) : null;
+  const fresh = v ? sourceFreshness(v, snap, tz) : null;
   const rawSources = v ? (snap.reconciliation?.sources ?? []).filter((source) => resolveAssessmentId(snap, source.assessmentId) === v.a.id && source.recordId) : [];
 
   return (
-    <Sheet open={!!v} onOpenChange={(o) => !o && !busy.current && onClose()}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+    <Sheet open={!!id} onOpenChange={(o) => !o && !busy.current && onClose()}>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-lg" onCloseAutoFocus={(e) => {
+        const row = lastId.current && typeof document !== "undefined" ? document.querySelector<HTMLElement>(`[data-assessment-row="${CSS.escape(lastId.current)}"]`) : null;
+        if (row) { e.preventDefault(); row.focus(); }
+      }}>
+        {!v && id && (
+          <>
+            <SheetHeader>
+              <SheetTitle className="font-display text-2xl">Assessment not available</SheetTitle>
+              <SheetDescription>This link points to an assessment that was removed, merged away or is not tracked. Your other deadlines are unchanged.</SheetDescription>
+            </SheetHeader>
+            <div className="px-4 pb-8"><Button variant="outline" onClick={onClose}>Back to deadlines</Button></div>
+          </>
+        )}
         {v && (
           <>
             <SheetHeader>
-              <SheetTitle className="font-display text-2xl">{v.title}</SheetTitle>
+              <SheetTitle className="font-display text-2xl break-words [overflow-wrap:anywhere]">{v.title}</SheetTitle>
               <SheetDescription asChild>
                 <div className="space-y-1">
                   <CourseTag course={course} />
@@ -94,7 +117,9 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 <p className="font-mono text-lg font-semibold">{formatDate(v.date, tz)}</p>
                 {v.date.kind === "week" && <p>{v.teachingMapping.resolved ? `${v.teachingMapping.start} – ${v.teachingMapping.end} · ${v.teachingMapping.timezone}` : v.teachingMapping.reason}</p>}
                 {v.week && <p className="text-xs text-muted-foreground">Teaching week {v.week}</p>}
-                {v.a.availableFrom && <p className="text-xs text-muted-foreground">Opens {new Date(v.a.availableFrom).toLocaleString("en-GB", { timeZone: tz })}</p>}
+                {due && <p className={due.kind === "overdue" ? "text-sm font-semibold text-destructive" : "text-sm text-muted-foreground"}>{due.label}</p>}
+                {fresh && <p className={fresh.stale ? "text-sm text-warning-foreground" : "text-xs text-muted-foreground"}>{fresh.label}</p>}
+                {v.a.availableFrom && <p className="text-xs text-muted-foreground">Opens {Number.isFinite(Date.parse(v.a.availableFrom)) ? new Date(v.a.availableFrom).toLocaleString("en-GB", { timeZone: tz }) : "date unavailable"}</p>}
                 {v.conflict && (
                   <div className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
                     <p className="font-semibold text-destructive">{v.conflict.comparison === "incomparable" ? "Sources have different date precision" : "Sources disagree"} — {hasDateOverride ? "your date is shown; Moodle is the latest source date" : "Moodle date is used"}</p>
@@ -114,7 +139,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 {changes.map((c) => (
                   <p key={c.id} className="mt-2 text-sm text-muted-foreground">
                     {c.sourceKind === "syllabus" ? "Syllabus" : c.sourceId ? "Moodle" : "Source (unattributed)"} changed: {historyDate(c.from, tz)} → {historyDate(c.to, tz)}
-                    {c.sourceUrl && <> · <a href={c.sourceUrl}>Source</a></>}
+                    {c.sourceUrl && <> · <SourceLink url={c.sourceUrl} label="Source of this change" /></>}
                     {c.sourceDocumentId && <> · {snap.documents.find((d) => d.id === c.sourceDocumentId)?.name ?? "Document unavailable"}</>}
                     {c.sourceObservedAt && <> · Observed {c.sourceObservedAt}</>} · Detected {c.detectedAt}
                   </p>
@@ -141,21 +166,24 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 <section>
                   <h3 className="mb-2 text-sm font-semibold">Moodle submission</h3>
                   <SubmissionBadge status={v.a.submission?.status} />
+                  {!v.a.submission && <p className="mt-1 text-sm text-muted-foreground">Moodle submission status unknown — not observed yet. This is not treated as overdue or not submitted.</p>}
+                  <p className="mt-1 text-xs text-muted-foreground">Independent of your personal check{v.completed ? " (you marked this done)" : ""}.</p>
                   {v.a.submission?.evidence && <p className="mt-1 text-sm text-muted-foreground">“{v.a.submission.evidence}”</p>}
-                  {v.a.submission && <p className="text-xs text-muted-foreground">Observed {new Date(v.a.submission.observedAt).toLocaleString("en-GB", { timeZone: tz })}</p>}
+                  {v.a.submission && <p className="text-xs text-muted-foreground">Observed {Number.isFinite(Date.parse(v.a.submission.observedAt)) ? new Date(v.a.submission.observedAt).toLocaleString("en-GB", { timeZone: tz }) : "time unknown"}</p>}
                 </section>
               )}
 
               <section>
                 <h3 className="mb-2 text-sm font-semibold">Sources & evidence</h3>
+                <p className="mb-2 text-xs text-muted-foreground">Raw source observations as recorded; the effective date above may come from a newer accepted observation or your override.</p>
+                {v.a.sources.length === 0 && <p className="text-sm text-muted-foreground">No source evidence recorded.</p>}
                 <ul className="space-y-2">
                   {v.a.sources.map((s, i) => (
                     <li key={i} className="rounded-md border bg-muted/40 p-3 text-sm">
-                      <p className="font-medium capitalize">{s.source} · {formatDate(s.date, tz)}</p>
+                      <p className="font-medium">{s.source === "moodle" ? "Moodle" : s.source === "syllabus" ? "Syllabus" : "Personal"} · {formatDate(s.date, tz)}</p>
+                      <p className="text-xs text-muted-foreground">Observed {Number.isFinite(Date.parse(s.observedAt)) ? new Date(s.observedAt).toLocaleString("en-GB", { timeZone: tz }) : "time unknown"}</p>
                       {s.localEvidence ? <LocalEvidenceView reference={s.localEvidence} /> : <>{s.excerpt && <p className="text-muted-foreground">“{s.excerpt}”</p>}{s.location && <p className="text-xs text-muted-foreground">{s.location}</p>}</>}
-                      {s.url && (
-                        <a className="text-xs text-primary underline" href={s.url} target="_blank" rel="noreferrer">Open in Moodle</a>
-                      )}
+                      {s.url && <SourceLink url={s.url} label="Open source in Moodle" />}
                     </li>
                   ))}
                 </ul>
@@ -163,7 +191,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                   const record = snap.collection?.records.find((item) => item.id === source.recordId);
                   return record && <details key={source.id} className="mt-2 rounded border p-3 text-sm">
                     <summary className="cursor-pointer font-medium">Original {record.kind} observations</summary>
-                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs">{JSON.stringify(record.observations, null, 2)}</pre>
+                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs">{JSON.stringify(record.observations, redactUnsafeLinks, 2)}</pre>
                   </details>;
                 })}
               </section>
