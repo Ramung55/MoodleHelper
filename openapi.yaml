@@ -528,11 +528,14 @@ paths:
       tags:
       - Documents
       summary: Confirm, reject, or correct an extraction candidate
-      description: Request is the ReviewDecision discriminated union. Corrections
-        require title, date, and assessment type. Current demo treats an unknown candidate
-        as a no-op returning the current Snapshot and can attach evidence to matchAssessmentId.
-        The method currently has no idempotency guard; repeated confirm can append
-        evidence or assessments, so no idempotency guarantee is invented.
+      description: >-
+        Legacy/mock review behavior remains supported. A candidate with localEvidence
+        requires localReview plus current process binding and dataset preconditions.
+        Local decisions are metadata-only, strict, atomic and idempotent by decisionId
+        and immutable server proposal fingerprint. Stored-only confirm/correct requires
+        acknowledgement; unavailable evidence permits Reject only. Local unknown dates
+        require explicit correction, never an invented current date. Local request
+        size is bounded to 1048576 bytes. No excerpt/raw wording/geometry is accepted.
       security: []
       x-frontend-method: MoodleHelperAdapter.review
       x-http-mapping: proposed
@@ -543,7 +546,11 @@ paths:
         description: Extraction candidate identifier.
         schema:
           type: string
-      - $ref: '#/components/parameters/BridgeBinding'
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: false
+        description: Optional for legacy/mock decisions; REQUIRED current process binding for registered local candidates.
+        schema: {type: string}
       requestBody:
         required: true
         content:
@@ -2123,6 +2130,8 @@ components:
       type: object
       properties:
         localEvidence: {$ref: '#/components/schemas/LocalEvidenceRef'}
+        localDecisionId: {type: string}
+        localReviewMode: {type: string, enum: [original-available, stored-evidence-only]}
         source:
           type: string
           enum:
@@ -2372,6 +2381,7 @@ components:
         reason:
           type: string
         localEvidence: {$ref: '#/components/schemas/LocalEvidenceRef'}
+        localDecision: {$ref: '#/components/schemas/LocalReviewReceipt'}
       required:
       - id
       - documentId
@@ -2955,9 +2965,45 @@ components:
           confirm: '#/components/schemas/ConfirmReview'
           reject: '#/components/schemas/RejectReview'
           correct: '#/components/schemas/CorrectReview'
+    LocalReviewContext:
+      type: object
+      additionalProperties: false
+      properties:
+        datasetId: {type: string, minLength: 1, maxLength: 128}
+        pipelineVersion: {type: string, const: local-syllabus-1}
+        proposalFingerprint: {type: string, pattern: '^[0-9a-f]{64}$'}
+        decisionId: {type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$'}
+        evidenceMode: {type: string, enum: [original-available, stored-evidence-only, unavailable]}
+        acknowledgedStoredOnly: {type: boolean}
+      required: [datasetId, pipelineVersion, proposalFingerprint, decisionId, evidenceMode, acknowledgedStoredOnly]
+      description: unavailable is permitted only for Reject. Fingerprint is the server routing metadata fingerprint, not the browser original-evidence hash.
+    LocalReviewValues:
+      type: object
+      additionalProperties: false
+      properties:
+        title: {type: string, minLength: 1, maxLength: 512}
+        type: {$ref: '#/components/schemas/AssessmentType'}
+        date: {$ref: '#/components/schemas/LocalSyllabusDate'}
+      required: [title, type, date]
+    LocalReviewReceipt:
+      type: object
+      additionalProperties: false
+      properties:
+        decisionId: {type: string}
+        proposalFingerprint: {type: string, pattern: '^[0-9a-f]{64}$'}
+        requestFingerprint: {type: string, pattern: '^[0-9a-f]{64}$'}
+        kind: {type: string, enum: [confirm, correct, reject]}
+        originalValues: {$ref: '#/components/schemas/LocalReviewValues'}
+        correctedValues: {$ref: '#/components/schemas/LocalReviewValues'}
+        evidenceMode: {type: string, enum: [original-available, stored-evidence-only, unavailable]}
+        acknowledgedStoredOnly: {type: boolean}
+        decidedAt: {type: string}
+        assessmentId: {type: string}
+      required: [decisionId, proposalFingerprint, requestFingerprint, kind, originalValues, evidenceMode, acknowledgedStoredOnly, decidedAt]
     ConfirmReview:
       type: object
       properties:
+        localReview: {$ref: '#/components/schemas/LocalReviewContext'}
         kind:
           type: string
           const: confirm
@@ -2966,6 +3012,7 @@ components:
     RejectReview:
       type: object
       properties:
+        localReview: {$ref: '#/components/schemas/LocalReviewContext'}
         kind:
           type: string
           const: reject
@@ -2974,6 +3021,7 @@ components:
     CorrectReview:
       type: object
       properties:
+        localReview: {$ref: '#/components/schemas/LocalReviewContext'}
         kind:
           type: string
           const: correct

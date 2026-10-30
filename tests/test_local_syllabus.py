@@ -47,8 +47,13 @@ def test_review_decisions_survive_rerouting_and_week_precision_is_not_promoted(c
     first = submit(client, body, headers).json(); route = first['routes'][0]
     assert route['disposition'] == 'review' and route['reasons'] == ['week_only']
     candidate_id = route['candidateId']
-    reviewed = client.post(f'/api/candidates/{candidate_id}/review', json={'kind':'correct','title':'Reviewed title','type':'assignment','date':{'kind':'week','week':3}})
-    assert reviewed.status_code == 200
+    correction = {'kind':'correct','title':'Reviewed title','type':'assignment','date':{'kind':'week','week':3}}
+    # #32 contract: registered local candidates require process binding and localReview context.
+    assert client.post(f'/api/candidates/{candidate_id}/review', json=correction).status_code == 409
+    receipt = next(item for item in first['snapshot']['localSyllabusReceipts'] if item['route']['candidateId'] == candidate_id)
+    local = dict(datasetId=body['datasetId'], pipelineVersion='local-syllabus-1', proposalFingerprint=receipt['fingerprint'], decisionId='decision-week', evidenceMode='original-available', acknowledgedStoredOnly=False)
+    reviewed = client.post(f'/api/candidates/{candidate_id}/review', json={**correction, 'localReview': local}, headers=headers)
+    assert reviewed.status_code == 200, reviewed.text
     replay = submit(client, body, headers).json()
     assert replay['routes'][0]['disposition'] == 'retained'
     assert replay['snapshot'] == reviewed.json()

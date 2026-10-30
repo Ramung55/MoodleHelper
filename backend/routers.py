@@ -180,7 +180,11 @@ def import_document(body: s.ImportDocumentInput, api: Service):
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
-@router.post("/candidates/{candidateId:path}/review", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="review", tags=["Documents"])
+def review_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bridge-Binding', description='Optional for legacy/mock decisions; REQUIRED current process binding for registered local candidates.')] = None):
+    pass
+
+
+@router.post("/candidates/{candidateId:path}/review", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="review", tags=["Documents"], dependencies=[Depends(review_binding)])
 def review(candidateId: str, body: Annotated[s.ConfirmReview | s.RejectReview | s.CorrectReview, Body(discriminator="kind")], api: Service):
     try:
         return api.review(candidateId, wire(body))

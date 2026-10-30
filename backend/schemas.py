@@ -184,6 +184,34 @@ class LocalRoutingReceipt(LocalClosed):
     route: LocalSyllabusRoute
 
 
+class LocalReviewContext(LocalClosed):
+    datasetId: str = Field(min_length=1, max_length=128)
+    pipelineVersion: LocalVersion
+    proposalFingerprint: LocalDigest
+    decisionId: LocalOpaque
+    evidenceMode: Literal['original-available', 'stored-evidence-only', 'unavailable']
+    acknowledgedStoredOnly: bool
+
+
+class LocalReviewValues(LocalClosed):
+    title: str = Field(min_length=1, max_length=512)
+    type: AssessmentType
+    date: LocalSyllabusDate
+
+
+class LocalReviewReceipt(LocalClosed):
+    decisionId: str
+    proposalFingerprint: LocalDigest
+    requestFingerprint: LocalDigest
+    kind: Literal['confirm', 'correct', 'reject']
+    originalValues: LocalReviewValues
+    correctedValues: LocalReviewValues = None
+    evidenceMode: Literal['original-available', 'stored-evidence-only', 'unavailable']
+    acknowledgedStoredOnly: bool
+    decidedAt: str
+    assessmentId: str = None
+
+
 class KnownString(WireModel):
     kind: Literal["known"]
     value: str
@@ -224,6 +252,8 @@ class Course(WireModel):
 
 class SourceEvidence(WireModel):
     localEvidence: LocalEvidenceRef = None
+    localDecisionId: str = None
+    localReviewMode: Literal['original-available', 'stored-evidence-only'] = None
     source: Literal["moodle", "syllabus", "personal"]
     date: DateValue
     excerpt: str = None
@@ -319,6 +349,7 @@ class ExtractionCandidate(WireModel):
     matchAssessmentId: str = None
     reason: str = None
     localEvidence: LocalEvidenceRef = None
+    localDecision: LocalReviewReceipt = None
 
 
 class CourseSyncState(WireModel):
@@ -919,15 +950,36 @@ class PersonalEventInput(WireModel):
     date: DateValue
 
 
-class ConfirmReview(WireModel):
+class LocalReviewAware(WireModel):
+    localReview: LocalReviewContext = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def strict_local_decision(cls, value):
+        if isinstance(value, dict) and value.get('localReview') is not None:
+            context = LocalReviewContext.model_validate(value['localReview'])
+            correct = value.get('kind') == 'correct'
+            allowed = {'kind', 'localReview'} | ({'title', 'type', 'date'} if correct else set())
+            if set(value) - allowed:
+                raise ValueError('Local review accepts derived decision metadata only.')
+            if context.evidenceMode == 'unavailable' and value.get('kind') != 'reject':
+                raise ValueError('Unavailable evidence permits Reject only.')
+            if value.get('kind') != 'reject' and context.evidenceMode == 'stored-evidence-only' and not context.acknowledgedStoredOnly:
+                raise ValueError('Acknowledge stored-evidence-only manual review before continuing.')
+            if correct:
+                LocalReviewValues.model_validate({key: value.get(key) for key in ['title', 'type', 'date']})
+        return value
+
+
+class ConfirmReview(LocalReviewAware):
     kind: Literal["confirm"]
 
 
-class RejectReview(WireModel):
+class RejectReview(LocalReviewAware):
     kind: Literal["reject"]
 
 
-class CorrectReview(WireModel):
+class CorrectReview(LocalReviewAware):
     kind: Literal["correct"]
     title: str
     date: DateValue

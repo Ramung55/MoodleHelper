@@ -254,6 +254,12 @@ class BackendService:
             if len(candidates) != 1:
                 raise ValueError('Candidate identity is ambiguous. No review was saved.')
             candidate = candidates[0]
+            if candidate.get('localEvidence'):
+                from backend.local_review import apply_local_review
+                apply_local_review(s, candidate, decision, self.store.dataset_id)
+                return
+            if decision.get('localReview'):
+                raise ValueError('Local review context does not belong to this legacy/mock candidate.')
             if candidate['status'] != 'pending':
                 same = (decision['kind'] == 'reject' and candidate['status'] == 'rejected' or
                         decision['kind'] == 'confirm' and candidate['status'] == 'confirmed' or

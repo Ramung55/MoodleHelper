@@ -65,9 +65,16 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         collection_write = request.url.path in ['/api/collection/visits', '/api/collection/refresh']
         queue_write = request.url.path.startswith(('/api/queue/', '/api/scan/')) and request.method not in ['GET','HEAD','OPTIONS']
         local_syllabus_write = request.url.path == '/api/local-syllabus/route' and request.method == 'POST'
-        if (collection_write or queue_write or local_syllabus_write) and binding != getattr(app.state, 'bridge_binding', None):
+        local_review_write = False
+        if request.method == 'POST' and request.url.path.startswith('/api/candidates/') and request.url.path.endswith('/review'):
+            candidate_id = request.url.path[len('/api/candidates/'):-len('/review')]
+            try:
+                local_review_write = any(item['id'] == candidate_id and item.get('localEvidence') for item in app.state.service.store.read()['candidates'])
+            except StorageError as error:
+                return JSONResponse(status_code=503, content={'message': str(error)})
+        if (collection_write or queue_write or local_syllabus_write or local_review_write) and binding != getattr(app.state, 'bridge_binding', None):
             return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
-        if request.url.path.startswith(('/api/collection', '/api/queue/', '/api/scan/')) or local_syllabus_write:
+        if request.url.path.startswith(('/api/collection', '/api/queue/', '/api/scan/')) or local_syllabus_write or local_review_write:
             chunks = []
             size = 0
             async for chunk in request.stream():
@@ -76,6 +83,14 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
                     return JSONResponse(status_code=422, content={'message':'Request exceeds the size limit.'})
                 chunks.append(chunk)
             body = b''.join(chunks)
+            if local_review_write:
+                import json
+                try:
+                    incoming = json.loads(body)
+                except (ValueError, UnicodeError):
+                    return JSONResponse(status_code=422, content={'message': 'Invalid local review JSON.'})
+                if request.query_params or not isinstance(incoming, dict) or not isinstance(incoming.get('localReview'), dict) or incoming['localReview'].get('datasetId') != app.state.service.store.dataset_id:
+                    return JSONResponse(status_code=409, content={'message': 'Local review context changed. Reconnect.'})
             request._body = body
             sent = False
             async def replay():
