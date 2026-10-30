@@ -211,6 +211,33 @@ export const DeadlineChange = z.object({
 });
 export type DeadlineChange = z.infer<typeof DeadlineChange>;
 
+/** #39 typed alert metadata: closed destination mapping and truthful delivery state. */
+export const AlertContext = z.object({
+  destination: z.enum(["assessment", "week", "alerts"]),
+  reason: z.enum(["deadline_due", "busy_week", "catch_up", "source_change", "source_change_hidden"]),
+  courseId: z.string().max(512).optional(),
+  assessmentId: z.string().max(512).optional(),
+  week: z.number().int().min(1).max(30).optional(),
+  precision: z.enum(["exact", "date", "week", "unknown"]).optional(),
+  change: z.object({
+    changeId: z.string().max(128),
+    sourceId: z.string().max(512).optional(),
+    detectedAt: z.string().max(64),
+    sourceObservedAt: z.string().max(64).optional(),
+    from: DeadlineAssertion,
+    to: DeadlineAssertion,
+  }).optional(),
+});
+export type AlertContext = z.infer<typeof AlertContext>;
+export const AlertDelivery = z.object({
+  channel: z.enum(["dashboard", "os"]),
+  state: z.enum(["dashboard_only", "pending", "issued", "shown", "denied", "failed", "unknown"]),
+  attemptId: z.string().max(128).optional(),
+  errorCode: z.enum(["create_failed", "permission_denied", "unavailable", "ineligible", "stale", "disabled"]).optional(),
+  updatedAt: z.string().max(64),
+});
+export type AlertDelivery = z.infer<typeof AlertDelivery>;
+
 export const Alert = z.object({
   id: z.string(),
   kind: z.enum(["deadline", "busy_week", "change", "sync"]),
@@ -219,6 +246,8 @@ export const Alert = z.object({
   deliveryKey: z.string(),
   createdAt: z.string(),
   read: z.boolean(),
+  context: AlertContext.optional(),
+  delivery: AlertDelivery.optional(),
 });
 export type Alert = z.infer<typeof Alert>;
 

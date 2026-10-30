@@ -24,6 +24,7 @@ try {
   for (const [source, destination] of [
     ["./manifest.json", "manifest.json"],
     ["./public/popup.html", "popup.html"],
+    ["./public/icon-128.png", "icon-128.png"],
   ]) {
     await Bun.write(new URL(destination, output), Bun.file(new URL(source, import.meta.url)));
   }

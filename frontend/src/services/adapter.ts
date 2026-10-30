@@ -63,6 +63,8 @@ export interface MoodleHelperAdapter {
   downloadMaterial(id: string): Promise<{ snapshot: Snapshot; supported: boolean; message: string }>;
 
   saveAlerts(alerts: Snapshot["alerts"]): Promise<Snapshot>;
+  /** #39 narrow idempotent mark-read/delete; never overwrites concurrently appended alerts or delivery state. */
+  updateAlerts(ids: string[], action: "read" | "delete"): Promise<Snapshot>;
   setSyllabusSuggestionDismissal(recordId: string, dismissed: boolean): Promise<Snapshot>;
   updateSettings(patch: Partial<Settings>): Promise<Snapshot>;
 

@@ -155,7 +155,10 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
     const backup=previewRestore(JSON.stringify(makeBackup(saved)),seed);expect(backup.ok).toBe(true);if(!backup.ok)throw Error('backup');expect(backup.backup.data).toEqual(saved);
     f.coordinator.stop();await stop();await start();expect(await json('/api/snapshot')).toEqual(saved);
     await json('/api/local-data','DELETE');expect((await json('/api/snapshot')).collection).toBeUndefined();
-    expect(await json('/api/snapshot','PUT',backup.backup.data)).toEqual(saved);
+    // #39: a restored backup keeps alert history but never replays pending OS delivery.
+    const neutral={...saved,alerts:saved.alerts.map((a:any)=>a.delivery?.state==='pending'?{...a,delivery:{channel:'dashboard',state:'dashboard_only',updatedAt:a.delivery.updatedAt,errorCode:'stale'}}:a)};
+    expect(saved.alerts.some((a:any)=>a.kind==='change'&&a.context?.change)).toBe(true);
+    expect(await json('/api/snapshot','PUT',backup.backup.data)).toEqual(neutral);
     expect(f.calls.every(c=>c.url.startsWith('http://127.0.0.1:8000/api/collection')&&c.init?.credentials==='omit'&&c.init.redirect==='error')).toBe(true);
   });
   it('dispatches real calendar ranges, recurrence, date precision and unresolved reviews without course guessing',async()=>{

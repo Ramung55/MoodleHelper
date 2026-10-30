@@ -132,7 +132,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Persist newly eligible alerts (delivery keys prevent repeats)
   useEffect(() => {
-    if (!snap || derived.workloadError) return;
+    // #39: the backend persists alerts atomically with their cause; whole-array
+    // client saves would overwrite concurrently appended rows and delivery state.
+    if (!snap || derived.workloadError || adapter.storage === "backend") return;
     const changes = snap.changes.map((change) => ({ ...change, assessmentId: resolveAssessmentId(snap, change.assessmentId) }));
     const fresh = eligibleAlerts(derived.views, derived.weeks, changes, snap.settings, Date.now(), snap.alerts);
     if (fresh.length) void run((a) => a.saveAlerts([...fresh, ...snap.alerts]));

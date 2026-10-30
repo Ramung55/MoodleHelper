@@ -45,9 +45,10 @@ it('mirrors only one opaque due wakeup with the Chrome 106 one-minute floor',asy
 it('missed items after restart become one catch-up request; restart and lost alarms never re-request',async()=>{
   const b=backend([{id:'a',dueAt:'2027-02-09T00:00:00Z'},{id:'c',dueAt:'2027-02-08T00:00:00Z'},{id:'f',dueAt:'2027-03-01T00:00:00Z'}]);
   const delivered:string[][]=[];
-  const make=()=>createReminderWorker({alarms:alarms(),fetcher:b.fetcher,now:()=>NOW,deliver:async r=>{delivered.push(r.map(x=>x.requestId));return 'denied';}});
+  const make=()=>createReminderWorker({alarms:alarms(),fetcher:b.fetcher,now:()=>NOW});
   const first=await make().wake();
-  expect(delivered).toEqual([['rq-catch']]);expect(first.delivery).toBe('denied');expect(first.nextWakeAt).toBe('2027-03-01T00:00:00Z');
+  delivered.push(first.lastRequests);
+  expect(delivered).toEqual([['rq-catch']]);expect(first.nextWakeAt).toBe('2027-03-01T00:00:00Z');
   const lost=alarms();const second=createReminderWorker({alarms:lost,fetcher:b.fetcher,now:()=>NOW});await second.wake();
   expect(delivered).toHaveLength(1);
   expect(lost.set.has(REMINDER_DUE_ALARM)).toBe(true); // recreated after alarm loss
@@ -57,7 +58,7 @@ it('missed items after restart become one catch-up request; restart and lost ala
 it('uncertain dispatch response never creates a new request on the next wake (ledger fences it; #39 reconciles receipt)',async()=>{
   const b=backend([{id:'a',dueAt:'2027-02-10T11:59:00Z'}]);let drop=true;
   const fetcher:typeof fetch=async(u,i)=>{const r=await b.fetcher(u,i);if(String(u).endsWith('/dispatch')&&drop){drop=false;throw new TypeError('lost response');}return r;};
-  const delivered:string[]=[];const opts={alarms:alarms(),fetcher,now:()=>NOW,deliver:async(r:any[])=>{delivered.push(...r.map(x=>x.requestId));return 'unavailable' as const;}};
+  const delivered:string[]=[];const opts={alarms:alarms(),fetcher,now:()=>NOW};
   expect((await createReminderWorker(opts).wake()).status).toBe('unavailable');
   await createReminderWorker(opts).wake();
   const keys=b.log.filter(l=>l.url.endsWith('/dispatch')).map(l=>l.body.idempotencyKey);

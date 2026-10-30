@@ -122,6 +122,7 @@ export class HttpAdapter implements MoodleHelperAdapter {
   }
   downloadMaterial(id: string) { return this.request("POST", `/materials/${encodeURIComponent(id)}/download`, downloadSchema); }
   saveAlerts(alerts: SnapshotValue["alerts"]) { return this.request("PUT", "/alerts", Snapshot, alerts); }
+  updateAlerts(ids: string[], action: "read" | "delete") { return this.request("POST", "/alerts/update", Snapshot, { ids, action }); }
   setSyllabusSuggestionDismissal(recordId: string, dismissed: boolean) { return this.request("POST", "/syllabus-suggestions/dismissal", Snapshot, { recordId, dismissed }); }
   async updateSettings(patch: Partial<SnapshotValue["settings"]>) { if (Object.hasOwn(patch, "teachingCalendar")) TeachingCalendar.parse(patch.teachingCalendar); return this.request("PATCH", "/settings", Snapshot, patch); }
   deleteLocalData() { return this.request("DELETE", "/local-data", Snapshot); }

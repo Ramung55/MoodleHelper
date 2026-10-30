@@ -165,6 +165,7 @@ function SettingsPage() {
 
         <Section title="Reminders">
           <ReminderSettingsPanel />
+          <p className="mt-2 text-xs text-muted-foreground">Browser notifications are shown by the Moodle Helper Chrome extension only while Chrome is open. Every alert is also kept on the Alerts page. If notifications are blocked, allow them for Moodle Helper in Chrome (chrome://settings/content/notifications) or your system settings, then reconnect; the dashboard never asks repeatedly.</p>
         </Section>
 
         <Section title="AI explanations (optional)">

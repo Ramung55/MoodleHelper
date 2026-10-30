@@ -33,6 +33,10 @@
     "http://127.0.0.1:8000/*"
   ],
   "permissions": [
-    "alarms"
-  ]
+    "alarms",
+    "notifications"
+  ],
+  "icons": {
+    "128": "icon-128.png"
+  }
 }

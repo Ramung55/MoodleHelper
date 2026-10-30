@@ -118,8 +118,10 @@ it('wakes the synthetic worker through HTTP and commits actual assignment parser
 },30000);
 
 it('aborts an in-flight synthetic request on cancellation and fences its late result',async()=>{
+  // #39: the installed reminder worker may append backend-owned alert history; scan state must not change.
+  const withoutAlerts=(s:any)=>JSON.stringify({...s,alerts:undefined});
   const snapshot=await (await fetch(base+'/api/snapshot')).json();
-  const before=JSON.stringify(snapshot);
+  const before=withoutAlerts(snapshot);
   let entered!:()=>void, aborted!:()=>void;
   const started=new Promise<void>(r=>entered=r), stopped=new Promise<void>(r=>aborted=r);
   let active=false, starts=0, releases=0;
@@ -136,7 +138,7 @@ it('aborts an in-flight synthetic request on cancellation and fences its late re
   expect((await fetch(base+'/api/scan/runs/'+run.id+'/cancel',{method:'POST',headers:h,body:'{}'})).status).toBe(200);
   await stopped;await work;
   expect((await (await fetch(base+'/api/scan/runs/'+run.id)).json()).status).toBe('cancelled');
-  expect(starts).toBe(1);expect(releases).toBe(1);expect(JSON.stringify(await (await fetch(base+'/api/snapshot')).json())).toBe(before);
+  expect(starts).toBe(1);expect(releases).toBe(1);expect(withoutAlerts(await (await fetch(base+'/api/snapshot')).json())).toBe(before);
   worker.dispose();
 },30000);
 

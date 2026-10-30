@@ -283,6 +283,7 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
       },
     ];
     expect((await client.saveAlerts(alerts)).alerts).toEqual(alerts);
+    expect((await client.updateAlerts(["bridge-alert"], "read")).alerts).toEqual([{ ...alerts[0], read: true }]);
     const sync = await client.syncAll((s) =>
       expect(s.sync.length).toBeGreaterThan(0),
     );
