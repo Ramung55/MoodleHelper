@@ -30,7 +30,7 @@ def alerts(client):
 
 
 def test_precision_wording_for_every_assertion_kind():
-    assert assertion_text(EXACT) == '2027-02-12 18:00 Asia/Almaty' or assertion_text(EXACT).endswith('UTC')
+    assert assertion_text(EXACT) == '2027-02-12 23:00 Asia/Almaty'  # 18:00Z in +05:00 via tzdata
     assert assertion_text({'kind': 'exact', 'iso': '2027-02-12T18:00:00Z', 'tz': 'UTC'}) == '2027-02-12 18:00 UTC'
     assert assertion_text({'kind': 'date', 'date': '2027-02-12'}) == '2027-02-12 (date only, no time given)'
     assert assertion_text({'kind': 'week', 'week': 4}) == 'teaching week 4 (week only)'

@@ -156,11 +156,30 @@ def test_missing_calendar_or_timezone_data_is_explicit():
     assert result['items'][0]['reason'] == 'timezone_data_unavailable'
 
 
-def test_real_zoneinfo_when_available():
-    if zoneinfo_resolver('Asia/Almaty') is None:
-        pytest.skip('Host has no IANA timezone database (tzdata not installed).')
+def test_real_zoneinfo_resolves_with_tzdata_and_fails_closed_only_for_invalid_zone():
+    assert zoneinfo_resolver('Asia/Almaty') is not None  # tzdata dependency supplies IANA data
+    assert zoneinfo_resolver('Europe/Paris') is not None
+    assert zoneinfo_resolver('Not/AZone') is None
     data = snapshot(assessment('day', {'kind': 'date', 'date': '2027-02-15'}))
-    assert plan(data, 'ns', 'ds', NOW)['items'][0]['dueAt'] == '2027-02-14T04:00:00Z'
+    data['settings']['teachingCalendar']['timezone'] = 'Not/AZone'
+    assert plan(data, 'ns', 'ds', NOW)['items'][0]['reason'] in ('calendar_invalid', 'timezone_data_unavailable')  # fail closed
+
+
+def test_ac2_real_zone_date_only_default_time_and_busy_week():
+    many = [assessment(f'd{i}', {'kind': 'date', 'date': '2027-02-23'}) for i in range(6)]
+    result = plan(snapshot(*many), 'ns', 'ds', NOW)
+    deadlines = [i for i in result['items'] if i['kind'] != 'busy_week']
+    assert deadlines and all(i.get('reason') != 'timezone_data_unavailable' for i in result['items'])
+    assert {i['dueAt'] for i in deadlines} == {'2027-02-22T04:00:00Z'}  # previous day 09:00 Asia/Almaty
+    week = [i for i in result['items'] if i['kind'] == 'busy_week']
+    assert len(week) == 1 and week[0]['week'] == 4 and week[0]['localTime'] == '2027-02-15T09:00'
+
+
+def test_ac4_real_zone_week_only_gets_week_level_warning_only():
+    many = [assessment(f'w{i}', {'kind': 'week', 'week': 4}) for i in range(6)]
+    items_ = plan(snapshot(*many), 'ns', 'ds', NOW)['items']
+    assert [i['kind'] for i in items_] == ['busy_week'] and items_[0]['week'] == 4
+    assert items_[0]['timezone'] == 'Asia/Almaty' and items_[0]['localTime'] == '2027-02-15T09:00'
 
 
 def test_hidden_and_completed_cancel_then_undo_rebuilds_same_key_with_submission_precedence():
