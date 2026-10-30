@@ -268,6 +268,12 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
       ).candidates.at(-1)?.status,
     ).toBe("corrected");
     expect((await client.downloadMaterial("m1")).supported).toBe(false);
+    // #41: ordinary runtime has no verified SDU session capability, so it fails closed.
+    const ds = (await (await fetch(isolatedBackend + "/api/local-context")).json()).datasetId;
+    expect(await client.startMaterialDownload(ds, "m1", "bridge-dl")).toMatchObject({ supported: false });
+    expect((await client.listMaterialDownloads()).transfers).toEqual([]);
+    await expect(client.materialDownload("missing-transfer")).rejects.toBeTruthy();
+    await expect(client.cancelMaterialDownload("missing-transfer")).rejects.toBeTruthy();
     expect((await client.aiAvailability()).available).toBe(false);
     const plan = await client.reminderPlan();
     expect(plan.items.length).toBeLessThanOrEqual(100);

@@ -70,6 +70,8 @@ export function createWorker(options: {
   now?: () => number;
   uuid?: () => string;
   timeout?: number;
+  /** Called with validated backend results only; never selects a transport target. */
+  onResult?: (operation: string, result: any) => void;
 }) {
   const fetcher = options.fetcher || fetch;
   const now = options.now || Date.now;
@@ -229,6 +231,7 @@ export function createWorker(options: {
       }
       if (!validResult(r.operation, result))
         return rejection(r, "INVALID_RESPONSE");
+      options.onResult?.(r.operation, result);
       const reply = success(r, result);
       return fits(reply) ? reply : rejection(r, "TOO_LARGE");
     } catch (e) {
@@ -325,8 +328,18 @@ export function createWorker(options: {
     return entry.reply;
   };
 }
+const opened = new Set<string>();
+/** #41: one visible packaged transfer page per newly registered explicit transfer. */
+export function openTransferPage(chromeApi: { runtime: { getURL?: (p: string) => string }; tabs?: { create: (o: { url: string; active: boolean }) => void } }, operation: string, result: any) {
+  const t = operation === "startMaterialDownload" && result?.supported === true ? result.transfer : undefined;
+  if (!t || t.state !== "queued" || !idValid(t.transferId) || opened.has(t.transferId) || !chromeApi.tabs || !chromeApi.runtime.getURL) return false;
+  opened.add(t.transferId);
+  chromeApi.tabs.create({ url: chromeApi.runtime.getURL("transfer.html") + "#" + t.transferId, active: true });
+  return true;
+}
 export function installWorker(chromeApi: {
-  runtime: Runtime;
+  runtime: Runtime & { getURL?: (p: string) => string };
+  tabs?: { create: (o: { url: string; active: boolean }) => void };
   permissions: {
     contains: (
       p: { origins: string[] },
@@ -343,6 +356,7 @@ export function installWorker(chromeApi: {
           (allowed) => resolve(!chromeApi.runtime.lastError && allowed),
         ),
       ),
+    onResult: (operation, result) => openTransferPage(chromeApi, operation, result),
   });
   chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!trustedSender(sender, chromeApi.runtime.id)) return;

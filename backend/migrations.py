@@ -2,7 +2,7 @@
 from sqlalchemy import Connection
 from uuid import uuid4
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 class MigrationError(RuntimeError):
@@ -87,7 +87,16 @@ def version_eight_to_nine(connection: Connection) -> None:
         PRIMARY KEY(namespace,idem))""")
 
 
-MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight, 8: version_eight_to_nine}
+
+def version_nine_to_ten(connection: Connection) -> None:
+    # #41 explicit material transfer metadata; never file bytes or session values.
+    connection.exec_driver_sql("""CREATE TABLE material_transfers (
+        namespace TEXT NOT NULL, transfer_id TEXT NOT NULL, material_id TEXT NOT NULL,
+        created TEXT NOT NULL, record TEXT NOT NULL,
+        PRIMARY KEY(namespace,transfer_id))""")
+
+
+MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight, 8: version_eight_to_nine, 9: version_nine_to_ten}
 
 
 def upgrade(connection: Connection) -> None:

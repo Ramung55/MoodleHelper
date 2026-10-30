@@ -202,6 +202,19 @@ export class BridgeClient implements MoodleHelperAdapter {
   ): Promise<{ snapshot: Snapshot; supported: boolean; message: string }> {
     return this.send("downloadMaterial", { id });
   }
+  /** #41 explicit single-file transfer metadata; the extension opens its own transfer tab. */
+  startMaterialDownload(datasetId: string, materialId: string, idempotencyKey: string): Promise<import("@/domain/material-transfer").MaterialDownloadStartResult> {
+    return this.send("startMaterialDownload", { datasetId, materialId, idempotencyKey });
+  }
+  listMaterialDownloads(): Promise<{ transfers: import("@/domain/material-transfer").MaterialTransfer[] }> {
+    return this.send("listMaterialDownloads", {});
+  }
+  materialDownload(transferId: string): Promise<import("@/domain/material-transfer").MaterialTransfer> {
+    return this.send("materialDownload", { id: transferId });
+  }
+  cancelMaterialDownload(transferId: string): Promise<import("@/domain/material-transfer").MaterialTransfer> {
+    return this.send("cancelMaterialDownload", { id: transferId });
+  }
   saveAlerts(alerts: Snapshot["alerts"]): Promise<Snapshot> {
     return this.send("saveAlerts", alerts);
   }

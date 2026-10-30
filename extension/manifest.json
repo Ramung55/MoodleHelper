@@ -30,10 +30,12 @@
   ],
   "minimum_chrome_version": "106",
   "host_permissions": [
-    "http://127.0.0.1:8000/*"
+    "http://127.0.0.1:8000/*",
+    "https://moodle.sdu.edu.kz/*"
   ],
   "permissions": [
     "alarms",
+    "downloads",
     "notifications"
   ],
   "icons": {

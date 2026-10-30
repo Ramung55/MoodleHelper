@@ -11,6 +11,7 @@ try {
     ["content", "iife", "content.js"],
     ["dashboard-relay", "iife", "dashboard-relay.js"],
     ["popup-entry", "iife", "popup.js"],
+    ["transfer-entry", "iife", "transfer.js"],
   ] as const) {
     const result = await Bun.build({
       entrypoints: [fileURLToPath(new URL(`./src/${entry}.ts`, import.meta.url))],
@@ -24,6 +25,7 @@ try {
   for (const [source, destination] of [
     ["./manifest.json", "manifest.json"],
     ["./public/popup.html", "popup.html"],
+    ["./public/transfer.html", "transfer.html"],
     ["./public/icon-128.png", "icon-128.png"],
   ]) {
     await Bun.write(new URL(destination, output), Bun.file(new URL(source, import.meta.url)));

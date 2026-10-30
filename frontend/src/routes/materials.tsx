@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CourseTag, EmptyState, PageHeader } from "@/components/mh/bits";
 import { useApp } from "@/lib/app-store";
+import { downloadable, isActive, supportsDownloads, transferLabel, type MaterialDownloads, type MaterialTransfer } from "@/domain/material-transfer";
+import { currentDataset } from "@/services/local-documents";
 import { LIBRARY_TYPES, TYPE_LABEL, attemptReasons, buildMaterialLibrary, filterLibrary, latestMaterialAttempts, type LibraryItem, type LibraryType } from "@/domain/material-library";
 
 export const Route = createFileRoute("/materials")({
@@ -32,6 +34,55 @@ function folderListing(i: LibraryItem): string {
   return "Listed contents as observed (only supplied entries)";
 }
 
+/** #41 backend transfer records, polled only while a transfer is active. */
+function useTransfers(api: MaterialDownloads | null) {
+  const [byMaterial, setByMaterial] = useState<Map<string, MaterialTransfer>>(new Map());
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const inFlight = useRef(new Set<string>());
+  const refresh = useCallback(async () => {
+    if (!api) return;
+    try { setByMaterial(new Map((await api.listMaterialDownloads()).transfers.map((t) => [t.materialId, t]))); } catch { /* keep last known */ }
+  }, [api]);
+  useEffect(() => { void refresh(); }, [refresh]);
+  const anyActive = [...byMaterial.values()].some(isActive);
+  useEffect(() => {
+    if (!api || !anyActive) return;
+    const timer = setInterval(() => void refresh(), 1500);
+    return () => clearInterval(timer);
+  }, [api, anyActive, refresh]);
+  const start = async (materialId: string) => {
+    if (!api || inFlight.current.has(materialId) || isActive(byMaterial.get(materialId))) return; // no duplicate starts
+    inFlight.current.add(materialId);
+    setPending((p) => new Set(p).add(materialId));
+    try {
+      const r = await api.startMaterialDownload(await currentDataset(), materialId, crypto.randomUUID());
+      if (r.transfer) setByMaterial((m) => new Map(m).set(materialId, r.transfer!));
+      if (!r.supported) toast.info(r.message);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download request failed.");
+    } finally {
+      inFlight.current.delete(materialId);
+      setPending((p) => { const n = new Set(p); n.delete(materialId); return n; });
+    }
+  };
+  const cancel = async (t: MaterialTransfer) => {
+    if (!api) return;
+    try { const n = await api.cancelMaterialDownload(t.transferId); setByMaterial((m) => new Map(m).set(n.materialId, n)); } catch (e) { toast.error(e instanceof Error ? e.message : "Cancel failed."); }
+  };
+  return { byMaterial, pending, start, cancel };
+}
+
+export function TransferStatus({ t, onCancel }: { t: MaterialTransfer; onCancel: () => void }) {
+  const l = transferLabel(t);
+  return (
+    <div data-testid="transfer-status" className={`mt-1 text-xs ${l.tone === "destructive" ? "text-destructive" : l.tone === "warning" ? "text-warning-foreground" : "text-muted-foreground"}`}>
+      <span aria-live="polite">{l.text}</span>
+      {l.progress && (l.progress === "indeterminate" ? <progress aria-label="Download progress" className="ml-2 h-2 w-24 align-middle" /> : <progress aria-label="Download progress" className="ml-2 h-2 w-24 align-middle" value={l.progress.value} max={l.progress.max} />)}
+      {l.canCancel && <Button size="sm" variant="ghost" className="ml-2 h-6 px-2 text-xs" onClick={onCancel}>Cancel download</Button>}
+    </div>
+  );
+}
+
 export function Materials() {
   const { snap, adapter, setSnap, error, retryLoad } = useApp();
   const s = snap!;
@@ -47,6 +98,8 @@ export function Materials() {
   const synthetic = receipts.some((r) => r.evidenceMode === "synthetic");
   const incomplete = [...attempts.values()].filter((r) => r.outcome !== "ok");
   const filtered = !!q.trim() || !!type;
+  const downloadsApi = supportsDownloads(adapter) ? adapter : null;
+  const transfers = useTransfers(downloadsApi);
 
   return (
     <>
@@ -96,7 +149,8 @@ export function Materials() {
                             : <span className="ml-2 text-xs text-muted-foreground">{seen ? `Last observed ${seen}` : "Freshness unknown"}</span>}
                           {failed && <span className="ml-2 text-xs text-warning-foreground">Latest refresh attempt {fmt(failed.observedAt)} did not complete{attemptReasons(failed).length ? ` (${attemptReasons(failed).join(", ")})` : ""}</span>}
                           {m.warnings.map((w) => <span key={w} className="ml-2 text-xs text-warning-foreground">{w}</span>)}
-                          {m.downloadedAt && <span className="ml-2 text-xs text-muted-foreground">Downloaded once on {new Date(m.downloadedAt).toLocaleDateString("en-GB")} (file may no longer exist)</span>}
+                          {downloadsApi && transfers.byMaterial.get(m.recordId) && <TransferStatus t={transfers.byMaterial.get(m.recordId)!} onCancel={() => void transfers.cancel(transfers.byMaterial.get(m.recordId)!)} />}
+                          {m.downloadedAt && !(downloadsApi && transfers.byMaterial.get(m.recordId)) && <span className="ml-2 text-xs text-muted-foreground">Downloaded once on {new Date(m.downloadedAt).toLocaleDateString("en-GB")} (file may no longer exist)</span>}
                           {m.kind === "folder" && (
                             <div className="mt-1 text-xs text-muted-foreground">
                               <div>{folderListing(m)}</div>
@@ -109,7 +163,12 @@ export function Materials() {
                             : m.source.reason ? <Button size="sm" variant="outline" disabled title={m.source.reason}>Moodle link unavailable</Button> : null}
                           {m.destination && (m.destination.href ? <Button asChild size="sm" variant="ghost"><a href={m.destination.href} target="_blank" rel="noopener noreferrer">{m.destination.external ? "Open external link" : m.kind === "folder" ? "Open folder" : "Open file"}</a></Button>
                             : <Button size="sm" variant="ghost" disabled title={m.destination.reason}>Destination unavailable</Button>)}
-                          {m.provenance === "legacy" && m.kind === "file" && (
+                          {downloadsApi && downloadable(m) && (() => {
+                            const t = transfers.byMaterial.get(m.recordId);
+                            const busy = isActive(t) || transfers.pending.has(m.recordId);
+                            return <Button size="sm" variant="ghost" disabled={busy} title={busy ? "This file is already downloading" : undefined} onClick={() => void transfers.start(m.recordId)}>{busy ? "Downloading…" : t ? "Download again" : "Download PDF"}</Button>;
+                          })()}
+                          {!downloadsApi && m.provenance === "legacy" && m.kind === "file" && (
                             <Button size="sm" variant="ghost" onClick={async () => {
                               try {
                                 const r = await adapter.downloadMaterial(m.recordId);

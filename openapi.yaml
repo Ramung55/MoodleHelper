@@ -1914,8 +1914,523 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProposedHttpError'
           description: Service Unavailable
+  /api/material-downloads:
+    post:
+      tags:
+      - Materials
+      summary: Start Material Download
+      operationId: startMaterialDownload
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding. Absent or stale returns 409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding. Absent or stale returns 409 before processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaterialDownloadStart'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialDownloadStartResult'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+    get:
+      tags:
+      - Materials
+      summary: List Material Downloads
+      operationId: listMaterialDownloads
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding. Absent or stale returns 409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding. Absent or stale returns 409 before processing.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialDownloadList'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+  /api/material-downloads/{transferId}:
+    get:
+      tags:
+      - Materials
+      summary: Read Material Download
+      operationId: materialDownload
+      parameters:
+      - name: transferId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Transferid
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding. Absent or stale returns 409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding. Absent or stale returns 409 before processing.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialTransfer'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+  /api/material-downloads/{transferId}/cancel:
+    post:
+      tags:
+      - Materials
+      summary: Cancel Material Download
+      operationId: cancelMaterialDownload
+      parameters:
+      - name: transferId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Transferid
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding. Absent or stale returns 409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding. Absent or stale returns 409 before processing.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialTransfer'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+  /api/material-downloads/{transferId}/descriptor:
+    post:
+      tags:
+      - Materials
+      summary: Material Download Descriptor
+      operationId: materialDownloadDescriptor
+      parameters:
+      - name: transferId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Transferid
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding. Absent or stale returns 409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding. Absent or stale returns 409 before processing.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialTransferDescriptor'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+  /api/material-downloads/{transferId}/status:
+    post:
+      tags:
+      - Materials
+      summary: Report Material Download
+      operationId: reportMaterialDownload
+      parameters:
+      - name: transferId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Transferid
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding. Absent or stale returns 409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding. Absent or stale returns 409 before processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaterialTransferStatus'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialTransfer'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
 components:
   schemas:
+    MaterialDownloadStart:
+      properties:
+        datasetId:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Datasetid
+        materialId:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Materialid
+        idempotencyKey:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Idempotencykey
+      type: object
+      required:
+      - datasetId
+      - materialId
+      - idempotencyKey
+      title: MaterialDownloadStart
+    MaterialTransfer:
+      properties:
+        transferId:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Transferid
+        generation:
+          type: integer
+          minimum: 0.0
+          title: Generation
+        materialId:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Materialid
+        state:
+          type: string
+          enum:
+          - queued
+          - validating
+          - saving
+          - complete
+          - failed
+          - cancelled
+          - interrupted
+          title: State
+        reason:
+          type: string
+          enum:
+          - sign_in_required
+          - forbidden
+          - not_found
+          - network
+          - unsupported_type
+          - too_large
+          - timeout
+          - cancelled_by_user
+          - page_closed
+          - download_interrupted
+          - outcome_unknown
+          title: Reason
+        downloadId:
+          type: integer
+          minimum: 0.0
+          title: Downloadid
+        bytesReceived:
+          type: integer
+          minimum: 0.0
+          title: Bytesreceived
+        totalBytes:
+          type: integer
+          minimum: 0.0
+          title: Totalbytes
+        cancelRequested:
+          type: boolean
+          title: Cancelrequested
+        createdAt:
+          type: string
+          title: Createdat
+        updatedAt:
+          type: string
+          title: Updatedat
+        completedAt:
+          type: string
+          title: Completedat
+      type: object
+      required:
+      - transferId
+      - generation
+      - materialId
+      - state
+      - cancelRequested
+      - createdAt
+      - updatedAt
+      title: MaterialTransfer
+    MaterialDownloadStartResult:
+      properties:
+        supported:
+          type: boolean
+          title: Supported
+        message:
+          type: string
+          title: Message
+        reason:
+          type: string
+          enum:
+          - material_not_found
+          - not_a_file
+          - unsupported_type
+          - unsafe_destination
+          - source_unavailable
+          title: Reason
+        transfer:
+          $ref: '#/components/schemas/MaterialTransfer'
+      type: object
+      required:
+      - supported
+      - message
+      title: MaterialDownloadStartResult
+    MaterialDownloadList:
+      properties:
+        transfers:
+          items:
+            $ref: '#/components/schemas/MaterialTransfer'
+          type: array
+          maxItems: 1000
+          title: Transfers
+      type: object
+      required:
+      - transfers
+      title: MaterialDownloadList
+    MaterialTransferDescriptor:
+      properties:
+        transferId:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Transferid
+        generation:
+          type: integer
+          minimum: 0.0
+          title: Generation
+        attemptId:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Attemptid
+        materialId:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Materialid
+        url:
+          type: string
+          title: Url
+        format:
+          type: string
+          const: pdf
+          title: Format
+        suggestedName:
+          type: string
+          maxLength: 200
+          title: Suggestedname
+        maxBytes:
+          type: integer
+          minimum: 1.0
+          title: Maxbytes
+        timeoutMs:
+          type: integer
+          minimum: 1.0
+          title: Timeoutms
+      type: object
+      required:
+      - transferId
+      - generation
+      - attemptId
+      - materialId
+      - url
+      - format
+      - maxBytes
+      - timeoutMs
+      title: MaterialTransferDescriptor
+    MaterialTransferStatus:
+      properties:
+        generation:
+          type: integer
+          minimum: 0.0
+          title: Generation
+        attemptId:
+          type: string
+          pattern: ^[A-Za-z0-9-]{1,128}$
+          title: Attemptid
+        state:
+          type: string
+          enum:
+          - queued
+          - validating
+          - saving
+          - complete
+          - failed
+          - cancelled
+          - interrupted
+          title: State
+        reason:
+          type: string
+          enum:
+          - sign_in_required
+          - forbidden
+          - not_found
+          - network
+          - unsupported_type
+          - too_large
+          - timeout
+          - cancelled_by_user
+          - page_closed
+          - download_interrupted
+          - outcome_unknown
+          title: Reason
+        downloadId:
+          type: integer
+          minimum: 0.0
+          title: Downloadid
+        bytesReceived:
+          type: integer
+          maximum: 20971520.0
+          minimum: 0.0
+          title: Bytesreceived
+        totalBytes:
+          type: integer
+          minimum: 0.0
+          title: Totalbytes
+      type: object
+      required:
+      - generation
+      - attemptId
+      - state
+      title: MaterialTransferStatus
     ReminderDeliveryRequest:
       properties:
         requestId:

@@ -9,8 +9,8 @@ const expected = {
   background: { service_worker: "index.js", type: "module" },
   action: { default_popup: "popup.html" },
   minimum_chrome_version: "106",
-  host_permissions: ["http://127.0.0.1:8000/*"],
-  permissions: ["alarms", "notifications"],
+  host_permissions: ["http://127.0.0.1:8000/*", "https://moodle.sdu.edu.kz/*"],
+  permissions: ["alarms", "downloads", "notifications"],
   icons: { "128": "icon-128.png" },
   content_scripts: [{ matches: ["https://moodle.sdu.edu.kz/*"], js: ["content.js"] },
     {matches:["http://127.0.0.1:5173/*","http://localhost:5173/*"],js:["dashboard-relay.js"]}],
@@ -46,7 +46,7 @@ describe("emitted Chrome shell", () => {
     validateManifest(manifest);
     const references = [manifest.background.service_worker, manifest.action.default_popup, manifest.icons["128"],
       ...manifest.content_scripts.flatMap((entry: { js: string[] }) => entry.js)];
-    expect((await readdir(dist)).sort()).toEqual(["manifest.json", "popup.js", ...references].sort());
+    expect((await readdir(dist)).sort()).toEqual(["manifest.json", "popup.js", "transfer.html", "transfer.js", ...references].sort());
     for (const reference of references) {
       const bytes = await readFile(new URL(reference, dist));
       expect(bytes.length).toBeGreaterThan(0);
