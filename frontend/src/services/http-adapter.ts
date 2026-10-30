@@ -1,6 +1,6 @@
 import type { RawCourseObservation } from "@/domain/types";
 import { z } from "zod";
-import { ConnectionState, Snapshot, TeachingCalendar, LocalReviewContext, LocalSyllabusDate, SyllabusRevisionPreview, LocalSyllabusInput, LocalSyllabusResult, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
+import { ConnectionState, ReminderPlan, Snapshot, TeachingCalendar, LocalReviewContext, LocalSyllabusDate, SyllabusRevisionPreview, LocalSyllabusInput, LocalSyllabusResult, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
 import type { MoodleHelperAdapter, OverlayPatch, PersonalEventInput, ReviewDecision } from "./adapter";
 
 const connectionSchema = z.object({ state: ConnectionState, message: z.string(), extensionDetected: z.boolean() });
@@ -127,4 +127,5 @@ export class HttpAdapter implements MoodleHelperAdapter {
   deleteLocalData() { return this.request("DELETE", "/local-data", Snapshot); }
   resetDemo() { return this.request("POST", "/demo/reset", Snapshot); }
   aiAvailability() { return this.request("GET", "/ai/availability", aiSchema); }
+  reminderPlan() { return this.request("GET", "/reminders/plan", ReminderPlan); }
 }

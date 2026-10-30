@@ -72,4 +72,6 @@ export interface MoodleHelperAdapter {
   resetDemo?(): Promise<Snapshot>;
 
   aiAvailability(): Promise<AiAvailability>;
+  /** #38 backend-derived reminder plan (first page). Optional: demo mode has no durable scheduler. */
+  reminderPlan?(): Promise<import("@/domain/types").ReminderPlan>;
 }

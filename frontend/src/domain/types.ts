@@ -230,6 +230,29 @@ export const TeachingCalendar = z.object({
   partialBreaks: z.array(PartialTeachingBreak).max(60).optional(), weekOverrides: z.array(TeachingWeekOverride).max(30).optional(),
 }).strict().superRefine((value, context) => { const message = teachingCalendarError(value); if (message) context.addIssue({ code: z.ZodIssueCode.custom, message }); });
 export type TeachingCalendar = z.infer<typeof TeachingCalendar>;
+const LocalClock = z.string().regex(/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/);
+/** #38: optional additive fields; omission reads documented defaults (7 days, 09:00, 09:00). */
+export const ReminderSettings = z.object({
+  enabled: z.boolean(), hoursBefore: z.number(), busyWeek: z.boolean(),
+  busyWeekLeadDays: z.number().int().min(0).max(30).optional(),
+  dateOnlyLocalTime: LocalClock.optional(), busyWeekLocalTime: LocalClock.optional(),
+});
+export const REMINDER_DEFAULTS = { hoursBefore: 24, busyWeekLeadDays: 7, dateOnlyLocalTime: "09:00", busyWeekLocalTime: "09:00" } as const;
+export const REMINDER_MAX_HOURS = 720;
+const ReminderOpaque = z.string().min(1).max(128).regex(/^[A-Za-z0-9._~-]+$/);
+const ReminderReason = z.enum(["disabled", "invalid_lead_time", "timezone_data_unavailable", "calendar_missing", "calendar_invalid", "date_unknown", "week_outside_calendar", "date_outside_calendar", "local_time_ambiguous", "invalid_weights"]);
+export const ReminderPlan = z.object({
+  datasetId: z.string().max(128), generation: ReminderOpaque, serverTime: z.string(), enabled: z.boolean(),
+  reasons: z.array(ReminderReason).max(20), nextCursor: ReminderOpaque.optional(), nextWakeAt: z.string().optional(),
+  items: z.array(z.object({
+    id: ReminderOpaque, deliveryKey: ReminderOpaque, kind: z.enum(["deadline", "busy_week"]),
+    assessmentId: z.string().max(512).optional(), week: z.number().int().min(1).max(30).optional(),
+    precision: z.enum(["exact", "date", "week", "unknown"]), status: z.enum(["scheduled", "due", "requested", "unscheduled"]),
+    dueAt: z.string().max(64).optional(), localTime: z.string().max(64).optional(), timezone: z.string().max(100).optional(),
+    label: z.string().max(200), reason: ReminderReason.optional(),
+  }).strict()).max(100),
+}).strict();
+export type ReminderPlan = z.infer<typeof ReminderPlan>;
 export const Settings = z.object({
   trackedCourseIds: z.array(z.string()),
   semesterStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -238,7 +261,7 @@ export const Settings = z.object({
   teachingCalendar: TeachingCalendar.optional(),
   weights: z.object({ exam: z.number(), assignment: z.number(), quiz: z.number(), other: z.number() }),
   thresholds: z.object({ maxOutstanding: z.number(), maxWeighted: z.number() }),
-  reminders: z.object({ enabled: z.boolean(), hoursBefore: z.number(), busyWeek: z.boolean() }),
+  reminders: ReminderSettings,
   ai: z.object({ enabled: z.boolean(), consentGiven: z.boolean() }),
 });
 export type Settings = z.infer<typeof Settings>;

@@ -16,6 +16,7 @@ import { BridgeClient } from "@/services/extension-adapter";
 import { BridgeError } from "../../../shared/src/bridge";
 import { TeachingCalendarSettings } from "@/components/mh/TeachingCalendarSettings";
 import { WorkloadWeights } from "@/components/mh/WorkloadWeights";
+import { ReminderSettingsPanel } from "@/components/mh/ReminderSettings";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -167,12 +168,7 @@ function SettingsPage() {
         </Section>
 
         <Section title="Reminders">
-          <div className="space-y-3 text-sm">
-            <label className="flex items-center justify-between">Reminders on <Switch checked={st.reminders.enabled} onCheckedChange={(v) => upd({ reminders: { ...st.reminders, enabled: v } })} /></label>
-            <label className="flex items-center justify-between">Busy-week warnings <Switch checked={st.reminders.busyWeek} onCheckedChange={(v) => upd({ reminders: { ...st.reminders, busyWeek: v } })} /></label>
-            <div className="flex items-center justify-between gap-2"><Label htmlFor="hb">Remind this many hours before</Label><Input id="hb" type="number" min={1} className="w-24" value={st.reminders.hoursBefore} onChange={(e) => upd({ reminders: { ...st.reminders, hoursBefore: Math.max(1, num(e.target.value)) } })} /></div>
-            <p className="text-xs text-muted-foreground">Notifications cannot arrive while Chrome is closed.</p>
-          </div>
+          <ReminderSettingsPanel />
         </Section>
 
         <Section title="AI explanations (optional)">

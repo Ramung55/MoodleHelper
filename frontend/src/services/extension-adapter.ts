@@ -8,7 +8,7 @@ import {
   type Request,
   type Operation,
 } from "../../../shared/src/bridge";
-import type { RawCourseObservation, Snapshot, Settings } from "@/domain/types";
+import type { RawCourseObservation, Snapshot, Settings, ReminderPlan } from "@/domain/types";
 import type {
   MoodleHelperAdapter,
   OverlayPatch,
@@ -219,6 +219,9 @@ export class BridgeClient implements MoodleHelperAdapter {
   }
   aiAvailability(): Promise<AiAvailability> {
     return this.send("aiAvailability", {});
+  }
+  reminderPlan(): Promise<ReminderPlan> {
+    return this.send("reminderPlan", {});
   }
 }
 export class ExtensionAdapter extends BridgeClient {}
