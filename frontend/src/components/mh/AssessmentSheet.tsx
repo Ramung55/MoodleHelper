@@ -10,6 +10,7 @@ import { useApp } from "@/lib/app-store";
 import { CourseTag, SubmissionBadge, TYPE_LABEL } from "./bits";
 import { DateInput } from "./DateInput";
 import type { DateValue, DeadlineAssertion } from "@/domain/types";
+import type { OverlayPatch } from "@/services/adapter";
 import { personalDateError } from "@/domain/personal-event";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
@@ -17,6 +18,25 @@ function historyDate(value: DeadlineAssertion, timezone: string): string {
   if (value.kind === "removed") return "Removed";
   const shown = formatDate(value, timezone);
   return value.kind === "exact" ? `${shown} (${value.iso}, ${value.tz})` : shown;
+}
+
+function sameValue(a: DateValue | undefined, b: DateValue | undefined): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+/** Imported overrides: absent (Use source date) and an intentional "No date" are valid; other forms use the strict #34 checks. */
+export function importedDateError(date: DateValue | undefined): string | null {
+  if (!date || date.kind === "unknown") return null;
+  return personalDateError(date);
+}
+
+/** Only fields changed from the saved overlay are sent, so unrelated saves never recapture the date baseline. */
+export function dirtyOverlayPatch(saved: { titleOverride?: string; dateOverride?: DateValue } | undefined, title: string, date: DateValue | undefined): OverlayPatch {
+  const patch: OverlayPatch = {};
+  const nextTitle = title.trim() || undefined;
+  if (nextTitle !== (saved?.titleOverride || undefined)) patch.titleOverride = nextTitle ?? null;
+  if (!sameValue(date, saved?.dateOverride)) patch.dateOverride = date ?? null;
+  return patch;
 }
 
 export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
@@ -29,6 +49,14 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
   const [pending, setPending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const busy = useRef(false);
+  const mutate = async (fn: Parameters<typeof run>[0], failure: string, after?: () => void) => {
+    if (busy.current) return false;
+    busy.current = true; setPending(true); setErrors({});
+    const ok = await run(fn);
+    busy.current = false; setPending(false);
+    if (ok) after?.(); else setErrors({ save: failure });
+    return ok;
+  };
 
   useEffect(() => {
     setTitle(v?.a.personal ? v.title : v?.overlay?.titleOverride ?? "");
@@ -40,6 +68,9 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
   const tz = snap.settings.timezone;
   const course = v && snap.courses.find((c) => c.id === v.a.courseId);
   const changes = v ? snap.changes.filter((c) => resolveAssessmentId(snap, c.assessmentId) === v.a.id) : [];
+  const originals = v && snap.reconciliation ? snap.reconciliation.aliases.filter((alias) => alias.canonicalId === v.a.id && alias.originalId !== v.a.id).map((alias) => snap.assessments.find((item) => item.id === alias.originalId)).filter((item) => !!item) : [];
+  const saved = v?.overlay;
+  const hasDateOverride = !!saved?.dateOverride;
   const rawSources = v ? (snap.reconciliation?.sources ?? []).filter((source) => resolveAssessmentId(snap, source.assessmentId) === v.a.id && source.recordId) : [];
 
   return (
@@ -66,7 +97,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 {v.a.availableFrom && <p className="text-xs text-muted-foreground">Opens {new Date(v.a.availableFrom).toLocaleString("en-GB", { timeZone: tz })}</p>}
                 {v.conflict && (
                   <div className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                    <p className="font-semibold text-destructive">{v.conflict.comparison === "incomparable" ? "Sources have different date precision — Moodle date is used" : "Sources disagree — Moodle date is used"}</p>
+                    <p className="font-semibold text-destructive">{v.conflict.comparison === "incomparable" ? "Sources have different date precision" : "Sources disagree"} — {hasDateOverride ? "your date is shown; Moodle is the latest source date" : "Moodle date is used"}</p>
                     <p>Moodle: {formatDate(v.conflict.moodle, tz)}</p>
                     <p>Syllabus: {formatDate(v.conflict.syllabus, tz)}</p>
                   </div>
@@ -74,7 +105,8 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 {v.overrideDisagreement && (
                   <div className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
                     <p className="font-semibold text-destructive">The source date changed after you edited it</p>
-                    <p>When you edited: {formatDate(v.overrideDisagreement.was, tz)}</p>
+                    <p className="text-xs font-semibold uppercase text-destructive">Needs review</p>
+                    <p>When you edited (previous baseline): {formatDate(v.overrideDisagreement.was, tz)}</p>
                     <p>Source now{v.sourceKind ? ` (${v.sourceKind})` : ""}: {formatDate(v.overrideDisagreement.now, tz)}</p>
                     <p>Your date: {formatDate(v.date, tz)}</p>
                   </div>
@@ -88,6 +120,22 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                   </p>
                 ))}
               </section>
+
+              {!v.a.personal && (
+                <section aria-label="Original source values">
+                  <h3 className="mb-2 text-sm font-semibold">Original source</h3>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+                    <dt className="text-muted-foreground">Source title</dt><dd>{v.a.title}</dd>
+                    <dt className="text-muted-foreground">Latest source date</dt><dd>{v.sourceDate.kind === "unknown" ? "No source date" : formatDate(v.sourceDate, tz)}{v.sourceKind ? ` · ${v.sourceKind === "moodle" ? "Moodle" : "Syllabus"}` : ""}</dd>
+                    <dt className="text-muted-foreground">Shown to you</dt><dd>{v.title} · {v.date.kind === "unknown" && hasDateOverride ? "No date (your choice)" : formatDate(v.date, tz)}{saved?.titleOverride || hasDateOverride ? " (personal override)" : ""}</dd>
+                  </dl>
+                  {originals.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground" aria-label="Merged source records">
+                      {originals.map((item) => <li key={item!.id}>Merged record: {item!.title} · {item!.sources.map((source) => `${source.source} ${formatDate(source.date, tz)}`).join("; ")}</li>)}
+                    </ul>
+                  )}
+                </section>
+              )}
 
               {!v.a.personal && (
                 <section>
@@ -124,7 +172,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 <h3 className="text-sm font-semibold">Your changes</h3>
                 <p className="text-xs text-muted-foreground">These never change Moodle or the original source facts.</p>
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" disabled={pending} checked={v.completed} onChange={(e) => run((a) => a.updateOverlay(v.a.id, { completed: e.target.checked }))} />
+                  <input type="checkbox" disabled={pending} checked={v.completed} onChange={(e) => { const completed = e.target.checked; void mutate((a) => a.updateOverlay(v.a.id, { completed }), "Completion was not saved. Retry when the backend is available."); }} />
                   I've finished this (personal check)
                 </label>
                 {v.completed && v.needsAttention && (
@@ -133,11 +181,13 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 <div className="space-y-1">
                   <Label htmlFor="ttl">Display title</Label>
                   <Input id="ttl" disabled={pending} aria-invalid={!!errors.title} aria-describedby="personal-title-error" placeholder={v.a.title} value={title} onChange={(e) => setTitle(e.target.value)} />
+                  {!v.a.personal && <p className="text-xs text-muted-foreground">Saved: {saved?.titleOverride ? `“${saved.titleOverride}”` : "source title"}</p>}
                   {errors.title && <p id="personal-title-error" role="alert" className="text-sm text-destructive">{errors.title}</p>}
                 </div>
                 <div className="space-y-1">
                   <Label>Your date</Label>
-                  <fieldset disabled={pending}><DateInput value={date} onChange={setDate} allowEmpty={!v.a.personal} personalTimezone={v.a.personal ? tz : undefined} errorId="personal-date-error" /></fieldset>
+                  <fieldset disabled={pending}><DateInput value={date} onChange={setDate} allowEmpty={!v.a.personal} allowUnknown={!v.a.personal} personalTimezone={v.a.personal ? tz : date?.kind === "exact" ? date.tz : tz} errorId="personal-date-error" /></fieldset>
+                  {!v.a.personal && <p className="text-xs text-muted-foreground">Saved: {saved?.dateOverride ? saved.dateOverride.kind === "unknown" ? "No date (your choice)" : formatDate(saved.dateOverride, tz) : "source date"}</p>}
                   {errors.date && <p id="personal-date-error" role="alert" className="text-sm text-destructive">{errors.date}</p>}
                 </div>
                 {errors.save && <p role="alert" className="text-sm text-destructive">{errors.save}</p>}
@@ -148,14 +198,21 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                     if (v.a.personal) {
                       if (!title.trim()) invalid.title = "Enter a title.";
                       const error = personalDateError(date); if (error) invalid.date = error;
+                    } else {
+                      const error = importedDateError(date); if (error) invalid.date = error;
                     }
                     setErrors(invalid); if (Object.keys(invalid).length) return;
-                    busy.current = true; setPending(true);
-                    const ok = await run((a) => a.updateOverlay(v.a.id, { titleOverride: (v.a.personal ? title.trim() : title) || undefined, dateOverride: date }));
-                    busy.current = false; setPending(false);
-                    if (!ok) setErrors({ save: "Changes were not saved. Your entries are retained; retry when the backend is available." });
+                    const patch: OverlayPatch = v.a.personal ? { titleOverride: title.trim() || undefined, dateOverride: date } : dirtyOverlayPatch(saved, title, date);
+                    if (!Object.keys(patch).length) return;
+                    await mutate((a) => a.updateOverlay(v.a.id, patch), "Changes were not saved. Your entries are retained; retry when the backend is available.");
                   }}>{pending ? "Saving…" : "Save changes"}</Button>
-                  <Button size="sm" disabled={pending} variant="outline" onClick={() => run((a) => a.updateOverlay(v.a.id, { hidden: !v.hidden }))}>
+                  {!v.a.personal && saved?.titleOverride && (
+                    <Button size="sm" disabled={pending} variant="outline" onClick={() => mutate((a) => a.updateOverlay(v.a.id, { titleOverride: null }), "The title was not reset. Retry when the backend is available.", () => setTitle(""))}>Reset title</Button>
+                  )}
+                  {!v.a.personal && hasDateOverride && (
+                    <Button size="sm" disabled={pending} variant="outline" onClick={() => mutate((a) => a.updateOverlay(v.a.id, { dateOverride: null }), "The date was not reset. Retry when the backend is available.", () => setDate(undefined))}>Reset date</Button>
+                  )}
+                  <Button size="sm" disabled={pending} variant="outline" onClick={() => mutate((a) => a.updateOverlay(v.a.id, { hidden: !v.hidden }), v.hidden ? "The item was not restored. Retry when the backend is available." : "The item was not hidden. Retry when the backend is available.")}>
                     {v.hidden ? "Restore item" : "Hide item"}
                   </Button>
                   {v.a.personal && (

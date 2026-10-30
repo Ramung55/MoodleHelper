@@ -50,6 +50,8 @@ export function eligibleAlerts(
   }
   for (const c of changes) {
     const v = views.find((x) => x.a.id === c.assessmentId);
+    // Hidden items are ineligible for new reminders of any kind, including source-change notices.
+    if (v?.hidden) continue;
     push({
       kind: "change",
       assessmentId: c.assessmentId,
