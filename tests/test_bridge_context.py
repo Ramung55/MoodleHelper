@@ -19,7 +19,7 @@ def test_shared_closed_inventory_tracks_source_contract():
     expected = {}
     for path, operations in source['paths'].items():
         for method, operation in operations.items():
-            if path.startswith(('/api/queue/','/api/scan/')) or operation['operationId'] in {'bridgeContext','collectionContext','beginPageVisit','ingestPageRefresh','localContext','routeLocalSyllabus'}:
+            if path.startswith(('/api/queue/','/api/scan/')) or operation['operationId'] in {'bridgeContext','collectionContext','beginPageVisit','ingestPageRefresh','localContext','routeLocalSyllabus','reconcileReminders','dispatchReminders'}:
                 continue
             expected[operation['operationId']] = {
                 'method': method.upper(), 'path': path,
@@ -32,7 +32,7 @@ def test_shared_closed_inventory_tracks_source_contract():
                           'body':operation.get('requestBody', {}).get('content', {}).get('application/json', {}).get('schema'),
                           'result':operation['responses']['200']['content']['application/json']['schema']}
     assert catalog == expected
-    assert len(catalog)==25
+    assert len(catalog)==26
     assert not {'collectionContext','beginPageVisit','ingestPageRefresh','localContext'} & catalog.keys()
 
 

@@ -1591,8 +1591,475 @@ paths:
                 $ref: '#/components/schemas/ProposedHttpError'
       description: Read stable job page evidence and incomplete reasons; limit 1–100,
         default 100.
+  /api/reminders/plan:
+    get:
+      tags:
+      - Reminders
+      summary: Reminder Plan
+      operationId: reminderPlan
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Cursor
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderPlan'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Service Unavailable
+      security: []
+  /api/reminders/reconcile:
+    post:
+      tags:
+      - Reminders
+      summary: Reconcile Reminders
+      operationId: reconcileReminders
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding from /api/bridge-context. Absent or stale returns
+            409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding from /api/bridge-context. Absent or stale returns
+          409 before processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderReconcileInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderPlan'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Service Unavailable
+      security: []
+  /api/reminders/dispatch:
+    post:
+      tags:
+      - Reminders
+      summary: Dispatch Reminders
+      operationId: dispatchReminders
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding from /api/bridge-context. Absent or stale returns
+            409 before processing.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding from /api/bridge-context. Absent or stale returns
+          409 before processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderDispatchInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderDispatchResult'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Service Unavailable
+      security: []
 components:
   schemas:
+    ReminderDeliveryRequest:
+      properties:
+        requestId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Requestid
+        kind:
+          type: string
+          enum:
+          - deadline
+          - busy_week
+          - catch_up
+          title: Kind
+        state:
+          type: string
+          const: requested
+          title: State
+        total:
+          type: integer
+          minimum: 1.0
+          title: Total
+        targets:
+          items:
+            $ref: '#/components/schemas/ReminderDeliveryTarget'
+          type: array
+          maxItems: 100
+          title: Targets
+      type: object
+      required:
+      - requestId
+      - kind
+      - state
+      - total
+      - targets
+      title: ReminderDeliveryRequest
+    ReminderDeliveryTarget:
+      properties:
+        itemId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Itemid
+        deliveryKey:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Deliverykey
+        kind:
+          type: string
+          enum:
+          - deadline
+          - busy_week
+          title: Kind
+        assessmentId:
+          type: string
+          maxLength: 512
+          title: Assessmentid
+        week:
+          type: integer
+          maximum: 30.0
+          minimum: 1.0
+          title: Week
+        dueAt:
+          type: string
+          title: Dueat
+      type: object
+      required:
+      - itemId
+      - deliveryKey
+      - kind
+      - dueAt
+      title: ReminderDeliveryTarget
+    ReminderDispatchInput:
+      properties:
+        datasetId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Datasetid
+        expectedGeneration:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Expectedgeneration
+        idempotencyKey:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Idempotencykey
+      additionalProperties: false
+      type: object
+      required:
+      - datasetId
+      - expectedGeneration
+      - idempotencyKey
+      title: ReminderDispatchInput
+    ReminderDispatchResult:
+      properties:
+        datasetId:
+          type: string
+          maxLength: 128
+          title: Datasetid
+        generation:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Generation
+        serverTime:
+          type: string
+          title: Servertime
+        replayed:
+          type: boolean
+          title: Replayed
+        requests:
+          items:
+            $ref: '#/components/schemas/ReminderDeliveryRequest'
+          type: array
+          maxItems: 100
+          title: Requests
+        nextWakeAt:
+          type: string
+          title: Nextwakeat
+      type: object
+      required:
+      - datasetId
+      - generation
+      - serverTime
+      - replayed
+      - requests
+      title: ReminderDispatchResult
+    ReminderPlan:
+      properties:
+        datasetId:
+          type: string
+          maxLength: 128
+          title: Datasetid
+        generation:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Generation
+        serverTime:
+          type: string
+          title: Servertime
+        enabled:
+          type: boolean
+          title: Enabled
+        reasons:
+          items:
+            type: string
+            enum:
+            - disabled
+            - invalid_lead_time
+            - timezone_data_unavailable
+            - calendar_missing
+            - calendar_invalid
+            - date_unknown
+            - week_outside_calendar
+            - date_outside_calendar
+            - local_time_ambiguous
+            - invalid_weights
+          type: array
+          maxItems: 20
+          title: Reasons
+        items:
+          items:
+            $ref: '#/components/schemas/ReminderPlanItem'
+          type: array
+          maxItems: 100
+          title: Items
+        nextCursor:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Nextcursor
+        nextWakeAt:
+          type: string
+          title: Nextwakeat
+      type: object
+      required:
+      - datasetId
+      - generation
+      - serverTime
+      - enabled
+      - reasons
+      - items
+      title: ReminderPlan
+    ReminderPlanItem:
+      properties:
+        id:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Id
+        deliveryKey:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Deliverykey
+        kind:
+          type: string
+          enum:
+          - deadline
+          - busy_week
+          title: Kind
+        assessmentId:
+          type: string
+          maxLength: 512
+          title: Assessmentid
+        week:
+          type: integer
+          maximum: 30.0
+          minimum: 1.0
+          title: Week
+        precision:
+          type: string
+          enum:
+          - exact
+          - date
+          - week
+          - unknown
+          title: Precision
+        status:
+          type: string
+          enum:
+          - scheduled
+          - due
+          - requested
+          - unscheduled
+          title: Status
+        dueAt:
+          type: string
+          maxLength: 64
+          title: Dueat
+        localTime:
+          type: string
+          maxLength: 64
+          title: Localtime
+        timezone:
+          type: string
+          maxLength: 100
+          title: Timezone
+        label:
+          type: string
+          maxLength: 200
+          title: Label
+        reason:
+          type: string
+          enum:
+          - disabled
+          - invalid_lead_time
+          - timezone_data_unavailable
+          - calendar_missing
+          - calendar_invalid
+          - date_unknown
+          - week_outside_calendar
+          - date_outside_calendar
+          - local_time_ambiguous
+          - invalid_weights
+          title: Reason
+      type: object
+      required:
+      - id
+      - deliveryKey
+      - kind
+      - precision
+      - status
+      - label
+      title: ReminderPlanItem
+    ReminderReconcileInput:
+      properties:
+        datasetId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Datasetid
+        expectedGeneration:
+          type: string
+          maxLength: 128
+          minLength: 1
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Expectedgeneration
+      additionalProperties: false
+      type: object
+      required:
+      - datasetId
+      title: ReminderReconcileInput
     QueueCurrent:
       type: object
       additionalProperties: false
@@ -2610,18 +3077,35 @@ components:
       - maxOutstanding
       - maxWeighted
     ReminderSettings:
-      type: object
       properties:
         enabled:
           type: boolean
+          title: Enabled
         hoursBefore:
           type: number
+          title: Hoursbefore
         busyWeek:
           type: boolean
+          title: Busyweek
+        busyWeekLeadDays:
+          type: integer
+          maximum: 30.0
+          minimum: 0.0
+          title: Busyweekleaddays
+        dateOnlyLocalTime:
+          type: string
+          pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+          title: Dateonlylocaltime
+        busyWeekLocalTime:
+          type: string
+          pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+          title: Busyweeklocaltime
+      type: object
       required:
       - enabled
       - hoursBefore
       - busyWeek
+      title: ReminderSettings
     AiSettings:
       type: object
       properties:

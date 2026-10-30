@@ -2,7 +2,7 @@
 from sqlalchemy import Connection
 from uuid import uuid4
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 class MigrationError(RuntimeError):
@@ -77,7 +77,17 @@ def version_seven_to_eight(connection: Connection) -> None:
         connection.exec_driver_sql("INSERT INTO local_datasets(namespace,dataset_id) VALUES(?,?)", (namespace, str(uuid4())))
 
 
-MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight}
+def version_eight_to_nine(connection: Connection) -> None:
+    # #38 durable reminder delivery-request ledger and dispatch receipts.
+    connection.exec_driver_sql("""CREATE TABLE reminder_requests (
+        namespace TEXT NOT NULL, delivery_key TEXT NOT NULL, request_id TEXT NOT NULL,
+        PRIMARY KEY(namespace,delivery_key))""")
+    connection.exec_driver_sql("""CREATE TABLE reminder_receipts (
+        namespace TEXT NOT NULL, idem TEXT NOT NULL, response TEXT NOT NULL,
+        PRIMARY KEY(namespace,idem))""")
+
+
+MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight, 8: version_eight_to_nine}
 
 
 def upgrade(connection: Connection) -> None:

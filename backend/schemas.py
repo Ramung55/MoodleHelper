@@ -473,10 +473,17 @@ class Thresholds(WireModel):
     maxWeighted: float
 
 
+LocalClock = Annotated[str, Field(pattern=r'^(?:[01][0-9]|2[0-3]):[0-5][0-9]$')]
+
+
 class ReminderSettings(WireModel):
     enabled: bool
     hoursBefore: float
     busyWeek: bool
+    # Optional additive fields; omission reads the documented defaults (7, 09:00, 09:00).
+    busyWeekLeadDays: Integer = Field(default=None, ge=0, le=30)
+    dateOnlyLocalTime: LocalClock = None
+    busyWeekLocalTime: LocalClock = None
 
 
 class AiSettings(WireModel):
@@ -1260,3 +1267,76 @@ class ScanPageList(QueueModel):
 class SyncUnavailableError(QueueModel):
     message: Literal['Live course sync is unavailable until Moodle access is verified.']
 
+
+
+# Reminder plan (#38). Backend-derived; the worker never supplies timestamps or targets.
+ReminderOpaqueId = Annotated[str, Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9._~-]+$')]
+ReminderKind = Literal['deadline', 'busy_week']
+ReminderReason = Literal['disabled', 'invalid_lead_time', 'timezone_data_unavailable', 'calendar_missing', 'calendar_invalid', 'date_unknown',
+                         'week_outside_calendar', 'date_outside_calendar', 'local_time_ambiguous', 'invalid_weights']
+ReminderItemStatus = Literal['scheduled', 'due', 'requested', 'unscheduled']
+
+
+class ReminderPlanItem(WireModel):
+    id: ReminderOpaqueId
+    deliveryKey: ReminderOpaqueId
+    kind: ReminderKind
+    assessmentId: str = Field(default=None, max_length=512)
+    week: Integer = Field(default=None, ge=1, le=30)
+    precision: Literal['exact', 'date', 'week', 'unknown']
+    status: ReminderItemStatus
+    dueAt: str = Field(default=None, max_length=64)
+    localTime: str = Field(default=None, max_length=64)
+    timezone: str = Field(default=None, max_length=100)
+    label: str = Field(max_length=200)
+    reason: ReminderReason = None
+
+
+class ReminderPlan(WireModel):
+    datasetId: str = Field(max_length=128)
+    generation: ReminderOpaqueId
+    serverTime: str
+    enabled: bool
+    reasons: list[ReminderReason] = Field(max_length=20)
+    items: list[ReminderPlanItem] = Field(max_length=100)
+    nextCursor: ReminderOpaqueId = None
+    nextWakeAt: str = None
+
+
+class ReminderReconcileInput(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    datasetId: ReminderOpaqueId
+    expectedGeneration: ReminderOpaqueId = None
+
+
+class ReminderDispatchInput(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    datasetId: ReminderOpaqueId
+    expectedGeneration: ReminderOpaqueId
+    idempotencyKey: ReminderOpaqueId
+
+
+class ReminderDeliveryTarget(WireModel):
+    itemId: ReminderOpaqueId
+    deliveryKey: ReminderOpaqueId
+    kind: ReminderKind
+    assessmentId: str = Field(default=None, max_length=512)
+    week: Integer = Field(default=None, ge=1, le=30)
+    dueAt: str
+
+
+class ReminderDeliveryRequest(WireModel):
+    requestId: ReminderOpaqueId
+    kind: Literal['deadline', 'busy_week', 'catch_up']
+    state: Literal['requested']
+    total: Integer = Field(ge=1)
+    targets: list[ReminderDeliveryTarget] = Field(max_length=100)
+
+
+class ReminderDispatchResult(WireModel):
+    datasetId: str = Field(max_length=128)
+    generation: ReminderOpaqueId
+    serverTime: str
+    replayed: bool
+    requests: list[ReminderDeliveryRequest] = Field(max_length=100)
+    nextWakeAt: str = None

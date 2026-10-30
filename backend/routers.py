@@ -275,3 +275,28 @@ def finish_scan(body:s.ScanFinish, request:Request): return scan(request).finish
 
 @scan_router.get('/jobs/{jobId}/pages', response_model=s.ScanPageList, response_model_exclude_none=True, operation_id='readScanJobPages', tags=['Scan'])
 def read_scan_pages(jobId:s.QueueId, request:Request, cursor:s.QueueId=None, limit:Annotated[int, __import__('fastapi').Query(ge=1,le=100)]=100): return scan(request).pages(jobId,cursor,limit)
+
+reminder_router = APIRouter(prefix='/api/reminders', responses={'default': {'model': s.ProposedHttpError}, 409: {'model': s.ProposedHttpError}, 422: {'model': s.ProposedHttpError}, 503: {'model': s.ProposedHttpError}})
+
+
+def reminders(request: Request):
+    return request.app.state.reminders
+
+
+def reminder_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bridge-Binding', description='Required current process binding from /api/bridge-context. Absent or stale returns 409 before processing.')]):
+    pass
+
+
+@reminder_router.get('/plan', response_model=s.ReminderPlan, response_model_exclude_none=True, operation_id='reminderPlan', tags=['Reminders'])
+def reminder_plan(request: Request, cursor: s.ReminderOpaqueId = None, limit: Annotated[int, __import__('fastapi').Query(ge=1, le=100)] = 100):
+    return reminders(request).read_plan(cursor, limit)
+
+
+@reminder_router.post('/reconcile', response_model=s.ReminderPlan, response_model_exclude_none=True, operation_id='reconcileReminders', tags=['Reminders'], dependencies=[Depends(reminder_binding)])
+def reconcile_reminders(body: s.ReminderReconcileInput, request: Request):
+    return reminders(request).reconcile(wire(body))
+
+
+@reminder_router.post('/dispatch', response_model=s.ReminderDispatchResult, response_model_exclude_none=True, operation_id='dispatchReminders', tags=['Reminders'], dependencies=[Depends(reminder_binding)])
+def dispatch_reminders(body: s.ReminderDispatchInput, request: Request):
+    return reminders(request).dispatch(wire(body))
