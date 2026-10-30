@@ -172,7 +172,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 <h3 className="text-sm font-semibold">Your changes</h3>
                 <p className="text-xs text-muted-foreground">These never change Moodle or the original source facts.</p>
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" disabled={pending} checked={v.completed} onChange={(e) => { const completed = e.target.checked; void mutate((a) => a.updateOverlay(v.a.id, { completed }), "Completion was not saved. Retry when the backend is available."); }} />
+                  <input type="checkbox" aria-busy={pending} disabled={pending} checked={v.completed} onChange={(e) => { const completed = e.target.checked; void mutate((a) => a.updateOverlay(v.a.id, { completed }), "Completion was not saved. Retry when the backend is available."); }} />
                   I've finished this (personal check)
                 </label>
                 {v.completed && v.needsAttention && (
