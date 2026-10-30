@@ -61,10 +61,10 @@ export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAtt
       {workloadError && <p role="alert" className="mb-4 text-destructive">{workloadError} <Link to="/settings" className="underline">Review workload weights</Link></p>}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card to="/deadlines" search={{ status: "outstanding" }} title="Outstanding this week" value={workloadError ? "Unavailable" : thisWeek?.outstanding ?? 0}>
-          {thisWeek ? `${thisWeek.total} total · weighted ${thisWeek.weighted}` : "—"}
+          {thisWeek ? `${thisWeek.total} total · weighted estimate ${thisWeek.weighted} (not study hours)` : s.settings.teachingCalendar ? "Today is outside a resolved teaching week" : "Teaching calendar not configured — set it in Settings"}
         </Card>
         <Card to="/planner" title="Busy weeks ahead" value={workloadError ? "Unavailable" : overloaded.length} tone={overloaded.length ? "warn" : undefined}>
-          {workloadError ? "Workload weights need attention" : overloaded.length ? overloaded.map((w) => `Week ${w.week}`).join(", ") : "No overload warnings"}
+          {workloadError ? "Workload weights need attention" : overloaded.length ? overloaded.map((w) => `Week ${w.week} (${w.outstanding} outstanding, estimate ${w.weighted})`).join(", ") : "No busy-week warnings"}
         </Card>
         <Card to="/syllabus" title="Needs syllabus review" value={review} tone={review ? "warn" : undefined}>
           Uncertain dates are never confirmed automatically

@@ -161,10 +161,6 @@ function SettingsPage() {
         <Section title="Workload">
           <p className="mb-2 text-xs text-muted-foreground">Estimates, not study hours.</p>
           <WorkloadWeights />
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <div className="space-y-1"><Label htmlFor="mo">Warn above outstanding</Label><Input id="mo" type="number" min={0} value={st.thresholds.maxOutstanding} onChange={(e) => upd({ thresholds: { ...st.thresholds, maxOutstanding: num(e.target.value) } })} /></div>
-            <div className="space-y-1"><Label htmlFor="mw">Warn above weighted</Label><Input id="mw" type="number" min={0} value={st.thresholds.maxWeighted} onChange={(e) => upd({ thresholds: { ...st.thresholds, maxWeighted: num(e.target.value) } })} /></div>
-          </div>
         </Section>
 
         <Section title="Reminders">
