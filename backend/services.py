@@ -166,20 +166,22 @@ class BackendService:
                         current['overrideBase'] = source_date(effective_sources(s, logical))
                 reconciliation['overlayEdits'] = [o for o in reconciliation['overlayEdits'] if o['assessmentId'] != resolved] + [current]
                 return
-            current = next((o for o in s["overlays"] if o["assessmentId"] == id),
-                           {"assessmentId": id, "hidden": False, "completed": False})
+            # Alias and canonical ids address one overlay; never create an orphan alias overlay.
+            id_ = resolved
+            current = next((o for o in s["overlays"] if o["assessmentId"] == id_),
+                           {"assessmentId": id_, "hidden": False, "completed": False})
             current.update(patch)
             for key in ("titleOverride", "dateOverride", "overrideBase"):
                 if current.get(key) is None:
                     current.pop(key, None)
             if "dateOverride" in patch:
-                assessment = next((a for a in s["assessments"] if a["id"] == id), None)
+                assessment = next((a for a in s["assessments"] if a["id"] == id_), None)
                 if patch["dateOverride"] is not None and assessment:
                     from backend.deadline_tracking import effective_sources
                     current["overrideBase"] = source_date(effective_sources(s, assessment))
                 else:
                     current.pop("overrideBase", None)
-            s["overlays"] = [o for o in s["overlays"] if o["assessmentId"] != id] + [current]
+            s["overlays"] = [o for o in s["overlays"] if o["assessmentId"] != id_] + [current]
         return self.store.mutate(apply)
 
     def add_personal_event(self, event: dict) -> dict:
