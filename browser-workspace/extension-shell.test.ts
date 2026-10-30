@@ -25,7 +25,7 @@ describe("emitted Chrome shell", () => {
     const listeners:any[]=[];
     const lifecycle:any[]=[];
     runInNewContext(source,{chrome:{runtime:{id:"test",onMessage:{addListener:(f:any)=>listeners.push(f)},onStartup:{addListener:(f:any)=>lifecycle.push(f)},onInstalled:{addListener:(f:any)=>lifecycle.push(f)}},alarms:{onAlarm:{addListener:(f:any)=>lifecycle.push(f)},create:()=>{},clear:()=>{}},permissions:{contains:()=>{}}},fetch:()=>Promise.reject(Error("Offline")),crypto:{randomUUID:()=>"generation"},Map,Set,URL,TextEncoder,AbortController,setTimeout,clearTimeout,setInterval,clearInterval});
-    expect(lifecycle).toHaveLength(3);
+    expect(lifecycle).toHaveLength(6); // queue + #38 reminder: onAlarm, onStartup, onInstalled each
     expect(listeners).toHaveLength(2);
     for(const listener of listeners) expect(listener({}, {id:"bad"},()=>{})).toBeUndefined();
   });

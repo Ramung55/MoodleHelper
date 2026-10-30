@@ -269,6 +269,9 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
     ).toBe("corrected");
     expect((await client.downloadMaterial("m1")).supported).toBe(false);
     expect((await client.aiAvailability()).available).toBe(false);
+    const plan = await client.reminderPlan();
+    expect(plan.items.length).toBeLessThanOrEqual(100);
+    expect(typeof plan.generation).toBe("string");
     const alerts = [
       {
         id: "bridge-alert",
