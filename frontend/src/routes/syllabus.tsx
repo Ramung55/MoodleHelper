@@ -14,7 +14,7 @@ import { useApp } from "@/lib/app-store";
 import { currentDataset, listLocalDocuments, saveLocalDocument, updateLocalJob, recoverLocalJobs, acquireLocalJobLease, type LocalAssociation, type LocalJob } from "@/services/local-documents";
 import { validateDocx } from "@/services/validate-docx";
 import { LocalExtraction } from "@/components/mh/LocalExtraction";
-import { LocalEvidenceView } from "@/components/mh/LocalEvidenceView";
+import { LocalReviewCard } from "@/components/mh/LocalReviewCard";
 
 const LOCAL_FILE_LIMIT = 20 * 1024 * 1024;
 
@@ -238,7 +238,7 @@ export function Syllabus() {
       <section className="mt-8">
         <h2 className="mb-3 text-xl font-semibold">Needs review ({pending.length})</h2>
         {pending.length === 0 ? <EmptyState title="Review queue is empty" /> : (
-          <div className="space-y-3">{pending.map((c) => <CandidateCard key={c.id} c={c} onDecide={(d) => run((a) => a.review(c.id, d))} />)}</div>
+          <div className="space-y-3">{pending.map((c) => c.localEvidence ? <LocalReviewCard key={c.id} c={c} /> : <CandidateCard key={c.id} c={c} onDecide={(d) => run((a) => a.review(c.id, d))} />)}</div>
         )}
       </section>
       {decided.length > 0 && (
@@ -246,7 +246,7 @@ export function Syllabus() {
           <h2 className="mb-3 text-lg font-semibold">Decided</h2>
           <ul className="divide-y rounded-lg border bg-card text-sm">
             {decided.map((c) => (
-              <li key={c.id} className="flex justify-between p-3"><span>{c.title} — {formatDate(c.date, s.settings.timezone)}</span><span className="capitalize text-muted-foreground">{c.status === "auto" ? "added automatically (clear evidence)" : c.status}</span></li>
+              <li key={c.id} className="flex justify-between gap-2 p-3"><span>{c.title} — {formatDate(c.date, s.settings.timezone)}{c.localDecision?.correctedValues && <span className="text-xs text-muted-foreground"> (original proposal: {c.localDecision.originalValues.title} — {formatDate(c.localDecision.originalValues.date, s.settings.timezone)})</span>}</span><span className="capitalize text-muted-foreground">{c.status === "auto" ? "added automatically (clear evidence)" : c.status}{c.localDecision?.evidenceMode === "stored-evidence-only" && " · manual, stored evidence only"}{c.localDecision?.evidenceMode === "unavailable" && " · original evidence unavailable"}</span></li>
             ))}
           </ul>
         </section>
@@ -268,10 +268,10 @@ function CandidateCard({ c, onDecide }: { c: ExtractionCandidate; onDecide: (d: 
           <p className="font-semibold">{c.title} <span className="text-xs uppercase text-muted-foreground">{TYPE_LABEL[c.type]} · {c.language.toUpperCase()}</span></p>
           <CourseTag course={snap!.courses.find((x) => x.id === c.courseId)} />
         </div>
-        <span className="rounded bg-warning px-2 py-0.5 text-xs text-warning-foreground">{c.localEvidence ? "Deterministic policy · review required" : `Confidence ${Math.round(c.confidence * 100)}%`}</span>
+        <span className="rounded bg-warning px-2 py-0.5 text-xs text-warning-foreground">Mock demo candidate · Confidence {Math.round(c.confidence * 100)}%</span>
       </div>
-      {c.localEvidence ? <LocalEvidenceView reference={c.localEvidence} /> : <><blockquote className="mt-3 border-l-2 pl-3 text-sm italic">“{c.excerpt}”</blockquote><p className="text-xs text-muted-foreground">{c.location}</p></>}
-      <p className="mt-2 text-sm">Proposed: <strong>{formatDate(c.date, snap!.settings.timezone)}</strong>{!c.localEvidence && <> from “{c.rawDateText}”</>}</p>
+      <blockquote className="mt-3 border-l-2 pl-3 text-sm italic">“{c.excerpt}”</blockquote><p className="text-xs text-muted-foreground">{c.location}</p>
+      <p className="mt-2 text-sm">Proposed: <strong>{formatDate(c.date, snap!.settings.timezone)}</strong> from “{c.rawDateText}”</p>
       {c.reason && <p className="text-sm text-muted-foreground">Why review: {c.reason}</p>}
       {match && <p className="text-sm">Possible related item: <strong>{match.title}</strong>. Moodle and syllabus matches are reviewed separately.</p>}
       {editing && (

@@ -24,6 +24,7 @@ import { detectAssessmentMentions } from "@/domain/assessment-mentions";
 import { parseSyllabusMention } from "@/domain/syllabus-dates";
 import { saveLocalDocument } from "@/services/local-documents";
 import { readLocalEvidence } from "@/services/local-evidence";
+import { inspectLocalReviewEvidence, submitLocalReview } from "@/services/local-review";
 import { routeLocalProposals } from "@/services/route-local-syllabus";
 import { indexedDbFixture } from "./indexeddb-fixture";
 
@@ -99,13 +100,14 @@ afterAll(async () => {
 
 describe("actual FastAPI HTTP integration", () => {
   it("routes actual local evidence with metadata-only HTTP, retains review decisions and replays after SQLite restart", async () => {
-    const original = await api.load(), nativeFetch = globalThis.fetch, storage = indexedDbFixture(), requests: string[] = [];
+    const original = await api.load(), nativeFetch = globalThis.fetch, storage = indexedDbFixture(), requests: string[] = [], reviews: string[] = [];
     const datasetId = (await (await nativeFetch(`${base}/api/local-context`)).json()).datasetId;
     vi.stubGlobal("indexedDB", storage.indexedDB); vi.stubGlobal("IDBKeyRange", storage.IDBKeyRange);
     vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("DecompressionStream", NativeDecompressionStream);
     vi.stubGlobal("fetch", async (url: any, init?: RequestInit) => {
       const target = String(url).startsWith("/") ? base + url : String(url);
       if (target.endsWith("/api/local-syllabus/route") && init?.method === "POST") requests.push(String(init.body));
+      if (/\/api\/candidates\/.+\/review$/.test(target) && init?.method === "POST") reviews.push(String(init.body));
       return nativeFetch(target, init);
     });
     const prepare = async (name: string) => {
@@ -143,8 +145,24 @@ describe("actual FastAPI HTTP integration", () => {
       const candidate = queued.snapshot.candidates.find(candidate => candidate.id === route.candidateId)!;
       expect(candidate.date).toEqual({ kind: "week", week: 6 });
       const originalLocal = await readLocalEvidence(candidate.localEvidence!);
-      await api.review(candidate.id, { kind: "correct", title: "Reviewed original week", type: "exam", date: { kind: "week", week: 3 } });
+      // #32: the real review queue path (local audit before HTTP, binding, server fingerprint) against FastAPI/SQLite.
+      await expect(api.review(candidate.id, { kind: "confirm" })).rejects.toThrow(/context changed|requires/i);
+      const evidence = await inspectLocalReviewEvidence(candidate, queued.snapshot);
+      expect(evidence.mode).toBe("original-available");
+      const correction = { kind: "correct" as const, title: "Reviewed original week", type: "exam" as const, date: { kind: "week" as const, week: 3 } };
+      const reviewed = await submitLocalReview(candidate, queued.snapshot, evidence, correction, false, api);
+      const decision = reviewed.candidates.find(item => item.id === candidate.id)!.localDecision!;
+      expect(decision).toMatchObject({ kind: "correct", originalValues: { date: { kind: "week", week: 6 } }, correctedValues: { title: "Reviewed original week", date: { kind: "week", week: 3 } }, assessmentId: `syl-${candidate.id}` });
+      expect(reviewed.assessments.filter(item => item.id === `syl-${candidate.id}`)).toHaveLength(1);
+      const localReview = { datasetId, pipelineVersion: "local-syllabus-1" as const, proposalFingerprint: decision.proposalFingerprint, decisionId: decision.decisionId, evidenceMode: "original-available" as const, acknowledgedStoredOnly: false };
+      expect(await api.review(candidate.id, { ...correction, localReview })).toEqual(reviewed);
+      await expect(api.review(candidate.id, { kind: "confirm", localReview: { ...localReview, decisionId: "second-tab" } })).rejects.toThrow(/different committed decision/);
+      expect(await api.load()).toEqual(reviewed);
+      expect(reviews.length).toBeGreaterThanOrEqual(3);
+      for (const body of reviews) for (const prohibited of ["excerpt", "rawScheduleText", "rawDateText", "word/document.xml", "bodyBlock", originalLocal.record!.original.mention.excerpt]) expect(body).not.toContain(prohibited);
+      expect((await readLocalEvidence(candidate.localEvidence!)).record!.audit.map(entry => entry.kind)).toEqual(["retained", "routed", "review-requested", "review-committed"]);
       await stopServer(); await startServer();
+      expect((await api.load()).assessments.filter(item => item.id === `syl-${candidate.id}`)).toHaveLength(1);
       const bodyCount = requests.length;
       const replay = await routeLocalProposals(week.association, week.extraction, week.mentions, week.parsed, calendar, new AbortController().signal, api);
       expect(requests).toHaveLength(bodyCount);
@@ -155,6 +173,15 @@ describe("actual FastAPI HTTP integration", () => {
       const lostSource = await routeLocalProposals(week.association, week.extraction, week.mentions, week.parsed, calendar, new AbortController().signal, api);
       expect(lostSource.routes.every(route => route.disposition === "retained")).toBe(true);
       expect((await readLocalEvidence(candidate.localEvidence!)).sourceAvailable).toBe(false);
+      const other = lostSource.snapshot.candidates.find(item => item.status === "pending" && item.localEvidence?.digest === week.association.digest);
+      expect(other).toBeDefined();
+      if (other) {
+        const stored = await inspectLocalReviewEvidence(other, lostSource.snapshot);
+        expect(stored.mode).toBe("stored-evidence-only");
+        await expect(submitLocalReview(other, lostSource.snapshot, stored, { kind: "reject" }, false, api)).resolves.toMatchObject({ candidates: expect.arrayContaining([expect.objectContaining({ id: other.id, status: "rejected" })]) });
+        const again = await routeLocalProposals(week.association, week.extraction, week.mentions, week.parsed, calendar, new AbortController().signal, api);
+        expect(again.snapshot.candidates.find(item => item.id === other.id)!.status).toBe("rejected");
+      }
       const beforeCollision = await api.load(), conflicting = JSON.parse(requests[0]); conflicting.proposals[0].title = "Changed immutable title";
       await expect(api.routeLocalSyllabus(conflicting)).rejects.toThrow(/identity changed/);
       expect(await api.load()).toEqual(beforeCollision);
