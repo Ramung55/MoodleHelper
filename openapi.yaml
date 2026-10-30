@@ -747,6 +747,43 @@ paths:
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
       - $ref: '#/components/parameters/BridgeBinding'
+  /api/ai/extract:
+    post:
+      operationId: aiExtract
+      tags: [AI availability]
+      summary: Optional bounded AI extraction (ai-extract.v1, #42/#43)
+      description: >-
+        Localhost-only, consented excerpt transfer. Ordinary runtime has no provider
+        and returns 503; only a trusted server construction can enable the local mock
+        (no network, simulated cost). Required process binding and expectedDatasetId
+        preconditions; 16 KiB body, 8 excerpts of at most 2000 UTF-8 bytes. Consent
+        must bind the exact excerpts, context, destination and policy through
+        payloadDigest. Failures use the error envelope with a fixed code and the
+        request ID (413 payload, 429 rate/concurrency/budget, 502 provider/invalid
+        output, 503 unavailable, 504 timeout); submitted text is never echoed.
+        Proposals are unconfirmed and never change assessments. Evidence offsets are
+        UTF-16 code units within the supplied excerpt text. Not exposed through the
+        Chrome extension transport.
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema: {type: string}
+        description: Required current process binding from /api/bridge-context.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AiExtractRequest'}
+      responses:
+        '200':
+          description: Validated unconfirmed proposals from the local mock
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AiExtractResponse'}
+        '409': {$ref: '#/components/responses/ProposedHttpFailure'}
+        '422': {$ref: '#/components/responses/ProposedHttpFailure'}
+        default: {$ref: '#/components/responses/ProposedHttpFailure'}
   /api/bridge-context:
     get:
       operationId: bridgeContext
@@ -4291,20 +4328,18 @@ components:
       required:
       - available
       - reason
-    AiAvailable:
-      type: object
-      properties:
-        available:
-          type: boolean
-          const: true
-        provider:
-          type: string
-        retention:
-          type: string
-      required:
-      - available
-      - provider
-      - retention
+    AiAvailable: {"properties": {"available": {"const": true, "title": "Available", "type": "boolean"}, "provider": {"title": "Provider", "type": "string"}, "retention": {"title": "Retention", "type": "string"}, "mode": {"const": "mock", "title": "Mode", "type": "string"}, "policyVersion": {"title": "Policyversion", "type": "string"}, "destination": {"title": "Destination", "type": "string"}, "limits": {"$ref": "#/components/schemas/AiLimits"}}, "required": ["available", "provider", "retention"], "title": "AiAvailable", "type": "object"}
+    AiLimits: {"properties": {"maxExcerpts": {"title": "Maxexcerpts", "type": "integer"}, "maxExcerptBytes": {"title": "Maxexcerptbytes", "type": "integer"}, "maxBodyBytes": {"title": "Maxbodybytes", "type": "integer"}, "timeoutSeconds": {"title": "Timeoutseconds", "type": "integer"}, "perMinute": {"title": "Perminute", "type": "integer"}, "perDay": {"title": "Perday", "type": "integer"}, "concurrency": {"title": "Concurrency", "type": "integer"}, "monthlyCapUsd": {"title": "Monthlycapusd", "type": "number"}, "perRequestReserveUsd": {"title": "Perrequestreserveusd", "type": "number"}, "simulatedCost": {"title": "Simulatedcost", "type": "boolean"}}, "required": ["maxExcerpts", "maxExcerptBytes", "maxBodyBytes", "timeoutSeconds", "perMinute", "perDay", "concurrency", "monthlyCapUsd", "perRequestReserveUsd", "simulatedCost"], "title": "AiLimits", "type": "object"}
+    AiConsent: {"additionalProperties": false, "properties": {"policyVersion": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9._~-]+$", "title": "Policyversion", "type": "string"}, "destination": {"maxLength": 128, "minLength": 1, "title": "Destination", "type": "string"}, "approvedExcerptIds": {"items": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9._~-]+$", "type": "string"}, "maxItems": 8, "minItems": 1, "title": "Approvedexcerptids", "type": "array"}, "payloadDigest": {"pattern": "^[0-9a-f]{64}$", "title": "Payloaddigest", "type": "string"}}, "required": ["policyVersion", "destination", "approvedExcerptIds", "payloadDigest"], "title": "AiConsent", "type": "object"}
+    AiExcerpt: {"additionalProperties": false, "properties": {"id": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9._~-]+$", "title": "Id", "type": "string"}, "documentDigest": {"pattern": "^[0-9a-f]{64}$", "title": "Documentdigest", "type": "string"}, "locationId": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9._~-]+$", "title": "Locationid", "type": "string"}, "text": {"maxLength": 2000, "minLength": 1, "title": "Text", "type": "string"}}, "required": ["id", "documentDigest", "locationId", "text"], "title": "AiExcerpt", "type": "object"}
+    AiSemesterBounds: {"additionalProperties": false, "properties": {"start": {"pattern": "^\\d{4}-\\d{2}-\\d{2}$", "title": "Start", "type": "string"}, "end": {"pattern": "^\\d{4}-\\d{2}-\\d{2}$", "title": "End", "type": "string"}}, "title": "AiSemesterBounds", "type": "object"}
+    AiContext: {"additionalProperties": false, "properties": {"dateOrder": {"enum": ["DMY", "MDY"], "title": "Dateorder", "type": "string"}, "timezone": {"maxLength": 64, "minLength": 1, "pattern": "^[A-Za-z0-9_+/-]+$", "title": "Timezone", "type": "string"}, "explicitSemesterBounds": {"$ref": "#/components/schemas/AiSemesterBounds"}}, "title": "AiContext", "type": "object"}
+    AiExtractRequest: {"additionalProperties": false, "properties": {"version": {"const": "ai-extract.v1", "title": "Version", "type": "string"}, "requestId": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9._~-]+$", "title": "Requestid", "type": "string"}, "expectedDatasetId": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9._~-]+$", "title": "Expecteddatasetid", "type": "string"}, "consent": {"$ref": "#/components/schemas/AiConsent"}, "excerpts": {"items": {"$ref": "#/components/schemas/AiExcerpt"}, "maxItems": 8, "minItems": 1, "title": "Excerpts", "type": "array"}, "context": {"$ref": "#/components/schemas/AiContext"}}, "required": ["version", "requestId", "expectedDatasetId", "consent", "excerpts"], "title": "AiExtractRequest", "type": "object"}
+    AiProposalDate: {"additionalProperties": false, "properties": {"value": {"title": "Value", "type": "string"}, "precision": {"enum": ["datetime", "date", "month", "week", "none"], "title": "Precision", "type": "string"}}, "required": ["precision"], "title": "AiProposalDate", "type": "object"}
+    AiEvidence: {"additionalProperties": false, "properties": {"excerptId": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9._~-]+$", "title": "Excerptid", "type": "string"}, "locationId": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9._~-]+$", "title": "Locationid", "type": "string"}, "start": {"minimum": 0, "title": "Start", "type": "integer"}, "end": {"minimum": 1, "title": "End", "type": "integer"}}, "required": ["excerptId", "locationId", "start", "end"], "title": "AiEvidence", "type": "object"}
+    AiProposal: {"additionalProperties": false, "properties": {"title": {"maxLength": 200, "minLength": 1, "title": "Title", "type": "string"}, "type": {"enum": ["assignment", "quiz", "exam", "other"], "title": "Type", "type": "string"}, "date": {"$ref": "#/components/schemas/AiProposalDate"}, "uncertain": {"title": "Uncertain", "type": "boolean"}, "uncertaintyReason": {"enum": ["ambiguous_order", "missing_year", "relative_week", "no_date", "other"], "title": "Uncertaintyreason", "type": "string"}, "week": {"maximum": 30, "minimum": 1, "title": "Week", "type": "integer"}, "confirmed": {"const": false, "title": "Confirmed", "type": "boolean"}, "evidence": {"items": {"$ref": "#/components/schemas/AiEvidence"}, "maxItems": 8, "minItems": 1, "title": "Evidence", "type": "array"}}, "required": ["title", "type", "date", "uncertain", "confirmed", "evidence"], "title": "AiProposal", "type": "object"}
+    AiUsage: {"additionalProperties": false, "properties": {"inputTokens": {"minimum": 0, "title": "Inputtokens", "type": "integer"}, "outputTokens": {"minimum": 0, "title": "Outputtokens", "type": "integer"}, "costUsd": {"title": "Costusd", "type": "number"}, "simulated": {"title": "Simulated", "type": "boolean"}}, "required": ["inputTokens", "outputTokens", "costUsd", "simulated"], "title": "AiUsage", "type": "object"}
+    AiExtractResponse: {"additionalProperties": false, "properties": {"version": {"const": "ai-extract.v1", "title": "Version", "type": "string"}, "requestId": {"maxLength": 128, "minLength": 1, "pattern": "^[A-Za-z0-9._~-]+$", "title": "Requestid", "type": "string"}, "mode": {"const": "mock", "title": "Mode", "type": "string"}, "policyVersion": {"title": "Policyversion", "type": "string"}, "status": {"const": "ok", "title": "Status", "type": "string"}, "proposals": {"items": {"$ref": "#/components/schemas/AiProposal"}, "maxItems": 50, "title": "Proposals", "type": "array"}, "usage": {"$ref": "#/components/schemas/AiUsage"}}, "required": ["version", "requestId", "mode", "policyVersion", "status", "proposals"], "title": "AiExtractResponse", "type": "object"}
     ProposedHttpError:
       type: object
       properties:

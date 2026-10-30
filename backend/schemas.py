@@ -1068,10 +1068,27 @@ class AiUnavailable(WireModel):
     reason: str
 
 
+class AiLimits(WireModel):
+    maxExcerpts: Integer
+    maxExcerptBytes: Integer
+    maxBodyBytes: Integer
+    timeoutSeconds: Integer
+    perMinute: Integer
+    perDay: Integer
+    concurrency: Integer
+    monthlyCapUsd: float
+    perRequestReserveUsd: float
+    simulatedCost: bool
+
+
 class AiAvailable(WireModel):
     available: Literal[True]
     provider: str
     retention: str
+    mode: Literal['mock'] = None
+    policyVersion: str = None
+    destination: str = None
+    limits: AiLimits = None
 
 
 AiAvailability = AiUnavailable | AiAvailable
@@ -1420,3 +1437,87 @@ class ReminderDispatchResult(WireModel):
     requests: list[ReminderDeliveryRequest] = Field(max_length=100)
     nextWakeAt: str = None
     pendingDeliveries: list[ReminderPendingDelivery] = Field(default=None, max_length=20)
+
+
+# Optional AI gateway (#43), contract ai-extract.v1 from _docs/architecture/ai-contract.md.
+AiId = Annotated[str, Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9._~-]+$')]
+AiDigest = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+AiIsoDate = Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')]
+
+
+class AiClosed(WireModel):
+    model_config = ConfigDict(extra='forbid')
+
+
+class AiConsent(AiClosed):
+    policyVersion: AiId
+    destination: Annotated[str, Field(min_length=1, max_length=128)]
+    approvedExcerptIds: list[AiId] = Field(min_length=1, max_length=8)
+    payloadDigest: AiDigest
+
+
+class AiExcerpt(AiClosed):
+    id: AiId
+    documentDigest: AiDigest
+    locationId: AiId
+    text: Annotated[str, Field(min_length=1, max_length=2000)]
+
+
+class AiSemesterBounds(AiClosed):
+    start: AiIsoDate = None
+    end: AiIsoDate = None
+
+
+class AiContext(AiClosed):
+    dateOrder: Literal['DMY', 'MDY'] = None
+    timezone: Annotated[str, Field(min_length=1, max_length=64, pattern=r'^[A-Za-z0-9_+/-]+$')] = None
+    explicitSemesterBounds: AiSemesterBounds = None
+
+
+class AiExtractRequest(AiClosed):
+    version: Literal['ai-extract.v1']
+    requestId: AiId
+    expectedDatasetId: AiId
+    consent: AiConsent
+    excerpts: list[AiExcerpt] = Field(min_length=1, max_length=8)
+    context: AiContext = None
+
+
+class AiProposalDate(AiClosed):
+    value: str = None
+    precision: Literal['datetime', 'date', 'month', 'week', 'none']
+
+
+class AiEvidence(AiClosed):
+    excerptId: AiId
+    locationId: AiId
+    start: Integer = Field(ge=0)
+    end: Integer = Field(ge=1)
+
+
+class AiProposal(AiClosed):
+    title: Annotated[str, Field(min_length=1, max_length=200)]
+    type: AssessmentType
+    date: AiProposalDate
+    uncertain: bool
+    uncertaintyReason: Literal['ambiguous_order', 'missing_year', 'relative_week', 'no_date', 'other'] = None
+    week: Integer = Field(default=None, ge=1, le=30)
+    confirmed: Literal[False]
+    evidence: list[AiEvidence] = Field(min_length=1, max_length=8)
+
+
+class AiUsage(AiClosed):
+    inputTokens: Integer = Field(ge=0)
+    outputTokens: Integer = Field(ge=0)
+    costUsd: float
+    simulated: bool
+
+
+class AiExtractResponse(AiClosed):
+    version: Literal['ai-extract.v1']
+    requestId: AiId
+    mode: Literal['mock']
+    policyVersion: str
+    status: Literal['ok']
+    proposals: list[AiProposal] = Field(max_length=50)
+    usage: AiUsage = None

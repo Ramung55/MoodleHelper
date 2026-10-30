@@ -10,7 +10,8 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from backend.material_downloads import MaterialDownloadService, TransferConflict, material_download_router
-from backend.routers import router, context_router, collection_router, queue_router, scan_router, local_syllabus_router, reminder_router
+from backend.routers import router, context_router, collection_router, queue_router, scan_router, local_syllabus_router, reminder_router, ai_router
+from backend.ai_gateway import AiGateway, AiFailure, MAX_BODY_BYTES
 from backend.reminders import ReminderService, ReminderConflict
 from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
 from backend.services import BackendService, SyncUnavailable, SYNC_UNAVAILABLE
@@ -23,8 +24,10 @@ from backend.scan_queue import ScanQueueService
 
 
 def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None, reminder_clock=None, reminder_resolver=None,
-               store_factory: Callable[[], SnapshotStore] | None = None,
+               store_factory: Callable[[], SnapshotStore] | None = None, ai_gateway: AiGateway | None = None,
                material_download_capability=None) -> FastAPI:
+    # Trusted construction only: no request, query, header or page message selects a provider.
+    gateway = ai_gateway or AiGateway()
     if store is not None and store_factory is not None:
         raise ValueError('Provide either store or store_factory, not both.')
     raw_concurrency = os.environ.get('MOODLE_HELPER_QUEUE_CONCURRENCY', '1')
@@ -50,6 +53,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.reminders = make_reminders(selected)
         app.state.material_downloads = MaterialDownloadService(selected, material_download_capability)
         app.state.scan = ScanQueueService(selected, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
+        app.state.ai_gateway = gateway
         try:
             yield
         finally:
@@ -58,6 +62,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
 
     app = FastAPI(title="Moodle Helper", version="0.1.0",
                   description="Local fictional demo API; one process-local dataset, no authentication or live Moodle access.", lifespan=lifespan)
+    app.state.ai_gateway = gateway
     if store is not None:
         app.state.service = BackendService(store)
         app.state.queue = make_queue(store)
@@ -81,6 +86,22 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
                 local_review_write = any(item['id'] == candidate_id and item.get('localEvidence') for item in app.state.service.store.read()['candidates'])
             except StorageError as error:
                 return JSONResponse(status_code=503, content={'message': str(error)})
+        if request.url.path.startswith('/api/ai/') and request.method not in ['GET','HEAD','OPTIONS']:
+            # Binding, then a hard 16 KiB body bound, before parsing or provider work.
+            if binding != getattr(app.state, 'bridge_binding', None):
+                return JSONResponse(status_code=409, content={'message':'Backend context changed. Reconnect.'})
+            declared = request.headers.get('content-length')
+            if declared is not None and (not declared.isdigit() or int(declared) > MAX_BODY_BYTES):
+                return JSONResponse(status_code=413, content=AiFailure('payload_too_large').body())
+            chunks, size = [], 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_BODY_BYTES:
+                    return JSONResponse(status_code=413, content=AiFailure('payload_too_large').body())
+                chunks.append(chunk)
+            # Starlette replays the cached body to the handler and still reports disconnects.
+            request._body = b''.join(chunks)
+            return await call_next(request)
         if (collection_write or queue_write or local_syllabus_write or local_review_write) and binding != getattr(app.state, 'bridge_binding', None):
             return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
         if request.url.path.startswith(('/api/collection', '/api/queue/', '/api/scan/', '/api/reminders/', '/api/material-downloads')) or local_syllabus_write or local_review_write:
@@ -115,6 +136,11 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
             return JSONResponse(status_code=409, content={"message": "Backend context changed. Reconnect."})
         return await call_next(request)
 
+    @app.exception_handler(AiFailure)
+    async def ai_failure(request: Request, error: AiFailure):
+        headers = {'Retry-After': str(error.retry_after)} if error.retry_after else None
+        return JSONResponse(status_code=error.status, content=error.body(), headers=headers)
+
     @app.exception_handler(StorageError)
     async def storage_error(request: Request, error: StorageError):
         return JSONResponse(status_code=503, content={"message": str(error)})
@@ -129,6 +155,8 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError):
+        if request.url.path.startswith('/api/ai/'):
+            return JSONResponse(status_code=422, content=AiFailure('invalid_request').body())
         if request.url.path.startswith(('/api/collection', '/api/queue/', '/api/scan/', '/api/reminders/')):
             return JSONResponse(status_code=422, content={'message':'Invalid request.'})
         errors = [f"{'.'.join(str(p) for p in item['loc'])}: {item['msg']}" for item in error.errors()]
@@ -174,6 +202,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     app.include_router(context_router)
     app.include_router(collection_router)
     app.include_router(local_syllabus_router)
+    app.include_router(ai_router)
     return app
 
 

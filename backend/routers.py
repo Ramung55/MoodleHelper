@@ -223,8 +223,9 @@ def reset_demo(api: Service):
 
 
 @router.get("/ai/availability", response_model=s.AiAvailability, operation_id="aiAvailability", tags=["AI availability"])
-def ai_availability(api: Service):
-    return api.ai_availability()
+def ai_availability(api: Service, request: Request):
+    gateway = getattr(request.app.state, 'ai_gateway', None)
+    return gateway.availability() if gateway is not None else api.ai_availability()
 
 # Queue operations require the current process binding for writes.
 queue_router = APIRouter(prefix='/api/queue', responses={'default': {'model':s.ProposedHttpError}, 404:{'model':s.ProposedHttpError}, 409:{'model':s.ProposedHttpError}, 422:{'model':s.ProposedHttpError}, 503:{'model':s.ProposedHttpError}})
@@ -315,3 +316,20 @@ def reminder_delivery_status(body: s.ReminderDeliveryStatusInput, request: Reque
 @reminder_router.post('/notification-target', response_model=s.ReminderNotificationTarget, response_model_exclude_none=True, operation_id='reminderNotificationTarget', tags=['Reminders'], dependencies=[Depends(reminder_binding)])
 def reminder_notification_target(body: s.ReminderNotificationTargetInput, request: Request):
     return reminders(request).notification_target(wire(body))
+
+
+def ai_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bridge-Binding', description='Required current process binding from /api/bridge-context.')]):
+    pass
+
+
+ai_router = APIRouter(prefix='/api/ai', dependencies=[Depends(ai_binding)], responses={'default': {'model': s.ProposedHttpError}, 422: {'model': s.ProposedHttpError}, 409: {'model': s.ProposedHttpError}})
+
+
+@ai_router.post('/extract', response_model=s.AiExtractResponse, response_model_exclude_none=True, operation_id='aiExtract', tags=['AI availability'])
+async def ai_extract(body: s.AiExtractRequest, request: Request):
+    from backend.ai_gateway import AiFailure
+    if request.query_params:
+        raise AiFailure('invalid_request')
+    gateway = request.app.state.ai_gateway
+    raw = await request.json()  # validated again by the gateway; never echoed
+    return await gateway.extract(raw, request.app.state.service.store.dataset_id, request.is_disconnected)
