@@ -1,6 +1,5 @@
 // Synthetic browser/runtime/envelope shims; production coordinator + worker + real HTTP/SQLite.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createServer } from 'node:net';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -21,24 +20,23 @@ import { Syllabus } from '@/routes/syllabus';
 import { AssessmentSheet } from '@/components/mh/AssessmentSheet';
 import { SyllabusRevisionReview } from '@/components/mh/SyllabusRevisionReview';
 import { HttpAdapter } from '@/services/http-adapter';
+import { BACKEND_START_HOOK_TIMEOUT_MS,BACKEND_STOP_HOOK_TIMEOUT_MS,releaseLockHelper,realBackendTimeout,repositoryRoot,startRealBackend,stopProcess,venvPython } from './real-backend';
 vi.mock('@/services', () => ({ getAdapter: () => api }));
 vi.mock('@/services/extension-adapter', () => ({ detectExtension: async () => false }));
 let api: HttpAdapter;
 const time='2026-10-27T12:30:00.12+05:00';
-let server:ChildProcess,base:string,temporary:string,seed:Snapshot;
-const root=path.resolve(import.meta.dirname,'../../..');
+let server:ChildProcess|undefined,base:string,temporary:string,seed:Snapshot;
+const root=repositoryRoot;
 let database:string;
 async function start() {
-  const listener=createServer();await new Promise<void>(resolve=>listener.listen(0,'127.0.0.1',resolve));const port=(listener.address() as {port:number}).port;await new Promise<void>(resolve=>listener.close(()=>resolve()));base=`http://127.0.0.1:${port}`;
-  const python=path.join(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-  server=spawn(python,['-m','uvicorn','tests.collection_network_app:app','--host','127.0.0.1','--port',String(port)],{cwd:root,env:{...process.env,MOODLE_HELPER_COLLECTION_TEST_DATABASE:database},windowsHide:true,stdio:'pipe'});
-  let log='';server.stderr?.on('data',v=>log+=String(v));server.on('error',e=>log+=String(e));
-  const until=Date.now()+20000;while(Date.now()<until){try{if((await fetch(base+'/docs')).ok){api=new HttpAdapter(base);return;}}catch{}if(server.exitCode!==null)break;await new Promise(r=>setTimeout(r,50));}throw Error(log);
+  // Fresh free port per start; bounded start-up wait with the captured log on failure.
+  const started=await startRealBackend('tests.collection_network_app:app',{...process.env,MOODLE_HELPER_COLLECTION_TEST_DATABASE:database});
+  server=started.process;base=started.base;api=new HttpAdapter(base);
 }
-async function stop(){if(server&&server.exitCode===null)await new Promise<void>(resolve=>{server.once('exit',()=>resolve());server.kill();});}
+async function stop(){await stopProcess(server);}
 async function json(url:string,method='GET',body?:unknown){const binding=method==='GET'?{}:{'X-Moodle-Helper-Bridge-Binding':(await (await fetch(base+'/api/bridge-context')).json()).binding};const r=await fetch(base+url,{method,headers:{'Content-Type':'application/json',...binding},...(body===undefined?{}:{body:JSON.stringify(body)})});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json();}
-beforeAll(async()=>{temporary=await mkdtemp(path.join(tmpdir(),'moodle-page-refresh-'));database=path.join(temporary,'synthetic-collection.sqlite3');await start();seed=await json('/api/snapshot');seed.courses[0]!.discovery={sourceCourseId:'101',sourceUrl:origin+'/course/view.php?id=101',title:{kind:'known',value:'Synthetic course'},termIndicators:{kind:'unknown'},currentTermStatus:'unknown'};seed.settings.trackedCourseIds=[seed.courses[0]!.id];},25000);
-afterAll(async()=>{await stop();if(temporary)await rm(temporary,{recursive:true,force:true});});
+beforeAll(async()=>{temporary=await mkdtemp(path.join(tmpdir(),'moodle-page-refresh-'));database=path.join(temporary,'synthetic-collection.sqlite3');await start();seed=await json('/api/snapshot');seed.courses[0]!.discovery={sourceCourseId:'101',sourceUrl:origin+'/course/view.php?id=101',title:{kind:'known',value:'Synthetic course'},termIndicators:{kind:'unknown'},currentTermStatus:'unknown'};seed.settings.trackedCourseIds=[seed.courses[0]!.id];},BACKEND_START_HOOK_TIMEOUT_MS); // real uvicorn start-up under parallel suite load
+afterAll(async()=>{try{await stop();}finally{if(temporary)await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:200});}},BACKEND_STOP_HOOK_TIMEOUT_MS); // bounded real uvicorn stop (force kill fallback) plus temp folder removal
 beforeEach(async()=>{await json('/api/snapshot','PUT',seed);});
 const tick=()=>new Promise(resolve=>setTimeout(resolve,20));
 async function until(check:()=>boolean){const limit=Date.now()+5000;while(!check()&&Date.now()<limit)await tick();expect(check()).toBe(true);}
@@ -98,7 +96,7 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
     expect(screen.getByText('The source date changed after you edited it')).toBeInTheDocument();
     expect(screen.getByText(/Your date:/)).toHaveTextContent('Week 7');
     history.unmount();cleanup();
-  },15000);
+  },realBackendTimeout(1)); // one real uvicorn restart under parallel load
   it.each(['observation','reference'])('rejects an injected folder-child pluginfile %s through the production worker/real HTTP/SQLite without changing saved facts',async(location)=>{
     const html=`${account}<main data-region="activity" data-module-type="folder" data-course-module-id="301"><h1>Synthetic folder</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><span data-role="material-section">Week 2</span><a data-role="destination" href="/pluginfile.php/700/mod_folder/content/1/parent.pdf">Parent file</a><ul data-region="folder-contents"><li data-region="folder-entry" data-entry-kind="folder" data-folder-id="401"><a data-role="entry-link" href="/mod/folder/view.php?id=301&folder=401">Child folder</a><ul><span data-role="folder-empty"></span></ul></li></ul></main>`;
     const source=fixture(materialInput(html,'/mod/folder/view.php?id=301'));const healthy=setup(source);healthy.coordinator.notify();await until(()=>healthy.coordinator.state.receipts.length===1);expect(healthy.coordinator.state.status).toBe('saved');healthy.coordinator.stop();const before=await json('/api/snapshot');
@@ -160,7 +158,7 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
     expect(saved.alerts.some((a:any)=>a.kind==='change'&&a.context?.change)).toBe(true);
     expect(await json('/api/snapshot','PUT',backup.backup.data)).toEqual(neutral);
     expect(f.calls.every(c=>c.url.startsWith('http://127.0.0.1:8000/api/collection')&&c.init?.credentials==='omit'&&c.init.redirect==='error')).toBe(true);
-  });
+  },realBackendTimeout(1)); // one real uvicorn restart under parallel load
   it('dispatches real calendar ranges, recurrence, date precision and unresolved reviews without course guessing',async()=>{
     const input=calendarInput(calendarPage(calendarEvent({recurrence:['601','701'],dates:calendarDate('date','2026-10-29','')})+calendarEvent({id:'502',course:null})));
     const f=setup(fixture(input));f.coordinator.notify();await until(()=>f.coordinator.state.receipts.length===1);
@@ -184,7 +182,7 @@ describe('#18 real pipeline AC1/AC2/AC5',()=>{
       const restored=render(createElement(AppProvider,{children:createElement(Harness)}));fireEvent.click(await screen.findByRole('button',{name:'Restore'}));await screen.findByRole('button',{name:'Dismiss'});
       expect((await api.load()).dismissedSyllabusSuggestions).toEqual([]);expect(calls.some(url=>/docs\.example|pluginfile|documents\/import/.test(url))).toBe(false);restored.unmount();cleanup();
     } finally {spy.mockRestore();}
-  },15000);
+  },realBackendTimeout(1)); // one real uvicorn restart under parallel load
   it('dispatches real materials including unknown metadata and exact folder listing proof',async()=>{
     const input=materialInput(`${account}<main data-region="activity" data-module-type="folder" data-course-module-id="301"><h1>Synthetic folder</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><span data-role="material-section">Week 2</span><ul data-region="folder-contents"><li data-region="folder-entry" data-entry-kind="file" data-file-id="401"><a data-role="entry-link" href="/pluginfile.php/701/mod_folder/content/2/slides.pptx">Slides</a></li></ul></main>`,'/mod/folder/view.php?id=301');
     const f=setup(fixture(input));f.coordinator.notify();await until(()=>f.coordinator.state.receipts.length===1);
@@ -265,16 +263,17 @@ describe('#18 lifecycle AC3/AC4',()=>{
   });
   it('real SQLite writer lock returns a visible fixed failure through actual HTTP without erasing earlier facts',async()=>{
     const initial=setup();initial.coordinator.notify();await until(()=>initial.coordinator.state.receipts.length===2);const saved=await json('/api/snapshot');initial.coordinator.stop();
-    const python=path.join(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
-    const locker=spawn(python,['-u','-c',"import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN IMMEDIATE'); print('locked',flush=True); sys.stdin.read(); c.rollback(); c.close()",database],{cwd:root,windowsHide:true,stdio:'pipe'});
-    let ready=false;locker.stdout?.on('data',v=>{if(String(v).includes('locked'))ready=true;});await until(()=>ready);
-    try {const f=setup();f.coordinator.notify();await until(()=>f.coordinator.state.status==='failed');expect(f.coordinator.state.reason).toBe('backend_unavailable');expect(await json('/api/snapshot')).toEqual(saved);f.coordinator.stop();}
-    finally {await new Promise<void>(resolve=>{locker.once('exit',()=>resolve());locker.stdin?.end();});}
+    const python=venvPython;
+    let locker:ChildProcess|undefined;
+    try {locker=spawn(python,['-u','-c',"import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN IMMEDIATE'); print('locked',flush=True); sys.stdin.read(); c.rollback(); c.close()",database],{cwd:root,windowsHide:true,stdio:'pipe'});
+      let ready=false;locker.stdout?.on('data',v=>{if(String(v).includes('locked'))ready=true;});await until(()=>ready);
+      const f=setup();f.coordinator.notify();await until(()=>f.coordinator.state.status==='failed');expect(f.coordinator.state.reason).toBe('backend_unavailable');expect(await json('/api/snapshot')).toEqual(saved);f.coordinator.stop();}
+    finally {await releaseLockHelper(locker);}
   });
   it('process restart during a deferred collector invalidates the old result',async()=>{
     let release!:(v:CollectorResult)=>void;const registry=syntheticFixtureRegistry();const real=registry.assignment.collect;registry.assignment.collect=()=>new Promise(resolve=>{release=resolve;});const f=setup(fixture(),registry);f.coordinator.notify();await until(()=>!!release);
     await stop();await start();release(await real(f.source.input!,['101'],time));await until(()=>f.coordinator.state.status==='cancelled');expect((await json('/api/snapshot')).collection).toBeUndefined();f.coordinator.stop();
-  });
+  },realBackendTimeout(1)); // one real uvicorn restart under parallel load
   it('in-place document activity identity changes invalidate pending results',async()=>{
     let release!:(v:CollectorResult)=>void;const registry=syntheticFixtureRegistry();const real=registry.assignment.collect;const input=assignmentInput();const parsed=await real(input,['101'],time);registry.assignment.collect=()=>new Promise(resolve=>{release=resolve;});const f=setup(fixture(input),registry);f.coordinator.notify();await until(()=>!!release);
     input.document.querySelector('[data-assignment-id]')!.setAttribute('data-assignment-id','999');release(parsed);await until(()=>f.coordinator.state.status==='cancelled');expect((await json('/api/snapshot')).collection).toBeUndefined();f.coordinator.stop();

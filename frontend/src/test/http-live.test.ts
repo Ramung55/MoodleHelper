@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { spawn, type ChildProcess } from "node:child_process";
-import { createServer } from "node:net";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,6 +26,7 @@ import { readLocalEvidence } from "@/services/local-evidence";
 import { inspectLocalReviewEvidence, submitLocalReview } from "@/services/local-review";
 import { routeLocalProposals } from "@/services/route-local-syllabus";
 import { indexedDbFixture } from "./indexeddb-fixture";
+import { BACKEND_START_HOOK_TIMEOUT_MS, BACKEND_STOP_HOOK_TIMEOUT_MS, releaseLockHelper, realBackendTimeout, repositoryRoot, startRealBackend, stopProcess, venvPython } from "./real-backend";
 
 // Only the service locator/extension handshake are injected; all data operations
 // below use production HttpAdapter, FastAPI and a real file SQLite database.
@@ -38,65 +38,42 @@ function SelectionHarness() {
 }
 const openSelection = () => render(createElement(AppProvider, { children: createElement(SelectionHarness) }));
 
-let child: ChildProcess;
+let child: ChildProcess | undefined;
 let api: HttpAdapter;
 let base: string;
 let root: string;
 let python: string;
-let port: number;
 let temporaryDirectory: string;
 let databasePath: string;
 
 async function stopServer() {
-  if (!child || child.exitCode !== null) return;
-  await new Promise<void>((resolve) => {
-    child.once("exit", () => resolve());
-    child.kill();
-  });
+  await stopProcess(child);
 }
 
 async function startServer() {
   // Isolate both storage and identity from the developer's configured process.
   const env = { ...process.env, MOODLE_HELPER_DATABASE_URL: `sqlite:///${databasePath.replaceAll("\\", "/")}`, MOODLE_HELPER_DATASET: "demo" };
   for (const key of ["MOODLE_HELPER_MOODLE_ORIGIN", "MOODLE_HELPER_PROFILE_LABEL", "MOODLE_HELPER_STABLE_USER_ID"]) delete env[key];
-  child = spawn(python, ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", String(port)], { cwd: root, env, windowsHide: true, stdio: "pipe" });
-  let log = "";
-  child.stdout?.on("data", (chunk) => { log += String(chunk); });
-  child.stderr?.on("data", (chunk) => { log += String(chunk); });
-  child.on("error", (error) => { log += error.message; });
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    try {
-      if ((await fetch(`${base}/docs`)).ok) {
-        api = new HttpAdapter(base);
-        return;
-      }
-    } catch { /* wait for the actual server to bind */ }
-    if (child.exitCode !== null) break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`FastAPI integration process failed to start: ${log}`);
+  // Each start takes a fresh free port, so a restart never races the previous process for its port.
+  const started = await startRealBackend("backend.main:app", env);
+  child = started.process;
+  base = started.base;
+  api = new HttpAdapter(base);
 }
 
 beforeAll(async () => {
-  const listener = createServer();
-  await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
-  const address = listener.address();
-  if (!address || typeof address === "string") throw new Error("No local test port available");
-  port = address.port;
-  await new Promise<void>((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
-  root = path.resolve(import.meta.dirname, "../../..");
-  python = process.platform === "win32" ? path.join(root, ".venv/Scripts/python.exe") : path.join(root, ".venv/bin/python");
+  root = repositoryRoot;
+  python = venvPython;
   temporaryDirectory = await mkdtemp(path.join(tmpdir(), "moodle-helper-http-"));
   databasePath = path.join(temporaryDirectory, "http.sqlite3");
-  base = `http://127.0.0.1:${port}`;
   await startServer();
-}, 25_000);
+}, BACKEND_START_HOOK_TIMEOUT_MS); // real uvicorn start-up under parallel suite load
 
 afterAll(async () => {
-  await stopServer();
-  if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
-});
+  try { await stopServer(); } finally {
+    if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+}, BACKEND_STOP_HOOK_TIMEOUT_MS); // bounded real uvicorn stop (force kill fallback) plus temp folder removal
 
 describe("actual FastAPI HTTP integration", () => {
   it("routes actual local evidence with metadata-only HTTP, retains review decisions and replays after SQLite restart", async () => {
@@ -186,7 +163,7 @@ describe("actual FastAPI HTTP integration", () => {
       await expect(api.routeLocalSyllabus(conflicting)).rejects.toThrow(/identity changed/);
       expect(await api.load()).toEqual(beforeCollision);
     } finally { vi.unstubAllGlobals(); await api.replaceAll(original); }
-  }, 25_000);
+  }, realBackendTimeout(1, 25_000)); // one real uvicorn restart under parallel load
   it("persists an explicit teaching calendar across restart and restores the legacy snapshot", async () => {
     const original = await api.load();
     const calendar = { startDate: "2027-01-04", endDate: "2027-02-28", timezone: "Asia/Qyzylorda", excludedWeekStarts: ["2027-01-18"], partialBreaks: [{ startDate: "2027-01-13", endDate: "2027-01-13", numbering: "preserve" as const }], weekOverrides: [{ week: 2, startDate: "2027-01-11", endDate: "2027-01-16" }] };
@@ -199,7 +176,7 @@ describe("actual FastAPI HTTP integration", () => {
       expect((await api.load()).settings.teachingCalendar).toEqual(calendar);
     } finally { await api.replaceAll(original); }
     expect((await api.load()).settings.teachingCalendar).toEqual(original.settings.teachingCalendar);
-  });
+  }, realBackendTimeout(1)); // one real uvicorn restart under parallel load
   it("creates, edits, reopens, syncs and deletes a personal event without merging an imported title", async () => {
     const original = await api.load();
     let id: string | undefined;
@@ -241,7 +218,7 @@ describe("actual FastAPI HTTP integration", () => {
       expect((await api.load()).assessments.find((a) => a.id === imported.id)).toEqual(imported);
       detail.unmount(); cleanup();
     } finally { cleanup(); await api.replaceAll(original); }
-  });
+  }, realBackendTimeout(1)); // one real uvicorn restart under parallel load
   it("saves actual Settings choices, ingests real parser observations, refreshes and reopens across process restart", async () => {
     const original = await api.load();
     try {
@@ -303,16 +280,13 @@ describe("actual FastAPI HTTP integration", () => {
       cleanup();
       await api.replaceAll(original);
     }
-  }, 50_000);
+  }, realBackendTimeout(2, 50_000)); // two real uvicorn restarts under parallel load
 
   it("rolls back an actual locked-file Settings save, reopens confirmed choices, and retries the failed intended selection", async () => {
     const original = await api.load();
     let locker: ChildProcess | undefined;
     async function unlock() {
-      if (!locker || locker.exitCode !== null) return;
-      const stopped = new Promise<void>((resolve) => locker!.once("exit", () => resolve()));
-      locker.stdin?.end();
-      await stopped;
+      await releaseLockHelper(locker);
     }
     try {
       await api.updateSettings({ reminders: { enabled: false, hoursBefore: 24, busyWeek: false } });
@@ -361,7 +335,7 @@ describe("actual FastAPI HTTP integration", () => {
       await unlock();
       await api.replaceAll(original);
     }
-  }, 30_000);
+  }, realBackendTimeout(1, 30_000)); // one real uvicorn restart under parallel load
 
   it("persists complete edited state across actual backend stop/start against the same file", async () => {
     const original = await api.load();
@@ -372,10 +346,10 @@ describe("actual FastAPI HTTP integration", () => {
     const imported = await api.importDocument("c-csc", "restart.pdf", () => {});
     await api.review(imported.snapshot.candidates.at(-1)!.id, { kind: "confirm" });
     const beforeStop = await api.load();
-    const previousPid = child.pid;
+    const previousPid = child!.pid;
     await stopServer();
     await startServer();
-    expect(child.pid).not.toBe(previousPid);
+    expect(child!.pid).not.toBe(previousPid);
     expect(await api.load()).toEqual(beforeStop);
     expect((await api.load()).overlays.find((o) => o.assessmentId === id)?.titleOverride).toBe("Edited before restart");
     await api.replaceAll(original);
@@ -385,7 +359,7 @@ describe("actual FastAPI HTTP integration", () => {
     expect(await api.load()).toEqual(deleted);
     expect((await api.load()).courses).toEqual([]);
     await api.replaceAll(original);
-  }, 50_000);
+  }, realBackendTimeout(2, 50_000)); // two real uvicorn restarts under parallel load
 
   it("shows an actual locked-database failure through HttpAdapter and preserves the last commit", async () => {
     const original = await api.load();
@@ -398,9 +372,7 @@ describe("actual FastAPI HTTP integration", () => {
       });
       await expect(api.updateSettings({ semesterWeeks: 18 })).rejects.toThrow("Database is locked");
     } finally {
-      const stopped = new Promise<void>((resolve) => locker.once("exit", () => resolve()));
-      locker.stdin?.end();
-      await stopped;
+      await releaseLockHelper(locker);
     }
     expect(await api.load()).toEqual(original);
   }, 15_000);
@@ -509,4 +481,4 @@ it("selects and dismisses a collected suggestion through the real backend", asyn
     await screen.findByRole("button", { name: "Dismiss" });
     again.unmount(); cleanup();
   } finally { spy.mockRestore(); await api.replaceAll(original); }
-});
+}, realBackendTimeout(1)); // one real uvicorn restart under parallel load
