@@ -22,10 +22,12 @@ Reasons:
    unpublished pilot (`_docs/pilot-49.md`). No shared machine is in scope.
 3. The two caller classes that are realistic and cheap to exploit, web pages through
    cross-site POSTs and DNS rebinding, are already closed by #62 and #63.
-4. A token touches every caller: the dashboard adapter, the Vite proxy, seven extension
-   files, the manifest flow, backend pytest, the node tests, the e2e harness and the pilot
-   package. It also needs a pairing step with its own UX and failure paths. That cost buys
-   no protection against reason 1.
+4. A token touches every caller in the Affected callers table: two dashboard services
+   (`http-adapter.ts`, `ai-gateway.ts`) and the Vite proxy, seven extension files plus the
+   shared collection contract, 17 backend pytest files plus `conftest.py`, 7 dashboard vitest files,
+   9 browser-workspace node tests, the e2e harness and specs, the OpenAPI document and its
+   generator, and the pilot package. It also needs a pairing step with its own UX and
+   failure paths. That cost buys no protection against reason 1.
 5. A token would not fix port squatting (see threat (d)). Fixing that needs the client to
    authenticate the server, which is a different and larger design.
 
@@ -47,8 +49,12 @@ No implementation issue is filed, as the acceptance criteria require for this de
 
 It protects:
 
-- **Stale writes after restart.** A write carrying an old binding gets 409
-  `"Backend context changed. Reconnect."` before any parsing or service work.
+- **Stale writes after restart.** A write carrying an old or no binding gets 409 before
+  any parsing or service work (`bridge_precondition`, `backend/main.py`). Most routes answer
+  `"Backend context changed. Reconnect."`; backup restore, erase and collection/queue/
+  local-syllabus writes use their own 409 texts (e.g. `"... Reconnect and refresh the
+  restore preview."`, `"... nothing was deleted."`, `"Collection context changed.
+  Reconnect."`).
 - **Cross-site simple POSTs.** A web page cannot add the custom header to a CORS-simple
   request, and the backend grants no CORS, so the page can neither send the header nor
   read the binding. Together these stop browser-borne writes.
@@ -101,7 +107,7 @@ it. Ways the token could reach callers:
   not know where to look.
 - Cons: does not stop (a) or (d); pairing UX and re-pairing after restarts; a new
   secret that must be kept out of logs, backups and URLs; every caller and test changes.
-- Effect on callers: all callers listed below change. No new dependency is needed for a
+- Effect on callers: every row of the Affected callers table changes, including both dashboard services, the dashboard vitest files and the OpenAPI contract. No new dependency is needed for a
   plain header token (`secrets` is stdlib); a native-messaging host would be new packaging
   and would need asking first.
 
@@ -124,20 +130,30 @@ rules restricting port 8000 to the user's processes.
 
 Under the decision (keep the boundary), **none of these change**.
 
+Found by grepping `bridge-context`, `collection-context`, `bridgeContext`,
+`collectionContext` and `X-Moodle-Helper-Bridge-Binding` across `frontend/`, `extension/`,
+`shared/`, `browser-workspace/`, `tools/`, `tests/` and the repository root (excluding
+`node_modules`, build output and test artifacts). Under option 2 or 3 every row would change.
+
 | Caller | Files | Changes? |
 |---|---|---|
-| Dashboard | `frontend/src/services/http-adapter.ts` (fetches `/api/bridge-context`, caches it, one refetch-and-retry on the 409), Vite proxy in `frontend/vite.config.ts` | No |
-| Chrome extension | `extension/src/dashboard-bridge.ts` (`BACKEND = "http://127.0.0.1:8000"`), `popup.ts`, `queue.ts`, `reminders.ts`, `synthetic-scan-worker.ts`, `transfer-entry.ts`, `collection-repository.ts` (gets the binding from `collectionContext`), `extension/manifest.json` (`host_permissions` `http://127.0.0.1:8000/*`) | No |
-| Backend pytest | `tests/` via TestClient, e.g. `test_privacy_review_48.py`, `test_write_binding_62.py`, `test_host_allowlist_63.py`, `test_bridge_context.py` | No |
-| Browser-workspace node tests | `browser-workspace/bridge-security.test.ts`, `bridge-network.test.ts` and the other `*.test.ts` | No |
+| Dashboard services | `frontend/src/services/http-adapter.ts` (fetches `/api/bridge-context`, caches it, one refetch-and-retry on the 409; erase, restore, local-syllabus and local-review writes fetch it fresh); `frontend/src/services/ai-gateway.ts` (fetches `/api/bridge-context` itself and sends the header on `POST /api/ai/extract`, not through `http-adapter.ts`) | No |
+| Dashboard proxy | Vite proxy in `frontend/vite.config.ts` (`/api` → `127.0.0.1:8000`) | No |
+| Dashboard vitest | `frontend/src/test/http-adapter.test.ts`, `ai-gateway.test.ts`, `backup-restore.test.ts`, `app-http-errors.test.tsx`, `page-refresh.test.ts`, `ai-fallback.test.tsx`, `mock-progress.test.tsx` | No |
+| Chrome extension | `extension/src/dashboard-bridge.ts` (`BACKEND = "http://127.0.0.1:8000"`), `popup.ts`, `queue.ts`, `reminders.ts`, `synthetic-scan-worker.ts`, `transfer-entry.ts`, `collection-repository.ts` (gets the binding from `GET /api/collection-context`), `extension/manifest.json` (`host_permissions` `http://127.0.0.1:8000/*`) | No |
+| Shared contract | `shared/src/collection.ts` (`collectionContext` operation, `binding` field on collection requests) | No |
+| Backend pytest | `tests/conftest.py` and 17 test files: `test_ai_gateway.py`, `test_backup_restore.py`, `test_bridge_context.py`, `test_contract.py`, `test_host_allowlist_63.py`, `test_local_erase.py`, `test_local_review.py`, `test_local_syllabus.py`, `test_material_downloads.py`, `test_memory_app.py`, `test_page_refresh.py`, `test_privacy_review_48.py`, `test_queue.py`, `test_reminders.py`, `test_scan_queue_service.py`, `test_sync_availability.py`, `test_write_binding_62.py` (all via TestClient) | No |
+| Browser-workspace node tests | `browser-workspace/bridge-security.test.ts`, `bridge-network.test.ts`, `extension-shell.test.ts`, `notification-delivery.test.ts`, `queue-lifecycle.test.ts`, `queue-network.test.ts`, `reminder-worker.test.ts`, `synthetic-scan-network.test.ts`, `synthetic-scan-restart.test.ts` | No |
 | E2E harness | `browser-workspace/e2e/harness.ts` (starts uvicorn on `127.0.0.1:8000`), `journey.spec.ts`, `privacy-evidence.spec.ts` (read the binding from `/api/bridge-context`) | No |
-| Pilot package (#49) | `tools/package_pilot.py`, `_docs/pilot-49.md` | No |
+| API contract and docs | `openapi.yaml` (documents `/api/bridge-context`, `/api/collection-context` and the header), `tools/define_collection_contract.py` (generates the collection part), `README.md`, `backend/README.md` | No |
+| Pilot package (#49) | `tools/package_pilot.py`, `_docs/pilot-49.md`, gitignored `pilot-package/` (zip of `extension/dist`, so it carries the extension's callers above) | No |
 
 ## Edge cases
 
 - **Backend restart mid-session:** the binding rotates; the dashboard's single
   refetch-and-retry on the 409 `"Backend context changed. Reconnect."`
-  (`http-adapter.ts`, `STALE_BINDING`) keeps working unchanged.
+  (`http-adapter.ts`, `STALE_BINDING`) keeps working unchanged; `ai-gateway.ts` and the
+  one-shot writes in `http-adapter.ts` fetch the binding fresh per call, so they are unaffected.
 - **Two dashboard tabs, or dashboard plus extension:** all callers share one process
   binding fetched independently, so they do not conflict; nothing changes.
 - **`localhost` vs `127.0.0.1` vs `[::1]`:** `LoopbackHostMiddleware` accepts all three Host
