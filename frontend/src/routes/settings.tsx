@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { CourseTag, PageHeader } from "@/components/mh/bits";
-import { makeBackup, previewRestore, type RestorePreview } from "@/domain/backup";
+import { dispatchDownload, prepareBackup, previewRestore, type PreparedBackup, type RestorePreview } from "@/domain/backup";
+import { currentDataset } from "@/services/local-documents";
 import type { AiAvailability } from "@/services/adapter";
 import { useApp } from "@/lib/app-store";
 import { BridgeClient } from "@/services/extension-adapter";
@@ -111,13 +112,29 @@ function SettingsPage() {
   const upd = (p: Partial<typeof st>) => run((a) => a.updateSettings(p));
   const num = (v: string) => Math.max(0, Number(v) || 0);
 
-  const exportBackup = () => {
-    const blob = new Blob([JSON.stringify(makeBackup(s), null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `moodle-helper-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+  const [exp, setExp] = useState<{ phase: "idle" | "preparing" | "ready" | "requested" | "error"; prepared?: PreparedBackup; error?: string }>({ phase: "idle" });
+  const cleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => cleanup.current?.(), []);
+  const prepareExport = async () => {
+    if (exp.phase === "preparing") return;
+    setExp({ phase: "preparing" });
+    try {
+      const prepared = await prepareBackup(() => adapter.load(), () => currentDataset());
+      setExp({ phase: "ready", prepared });
+    } catch (e) {
+      setExp({ phase: "error", error: e instanceof Error ? e.message : "Could not prepare the backup." });
+    }
+  };
+  const downloadExport = () => {
+    const prepared = exp.prepared;
+    if (!prepared) return;
+    try {
+      cleanup.current?.();
+      cleanup.current = dispatchDownload(prepared);
+      setExp({ phase: "requested", prepared });
+    } catch {
+      setExp({ phase: "error", prepared, error: "Could not start the download. Nothing was saved; retry." });
+    }
   };
 
   return (
@@ -177,7 +194,7 @@ function SettingsPage() {
         <Section title="Backup & local data">
           <p className="mb-3 text-xs text-muted-foreground">Backups contain records, settings and your personal changes. Original documents and downloaded files are not included.</p>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={exportBackup}>Export backup</Button>
+            <Button variant="outline" disabled={exp.phase === "preparing"} onClick={() => void prepareExport()}>{exp.phase === "preparing" ? "Preparing…" : "Export backup"}</Button>
             <label className="inline-flex cursor-pointer items-center rounded-md border px-3 text-sm hover:bg-muted">
               Restore…
               <input type="file" accept="application/json,.json" className="sr-only" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setPreview(previewRestore(await f.text(), s)); e.target.value = ""; }} />
@@ -196,6 +213,33 @@ function SettingsPage() {
           </div>
         </Section>
       </div>
+
+      <AlertDialog open={exp.phase !== "idle" && exp.phase !== "preparing"} onOpenChange={(o) => !o && setExp({ phase: "idle" })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{exp.phase === "error" ? "Backup not exported" : "Export this backup?"}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                {exp.phase === "error" && <p role="alert">{exp.error}</p>}
+                {exp.prepared && exp.phase !== "error" && (
+                  <>
+                    <p>Prepared {new Date(exp.prepared.backup.exportedAt).toLocaleString("en-GB")} · format version {exp.prepared.backup.version} · {exp.prepared.bytes.toLocaleString("en-GB")} bytes. Later changes are not included unless you prepare again.</p>
+                    <table className="mt-3 w-full text-sm"><thead><tr><th className="text-left">Item</th><th>Records</th></tr></thead>
+                      <tbody>{exp.prepared.backup.summary!.counts.map((c) => <tr key={c.label}><td>{c.label}</td><td className="text-center">{c.count}</td></tr>)}</tbody></table>
+                    <p className="mt-3 text-xs">Not included: {exp.prepared.backup.summary!.exclusions.join("; ")}. Redacted fields: {exp.prepared.backup.summary!.redactions}.</p>
+                    {exp.phase === "requested" && <p className="mt-3" role="status">Download requested; check your browser downloads.</p>}
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+            <Button variant="outline" onClick={() => void prepareExport()}>{exp.phase === "error" ? "Retry" : "Prepare again"}</Button>
+            {exp.prepared && exp.phase !== "error" && <Button onClick={downloadExport}>Download</Button>}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
         <AlertDialogContent>
