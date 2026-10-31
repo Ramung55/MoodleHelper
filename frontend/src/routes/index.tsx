@@ -58,6 +58,10 @@ export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAtt
           </Button>
         }
       />
+      <p className="mb-4 text-sm text-muted-foreground">
+        {s.settings.trackedCourseIds.length && s.settings.teachingCalendar ? "Want to review your setup?" : "Finish first-run setup to choose courses and your semester calendar."}{" "}
+        <Link to="/setup" className="text-primary underline">Open setup checklist</Link>
+      </p>
       {workloadError && <p role="alert" className="mb-4 text-destructive">{workloadError} <Link to="/settings" className="underline">Review workload weights</Link></p>}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card to="/deadlines" search={{ status: "outstanding" }} title="Outstanding this week" value={workloadError ? "Unavailable" : thisWeek?.outstanding ?? 0}>
