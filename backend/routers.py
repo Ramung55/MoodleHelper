@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Request, HTTPException, Header
+from fastapi import APIRouter, Body, Depends, Request, HTTPException, Header, Path
 
 from backend import schemas as s
 from backend.services import BackendService
@@ -18,6 +18,7 @@ Service = Annotated[BackendService, Depends(service)]
 def bridge_header(binding: Annotated[str, Header(alias="X-Moodle-Helper-Bridge-Binding", description="Optional process binding precondition. Absence preserves legacy clients; mismatch rejects before parsing or service work.")] = None):
     # Enforcement is middleware, before parsing; dependency documents the wire.
     pass
+
 # Each operation declares response models; documentation is generated from the
 # actual handlers/models rather than returning a copy of the source document.
 router = APIRouter(prefix="/api", dependencies=[Depends(bridge_header)], responses={"default": {"model": s.ProposedHttpError}, 422: {"model": s.ProposedHttpError}, 409: {"model": s.ProposedHttpError}})
@@ -212,7 +213,8 @@ def settings(body: s.SettingsPatch, api: Service):
     return api.update_settings(wire(body))
 
 
-@router.delete("/local-data", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="deleteLocalData", tags=["Local data"])
+@router.delete("/local-data", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="deleteLocalData", tags=["Local data"],
+               description="Legacy partial clear (records and tracked courses; other settings retained). NOT full erasure: use POST /api/local-data/erase.")
 def delete_local_data(api: Service):
     return api.delete_local_data()
 
@@ -360,3 +362,48 @@ def restore_backup(body: s.BackupRestoreInput, request: Request):
         raise HTTPException(status_code=error.status, detail=error.message) from None
     request.app.state.collection.invalidate()
     return result
+
+
+# #56 confirmed erasure with durable epoch tombstone and component cleanup receipts.
+erase_router = APIRouter(prefix='/api', responses={'default': {'model': s.ProposedHttpError}, 404: {'model': s.ProposedHttpError}, 409: {'model': s.ProposedHttpError}, 422: {'model': s.ProposedHttpError}, 503: {'model': s.ProposedHttpError}})
+EraseId = Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')]
+
+
+def _no_selectors(request: Request):
+    if request.query_params:
+        raise HTTPException(status_code=422, detail='This endpoint accepts no selectors.')
+
+
+def _erase_call(operation):
+    from backend.local_erase import EraseRejected
+    try:
+        return operation()
+    except EraseRejected as error:
+        raise HTTPException(status_code=error.status, detail=error.message) from None
+
+
+@erase_router.get('/data-context', response_model=s.DataContext, response_model_exclude_none=True, operation_id='dataContext', tags=['Local data'],
+                  description='Read-only opaque datasetId, monotonic lifecycle epoch, Snapshot revision and erase cleanup state. First-party clients attach the epoch as the X-Moodle-Helper-Data-Epoch header on EVERY /api write (Snapshot, settings, alerts, sources, imports, reviews, queue, scan, reminders, transfers); each write transaction then rejects 409 if the epoch changed (erase/restore), and a malformed header is 422. Writes without the header remain accepted for legacy callers and are NOT fenced.')
+def data_context(request: Request):
+    _no_selectors(request)
+    return request.app.state.erase.context()
+
+
+@erase_router.post('/local-data/erase', response_model=s.LocalEraseResult, response_model_exclude_none=True, operation_id='eraseLocalData', tags=['Local data'], dependencies=[Depends(restore_binding)],
+                   description='Requires the current process binding. One transaction: empty Snapshot with first-run default settings, delete queue/scan/reminder/transfer job state, increment the epoch and store a nonstudent receipt. Stale expected state 409; storage failure 503 with nothing changed. Same key replays the receipt.')
+def erase_local_data(body: s.LocalEraseInput, request: Request):
+    _no_selectors(request)
+    return _erase_call(lambda: request.app.state.erase.erase(wire(body)))
+
+
+@erase_router.get('/local-data/erasures/{eraseId}', response_model=s.EraseStatus, response_model_exclude_none=True, operation_id='eraseStatus', tags=['Local data'])
+def erase_status(eraseId: EraseId, request: Request):
+    _no_selectors(request)
+    return _erase_call(lambda: request.app.state.erase.status(eraseId))
+
+
+@erase_router.post('/local-data/erasures/{eraseId}/ack', response_model=s.EraseStatus, response_model_exclude_none=True, operation_id='acknowledgeEraseCleanup', tags=['Local data'], dependencies=[Depends(restore_binding)],
+                   description='Closed component acknowledgement (dashboard or extension). Requires the current process binding; complete never regresses.')
+def acknowledge_erase(eraseId: EraseId, body: s.EraseAcknowledgement, request: Request):
+    _no_selectors(request)
+    return _erase_call(lambda: request.app.state.erase.acknowledge(eraseId, body.component, body.state))

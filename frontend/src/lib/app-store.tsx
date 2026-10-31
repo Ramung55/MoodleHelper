@@ -8,6 +8,7 @@ import type { Snapshot } from "@/domain/types";
 import { getAdapter, type MoodleHelperAdapter } from "@/services";
 import type { ConnectionInfo } from "@/services/adapter";
 import { detectExtension } from "@/services/extension-adapter";
+import { onLocalInvalidation, resumeEraseCleanup } from "@/services/local-erase";
 
 interface AppState {
   adapter: MoodleHelperAdapter;
@@ -67,10 +68,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setConn(detected ? { ...c, extensionDetected: true, message: "Extension detected, but live sync is not implemented yet. Still showing demo data." } : c);
       })
       .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not load local data"));
+    // #56: resume an interrupted browser cleanup for the current erase epoch; never seeds or syncs.
+    if (adapter.dataContext) void resumeEraseCleanup(adapter).catch(() => undefined);
     return () => {
       alive = false;
     };
   }, [adapter, loadAttempt]);
+  // #56: another tab erased (or this one did): drop in-memory copies and reload authoritative state.
+  useEffect(() => onLocalInvalidation(() => setLoadAttempt((attempt) => attempt + 1)), []);
 
   const run = useCallback(
     async (fn: (a: MoodleHelperAdapter) => Promise<Snapshot>) => {

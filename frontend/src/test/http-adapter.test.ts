@@ -11,11 +11,46 @@ const api = new HttpAdapter("http://127.0.0.1:8000/", fetcher);
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 beforeEach(() => fetcher.mockReset());
+const context = { datasetId: "12345678-1234-4123-8123-123456789abc", epoch: 3, revision: 7, lifecycle: "active" };
+
+describe("#56 data-lifecycle epoch", () => {
+  it("reads the epoch before the Snapshot and attaches it to writes, never to reads", async () => {
+    const adapter = new HttpAdapter("", fetcher);
+    fetcher.mockResolvedValueOnce(response(context)).mockResolvedValueOnce(response(snapshot)).mockResolvedValueOnce(response(snapshot)).mockResolvedValueOnce(response(connection));
+    expect(await adapter.load()).toEqual(snapshot);
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual(["/api/data-context", "/api/snapshot"]);
+    await adapter.updateSettings({ semesterWeeks: 9 });
+    expect((fetcher.mock.calls[2]![1]!.headers as Record<string, string>)["X-Moodle-Helper-Data-Epoch"]).toBe("3");
+    await adapter.connection();
+    expect((fetcher.mock.calls[3]![1]!.headers as Record<string, string>)["X-Moodle-Helper-Data-Epoch"]).toBeUndefined();
+  });
+  it("keeps legacy behaviour (no header) when the context is unavailable", async () => {
+    const adapter = new HttpAdapter("", fetcher);
+    fetcher.mockResolvedValueOnce(response({ message: "x" }, 404)).mockResolvedValueOnce(response(snapshot)).mockResolvedValueOnce(response(snapshot));
+    await adapter.load(); await adapter.updateSettings({ semesterWeeks: 9 });
+    expect((fetcher.mock.calls[2]![1]!.headers as Record<string, string>)["X-Moodle-Helper-Data-Epoch"]).toBeUndefined();
+  });
+  it("erases with the process binding, adopts the new epoch and reports an unknown outcome on network loss", async () => {
+    const adapter = new HttpAdapter("", fetcher);
+    const cleanup = { backend: "complete", dashboard: "pending", extension: "pending" };
+    const request = { idempotencyKey: "erase-key-1", expectedDatasetId: context.datasetId, expectedEpoch: 3, expectedRevision: 7 };
+    fetcher.mockResolvedValueOnce(response({ version: "1", binding: "b1" })).mockResolvedValueOnce(response({ eraseId: "e".repeat(32), datasetId: context.datasetId, epoch: 4, revision: 8, snapshot, cleanup }))
+      .mockResolvedValueOnce(response(snapshot));
+    expect((await adapter.eraseLocalData(request)).epoch).toBe(4);
+    const [url, init] = fetcher.mock.calls[1]!;
+    expect(url).toBe("/api/local-data/erase");
+    expect(JSON.parse(String(init!.body))).toEqual(request);
+    expect((init!.headers as Record<string, string>)["X-Moodle-Helper-Bridge-Binding"]).toBe("b1");
+    await adapter.updateSettings({ semesterWeeks: 9 });
+    expect((fetcher.mock.calls[2]![1]!.headers as Record<string, string>)["X-Moodle-Helper-Data-Epoch"]).toBe("4");
+    fetcher.mockResolvedValueOnce(response({ version: "1", binding: "b1" })).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(adapter.eraseLocalData(request)).rejects.toMatchObject({ name: "EraseOutcomeUnknown" });
+  });
+});
 
 describe("HTTP request mappings", () => {
   const cases = [
     ["GET", "/connection", undefined, connection, () => api.connection()],
-    ["GET", "/snapshot", undefined, snapshot, () => api.load()],
     ["PUT", "/snapshot", snapshot, snapshot, () => api.replaceAll(snapshot)],
     ["PUT", "/tracked-courses", [], snapshot, () => api.setTrackedCourses([])],
     ["PATCH", "/assessments/a1/overlay", { completed: true }, snapshot, () => api.updateOverlay("a1", { completed: true })],
@@ -88,7 +123,7 @@ describe("HTTP outcomes", () => {
   it("surfaces backend messages and network failures", async () => {
     fetcher.mockResolvedValueOnce(response({ message: "Invalid semester" }, 422));
     await expect(api.updateSettings({ semesterWeeks: 99 })).rejects.toThrow("Invalid semester");
-    fetcher.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    fetcher.mockRejectedValueOnce(new TypeError("Failed to fetch")).mockRejectedValueOnce(new TypeError("Failed to fetch"));
     await expect(api.load()).rejects.toThrow("Could not reach the local backend");
   });
 
@@ -101,7 +136,7 @@ describe("HTTP outcomes", () => {
   });
 
   it("rejects malformed successful payloads and never calls progress", async () => {
-    fetcher.mockResolvedValueOnce(response({})).mockResolvedValueOnce(new Response("<html>error</html>"));
+    fetcher.mockResolvedValueOnce(response({})).mockResolvedValueOnce(response(context)).mockResolvedValueOnce(new Response("<html>error</html>"));
     const progress = vi.fn();
     await expect(api.syncAll(progress)).rejects.toThrow("invalid response");
     expect(progress).not.toHaveBeenCalled();
@@ -109,7 +144,8 @@ describe("HTTP outcomes", () => {
   });
 
   it("uses a useful fallback for non-JSON or malformed HTTP errors", async () => {
-    fetcher.mockResolvedValueOnce(new Response("unavailable", { status: 503 })).mockResolvedValueOnce(response({}, 500));
+    fetcher.mockResolvedValueOnce(response(context)).mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockResolvedValueOnce(response(context)).mockResolvedValueOnce(response({}, 500));
     await expect(api.load()).rejects.toThrow("HTTP 503");
     await expect(api.load()).rejects.toThrow("HTTP 500");
   });

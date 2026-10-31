@@ -11,6 +11,7 @@ import { rankSyllabusSuggestions } from "@/domain/syllabus-suggestions";
 import { formatDate } from "@/domain/dates";
 import type { DateValue, ExtractionCandidate } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
+import { registerLocalWork } from "@/services/local-erase";
 import { currentDataset, listLocalDocuments, saveLocalDocument, updateLocalJob, recoverLocalJobs, acquireLocalJobLease, type LocalAssociation, type LocalJob } from "@/services/local-documents";
 import { validateDocx } from "@/services/validate-docx";
 import { LocalExtraction } from "@/components/mh/LocalExtraction";
@@ -110,6 +111,7 @@ export function Syllabus() {
   const onFile = async (f?: File) => {
     if (!f) return;
     const controller = new AbortController(); cancellation.current = controller;
+    const unregister = registerLocalWork(controller);
     let job: LocalJob | undefined;
     let jobGeneration: number | undefined;
     let releaseLease: (() => void) | undefined;
@@ -157,7 +159,7 @@ export function Syllabus() {
       }
       const result = await saveLocalDocument({ datasetId, courseId: course, digest, name: f.name, size: f.size, source: selected?.title ?? "Local selection", createdAt: new Date().toISOString() }, f, confirmed, controller.signal, job);
       if (result === "confirmation-required") throw new Error("Another course association was added. Retry to review it.");
-      cancellation.current = null;
+      cancellation.current = null; unregister();
       if (contextGeneration.current !== generation || boundDataset.current !== datasetId) return;
       setInterrupted((jobs) => jobs.filter((entry) => entry.state !== "failed" || entry.name !== f.name || entry.courseId !== course));
       setLocalStatus(result === "duplicate" ? "Already associated with this course." : "Complete: validated and stored locally. Extraction has not been performed.");

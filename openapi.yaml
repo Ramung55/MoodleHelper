@@ -672,10 +672,10 @@ paths:
       tags:
       - Local data
       summary: Clear the local dataset
-      description: No request body. Return the post-deletion Snapshot. Current demo
-        clears all record arrays and trackedCourseIds but retains the other settings;
-        it does not delete Moodle records or disk files. No claim is made that the
-        current demo implements background worker/alarm cleanup.
+      description: Legacy partial clear kept for old callers. No request body. Clears
+        record arrays and trackedCourseIds but retains the other settings and does not
+        cancel jobs, reminders or browser storage. NOT full erasure; use POST
+        /api/local-data/erase (#56). Never deletes Moodle records or disk files.
       security: []
       x-frontend-method: MoodleHelperAdapter.deleteLocalData
       x-http-mapping: proposed
@@ -1737,6 +1737,236 @@ paths:
         and unsafe/expiring links before opening one transaction that replaces the Snapshot, increments the epoch, fences queue
         claims, rebuilds the #38 reminder plan once and stores an idempotency receipt. Same key and payload replays the receipt;
         a different payload under the key is 409. Restored pending notifications become dashboard-only. Links are never fetched.'
+  /api/data-context:
+    get:
+      tags:
+      - Local data
+      summary: Data Context
+      description: Read-only opaque datasetId, monotonic lifecycle epoch, Snapshot revision and erase cleanup state. First-party
+        clients attach the epoch as the X-Moodle-Helper-Data-Epoch header on EVERY /api write (Snapshot, settings, alerts, sources,
+        imports, reviews, queue, scan, reminders, transfers); each write transaction then rejects 409 if the epoch changed (erase/restore),
+        and a malformed header is 422. Writes without the header remain accepted for legacy callers and are NOT fenced.
+      operationId: dataContext
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataContext'
+        default:
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Unprocessable Content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      security: []
+  /api/local-data/erase:
+    post:
+      tags:
+      - Local data
+      summary: Erase Local Data
+      description: 'Requires the current process binding. One transaction: empty Snapshot with first-run default settings, delete
+        queue/scan/reminder/transfer job state, increment the epoch and store a nonstudent receipt. Stale expected state 409;
+        storage failure 503 with nothing changed. Same key replays the receipt.'
+      operationId: eraseLocalData
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding from /api/bridge-context.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding from /api/bridge-context.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocalEraseInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalEraseResult'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Not Found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Service Unavailable
+      security: []
+  /api/local-data/erasures/{eraseId}:
+    get:
+      tags:
+      - Local data
+      summary: Erase Status
+      operationId: eraseStatus
+      parameters:
+      - name: eraseId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          title: Eraseid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EraseStatus'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Not Found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Service Unavailable
+      security: []
+  /api/local-data/erasures/{eraseId}/ack:
+    post:
+      tags:
+      - Local data
+      summary: Acknowledge Erase
+      description: Closed component acknowledgement (dashboard or extension). Requires the current process binding; complete
+        never regresses.
+      operationId: acknowledgeEraseCleanup
+      parameters:
+      - name: eraseId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          title: Eraseid
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding from /api/bridge-context.
+          title: X-Moodle-Helper-Bridge-Binding
+        description: Required current process binding from /api/bridge-context.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EraseAcknowledgement'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EraseStatus'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Not Found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Service Unavailable
+      security: []
   /api/reminders/plan:
     get:
       tags:
@@ -2653,6 +2883,181 @@ components:
       - kind
       - dueAt
       title: ReminderDeliveryTarget
+    EraseCleanup:
+      properties:
+        backend:
+          type: string
+          const: complete
+          title: Backend
+        dashboard:
+          type: string
+          enum:
+          - pending
+          - complete
+          - failed
+          title: Dashboard
+        extension:
+          type: string
+          enum:
+          - pending
+          - complete
+          - failed
+          title: Extension
+      additionalProperties: false
+      type: object
+      required:
+      - backend
+      - dashboard
+      - extension
+      title: EraseCleanup
+    DataContextErasure:
+      properties:
+        eraseId:
+          type: string
+          title: Eraseid
+        cleanup:
+          $ref: '#/components/schemas/EraseCleanup'
+      additionalProperties: false
+      type: object
+      required:
+      - eraseId
+      - cleanup
+      title: DataContextErasure
+    DataContext:
+      properties:
+        datasetId:
+          type: string
+          title: Datasetid
+        epoch:
+          type: integer
+          minimum: 0.0
+          title: Epoch
+        revision:
+          type: integer
+          minimum: 0.0
+          title: Revision
+        lifecycle:
+          type: string
+          enum:
+          - active
+          - cleanup_pending
+          - complete
+          title: Lifecycle
+        erasure:
+          $ref: '#/components/schemas/DataContextErasure'
+      additionalProperties: false
+      type: object
+      required:
+      - datasetId
+      - epoch
+      - revision
+      - lifecycle
+      title: DataContext
+    LocalEraseInput:
+      properties:
+        idempotencyKey:
+          type: string
+          maxLength: 128
+          minLength: 8
+          pattern: ^[A-Za-z0-9._~-]+$
+          title: Idempotencykey
+        expectedDatasetId:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Expecteddatasetid
+        expectedEpoch:
+          type: integer
+          minimum: 0.0
+          title: Expectedepoch
+        expectedRevision:
+          type: integer
+          minimum: 0.0
+          title: Expectedrevision
+      additionalProperties: false
+      type: object
+      required:
+      - idempotencyKey
+      - expectedDatasetId
+      - expectedEpoch
+      - expectedRevision
+      title: LocalEraseInput
+    LocalEraseResult:
+      properties:
+        eraseId:
+          type: string
+          title: Eraseid
+        datasetId:
+          type: string
+          title: Datasetid
+        epoch:
+          type: integer
+          minimum: 0.0
+          title: Epoch
+        revision:
+          type: integer
+          minimum: 0.0
+          title: Revision
+        snapshot:
+          $ref: '#/components/schemas/Snapshot'
+        cleanup:
+          $ref: '#/components/schemas/EraseCleanup'
+      additionalProperties: false
+      type: object
+      required:
+      - eraseId
+      - datasetId
+      - epoch
+      - revision
+      - snapshot
+      - cleanup
+      title: LocalEraseResult
+    EraseStatus:
+      properties:
+        eraseId:
+          type: string
+          title: Eraseid
+        datasetId:
+          type: string
+          title: Datasetid
+        epoch:
+          type: integer
+          minimum: 0.0
+          title: Epoch
+        current:
+          type: boolean
+          title: Current
+        cleanup:
+          $ref: '#/components/schemas/EraseCleanup'
+      additionalProperties: false
+      type: object
+      required:
+      - eraseId
+      - datasetId
+      - epoch
+      - current
+      - cleanup
+      title: EraseStatus
+    EraseAcknowledgement:
+      properties:
+        component:
+          type: string
+          enum:
+          - dashboard
+          - extension
+          title: Component
+        state:
+          type: string
+          enum:
+          - complete
+          - failed
+          title: State
+      additionalProperties: false
+      type: object
+      required:
+      - component
+      - state
+      title: EraseAcknowledgement
     RestoreContext:
       properties:
         datasetId:

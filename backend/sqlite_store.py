@@ -15,7 +15,7 @@ from backend.database_config import file_database_url
 from backend.identity import namespace_key, validate_namespace
 from backend.migrations import upgrade, MigrationError
 from backend.sample_data import build_sample_snapshot
-from backend.storage import InMemoryStore, SourceUpserts
+from backend.storage import InMemoryStore, SourceUpserts, expected_epoch, check_epoch
 
 
 class StorageError(RuntimeError):
@@ -112,6 +112,9 @@ class SQLiteStore(SourceUpserts):
         with self.engine.connect() as connection:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
             try:
+                if expected_epoch.get() is not None:
+                    # #56: transaction-local fence; erase/restore hold the same write lock.
+                    check_epoch(connection.execute(text("SELECT COALESCE((SELECT epoch FROM data_lifecycle WHERE namespace=:namespace),0)"), self._key).scalar_one())
                 yield connection
                 connection.commit()
             except BaseException:

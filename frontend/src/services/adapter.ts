@@ -80,6 +80,23 @@ export interface MoodleHelperAdapter {
   restoreContext?(): Promise<RestoreContext>;
   /** #55 atomic validated restore. Throws RestoreOutcomeUnknown when a commit may have happened. */
   restoreBackup?(request: RestoreRequest): Promise<RestoreResult>;
+  /** #56 read-only lifecycle context; HTTP-only. */
+  dataContext?(): Promise<DataContext>;
+  /** #56 confirmed full erasure; HTTP-only. Throws EraseOutcomeUnknown when a commit may have happened. */
+  eraseLocalData?(request: EraseRequest): Promise<EraseResult>;
+  eraseStatus?(eraseId: string): Promise<EraseStatus>;
+  acknowledgeErase?(eraseId: string, component: "dashboard", state: "complete" | "failed"): Promise<EraseStatus>;
+}
+
+export type CleanupState = "pending" | "complete" | "failed";
+export type EraseCleanup = { backend: "complete"; dashboard: CleanupState; extension: CleanupState };
+export type DataContext = { datasetId: string; epoch: number; revision: number; lifecycle: "active" | "cleanup_pending" | "complete"; erasure?: { eraseId: string; cleanup: EraseCleanup } | undefined };
+export type EraseRequest = { idempotencyKey: string; expectedDatasetId: string; expectedEpoch: number; expectedRevision: number };
+export type EraseResult = { eraseId: string; datasetId: string; epoch: number; revision: number; snapshot: Snapshot; cleanup: EraseCleanup };
+export type EraseStatus = { eraseId: string; datasetId: string; epoch: number; current: boolean; cleanup: EraseCleanup };
+/** Network loss after sending: the erase may have committed; retry the same key to read the receipt. */
+export class EraseOutcomeUnknown extends Error {
+  constructor() { super("Deletion outcome unknown; checking the receipt."); this.name = "EraseOutcomeUnknown"; }
 }
 
 export type RestoreContext = { datasetId: string; epoch: number; revision: number };

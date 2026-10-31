@@ -1,6 +1,7 @@
 """Replaceable Snapshot boundary, source upserts and explicit memory fixture store."""
 
 from collections.abc import Callable
+from contextvars import ContextVar
 from copy import deepcopy
 from threading import RLock
 from typing import Protocol
@@ -11,6 +12,22 @@ from backend.sample_data import build_sample_snapshot
 from backend.schemas import Snapshot
 from backend import schemas
 from backend.domain_validation import merge_source_evidence, validate_record
+
+
+# #56 data-epoch precondition: set per request from X-Moodle-Helper-Data-Epoch
+# (and inherited by tasks spawned from it). Checked INSIDE each write
+# transaction, so an old accepted job cannot commit after erase/restore.
+expected_epoch: ContextVar[int | None] = ContextVar('expected_epoch', default=None)
+
+
+class EpochConflict(RuntimeError):
+    """The local data lifecycle epoch changed (erase or restore) since the caller loaded."""
+
+
+def check_epoch(current: int) -> None:
+    wanted = expected_epoch.get()
+    if wanted is not None and wanted != current:
+        raise EpochConflict('Local data was erased or restored since this page loaded. Reload before saving; nothing was changed.')
 
 
 class SnapshotStore(Protocol):
@@ -62,6 +79,7 @@ class InMemoryStore(SourceUpserts):
         self.revision = 0
         self.epoch = 0  # #55 data-lifecycle epoch; persists only for this fixture instance.
         self.restore_receipts: dict[str, tuple[str, dict]] = {}
+        self.erase_receipts: dict[str, dict] = {}  # #56 nonstudent erase receipts
         self._snapshot = self._validated(build_sample_snapshot() if snapshot is None else snapshot)
 
     @staticmethod
@@ -75,12 +93,14 @@ class InMemoryStore(SourceUpserts):
     def replace(self, snapshot: dict) -> dict:
         next_snapshot = self._validated(snapshot)
         with self._lock:
+            check_epoch(self.epoch)
             self._snapshot = next_snapshot
             self.revision += 1
             return deepcopy(self._snapshot)
 
     def mutate(self, operation: Callable[[dict], None]) -> dict:
         with self._lock:
+            check_epoch(self.epoch)
             next_snapshot = deepcopy(self._snapshot)
             operation(next_snapshot)
             if 'reconciliation' in next_snapshot:

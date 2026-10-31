@@ -103,3 +103,22 @@ it('#55 restore epoch change clears the old alarm mirror before reconciling the 
   expect(a.set.get(REMINDER_DUE_ALARM).when).toBe(Date.parse('2027-02-15T00:00:00Z'));
   seq.length=0;await w.wake();expect(seq.slice(0,2)).toEqual(['context','reconcile']);
 });
+
+it('#56 confirmed erase clears only the tool wakeup and delivery metadata, then acknowledges once per epoch',async()=>{
+  const eraseId='e'.repeat(32);let extension='pending';const acks:{url:string;body:any;binding:string|null}[]=[];
+  const inner=backend([]);
+  const fetcher:typeof fetch=async(u,i)=>{
+    const url=String(u);
+    if(url.endsWith('/api/backups/restore-context')) return json({datasetId:'ds',epoch:1,revision:2});
+    if(url.endsWith('/api/data-context')) return json({datasetId:'ds',epoch:1,revision:2,lifecycle:'cleanup_pending',erasure:{eraseId,cleanup:{backend:'complete',dashboard:'complete',extension}}});
+    if(url.endsWith(`/api/local-data/erasures/${eraseId}/ack`)){acks.push({url,body:JSON.parse(String(i!.body)),binding:(i!.headers as any)['X-Moodle-Helper-Bridge-Binding']});extension='complete';return json({});}
+    return inner.fetcher(u,i);
+  };
+  const a=alarms();a.create(REMINDER_DUE_ALARM,{when:1});a.create('unrelated-alarm',{when:2});
+  const w=createReminderWorker({alarms:a,fetcher,now:()=>NOW});
+  const s=await w.wake();
+  expect(s.status).toBe('ready');expect(s.lastRequests).toEqual([]);
+  expect(a.set.has(REMINDER_DUE_ALARM)).toBe(false);expect(a.set.has('unrelated-alarm')).toBe(true);
+  expect(acks).toEqual([{url:expect.stringContaining('/ack'),body:{component:'extension',state:'complete'},binding:'b1'}]);
+  await w.wake();expect(acks).toHaveLength(1);
+});

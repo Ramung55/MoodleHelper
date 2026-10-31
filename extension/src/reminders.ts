@@ -94,6 +94,16 @@ export function createReminderWorker(options:{alarms:ReminderAlarms; fetcher?:ty
         if (ctx.datasetId===datasetId && Number.isInteger(ctx.epoch)) epoch=ctx.epoch as number; } catch { /* older backend: no epoch */ }
       if (epoch!==undefined && state.epoch!==undefined && epoch!==state.epoch) { options.alarms.clear(REMINDER_DUE_ALARM); state.restoredAt=now(); }
       if (epoch!==undefined) state.epoch=epoch;
+      // #56: a confirmed erase for the CURRENT epoch: drop only this tool's reminder wakeup
+      // and extension-side delivery metadata, then acknowledge (backend stays authority).
+      let erasure:{eraseId?:unknown;cleanup?:{extension?:unknown}}|undefined;
+      try { const ctx=await request('/api/data-context') as {datasetId?:string;epoch?:unknown;erasure?:typeof erasure};
+        if (ctx.datasetId===datasetId && ctx.epoch===epoch) erasure=ctx.erasure; } catch { /* older backend: no erase protocol */ }
+      if (erasure && typeof erasure.eraseId==='string' && /^[0-9a-f]{32}$/.test(erasure.eraseId) && erasure.cleanup?.extension!=='complete') {
+        options.alarms.clear(REMINDER_DUE_ALARM);
+        state.lastRequests=[]; state.delivery=undefined; state.nextWakeAt=undefined;
+        await request(`/api/local-data/erasures/${erasure.eraseId}/ack`,binding,{component:'extension',state:'complete'});
+      }
       let plan=await request('/api/reminders/reconcile',binding,{datasetId}) as Plan;
       if (plan.items.some(i=>i.status==='due')) {
         // Deterministic key: same plan generation + same outstanding wake boundary

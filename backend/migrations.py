@@ -2,7 +2,7 @@
 from sqlalchemy import Connection
 from uuid import uuid4
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 class MigrationError(RuntimeError):
@@ -104,7 +104,15 @@ def version_ten_to_eleven(connection: Connection) -> None:
         PRIMARY KEY(namespace,idem))""")
 
 
-MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight, 8: version_eight_to_nine, 9: version_nine_to_ten, 10: version_ten_to_eleven}
+def version_eleven_to_twelve(connection: Connection) -> None:
+    # #56 nonstudent erase receipts and per-component cleanup markers only.
+    connection.exec_driver_sql("""CREATE TABLE erase_receipts (
+        namespace TEXT NOT NULL, idem TEXT NOT NULL, erase_id TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL,
+        epoch INTEGER NOT NULL, revision INTEGER NOT NULL, dashboard TEXT NOT NULL, extension TEXT NOT NULL, created TEXT NOT NULL,
+        PRIMARY KEY(namespace,idem))""")
+
+
+MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight, 8: version_eight_to_nine, 9: version_nine_to_ten, 10: version_ten_to_eleven, 11: version_eleven_to_twelve}
 
 
 def upgrade(connection: Connection) -> None:

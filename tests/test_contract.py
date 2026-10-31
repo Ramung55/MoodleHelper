@@ -99,8 +99,9 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
     internal |= {('post','/api/material-downloads'), ('get','/api/material-downloads'), ('get','/api/material-downloads/{transferId}'), ('post','/api/material-downloads/{transferId}/cancel'), ('post','/api/material-downloads/{transferId}/descriptor'), ('post','/api/material-downloads/{transferId}/status')}
     internal |= {('post','/api/ai/extract')}
     internal |= {('get','/api/backups/restore-context'), ('post','/api/backups/restore')}
+    internal |= {('get','/api/data-context'), ('post','/api/local-data/erase'), ('get','/api/local-data/erasures/{eraseId}'), ('post','/api/local-data/erasures/{eraseId}/ack')}
     assert actual_operations == expected_operations == {(method, path) for method, path, _ in OPERATIONS} | internal
-    assert len(actual_operations) == 58
+    assert len(actual_operations) == 62
     assert not generated["components"].get("securitySchemes")
     for method, path in expected_operations:
         expected = contract["paths"][path][method]

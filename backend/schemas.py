@@ -1136,6 +1136,64 @@ class BackupRestoreResult(WireModel):
     replayed: bool
 
 
+CleanupState = Literal['pending', 'complete', 'failed']
+
+
+class EraseCleanup(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    backend: Literal['complete']
+    dashboard: CleanupState
+    extension: CleanupState
+
+
+class DataContextErasure(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    eraseId: str
+    cleanup: EraseCleanup
+
+
+class DataContext(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    datasetId: str
+    epoch: Annotated[int, Field(ge=0)]
+    revision: Annotated[int, Field(ge=0)]
+    lifecycle: Literal['active', 'cleanup_pending', 'complete']
+    erasure: DataContextErasure = None
+
+
+class LocalEraseInput(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    idempotencyKey: RestoreKey
+    expectedDatasetId: Annotated[str, Field(min_length=1, max_length=64)]
+    expectedEpoch: Annotated[int, Field(ge=0)]
+    expectedRevision: Annotated[int, Field(ge=0)]
+
+
+class LocalEraseResult(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    eraseId: str
+    datasetId: str
+    epoch: Annotated[int, Field(ge=0)]
+    revision: Annotated[int, Field(ge=0)]
+    snapshot: Snapshot
+    cleanup: EraseCleanup
+
+
+class EraseStatus(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    eraseId: str
+    datasetId: str
+    epoch: Annotated[int, Field(ge=0)]
+    current: bool
+    cleanup: EraseCleanup
+
+
+class EraseAcknowledgement(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    component: Literal['dashboard', 'extension']
+    state: Literal['complete', 'failed']
+
+
 class BridgeContext(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     version: Literal["1"]

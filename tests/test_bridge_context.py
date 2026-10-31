@@ -21,7 +21,7 @@ def test_shared_closed_inventory_tracks_source_contract():
         for method, operation in operations.items():
             if operation['operationId'] == 'aiExtract':
                 continue  # consented excerpt transfer is HTTP-only, never bridged
-            if path.startswith(('/api/queue/','/api/scan/')) or operation['operationId'] in {'bridgeContext','collectionContext','beginPageVisit','ingestPageRefresh','localContext','routeLocalSyllabus','reconcileReminders','dispatchReminders','reminderDeliveryStatus','reminderNotificationTarget','materialDownloadDescriptor','reportMaterialDownload','restoreContext','restoreBackup'}:
+            if path.startswith(('/api/queue/','/api/scan/')) or operation['operationId'] in {'bridgeContext','collectionContext','beginPageVisit','ingestPageRefresh','localContext','routeLocalSyllabus','reconcileReminders','dispatchReminders','reminderDeliveryStatus','reminderNotificationTarget','materialDownloadDescriptor','reportMaterialDownload','restoreContext','restoreBackup','dataContext','eraseLocalData','eraseStatus','acknowledgeEraseCleanup'}:
                 continue
             expected[operation['operationId']] = {
                 'method': method.upper(), 'path': path,

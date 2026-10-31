@@ -11,7 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { CourseTag, PageHeader } from "@/components/mh/bits";
 import { dispatchDownload, prepareBackup, previewRestore, readBackupFile, type PreparedBackup, type RestorePreview } from "@/domain/backup";
 import { currentDataset } from "@/services/local-documents";
-import { RestoreOutcomeUnknown, type AiAvailability, type RestoreContext } from "@/services/adapter";
+import { EraseOutcomeUnknown, RestoreOutcomeUnknown, type AiAvailability, type DataContext, type EraseCleanup, type RestoreContext } from "@/services/adapter";
+import { beginErase, finishDashboardCleanup } from "@/services/local-erase";
 import { useApp } from "@/lib/app-store";
 import { BridgeClient } from "@/services/extension-adapter";
 import { BridgeError } from "../../../shared/src/bridge";
@@ -91,6 +92,100 @@ export function TrackedCourses() {
       <Button variant="outline" className="mt-2" disabled={selectionPending} onClick={retryCourseSelection}>Retry course selection</Button>
     </div>}
   </Section>;
+}
+
+const ERASE_SCOPE = [
+  "Courses, deadlines, materials, imported documents, extraction proposals and review decisions",
+  "Your overrides, completion marks, personal events, alerts and notification history",
+  "All settings (tracked courses, calendar, reminders, workload, AI consent) reset to first-run defaults",
+  "Queued scans, imports, extractions, downloads and scheduled reminders",
+  "Original PDF/DOCX files, extracted text, OCR results, evidence and review audit stored in this browser",
+];
+const componentLabel: Record<string, string> = { pending: "pending", complete: "cleared", failed: "failed" };
+
+/** #56 confirmed full erasure. Cancel changes nothing; partial cleanup is reported truthfully. */
+export function EraseLocalData() {
+  const { adapter, run, setSnap } = useApp();
+  const [state, setState] = useState<{ open: boolean; phase: "confirm" | "erasing" | "unknown" | "partial" | "done" | "failed"; context?: DataContext | undefined; key: string; eraseId?: string | undefined; cleanup?: EraseCleanup | undefined; message?: string | undefined }>({ open: false, phase: "confirm", key: "" });
+  const full = !!adapter.eraseLocalData && !!adapter.dataContext;
+  const origin = typeof location === "undefined" ? "this browser" : location.origin;
+  const open = async () => {
+    setState({ open: true, phase: "confirm", key: `erase-${crypto.randomUUID()}` });
+    if (!full) return;
+    try { const context = await adapter.dataContext!(); setState((s) => ({ ...s, context })); }
+    catch (e) { setState((s) => ({ ...s, phase: "failed", message: `${e instanceof Error ? e.message : "Could not read the local data context."} Nothing was deleted.` })); }
+  };
+  const settle = (eraseId: string, cleanup: EraseCleanup, error?: string) => {
+    const clean = cleanup.dashboard === "complete" && cleanup.extension === "complete";
+    setState((s) => ({ ...s, eraseId, cleanup, phase: clean ? "done" : "partial", message: clean ? "All local data was deleted." : error }));
+    if (clean) toast.success("Local data deleted");
+  };
+  const confirm = async () => {
+    if (!full) { setState((s) => ({ ...s, open: false })); void run((a) => a.deleteLocalData()); return; }
+    const context = state.context;
+    if (!context || state.phase === "erasing") return;
+    beginErase(); // stop local work in this and cooperative tabs; nothing is cleared yet
+    setState((s) => ({ ...s, phase: "erasing", message: undefined }));
+    const request = { idempotencyKey: state.key, expectedDatasetId: context.datasetId, expectedEpoch: context.epoch, expectedRevision: context.revision };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const result = await adapter.eraseLocalData!(request);
+        setSnap(result.snapshot); // hide every pre-delete row immediately
+        const outcome = await finishDashboardCleanup(adapter, result);
+        settle(result.eraseId, outcome.cleanup, outcome.error);
+        return;
+      } catch (e) {
+        if (e instanceof EraseOutcomeUnknown) { setState((s) => ({ ...s, phase: "unknown", message: "Deletion outcome unknown; checking the receipt." })); continue; }
+        setState((s) => ({ ...s, phase: "failed", message: `${e instanceof Error ? e.message : "Deletion failed."} Your data was not deleted.` }));
+        return;
+      }
+    }
+    setState((s) => ({ ...s, phase: "unknown", message: "Deletion outcome unknown. Reconnect and choose Check again; the same request never deletes twice." }));
+  };
+  const retry = async () => {
+    if (!state.eraseId || !state.context || !state.cleanup) return;
+    if (state.cleanup.dashboard !== "complete") {
+      const outcome = await finishDashboardCleanup(adapter, { eraseId: state.eraseId, datasetId: state.context.datasetId, epoch: state.context.epoch + 1 });
+      settle(state.eraseId, outcome.cleanup, outcome.error); return;
+    }
+    try { const status = await adapter.eraseStatus!(state.eraseId); settle(state.eraseId, status.cleanup); }
+    catch (e) { setState((s) => ({ ...s, message: e instanceof Error ? e.message : "Could not check cleanup status." })); }
+  };
+  const busy = state.phase === "erasing";
+  return <>
+    <Button variant="destructive" onClick={() => void open()}>Delete local data</Button>
+    <AlertDialog open={state.open} onOpenChange={(o) => !o && !busy && setState({ open: false, phase: "confirm", key: "" })}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{state.phase === "done" ? "Local data deleted" : state.phase === "partial" ? "Deletion partly complete" : "Delete all local data?"}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm">
+              {(state.phase === "confirm" || state.phase === "failed") && <>
+                <p>{full ? `This permanently deletes, for the current dataset in ${origin}:` : "This clears records and tracked courses stored by this demo. Other settings are retained."}</p>
+                {full && <ul className="list-disc pl-5">{ERASE_SCOPE.map((item) => <li key={item}>{item}</li>)}</ul>}
+                <p>Moodle, files you downloaded to disk and backup files you exported are not touched. Browser data for this tool in another site address (for example localhost vs 127.0.0.1) or another browser profile is separate and must be deleted there.</p>
+              </>}
+              {state.cleanup && <ul aria-label="Cleanup status">
+                <li>Local backend: deleted</li>
+                <li>This browser's documents and evidence: {componentLabel[state.cleanup.dashboard]}</li>
+                <li>Extension reminders and transfers: {componentLabel[state.cleanup.extension]}{state.cleanup.extension === "pending" ? " (clears when the extension next connects; ignore if it is not installed)" : ""}</li>
+              </ul>}
+              {state.message && <p role={state.phase === "failed" ? "alert" : "status"}>{state.message}</p>}
+              {busy && <p role="status">Deleting…</p>}
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {(state.phase === "confirm" || state.phase === "failed" || state.phase === "unknown") && <>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <Button variant="destructive" disabled={busy || (full && !state.context)} onClick={() => void confirm()}>{state.phase === "unknown" ? "Check again" : "Delete"}</Button>
+          </>}
+          {state.phase === "partial" && <Button variant="outline" onClick={() => void retry()}>Retry cleanup</Button>}
+          {(state.phase === "partial" || state.phase === "done") && <AlertDialogCancel>Close</AlertDialogCancel>}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </>;
 }
 
 function SettingsPage() {
@@ -233,16 +328,7 @@ function SettingsPage() {
               <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void openRestore(f); }} />
             </label>
             {adapter.resetDemo && <Button variant="outline" onClick={() => run((a) => a.resetDemo!()).then((ok) => ok && toast.success("Demo data reset"))}>Reset demo</Button>}
-            <AlertDialog>
-              <AlertDialogTrigger asChild><Button variant="destructive">Delete local data</Button></AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete all local data?</AlertDialogTitle>
-                  <AlertDialogDescription>This clears records and tracked courses in the local backend. Other settings are retained. It does not touch Moodle or files saved on your disk.</AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => run((a) => a.deleteLocalData())}>Delete</AlertDialogAction></AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <EraseLocalData />
           </div>
         </Section>
       </div>

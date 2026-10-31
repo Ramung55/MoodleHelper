@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from backend.material_downloads import MaterialDownloadService, TransferConflict, material_download_router
-from backend.routers import router, context_router, collection_router, queue_router, scan_router, local_syllabus_router, reminder_router, ai_router, backup_router
+from backend.routers import router, context_router, collection_router, queue_router, scan_router, local_syllabus_router, reminder_router, ai_router, backup_router, erase_router
 from backend.ai_gateway import AiGateway, AiFailure, MAX_BODY_BYTES
 from backend.reminders import ReminderService, ReminderConflict
 from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
@@ -22,6 +22,8 @@ from backend.sqlite_store import SQLiteStore, StorageError
 from backend.collection import CollectionService, CollectionRejected
 from backend.scan_queue import ScanQueueService
 from backend.backup_restore import RestoreService, MAX_BACKUP_BYTES
+from backend.local_erase import EraseService
+from backend.storage import EpochConflict, expected_epoch
 
 
 def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None, reminder_clock=None, reminder_resolver=None,
@@ -39,6 +41,12 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         return QueueService(selected, concurrency, **({'clock':queue_clock} if queue_clock else {}))
     def make_reminders(selected):
         return ReminderService(selected, reminder_clock, **({'resolver': reminder_resolver} if reminder_resolver else {}))
+    def make_erase(app, selected):
+        from backend.reminders import MemoryLedger
+        rows = app.state.material_downloads.rows
+        ledger = app.state.reminders.ledger
+        return EraseService(selected, reminder_clock, None if hasattr(rows, 'connection') else rows,
+                            ledger if isinstance(ledger, MemoryLedger) else None, on_commit=app.state.collection.invalidate)
     @asynccontextmanager
     async def lifespan(app):
         selected = store
@@ -55,6 +63,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.material_downloads = MaterialDownloadService(selected, material_download_capability)
         app.state.restore = RestoreService(selected, reminder_clock, reminder_resolver,
                                            None if hasattr(app.state.material_downloads.rows, 'connection') else app.state.material_downloads.rows)
+        app.state.erase = make_erase(app, selected)
         app.state.scan = ScanQueueService(selected, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
         app.state.ai_gateway = gateway
         try:
@@ -75,6 +84,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.material_downloads = MaterialDownloadService(store, material_download_capability)
         app.state.restore = RestoreService(store, reminder_clock, reminder_resolver,
                                            None if hasattr(app.state.material_downloads.rows, 'connection') else app.state.material_downloads.rows)
+        app.state.erase = make_erase(app, store)
         app.state.scan = ScanQueueService(store, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
 
     @app.middleware("http")
@@ -132,6 +142,19 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
             except ValueError:
                 return JSONResponse(status_code=422, content={'message': 'Restore request is not valid JSON. Nothing was changed.'})
             request._body = body
+            return await call_next(request)
+        erase_write = request.url.path == '/api/local-data/erase' or (request.url.path.startswith('/api/local-data/erasures/') and request.url.path.endswith('/ack'))
+        if erase_write and request.method == 'POST':
+            # #56: binding and a 1 MiB control-request bound before parsing.
+            if binding != getattr(app.state, 'bridge_binding', None):
+                return JSONResponse(status_code=409, content={'message': 'Backend context changed. Reconnect and confirm again; nothing was deleted.'})
+            chunks, size = [], 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > 1024 * 1024:
+                    return JSONResponse(status_code=413, content={'message': 'Request exceeds the 1 MiB limit. Nothing was deleted.'})
+                chunks.append(chunk)
+            request._body = b''.join(chunks)
             return await call_next(request)
         if (collection_write or queue_write or local_syllabus_write or local_review_write) and binding != getattr(app.state, 'bridge_binding', None):
             return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
@@ -221,12 +244,31 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     async def material_transfer_conflict(request: Request, error: TransferConflict):
         return JSONResponse(status_code=409, content={'message': str(error)})
 
+    @app.exception_handler(EpochConflict)
+    async def epoch_conflict(_request, error):
+        return JSONResponse(status_code=409, content={'message': str(error)})
+
+    @app.middleware("http")
+    async def data_epoch_precondition(request: Request, call_next):
+        # Outermost: sets the per-request epoch precondition checked inside write transactions (#56).
+        raw = request.headers.get('X-Moodle-Helper-Data-Epoch')
+        if raw is None:
+            return await call_next(request)
+        if not raw.isdigit() or len(raw) > 18:
+            return JSONResponse(status_code=422, content={'message': 'Invalid data epoch header.'})
+        token = expected_epoch.set(int(raw))
+        try:
+            return await call_next(request)
+        finally:
+            expected_epoch.reset(token)
+
     @app.exception_handler(ReminderConflict)
     async def reminder_conflict(request: Request, error: ReminderConflict):
         return JSONResponse(status_code=409, content={'message': str(error)})
 
     app.include_router(reminder_router)
     app.include_router(backup_router)
+    app.include_router(erase_router)
     app.include_router(material_download_router)
     app.include_router(queue_router)
     app.include_router(scan_router)

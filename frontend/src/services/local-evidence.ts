@@ -1,4 +1,5 @@
 import { currentDataset, database } from "./local-documents";
+import { captureLocalFence, guardTransaction, StaleLocalWrite } from "./local-erase";
 import type { AssessmentMention } from "@/domain/assessment-mentions";
 import type { SyllabusDateProposal } from "@/domain/syllabus-dates";
 import type { AssessmentType, DateValue, LocalEvidenceMode, LocalEvidenceRef, LocalReviewReceipt, LocalSyllabusProposal, LocalSyllabusRoute } from "@/domain/types";
@@ -57,15 +58,18 @@ export async function retainLocalEvidence(records: LocalEvidenceRecord[], signal
   if (!records.length) return [];
   const scope = records[0];
   if (records.length > 1000 || records.some(row => row.datasetId !== scope.datasetId || row.courseId !== scope.courseId || row.digest !== scope.digest)) throw new Error("Local evidence must use one bounded document/course/dataset scope.");
+  const fence = await captureLocalFence(scope.datasetId);
   await check(scope.datasetId, signal); const db = await database();
   let collision = false;
   try {
     const saved = await new Promise<LocalEvidenceRecord[]>((resolve, reject) => {
-      const tx = db.transaction("evidence", "readwrite"), store = tx.objectStore("evidence"), result: LocalEvidenceRecord[] = [];
+      const tx = db.transaction(["evidence", "lifecycle"], "readwrite"), store = tx.objectStore("evidence"), result: LocalEvidenceRecord[] = [];
+      const stale = guardTransaction(tx, fence);
       const abort = () => { try { tx.abort(); } catch { /* complete */ } }; signal.addEventListener("abort", abort, { once: true });
       for (const [index, record] of records.entries()) {
         const request = store.get(key(record));
         request.onsuccess = () => {
+          if (stale()) return;
           const previous = request.result as LocalEvidenceRecord | undefined;
           // An audit-only/corrupt row needs explicit recovery; never overwrite it silently.
           if (previous && (!isOriginal(previous) || previous.fingerprint !== record.fingerprint)) { collision = true; tx.abort(); return; }
@@ -74,7 +78,7 @@ export async function retainLocalEvidence(records: LocalEvidenceRecord[], signal
         };
       }
       tx.oncomplete = () => { signal.removeEventListener("abort", abort); resolve(result); };
-      tx.onabort = () => { signal.removeEventListener("abort", abort); reject(signal.aborted ? new DOMException("Routing cancelled", "AbortError") : new Error(collision ? "Original local evidence changed under an immutable identity. Extract/review its revision explicitly." : "Original evidence could not be retained. Check browser storage/quota; nothing was submitted.")); };
+      tx.onabort = () => { signal.removeEventListener("abort", abort); reject(signal.aborted ? new DOMException("Routing cancelled", "AbortError") : stale() ? new StaleLocalWrite() : new Error(collision ? "Original local evidence changed under an immutable identity. Extract/review its revision explicitly." : "Original evidence could not be retained. Check browser storage/quota; nothing was submitted.")); };
       tx.onerror = () => {};
     });
     await check(scope.datasetId, signal); return saved;
@@ -104,10 +108,12 @@ export async function readLocalEvidence(ref: LocalEvidenceRef, signal?: AbortSig
 /** Mutable receipt/audit only; original title/date/text/geometry is never overwritten. */
 export async function markLocalRoutes(records: LocalEvidenceRecord[], routes: LocalSyllabusRoute[], signal: AbortSignal): Promise<void> {
   if (!records.length) return;
+  const fence = await captureLocalFence(records[0].datasetId);
   await check(records[0].datasetId, signal); const db = await database();
   try {
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction("evidence", "readwrite"), store = tx.objectStore("evidence");
+      const tx = db.transaction(["evidence", "lifecycle"], "readwrite"), store = tx.objectStore("evidence");
+      guardTransaction(tx, fence);
       const abort = () => { try { tx.abort(); } catch {} }; signal.addEventListener("abort", abort, { once: true });
       for (const record of records) {
         const route = routes.find(route => route.mentionId === record.mentionId);
@@ -133,13 +139,16 @@ export async function markLocalRoutes(records: LocalEvidenceRecord[], routes: Lo
  * Throws (and the caller sends nothing) on quota/storage/context failure or a changed original fingerprint.
  */
 export async function appendLocalReviewAudit(ref: LocalEvidenceRef, entry: LocalReviewAuditEntry, signal?: AbortSignal): Promise<void> {
+  const fence = await captureLocalFence(ref.datasetId);
   await check(ref.datasetId, signal); const db = await database();
   try {
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction("evidence", "readwrite"), store = tx.objectStore("evidence");
+      const tx = db.transaction(["evidence", "lifecycle"], "readwrite"), store = tx.objectStore("evidence");
+      const stale = guardTransaction(tx, fence);
       let problem = "Review audit could not be stored locally (storage or quota). Nothing was sent.";
       const request = store.get(key(ref));
       request.onsuccess = () => {
+        if (stale()) { problem = new StaleLocalWrite().message; return; }
         const current: unknown = request.result;
         const fail = (message: string) => { problem = message; tx.abort(); };
         const reviews = (rows: unknown[]) => rows.filter(row => String((row as { kind?: string }).kind).startsWith("review-")).length;
