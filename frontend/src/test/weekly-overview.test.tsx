@@ -42,7 +42,8 @@ describe("draft validation", () => {
 describe("planner route", () => {
   it("shows interval, canonical totals, contributor reasons and links, empty weeks and unallocated reasons", async () => {
     mount("/planner");
-    const week1 = await screen.findByRole("region", { name: /^Week 1/ });
+    // #69: the file's first (cold) full-app render plus data load overran the default 1s wait under per-core CPU load.
+    const week1 = await screen.findByRole("region", { name: /^Week 1/ }, { timeout: 5_000 });
     expect(week1).toHaveTextContent("2027-01-04 – 2027-01-10");
     expect(within(week1).getByText("Weighted estimate")).toBeInTheDocument();
     expect(week1).toHaveTextContent("Counted in total only: submitted in Moodle");
