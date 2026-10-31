@@ -19,19 +19,13 @@ snapshot.changes = [];
 snapshot.settings.reminders.enabled = false;
 // Role+name queries compute the accessible name of every button, and each name walks the
 // button's subtree through jsdom getComputedStyle against sonner's injected stylesheet. With
-// the demo data's assessment-row buttons that is ~1s per pass (3s+ under load, #69). These
-// helpers find the one element by its text first and then assert its role and name exactly.
+// the demo data's assessment-row buttons that is ~1s per pass (3s+ under load, #69). This
+// helper finds the one element by its text first and then asserts its role and name exactly.
 async function findButton(name: string) {
   const button = await screen.findByText(name, { selector: "button" });
   expect(button).toHaveRole("button");
   expect(button).toHaveAccessibleName(name);
   return button;
-}
-// No element anywhere has the text, label or title "Exit preview", so no button can be named it.
-function expectNoExitPreview() {
-  expect(screen.queryByText("Exit preview")).not.toBeInTheDocument();
-  expect(screen.queryByLabelText("Exit preview")).not.toBeInTheDocument();
-  expect(screen.queryByTitle("Exit preview")).not.toBeInTheDocument();
 }
 function mount(url: string) {
   const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [url] }), context: { queryClient: new QueryClient() }, defaultPendingMinMs: 0 });
@@ -116,8 +110,8 @@ describe("real router dashboard shell", () => {
     await waitFor(() => expect(screen.queryByRole("status", { name: `Loading ${title}` })).not.toBeInTheDocument());
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: new RegExp(`^${title}`) })).toHaveAttribute("aria-current", "page");
-    expectNoExitPreview();
-  });
+    expect(screen.queryByRole("button", { name: "Exit preview" })).not.toBeInTheDocument();
+  }, path === "/deadlines" ? 15_000 : undefined); // #69: this exact absence check computes the accessible name of every assessment-row button on /deadlines (jsdom getComputedStyle per node, ~1s alone, ~4s in a full run)
   it("retries actual failed initialization repeatedly and clears errors only after successful recovery", async () => {
     mocks.load.mockRejectedValueOnce(new Error("Backend unavailable")).mockRejectedValueOnce(new Error("Still unavailable")).mockResolvedValueOnce(structuredClone(snapshot));
     const router = mount("/deadlines");
