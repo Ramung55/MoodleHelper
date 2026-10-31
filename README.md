@@ -13,7 +13,13 @@ uv run pytest tests/test_home.py
 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open http://127.0.0.1:8000/docs for Swagger UI.
+Open http://127.0.0.1:8000/docs (or http://localhost:8000/docs) for Swagger UI.
+
+The backend answers only when the request's `Host` header is `127.0.0.1`,
+`localhost` or `[::1]`, with any port or none (case-insensitive; so another
+`--port` and the Vite proxy on 5173 work unchanged). Any other name, including a
+LAN IP, `0.0.0.0`, `localhost.` or a DNS name that resolves to 127.0.0.1, gets
+HTTP 400 before routing. This blocks DNS-rebinding pages; `X-Forwarded-Host` is ignored.
 The generated API description is at http://127.0.0.1:8000/openapi.json.
 No Moodle login, extension, frontend process, or external account is needed.
 `uv.lock` pins the approved dependencies; `uv sync --locked` checks it unchanged.
@@ -448,3 +454,74 @@ The extension has a synthetic queue worker backed by the local SQLite database. 
 Set `MOODLE_HELPER_QUEUE_CONCURRENCY` before starting the backend to an integer from `1` to `4` (default `1`). SQLite enforces the limit across workers. Claims expire after 60 seconds and the worker renews every 20 seconds. The MV3 worker registers startup and alarm listeners synchronously and uses one persistent, one-minute Chrome alarm to discover directly created runs and retry unfinished work; it does not depend on remaining alive between wakes. On backend restart it obtains a new process binding, and expired claims can be reclaimed. An interrupted unfinished job may execute again, but the result and completion transition are committed together, once per job. A cancelled run cannot accept a late sole-demand result; a shared job continues for any other active run. Failed mock jobs record `mock_failure` without exception text and do not block unrelated jobs.
 
 Run the backend with the existing project commands (`uv sync`, then `uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000`) and build the extension with `bun run --cwd extension build`. Automated interruption checks use the production queue service, real loopback HTTP, a temporary SQLite file, and a controlled mock executor and clock. They do not establish live Chrome interruption behavior or Moodle compatibility.
+
+## Automated fixture browser journey (#47)
+
+Approved dev dependency: `@playwright/test` 1.64.1 (frontend devDependency) with its
+matching bundled Chromium (Chrome for Testing 156.0.8078.4, revision 1248) only — no
+Firefox/WebKit/headless-shell, no global tooling. One-time setup from `frontend/`:
+
+```sh
+bun install --frozen-lockfile
+bun run test:e2e:install   # Chromium into the ignored frontend/.playwright-browsers (~440 MB)
+```
+
+The browser goes in a project-local ignored folder because the default
+`%LOCALAPPDATA%\ms-playwright` copy failed to start on the verified Windows machine
+("side-by-side configuration is incorrect"). The Playwright config sets
+`PLAYWRIGHT_BROWSERS_PATH` to this folder.
+
+Run from `frontend/` (ports 8000, 5173 and 4174 must be free; the harness never reuses
+an existing server, which could hold real data):
+
+```sh
+bun run test:e2e          # builds extension/dist, then runs every spec; exit 0 = all passed
+bun run test:e2e:broken   # deliberately broken journey; exit 0 only if the failure is detected
+```
+
+If a sandboxed agent shell blocks starting Chromium (`spawn UNKNOWN`), run the commands
+in an ordinary terminal.
+
+What it does (fixture mode, all synthetic):
+
+- Vite dev starts on `127.0.0.1:5173` (Playwright `webServer`). Each spec file starts
+  its own uvicorn on `127.0.0.1:8000` with a fresh TEMP SQLite file under
+  `browser-workspace/e2e/.run/<spec>-*`, using the `demo` dataset. Your normal
+  `data/moodle-helper.sqlite3` is never used.
+- Chromium starts with a fresh persistent profile and only the built unpacked
+  `extension/dist`. `--host-resolver-rules` blocks every hostname except loopback. Any
+  non-local request fails the run. The Lovable design's Google Fonts requests are
+  aborted locally and counted, so the system font fallback is used.
+- `journey.spec.ts` (#47) walks through these named steps: saving the tracked-course
+  selection and reopening it; an explicit teaching calendar; real local DOCX extraction
+  (`frontend/src/test/fixtures/extraction-bilingual.docx`) with evidence kept and
+  routing; manual review of the uncertain week-only demo candidate (60%), which creates
+  one event; a draft submission next to your own completion mark; the reopened badge;
+  the Moodle/syllabus conflict showing both dates; a separate personal completion
+  check; weekly planner counts and weighted estimates compared with values derived from
+  the fixture; a mock run started from the dashboard with progress per course; a
+  genuine MV3 worker stop (DevTools `ServiceWorker.stopAllWorkers`) followed by
+  reconnecting, a new bridge `workerGeneration` and the same durable run completing
+  from SQLite; and a backend outage in the middle of a run, after which saved records,
+  overlays, candidates, course timestamps and "No successful full sync yet." are
+  unchanged once it recovers. The mock executor is synthetic and never claims a live
+  full sync.
+- `dashboard-shell.spec.ts` (#8 evidence) checks direct open and refresh plus
+  client-side hydration on the five routes, in normal mode, in all 15 preview URLs
+  with no backend and no API requests, and against the production
+  `.output/server/index.mjs` (skipped unless `bun run build` has run). It also covers
+  the unknown-route 404, the skip link, real Tab/Shift+Tab/Enter with a painted focus
+  check, the narrow 375 px toggle, and keyboard Retry/Exit preview.
+- `extension-shell.spec.ts` (#7 evidence) checks that the unpacked build loads, the
+  worker stops and wakes, and the popup page opens without errors. It checks the
+  content-script isolated world on a **local fixture** page served for
+  `https://moodle.sdu.edu.kz/login/index.php` (intercepted, no network), and that no
+  extension context appears on an unrelated local site. Granted origins must equal the
+  manifest declarations. It reloads through `chrome://extensions` Developer mode and
+  checks that no grant is added. The popup is opened as an extension tab, not the
+  toolbar popup.
+
+Results: list output, an HTML report (never auto-opened), `results.json`, and, on
+failure, a screenshot, trace and error context under
+`browser-workspace/e2e/.artifacts/{normal,broken}/`. All of these are ignored.
+`show-trace` opens a trace. Specs use no retries.

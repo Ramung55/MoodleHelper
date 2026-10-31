@@ -8,6 +8,8 @@ import yaml
 from fastapi.testclient import TestClient as _BaseTestClient
 
 BINDING_HEADER = 'X-Moodle-Helper-Bridge-Binding'
+# #63: the backend answers only loopback Host names, so the suite never uses "testserver".
+LOOPBACK_BASE_URL = 'http://127.0.0.1:8000'
 # Routes that required the binding before #62; their tests already send it
 # explicitly (or deliberately omit it), so they are never auto-bound.
 BOUND_BEFORE_62 = ('/api/ai/', '/api/backups/restore', '/api/local-data/erase', '/api/local-data/erasures/', '/api/reminders/',
@@ -16,7 +18,10 @@ BOUND_BEFORE_62 = ('/api/ai/', '/api/backups/restore', '/api/local-data/erase', 
 
 
 class TestClient(_BaseTestClient):
-    """Suite-wide TestClient (#62).
+    """Suite-wide TestClient (#62, #63).
+
+    Defaults to a loopback base URL (Host 127.0.0.1:8000) because the backend
+    rejects every other Host with 400.
 
     Every write now requires the current process binding. Tests written before
     #62 for routes that were unbound then get the live binding attached when
@@ -25,8 +30,8 @@ class TestClient(_BaseTestClient):
     """
     __test__ = False
 
-    def __init__(self, app, *args, bind_writes=True, **kwargs):
-        super().__init__(app, *args, **kwargs)
+    def __init__(self, app, *args, bind_writes=True, base_url=LOOPBACK_BASE_URL, **kwargs):
+        super().__init__(app, *args, base_url=base_url, **kwargs)
         self.bind_writes = bind_writes
 
     def request(self, method, url, *args, headers=None, **kwargs):

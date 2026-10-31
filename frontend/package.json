@@ -14,7 +14,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e:install": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers playwright install chromium --no-shell",
+    "test:e2e": "bun run --cwd ../extension build && NODE_PATH=./node_modules playwright test --config ../browser-workspace/e2e/playwright.config.ts",
+    "test:e2e:broken": "bun run --cwd ../extension build && node ../browser-workspace/e2e/verify-broken.mjs"
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -79,6 +82,7 @@
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "@lovable.dev/vite-tanstack-config": "2.26.5",
+    "@playwright/test": "1.64.1",
     "@tesseract.js-data/eng": "1.0.0",
     "@tesseract.js-data/rus": "1.0.0",
     "@testing-library/jest-dom": "^6.6.0",

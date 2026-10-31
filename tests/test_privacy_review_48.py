@@ -111,7 +111,7 @@ def test_every_non_get_operation_rejects_unbound_cross_site_simple_request():
         assert client.get('/api/snapshot').json() == before
 
 
-@pytest.mark.xfail(strict=True, reason='#48 finding F2: no Host validation, DNS-rebinding reads possible')
 def test_finding_f2_foreign_host_header_rejected():
+    # Fixed by #63.
     with TestClient(create_app(InMemoryStore())) as client:
         assert client.get('/api/snapshot', headers={'host': 'attacker.example:8000'}).status_code == 400

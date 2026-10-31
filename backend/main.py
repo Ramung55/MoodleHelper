@@ -1,6 +1,7 @@
 """ASGI application entry point."""
 
 import os
+import re
 from collections.abc import Callable
 from uuid import uuid4
 from contextlib import asynccontextmanager
@@ -24,6 +25,33 @@ from backend.scan_queue import ScanQueueService
 from backend.backup_restore import RestoreService, MAX_BACKUP_BYTES
 from backend.local_erase import EraseService
 from backend.storage import EpochConflict, expected_epoch
+
+
+# #63: loopback names only, any or no port. Exact match, so rebinding names such as
+# 127.0.0.1.attacker.example, a trailing-dot localhost. or unbracketed ::1 fail.
+LOOPBACK_HOST = re.compile(r'(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]{1,5})?')
+
+
+class LoopbackHostMiddleware:
+    """Rejects any request whose single Host header is not loopback with 400, before routing.
+
+    Forwarded headers (X-Forwarded-Host) are ignored; only the Host header counts.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] not in ('http', 'websocket'):
+            return await self.app(scope, receive, send)
+        hosts = [value for name, value in scope.get('headers', []) if name.lower() == b'host']
+        host = hosts[0].decode('latin-1').lower() if len(hosts) == 1 else ''
+        if LOOPBACK_HOST.fullmatch(host):
+            return await self.app(scope, receive, send)
+        if scope['type'] == 'websocket':
+            return await send({'type': 'websocket.close', 'code': 1008})
+        response = JSONResponse(status_code=400, content={'message': 'Invalid Host header. Use 127.0.0.1, localhost or [::1].'})
+        await response(scope, receive, send)
 
 
 def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None, reminder_clock=None, reminder_resolver=None,
@@ -282,6 +310,8 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     app.include_router(collection_router)
     app.include_router(local_syllabus_router)
     app.include_router(ai_router)
+    # Added last, so it is outermost: runs before every other middleware and routing.
+    app.add_middleware(LoopbackHostMiddleware)
     return app
 
 

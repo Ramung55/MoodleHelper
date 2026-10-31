@@ -182,7 +182,7 @@ def test_chunked_body_is_bounded_and_binding_precedes_read(env):
     c,store,clock,h=env
     async def check():
         transport=httpx.ASGITransport(app=c.app)
-        async with httpx.AsyncClient(transport=transport,base_url='http://test') as client:
+        async with httpx.AsyncClient(transport=transport,base_url='http://127.0.0.1:8000') as client:
             reads=[]
             async def chunks():
                 for i in range(20):
