@@ -3185,7 +3185,7 @@ components:
       - current
     LocalPolicyReason:
       type: string
-      enum: [clear_explicit, incomplete_extraction, evidence_missing, location_missing, source_unavailable, context_unverified, association_ambiguous, date_missing, date_not_explicit, year_inferred, locale_ambiguous, contradictory, policy_or_heading, conflicting_match, mapping_unresolved, timezone_unresolved, language_unknown, ocr_review, ocr_low_quality, ocr_synthetic, ocr_provenance_missing, week_only]
+      enum: [clear_explicit, incomplete_extraction, evidence_missing, location_missing, source_unavailable, context_unverified, association_ambiguous, date_missing, date_not_explicit, year_inferred, locale_ambiguous, contradictory, policy_or_heading, conflicting_match, mapping_unresolved, timezone_unresolved, language_unknown, ocr_review, ocr_low_quality, ocr_synthetic, ocr_provenance_missing, week_only, ai_proposal]
     LocalPolicyFacts:
       type: object
       additionalProperties: false
@@ -3205,6 +3205,7 @@ components:
         mappingResolved: {type: boolean}
         timezoneResolved: {type: boolean}
         ocr: {type: string, enum: [none, review, low_quality, synthetic, missing_provenance]}
+        aiProposal: {type: boolean, const: true, description: 'Optional AI gateway proposal (#44); always forces review.'}
       required: [complete, evidenceRetained, traceable, sourceAvailable, contextVerified, singleAssociation, explicitDate, inferredYear, localeAmbiguous, contradictory, policyOrHeading, conflictingMatch, mappingResolved, timezoneResolved, ocr]
     LocalExactDate:
       type: object

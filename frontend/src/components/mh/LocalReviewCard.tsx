@@ -18,7 +18,7 @@ const REASON: Record<string, string> = {
   year_inferred: "Year was inferred, not written", locale_ambiguous: "Day/month order is ambiguous", contradictory: "Source facts contradict each other",
   policy_or_heading: "Grading-policy or heading wording", conflicting_match: "May relate to an existing item", mapping_unresolved: "Teaching week has no resolved calendar mapping",
   timezone_unresolved: "Time zone is unresolved", language_unknown: "Language is unknown", ocr_review: "Text came from OCR", ocr_low_quality: "OCR quality is low",
-  ocr_synthetic: "OCR text is synthetic", ocr_provenance_missing: "OCR provenance is missing", week_only: "Only a teaching week is given",
+  ocr_synthetic: "OCR text is synthetic", ocr_provenance_missing: "OCR provenance is missing", week_only: "Only a teaching week is given", ai_proposal: "Proposed by optional AI help; not verified",
 };
 
 /** Human description of the original location; geometry stays local and is rendered as inert text. */

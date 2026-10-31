@@ -34,6 +34,7 @@ def policy(proposal, settings):
         reasons.append('ocr_review')
         codes = {'low_quality': 'ocr_low_quality', 'synthetic': 'ocr_synthetic', 'missing_provenance': 'ocr_provenance_missing'}
         if facts['ocr'] in codes: reasons.append(codes[facts['ocr']])
+    if facts.get('aiProposal'): reasons.append('ai_proposal')
     return list(dict.fromkeys(reasons)) or ['clear_explicit']
 
 

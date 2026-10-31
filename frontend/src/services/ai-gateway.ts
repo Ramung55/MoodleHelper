@@ -43,6 +43,11 @@ export type AiContextValue = z.infer<typeof AiContext>;
 export type AiExtractRequestValue = z.infer<typeof AiExtractRequest>;
 export type AiExtractResponseValue = z.infer<typeof AiExtractResponse>;
 
+/** A definitive gateway answer: HTTP status plus the fixed #43 failure code. */
+export class AiRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) { super(message); this.name = "AiRequestError"; }
+}
+
 /** Same canonical form as backend/ai_gateway.py: sorted keys, no whitespace, UTF-8. */
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -71,7 +76,10 @@ export async function requestAiExtract(baseUrl: string, input: AiExtractRequestV
   const binding = z.object({ version: z.literal("1"), binding: z.string().min(1) }).strict().parse(await context.json());
   const response = await fetcher(`${base}/api/ai/extract`, { method: "POST", credentials: "omit", cache: "no-store", signal,
     headers: { Accept: "application/json", "Content-Type": "application/json", "X-Moodle-Helper-Bridge-Binding": binding.binding }, body: encoded });
-  const result: unknown = await response.json();
-  if (!response.ok) throw new Error(z.object({ message: z.string() }).safeParse(result).data?.message ?? "AI request failed. No proposals were accepted.");
+  const result: unknown = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    const message = z.object({ message: z.string() }).safeParse(result).data?.message ?? "AI request failed. No proposals were accepted.";
+    throw new AiRequestError(message, response.status, /\(code: ([a-z_]+)/.exec(message)?.[1]);
+  }
   return AiExtractResponse.parse(result);
 }

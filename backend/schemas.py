@@ -75,7 +75,7 @@ class LocalClosed(WireModel):
 LocalOpaque = Annotated[str, Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9_-]+$')]
 LocalDigest = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
 LocalVersion = Literal['local-syllabus-1']
-LocalPolicyReason = Literal['clear_explicit', 'incomplete_extraction', 'evidence_missing', 'location_missing', 'source_unavailable', 'context_unverified', 'association_ambiguous', 'date_missing', 'date_not_explicit', 'year_inferred', 'locale_ambiguous', 'contradictory', 'policy_or_heading', 'conflicting_match', 'mapping_unresolved', 'timezone_unresolved', 'language_unknown', 'ocr_review', 'ocr_low_quality', 'ocr_synthetic', 'ocr_provenance_missing', 'week_only']
+LocalPolicyReason = Literal['clear_explicit', 'incomplete_extraction', 'evidence_missing', 'location_missing', 'source_unavailable', 'context_unverified', 'association_ambiguous', 'date_missing', 'date_not_explicit', 'year_inferred', 'locale_ambiguous', 'contradictory', 'policy_or_heading', 'conflicting_match', 'mapping_unresolved', 'timezone_unresolved', 'language_unknown', 'ocr_review', 'ocr_low_quality', 'ocr_synthetic', 'ocr_provenance_missing', 'week_only', 'ai_proposal']
 
 
 class LocalPolicyFacts(LocalClosed):
@@ -94,6 +94,8 @@ class LocalPolicyFacts(LocalClosed):
     mappingResolved: bool
     timezoneResolved: bool
     ocr: Literal['none', 'review', 'low_quality', 'synthetic', 'missing_provenance']
+    # #44: proposal produced by the optional AI gateway; always review-first.
+    aiProposal: Literal[True] = None
 
 
 class LocalExactDate(LocalClosed):

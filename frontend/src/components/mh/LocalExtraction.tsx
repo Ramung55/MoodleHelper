@@ -11,6 +11,7 @@ import { LocalOcr } from "./LocalOcr";
 import { parseTeachingWeek } from "@/domain/teaching-weeks";
 import type { TeachingCalendar, Snapshot } from "@/domain/types";
 import { routeLocalProposals } from "@/services/route-local-syllabus";
+import { AiFallback } from "./AiFallback";
 
 /** Result and preview URLs live only for this visible, dataset-bound row. */
 export function LocalExtraction({ document: association, teachingCalendar, commitRoute }: { document: LocalAssociation; teachingCalendar?: TeachingCalendar; commitRoute?: (work: () => Promise<Snapshot>) => Promise<boolean> }) {
@@ -149,6 +150,7 @@ export function LocalExtraction({ document: association, teachingCalendar, commi
           <div className="flex flex-wrap gap-2"><label className="text-xs">Explicit semester start<Input type="date" aria-label="Explicit semester start" value={semesterStart} onChange={(event) => { setSemesterStart(event.target.value); setParsedDates(undefined); }} /></label><label className="text-xs">Explicit semester end<Input type="date" aria-label="Explicit semester end" value={semesterEnd} onChange={(event) => { setSemesterEnd(event.target.value); setParsedDates(undefined); }} /></label></div>
           <Button size="sm" variant="outline" onClick={() => void interpretDates()}>Interpret explicit dates</Button>
         </fieldset>
+        {parsedDates && (() => { const unresolved = mentions.filter((mention) => mention.location.kind === "ocr_region" || !(parsedDates.find((value) => value.mention.id === mention.id)?.dates.some((date) => date.state === "proposed" && date.date.kind !== "unknown"))); return unresolved.length > 0 && <AiFallback key={`${association.datasetId}/${association.courseId}/${association.digest}`} document={association} mentions={unresolved} commitRoute={commitRoute} context={{ ...(dateOrder ? { dateOrder: dateOrder as "DMY" | "MDY" } : {}), ...(/^[A-Za-z0-9_+/-]{1,64}$/.test(sourceTimezone.trim()) ? { timezone: sourceTimezone.trim() } : {}), ...(semesterStart || semesterEnd ? { explicitSemesterBounds: { ...(semesterStart ? { start: semesterStart } : {}), ...(semesterEnd ? { end: semesterEnd } : {}) } } : {}) }} />; })()}
         {mentions.length === 0 && <p>No supported assessment keywords were found.</p>}
         {mentions.map((mention) => <details key={mention.id} className="rounded border p-2"><summary className="cursor-pointer">{mention.title} · {mention.type} · Unconfirmed</summary>
           {(() => { const week = parseTeachingWeek(mention, teachingCalendar); return week.expressions.length > 0 && <p>Teaching week preview: {week.mapping.resolved ? `Week ${week.mapping.week}: ${week.mapping.start} – ${week.mapping.end} · ${week.mapping.timezone} (no exact due date)` : week.mapping.reason}</p>; })()}

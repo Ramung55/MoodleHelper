@@ -32,7 +32,7 @@ def test_clear_auto_has_registered_reference_and_replay_retains_one_event(client
     assert replay['snapshot'] == first['snapshot']
 
 @pytest.mark.parametrize('changes,reason', [
-    ({'complete':False}, 'incomplete_extraction'), ({'evidenceRetained':False},'evidence_missing'), ({'traceable':False},'location_missing'), ({'sourceAvailable':False},'source_unavailable'), ({'contextVerified':False},'context_unverified'), ({'singleAssociation':False},'association_ambiguous'), ({'explicitDate':False},'date_not_explicit'), ({'inferredYear':True},'year_inferred'), ({'localeAmbiguous':True},'locale_ambiguous'), ({'contradictory':True},'contradictory'), ({'policyOrHeading':True},'policy_or_heading'), ({'conflictingMatch':True},'conflicting_match'), ({'mappingResolved':False},'mapping_unresolved'), ({'ocr':'low_quality'},'ocr_low_quality'), ({'ocr':'synthetic'},'ocr_synthetic'), ({'ocr':'missing_provenance'},'ocr_provenance_missing'),
+    ({'complete':False}, 'incomplete_extraction'), ({'evidenceRetained':False},'evidence_missing'), ({'traceable':False},'location_missing'), ({'sourceAvailable':False},'source_unavailable'), ({'contextVerified':False},'context_unverified'), ({'singleAssociation':False},'association_ambiguous'), ({'explicitDate':False},'date_not_explicit'), ({'inferredYear':True},'year_inferred'), ({'localeAmbiguous':True},'locale_ambiguous'), ({'contradictory':True},'contradictory'), ({'policyOrHeading':True},'policy_or_heading'), ({'conflictingMatch':True},'conflicting_match'), ({'mappingResolved':False},'mapping_unresolved'), ({'ocr':'low_quality'},'ocr_low_quality'), ({'ocr':'synthetic'},'ocr_synthetic'), ({'ocr':'missing_provenance'},'ocr_provenance_missing'), ({'aiProposal':True},'ai_proposal'),
 ])
 def test_uncertain_policy_facts_require_review_without_event(client, changes, reason):
     body, headers = request(client); body['proposals'][0]['facts'].update(changes)
@@ -135,3 +135,9 @@ def test_failed_sqlite_commit_rolls_back_documents_candidates_events_and_receipt
             assert client.get('/api/snapshot').json() == before
             assert submit(client, body, headers).status_code == 200
     finally: store.close()
+
+
+def test_ai_proposal_fact_is_closed_and_cannot_be_false(client):
+    # #44: AI provenance only ever forces review; a model cannot opt out with False.
+    body, headers = request(client); body['proposals'][0]['facts']['aiProposal'] = False
+    assert submit(client, body, headers).status_code == 422
