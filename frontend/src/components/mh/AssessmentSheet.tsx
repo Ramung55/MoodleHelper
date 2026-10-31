@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,11 +50,24 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
   const { views, snap, run } = useApp();
   const resolvedId = id && snap ? resolveAssessmentId(snap, id) : id;
   const v = views.find((x) => x.a.id === resolvedId);
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState<DateValue | undefined>();
+  const seedTitle = v?.a.personal ? v.title : (v?.overlay?.titleOverride ?? "");
+  const seedDate = v?.a.personal ? v.date : v?.overlay?.dateOverride;
+  const [title, setTitle] = useState(seedTitle);
+  const [date, setDate] = useState<DateValue | undefined>(seedDate);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // The form is seeded from the snapshot when the sheet opens or switches assessment (#68). This happens during render,
+  // not in a passive effect: an effect could flush after an edit typed in the same commit and overwrite it. Later
+  // snapshot refreshes for the same assessment never reseed, so a draft is kept until it is saved or the sheet closes.
+  const [seededId, setSeededId] = useState(v?.a.id);
+  if (seededId !== v?.a.id) {
+    setSeededId(v?.a.id);
+    setTitle(seedTitle);
+    setDate(seedDate);
+    setErrors({});
+    setConfirmDelete(false);
+  }
   const busy = useRef(false);
   const lastId = useRef<string | null>(null);
   if (resolvedId) lastId.current = resolvedId;
@@ -66,12 +79,6 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
     if (ok) after?.(); else setErrors({ save: failure });
     return ok;
   };
-
-  useEffect(() => {
-    setTitle(v?.a.personal ? v.title : v?.overlay?.titleOverride ?? "");
-    setDate(v?.a.personal ? v.date : v?.overlay?.dateOverride);
-    setErrors({}); setConfirmDelete(false);
-  }, [v?.a.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!snap) return null;
   const tz = snap.settings.timezone;

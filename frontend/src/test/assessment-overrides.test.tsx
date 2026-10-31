@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssessmentSheet, dirtyOverlayPatch, importedDateError } from "@/components/mh/AssessmentSheet";
 import { buildDemoSnapshot } from "@/services/fixtures";
@@ -110,5 +111,177 @@ describe("imported assessment overrides (#53)", () => {
     const overlays = snap.overlays.filter((o) => o.assessmentId === a.id);
     expect(overlays).toEqual([{ assessmentId: a.id, titleOverride: "Mine", hidden: false, completed: false }]);
     expect(snap.assessments.filter((x) => x.id === a.id)).toHaveLength(1);
+  });
+});
+
+describe("AssessmentSheet keeps an early edit when it seeds from the snapshot (#68)", () => {
+  const exactA = { kind: "exact" as const, iso: "2026-11-20T05:00:00.000Z", tz: "Asia/Almaty" };
+  const exactB = { kind: "exact" as const, iso: "2026-11-25T07:00:00.000Z", tz: "Asia/Almaty" };
+  /** Two imported assessments with saved title and exact-date overrides, so both fields are seeded on open and on switch. */
+  function setupTwo() {
+    const snap = buildDemoSnapshot();
+    snap.settings.timezone = "Asia/Almaty";
+    const imported = snap.assessments.filter((x) => !x.personal);
+    const a = imported[0]!;
+    const b = imported[1]!;
+    snap.overlays = snap.overlays.filter((o) => o.assessmentId !== a.id && o.assessmentId !== b.id);
+    snap.overlays.push({
+      assessmentId: a.id,
+      hidden: false,
+      completed: false,
+      titleOverride: "A label",
+      dateOverride: exactA,
+    });
+    snap.overlays.push({
+      assessmentId: b.id,
+      hidden: false,
+      completed: false,
+      titleOverride: "B label",
+      dateOverride: exactB,
+    });
+    const api = { updateOverlay: vi.fn(), deletePersonalEvent: vi.fn() };
+    state.app = {
+      snap,
+      api,
+      run: vi.fn(async (fn) => {
+        await fn(api);
+        return true;
+      }),
+      views: viewAll(snap.assessments, snap.overlays, snap.settings, snap),
+    };
+    return { a, b, api };
+  }
+  const titleField = () => screen.getByLabelText("Display title");
+  const dateField = () => screen.getByLabelText("Date and time");
+  const save = () => fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+  /**
+   * Types into a field in the layout phase of the commit that switches the sheet to `id`: after the sheet's new inputs
+   * are in the DOM, before that commit's passive effects (the old seeding effect) flush. Raw DOM dispatch, not
+   * act-wrapped fireEvent, so React handles it like a real user event inside that window (same technique as #66).
+   */
+  function EditOnCommit({
+    id,
+    selector,
+    value,
+  }: {
+    id: string | null;
+    selector: string;
+    value: string;
+  }) {
+    useLayoutEffect(() => {
+      if (!value) return;
+      const input = document.querySelector<HTMLInputElement>(selector);
+      if (!input) throw new Error(`${selector} is not rendered when the sheet switches to ${id}`);
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+    return null;
+  }
+  function Harness({
+    id,
+    selector = "#ttl",
+    value = "",
+  }: {
+    id: string | null;
+    selector?: string;
+    value?: string;
+  }) {
+    return (
+      <>
+        <AssessmentSheet id={id} onClose={vi.fn()} />
+        <EditOnCommit id={id} selector={selector} value={value} />
+      </>
+    );
+  }
+
+  it("keeps a Display title edit made before the seeding effect runs, and saves it", async () => {
+    const { a, b, api } = setupTwo();
+    const { rerender } = render(<Harness id={a.id} />);
+    expect(titleField()).toHaveValue("A label");
+    rerender(<Harness id={b.id} value="Typed early" />);
+    expect(titleField()).toHaveValue("Typed early");
+    expect(dateField()).toHaveValue("2026-11-25T12:00");
+    save();
+    await waitFor(() =>
+      expect(api.updateOverlay).toHaveBeenCalledExactlyOnceWith(b.id, {
+        titleOverride: "Typed early",
+      }),
+    );
+  });
+
+  it("keeps a Date and time edit made before the seeding effect runs, and saves it", async () => {
+    const { a, b, api } = setupTwo();
+    const { rerender } = render(<Harness id={a.id} />);
+    expect(dateField()).toHaveValue("2026-11-20T10:00");
+    rerender(
+      <Harness id={b.id} selector='input[aria-label="Date and time"]' value="2026-12-01T09:30" />,
+    );
+    expect(dateField()).toHaveValue("2026-12-01T09:30");
+    expect(titleField()).toHaveValue("B label");
+    save();
+    await waitFor(() =>
+      expect(api.updateOverlay).toHaveBeenCalledExactlyOnceWith(b.id, {
+        dateOverride: { kind: "exact", iso: "2026-12-01T04:30:00.000Z", tz: "Asia/Almaty" },
+      }),
+    );
+  });
+
+  it("opens with the assessment's current title and date", () => {
+    const { a } = setupTwo();
+    const { rerender } = render(<Harness id={null} />);
+    expect(screen.queryByLabelText("Display title")).not.toBeInTheDocument();
+    rerender(<Harness id={a.id} />);
+    expect(titleField()).toHaveValue("A label");
+    expect(dateField()).toHaveValue("2026-11-20T10:00");
+  });
+
+  it("switches to the new assessment's values without carrying over the previous draft", () => {
+    const { a, b, api } = setupTwo();
+    const { rerender } = render(<Harness id={a.id} />);
+    fireEvent.change(titleField(), { target: { value: "Unsaved A draft" } });
+    fireEvent.change(dateField(), { target: { value: "2026-12-24T08:00" } });
+    rerender(<Harness id={b.id} />);
+    expect(titleField()).toHaveValue("B label");
+    expect(dateField()).toHaveValue("2026-11-25T12:00");
+    rerender(<Harness id={a.id} />);
+    expect(titleField()).toHaveValue("A label");
+    expect(dateField()).toHaveValue("2026-11-20T10:00");
+    expect(api.updateOverlay).not.toHaveBeenCalled();
+  });
+
+  it("keeps an immediate edit across snapshot refreshes until it is saved, and drops it on close", async () => {
+    const { a, api } = setupTwo();
+    const { rerender } = render(<Harness id={a.id} />);
+    fireEvent.change(titleField(), { target: { value: "Immediate" } });
+    fireEvent.change(dateField(), { target: { value: "2026-12-02T11:15" } });
+    // A snapshot refresh for the same assessment (new views array, new view objects) must not reseed the draft.
+    state.app = {
+      ...state.app,
+      views: viewAll(
+        state.app.snap.assessments,
+        state.app.snap.overlays,
+        state.app.snap.settings,
+        state.app.snap,
+      ),
+    };
+    rerender(<Harness id={a.id} />);
+    expect(titleField()).toHaveValue("Immediate");
+    expect(dateField()).toHaveValue("2026-12-02T11:15");
+    save();
+    await waitFor(() =>
+      expect(api.updateOverlay).toHaveBeenCalledExactlyOnceWith(a.id, {
+        titleOverride: "Immediate",
+        dateOverride: { kind: "exact", iso: "2026-12-02T06:15:00.000Z", tz: "Asia/Almaty" },
+      }),
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled());
+    expect(titleField()).toHaveValue("Immediate");
+    // An unsaved edit is dropped on close: reopening shows the saved values again.
+    fireEvent.change(titleField(), { target: { value: "Never saved" } });
+    rerender(<Harness id={null} />);
+    rerender(<Harness id={a.id} />);
+    expect(titleField()).toHaveValue("A label");
+    expect(dateField()).toHaveValue("2026-11-20T10:00");
   });
 });
