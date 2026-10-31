@@ -121,7 +121,7 @@ function OnDocumentCommit({
 }: {
   document: LocalAssociation;
   record: () => void;
-  onCommit?: () => void;
+  onCommit?: (() => void) | undefined;
 }) {
   useLayoutEffect(() => {
     record();
