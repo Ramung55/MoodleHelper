@@ -87,6 +87,8 @@ lifecycle epochs are stale-write fences, **not authorization**: `/api/bridge-con
 
 Trust boundary (documented, not a finding): the backend is a credential-free localhost API; any
 local process can read and write all data. The window allowlist does not protect against that.
+Decision to keep this boundary, with threat model and reopening conditions (#64):
+[`_docs/decisions/local-process-auth.md`](../decisions/local-process-auth.md).
 
 Findings beyond that boundary (browser pages are not local processes):
 - **F1 High** - `POST /api/demo/reset` (and `POST /api/sync`) accept unbound CORS-simple
