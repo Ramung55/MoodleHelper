@@ -1105,6 +1105,37 @@ class LocalContext(WireModel):
     datasetId: str
 
 
+RestoreKey = Annotated[str, Field(min_length=8, max_length=128, pattern=r'^[A-Za-z0-9._~-]+$')]
+
+
+class RestoreContext(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    datasetId: str
+    epoch: Annotated[int, Field(ge=0)]
+    revision: Annotated[int, Field(ge=0)]
+
+
+class BackupRestoreInput(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    idempotencyKey: RestoreKey
+    expectedDatasetId: Annotated[str, Field(min_length=1, max_length=64)]
+    expectedEpoch: Annotated[int, Field(ge=0)]
+    expectedRevision: Annotated[int, Field(ge=0)]
+    backup: dict[str, Any]
+
+
+class BackupRestoreResult(WireModel):
+    model_config = ConfigDict(extra='forbid')
+    snapshot: Snapshot
+    datasetId: str
+    epoch: Annotated[int, Field(ge=0)]
+    revision: Annotated[int, Field(ge=0)]
+    restoreId: str
+    remindersRebuilt: bool
+    reminderGeneration: str
+    replayed: bool
+
+
 class BridgeContext(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     version: Literal["1"]

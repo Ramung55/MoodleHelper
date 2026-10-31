@@ -9,9 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { CourseTag, PageHeader } from "@/components/mh/bits";
-import { dispatchDownload, prepareBackup, previewRestore, type PreparedBackup, type RestorePreview } from "@/domain/backup";
+import { dispatchDownload, prepareBackup, previewRestore, readBackupFile, type PreparedBackup, type RestorePreview } from "@/domain/backup";
 import { currentDataset } from "@/services/local-documents";
-import type { AiAvailability } from "@/services/adapter";
+import { RestoreOutcomeUnknown, type AiAvailability, type RestoreContext } from "@/services/adapter";
 import { useApp } from "@/lib/app-store";
 import { BridgeClient } from "@/services/extension-adapter";
 import { BridgeError } from "../../../shared/src/bridge";
@@ -94,10 +94,43 @@ export function TrackedCourses() {
 }
 
 function SettingsPage() {
-  const { snap, run, adapter, conn, syncAll, syncing } = useApp();
+  const { snap, run, adapter, conn, syncAll, syncing, setSnap } = useApp();
   const s = snap!;
   const st = s.settings;
   const [preview, setPreview] = useState<RestorePreview | null>(null);
+  const [restore, setRestore] = useState<{ context?: RestoreContext; key: string; phase: "preview" | "restoring" | "unknown" | "done" | "failed"; message?: string }>({ key: "", phase: "preview" });
+  const openRestore = async (file: File) => {
+    const read = await readBackupFile(file);
+    if (!read.ok) { setPreview({ ok: false, error: read.error }); return; }
+    let context: RestoreContext | undefined;
+    try { context = await adapter.restoreContext?.(); } catch { context = undefined; }
+    const next = previewRestore(read.text, s, context?.datasetId);
+    const restorable = next.ok && next.restorable && !!adapter.restoreBackup;
+    const prepared = next.ok && next.restorable && !adapter.restoreBackup ? { ...next, restorable: false, reason: "Restore requires the local backend connection. Nothing was changed." } : next;
+    setRestore({ context, key: `restore-${crypto.randomUUID()}`, phase: "preview" });
+    setPreview(restorable ? Object.freeze(prepared) : prepared);
+  };
+  const confirmRestore = async () => {
+    if (!preview?.ok || !preview.restorable || !restore.context || !adapter.restoreBackup || restore.phase === "restoring") return;
+    const request = { idempotencyKey: restore.key, expectedDatasetId: restore.context.datasetId, expectedEpoch: restore.context.epoch, expectedRevision: restore.context.revision, backup: preview.raw };
+    setRestore((r) => ({ ...r, phase: "restoring", message: undefined }));
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const result = await adapter.restoreBackup(request);
+        setSnap(result.snapshot);
+        let message = "Backup restored. Reminders were rebuilt from the restored data; browser alarms update when the extension next reconciles.";
+        try { await adapter.reminderPlan?.(); } catch { message = "Backup restored. Reminders were rebuilt; browser alarm cleanup is pending until the extension reconnects."; }
+        setRestore((r) => ({ ...r, phase: "done", message }));
+        toast.success("Backup restored");
+        return;
+      } catch (e) {
+        if (e instanceof RestoreOutcomeUnknown) { setRestore((r) => ({ ...r, phase: "unknown", message: "Restore outcome unknown; checking receipt." })); continue; }
+        setRestore((r) => ({ ...r, phase: "failed", message: `${e instanceof Error ? e.message : "Restore failed."} Your original data was not replaced.` }));
+        return;
+      }
+    }
+    setRestore((r) => ({ ...r, phase: "unknown", message: "Restore outcome unknown. Reconnect and choose Check again; the same request will not replace data twice." }));
+  };
   const [ai, setAi] = useState<AiAvailability | null>(null);
   useEffect(() => {
     let alive = true;
@@ -197,7 +230,7 @@ function SettingsPage() {
             <Button variant="outline" disabled={exp.phase === "preparing"} onClick={() => void prepareExport()}>{exp.phase === "preparing" ? "Preparing…" : "Export backup"}</Button>
             <label className="inline-flex cursor-pointer items-center rounded-md border px-3 text-sm hover:bg-muted">
               Restore…
-              <input type="file" accept="application/json,.json" className="sr-only" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setPreview(previewRestore(await f.text(), s)); e.target.value = ""; }} />
+              <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void openRestore(f); }} />
             </label>
             {adapter.resetDemo && <Button variant="outline" onClick={() => run((a) => a.resetDemo!()).then((ok) => ok && toast.success("Demo data reset"))}>Reset demo</Button>}
             <AlertDialog>
@@ -241,25 +274,30 @@ function SettingsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
+      <AlertDialog open={!!preview} onOpenChange={(o) => { if (!o && restore.phase !== "restoring") setPreview(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{preview?.ok ? "Restore this backup?" : "Can't restore"}</AlertDialogTitle>
+            <AlertDialogTitle>{restore.phase === "done" ? "Backup restored" : preview?.ok ? "Restore this backup?" : "Can't restore"}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div>
                 {preview?.ok ? (
                   <>
-                    <p>Exported {new Date(preview.backup.exportedAt).toLocaleString("en-GB")}. Everything currently stored will be replaced.</p>
+                    <p>Exported {new Date(preview.backup.exportedAt).toLocaleString("en-GB")} · format version {preview.backup.version} · {preview.bytes.toLocaleString("en-GB")} bytes · identity {preview.identity === "match" ? "matches this dataset" : "unavailable"}.</p>
+                    <p className="mt-2">Everything currently stored will be replaced, including settings and personal changes.</p>
                     <table className="mt-3 w-full text-sm"><thead><tr><th className="text-left">Item</th><th>Now</th><th>Backup</th></tr></thead>
                       <tbody>{preview.diff.map((d) => <tr key={d.label}><td>{d.label}</td><td className="text-center">{d.current}</td><td className="text-center">{d.incoming}</td></tr>)}</tbody></table>
+                    <p className="mt-3 text-xs">Not included: {preview.exclusions.join("; ")}. Document files and downloaded files are not restored; check source and evidence availability afterwards.</p>
+                    <p className="mt-2 text-xs">Links in the backup are metadata only; source access is unverified and must be rechecked. Pending reminders are rebuilt once from the restored data, and restored notifications are not shown again.</p>
+                    {preview.reason && <p role="alert" className="mt-2">{preview.reason}</p>}
+                    {restore.message && <p role={restore.phase === "failed" ? "alert" : "status"} className="mt-2">{restore.message}</p>}
                   </>
-                ) : <p>{preview?.error}</p>}
+                ) : <p role="alert">{preview?.error}</p>}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            {preview?.ok && <AlertDialogAction onClick={() => run((a) => a.replaceAll(preview.backup.data)).then((ok) => ok && toast.success("Backup restored"))}>Restore</AlertDialogAction>}
+            <AlertDialogCancel disabled={restore.phase === "restoring"}>{restore.phase === "done" ? "Close" : "Cancel"}</AlertDialogCancel>
+            {preview?.ok && preview.restorable && restore.phase !== "done" && <Button disabled={restore.phase === "restoring"} onClick={() => void confirmRestore()}>{restore.phase === "restoring" ? "Restoring…" : restore.phase === "unknown" ? "Check again" : "Restore"}</Button>}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

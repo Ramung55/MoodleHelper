@@ -59,6 +59,9 @@ class InMemoryStore(SourceUpserts):
     def __init__(self, snapshot: dict | None = None):
         self._lock = RLock()
         self.dataset_id = str(uuid4())
+        self.revision = 0
+        self.epoch = 0  # #55 data-lifecycle epoch; persists only for this fixture instance.
+        self.restore_receipts: dict[str, tuple[str, dict]] = {}
         self._snapshot = self._validated(build_sample_snapshot() if snapshot is None else snapshot)
 
     @staticmethod
@@ -73,6 +76,7 @@ class InMemoryStore(SourceUpserts):
         next_snapshot = self._validated(snapshot)
         with self._lock:
             self._snapshot = next_snapshot
+            self.revision += 1
             return deepcopy(self._snapshot)
 
     def mutate(self, operation: Callable[[dict], None]) -> dict:
@@ -83,4 +87,5 @@ class InMemoryStore(SourceUpserts):
                 from backend.reconciliation import project_sources
                 project_sources(next_snapshot, self.namespace)
             self._snapshot = self._validated(next_snapshot)
+            self.revision += 1
             return deepcopy(self._snapshot)

@@ -1628,6 +1628,115 @@ paths:
                 $ref: '#/components/schemas/ProposedHttpError'
       description: Read stable job page evidence and incomplete reasons; limit 1–100,
         default 100.
+  /api/backups/restore-context:
+    get:
+      tags:
+      - Local data
+      summary: Read the authoritative restore preview context
+      operationId: restoreContext
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreContext'
+        default:
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '413':
+          description: Content Too Large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Unprocessable Content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      security: []
+      description: Opaque dataset identity, durable data-lifecycle epoch and Snapshot revision for stale-write fencing of a
+        restore (#55). Not authentication; no selectors.
+  /api/backups/restore:
+    post:
+      tags:
+      - Local data
+      summary: Atomically restore a validated v1 backup
+      operationId: restoreBackup
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        schema:
+          type: string
+          description: Required current process binding from /api/bridge-context.
+        description: Required current process binding from /api/bridge-context.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRestoreInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRestoreResult'
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Default Response
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Conflict
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Content Too Large
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Unprocessable Content
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+          description: Service Unavailable
+      security: []
+      description: 'Requires the current process binding. Bounded to 20 MiB before parsing. Validates app, format version, timestamp,
+        identity (datasetId must equal the current opaque dataset; identity-less historical v1 is rejected), Snapshot shape
+        and unsafe/expiring links before opening one transaction that replaces the Snapshot, increments the epoch, fences queue
+        claims, rebuilds the #38 reminder plan once and stores an idempotency receipt. Same key and payload replays the receipt;
+        a different payload under the key is 409. Restored pending notifications become dashboard-only. Links are never fetched.'
   /api/reminders/plan:
     get:
       tags:
@@ -2544,6 +2653,81 @@ components:
       - kind
       - dueAt
       title: ReminderDeliveryTarget
+    RestoreContext:
+      properties:
+        datasetId:
+          type: string
+        epoch:
+          type: integer
+          minimum: 0
+        revision:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+      type: object
+      required:
+      - datasetId
+      - epoch
+      - revision
+    BackupRestoreInput:
+      properties:
+        idempotencyKey:
+          type: string
+          maxLength: 128
+          minLength: 8
+          pattern: ^[A-Za-z0-9._~-]+$
+        expectedDatasetId:
+          type: string
+          maxLength: 64
+          minLength: 1
+        expectedEpoch:
+          type: integer
+          minimum: 0
+        expectedRevision:
+          type: integer
+          minimum: 0
+        backup:
+          additionalProperties: true
+          type: object
+      additionalProperties: false
+      type: object
+      required:
+      - idempotencyKey
+      - expectedDatasetId
+      - expectedEpoch
+      - expectedRevision
+      - backup
+    BackupRestoreResult:
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/Snapshot'
+        datasetId:
+          type: string
+        epoch:
+          type: integer
+          minimum: 0
+        revision:
+          type: integer
+          minimum: 0
+        restoreId:
+          type: string
+        remindersRebuilt:
+          type: boolean
+        reminderGeneration:
+          type: string
+        replayed:
+          type: boolean
+      additionalProperties: false
+      type: object
+      required:
+      - snapshot
+      - datasetId
+      - epoch
+      - revision
+      - restoreId
+      - remindersRebuilt
+      - reminderGeneration
+      - replayed
     ReminderDispatchInput:
       properties:
         datasetId:

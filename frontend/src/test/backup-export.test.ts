@@ -41,7 +41,7 @@ describe("backup export (#45)", () => {
   });
 
   it("legacy v1 backups without identity remain readable", () => {
-    const legacy = { app: "moodle-helper", version: 1, exportedAt: "x", note: "n", data: demo() };
+    const legacy = { app: "moodle-helper", version: 1, exportedAt: "2026-01-01T00:00:00.000Z", note: "n", data: demo() };
     expect(previewRestore(JSON.stringify(legacy), demo()).ok).toBe(true);
     expect(previewRestore(JSON.stringify({ ...legacy, version: 2 }), demo())).toMatchObject({ ok: false });
   });

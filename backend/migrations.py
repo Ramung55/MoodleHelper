@@ -2,7 +2,7 @@
 from sqlalchemy import Connection
 from uuid import uuid4
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 class MigrationError(RuntimeError):
@@ -96,7 +96,15 @@ def version_nine_to_ten(connection: Connection) -> None:
         PRIMARY KEY(namespace,transfer_id))""")
 
 
-MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight, 8: version_eight_to_nine, 9: version_nine_to_ten}
+def version_ten_to_eleven(connection: Connection) -> None:
+    # #55 shared data-lifecycle epoch and idempotent backup restore receipts.
+    connection.exec_driver_sql("CREATE TABLE data_lifecycle (namespace TEXT PRIMARY KEY, epoch INTEGER NOT NULL DEFAULT 0)")
+    connection.exec_driver_sql("""CREATE TABLE restore_receipts (
+        namespace TEXT NOT NULL, idem TEXT NOT NULL, fingerprint TEXT NOT NULL, response TEXT NOT NULL,
+        PRIMARY KEY(namespace,idem))""")
+
+
+MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight, 8: version_eight_to_nine, 9: version_nine_to_ten, 10: version_ten_to_eleven}
 
 
 def upgrade(connection: Connection) -> None:

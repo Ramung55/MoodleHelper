@@ -152,37 +152,83 @@ export async function prepareBackup(load: () => Promise<unknown>, context: () =>
   return buildBackup(raw, before, now());
 }
 
+export const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
+
+/** Size check before any read; strict UTF-8 decode so malformed bytes are not silently replaced (#55). */
+export async function readBackupFile(file: Blob): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  if (file.size > MAX_BACKUP_BYTES) return { ok: false, error: "This backup is larger than the 20 MiB restore limit. Nothing was read or changed." };
+  let buffer: ArrayBuffer;
+  try { buffer = typeof file.arrayBuffer === "function" ? await file.arrayBuffer() : await new Promise<ArrayBuffer>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result as ArrayBuffer); r.onerror = () => reject(r.error); r.readAsArrayBuffer(file); }); } catch { return { ok: false, error: "The backup file could not be read. Nothing was changed." }; }
+  try { return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(buffer) }; }
+  catch { return { ok: false, error: "This file is not valid UTF-8 text. Nothing was changed." }; }
+}
+
+export type RestoreIdentity = "match" | "unavailable";
 export type RestorePreview =
-  | { ok: true; backup: Backup; diff: { label: string; current: number; incoming: number }[] }
+  | {
+      ok: true; backup: Backup; raw: unknown; bytes: number;
+      diff: { label: string; current: number; incoming: number }[];
+      identity: RestoreIdentity; restorable: boolean; reason?: string;
+      exclusions: string[]; settingsReplaced: boolean; overlaysReplaced: boolean;
+    }
   | { ok: false; error: string };
 
-/** Validate fully before anything is written, so a restore is all-or-nothing. */
-export function previewRestore(raw: string, current: Snapshot): RestorePreview {
+function depthOk(v: unknown, depth = 0): boolean {
+  if (depth > 64) return false;
+  if (Array.isArray(v)) return v.every((x) => depthOk(x, depth + 1));
+  if (v && typeof v === "object") return Object.values(v).every((x) => depthOk(x, depth + 1));
+  return true;
+}
+
+/**
+ * Validate fully before anything is written. `datasetId` is the current authoritative identity; without it, or for an
+ * identity-less historical v1 file, counts are shown but the backup is not restorable. Links are never fetched.
+ */
+export function previewRestore(raw: string, current: Snapshot, datasetId?: string): RestorePreview {
+  const bytes = new TextEncoder().encode(raw).length;
+  if (bytes > MAX_BACKUP_BYTES) return { ok: false, error: "This backup is larger than the 20 MiB restore limit. Nothing was changed." };
   let json: unknown;
   try {
     json = JSON.parse(raw);
   } catch {
     return { ok: false, error: "This file is not valid JSON." };
   }
+  if (!depthOk(json)) return { ok: false, error: "This backup is too deeply nested to restore safely." };
+  const v = (json as { version?: unknown })?.version;
+  if (typeof v === "number" && v > BACKUP_VERSION) return { ok: false, error: `Backup format version ${v} is newer than this app supports. Update Moodle Helper and retry.` };
   const parsed = Backup.safeParse(json);
   if (!parsed.success) {
-    const v = (json as { version?: unknown })?.version;
     if (v !== undefined && v !== BACKUP_VERSION) return { ok: false, error: `Unsupported backup version: ${String(v)}.` };
     return { ok: false, error: "This file is not a valid Moodle Helper backup." };
   }
+  if (Number.isNaN(Date.parse(parsed.data.exportedAt)) || !/^\d{4}-\d{2}-\d{2}T/.test(parsed.data.exportedAt)) return { ok: false, error: "Backup export timestamp is invalid." };
+  if (parsed.data.datasetId && datasetId && parsed.data.datasetId !== datasetId) {
+    return { ok: false, error: "Wrong identity: this backup belongs to a different local dataset and cannot be restored here." };
+  }
+  const problems: { path: string; reason: string }[] = [];
+  scan(parsed.data.data, "data", problems);
+  const expiring = (x: unknown, path: string): void => {
+    if (typeof x === "string") { if (/[?&](expires|expiry|exp|x-amz-expires)=/i.test(x) && URL_LIKE.test(x.trim())) problems.push({ path, reason: "expiring link" }); }
+    else if (Array.isArray(x)) x.forEach((y, i) => expiring(y, `${path}[${i}]`));
+    else if (x && typeof x === "object") for (const [k, y] of Object.entries(x)) expiring(y, `${path}.${k}`);
+  };
+  expiring(parsed.data.data, "data");
+  if (problems.length) {
+    const paths = [...new Set(problems.map((p) => p.path))];
+    return { ok: false, error: `Backup rejected: ${paths.length} field${paths.length === 1 ? "" : "s"} contain credential-bearing, expiring or unsafe links (${paths.slice(0, 3).join(", ")}${paths.length > 3 ? ", …" : ""}). Nothing was changed.` };
+  }
   const d = parsed.data.data;
+  const now = backupCounts(current), next = backupCounts(d);
+  const identity: RestoreIdentity = parsed.data.datasetId && datasetId ? "match" : "unavailable";
+  const reason = !parsed.data.datasetId
+    ? "Identity unavailable: this older backup has no dataset identity and cannot be restored here."
+    : !datasetId ? "Identity unavailable: the current dataset could not be verified. Reconnect to the local backend and retry." : undefined;
   return {
-    ok: true,
-    backup: parsed.data,
-    diff: [
-      { label: "Courses", current: current.courses.length, incoming: d.courses.length },
-      { label: "Assessments", current: current.assessments.length, incoming: d.assessments.length },
-      { label: "Personal changes", current: current.overlays.length, incoming: d.overlays.length },
-      { label: "Materials", current: current.materials.length, incoming: d.materials.length },
-      { label: "Review candidates", current: current.candidates.length, incoming: d.candidates.length },
-      { label: "Collected source records", current: current.collection?.records.length ?? 0, incoming: d.collection?.records.length ?? 0 },
-      { label: "Page refresh receipts", current: current.collection?.refreshes.length ?? 0, incoming: d.collection?.refreshes.length ?? 0 },
-    ],
+    ok: true, backup: parsed.data, raw: json, bytes,
+    diff: next.map((n, i) => ({ label: n.label, current: now[i].count, incoming: n.count })),
+    identity, restorable: identity === "match", ...(reason ? { reason } : {}),
+    exclusions: parsed.data.summary?.exclusions.length ? parsed.data.summary.exclusions : [...BACKUP_EXCLUSIONS],
+    settingsReplaced: true, overlaysReplaced: true,
   };
 }
 

@@ -1,7 +1,7 @@
 import type { RawCourseObservation } from "@/domain/types";
 import { z } from "zod";
 import { ConnectionState, ReminderPlan, Snapshot, TeachingCalendar, LocalReviewContext, LocalSyllabusDate, SyllabusRevisionPreview, LocalSyllabusInput, LocalSyllabusResult, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
-import type { MoodleHelperAdapter, OverlayPatch, PersonalEventInput, ReviewDecision } from "./adapter";
+import { RestoreOutcomeUnknown, type MoodleHelperAdapter, type OverlayPatch, type PersonalEventInput, type ReviewDecision, type RestoreRequest } from "./adapter";
 
 const connectionSchema = z.object({ state: ConnectionState, message: z.string(), extensionDetected: z.boolean() });
 const importSchema = z.object({ snapshot: Snapshot, result: z.union([
@@ -66,6 +66,25 @@ export class HttpAdapter implements MoodleHelperAdapter {
     const result: unknown = await response.json();
     if (!response.ok) throw new Error(z.object({ message: z.string() }).safeParse(result).data?.message ?? "Local routing failed. Retry the same stored proposal to reconcile its outcome.");
     return LocalSyllabusResult.parse(result);
+  }
+  restoreContext() { return this.request("GET", "/backups/restore-context", z.object({ datasetId: z.string(), epoch: z.number().int().min(0), revision: z.number().int().min(0) }).strict()); }
+  /** Browser-to-localhost only; sends the exact prepared backup with stale-write preconditions (#55). */
+  async restoreBackup(body: RestoreRequest) {
+    const base = this.baseUrl.replace(/\/$/, "");
+    const context = await this.fetcher(`${base}/api/bridge-context`, { credentials: "omit", cache: "no-store" }).catch(() => null);
+    if (!context?.ok) throw new Error("Could not verify the local process. Reconnect and refresh the restore preview. Nothing was changed.");
+    const binding = z.object({ version: z.literal("1"), binding: z.string().min(1) }).strict().parse(await context.json());
+    let response: Response;
+    try {
+      response = await this.fetcher(`${base}/api/backups/restore`, { method: "POST", credentials: "omit", cache: "no-store", headers: { Accept: "application/json", "Content-Type": "application/json", "X-Moodle-Helper-Bridge-Binding": binding.binding }, body: JSON.stringify(body) });
+    } catch { throw new RestoreOutcomeUnknown(); }
+    let payload: unknown;
+    try { payload = await response.json(); } catch { throw new RestoreOutcomeUnknown(); }
+    if (!response.ok) {
+      const message = z.object({ message: z.string() }).safeParse(payload).data?.message ?? `Restore failed (HTTP ${response.status}).`;
+      throw new BackendResponseError(message, response.status);
+    }
+    return z.object({ snapshot: Snapshot, datasetId: z.string(), epoch: z.number(), revision: z.number(), restoreId: z.string(), remindersRebuilt: z.boolean(), reminderGeneration: z.string(), replayed: z.boolean() }).strict().parse(payload);
   }
   replaceAll(snapshot: SnapshotValue) { return this.request("PUT", "/snapshot", Snapshot, snapshot); }
   ingestCourseDiscovery(observations: RawCourseObservation[]) { return this.request("POST", "/courses/discovery", Snapshot, { observations }); }

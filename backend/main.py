@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from backend.material_downloads import MaterialDownloadService, TransferConflict, material_download_router
-from backend.routers import router, context_router, collection_router, queue_router, scan_router, local_syllabus_router, reminder_router, ai_router
+from backend.routers import router, context_router, collection_router, queue_router, scan_router, local_syllabus_router, reminder_router, ai_router, backup_router
 from backend.ai_gateway import AiGateway, AiFailure, MAX_BODY_BYTES
 from backend.reminders import ReminderService, ReminderConflict
 from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
@@ -21,6 +21,7 @@ from backend.database_config import DatabaseConfig
 from backend.sqlite_store import SQLiteStore, StorageError
 from backend.collection import CollectionService, CollectionRejected
 from backend.scan_queue import ScanQueueService
+from backend.backup_restore import RestoreService, MAX_BACKUP_BYTES
 
 
 def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None, reminder_clock=None, reminder_resolver=None,
@@ -51,6 +52,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(selected, app.state.bridge_binding, collection_provider)
         app.state.reminders = make_reminders(selected)
+        app.state.restore = RestoreService(selected, reminder_clock, reminder_resolver)
         app.state.material_downloads = MaterialDownloadService(selected, material_download_capability)
         app.state.scan = ScanQueueService(selected, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
         app.state.ai_gateway = gateway
@@ -69,6 +71,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(store, app.state.bridge_binding, collection_provider)
         app.state.reminders = make_reminders(store)
+        app.state.restore = RestoreService(store, reminder_clock, reminder_resolver)
         app.state.material_downloads = MaterialDownloadService(store, material_download_capability)
         app.state.scan = ScanQueueService(store, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
 
@@ -101,6 +104,32 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
                 chunks.append(chunk)
             # Starlette replays the cached body to the handler and still reports disconnects.
             request._body = b''.join(chunks)
+            return await call_next(request)
+        if request.url.path == '/api/backups/restore' and request.method == 'POST':
+            # Binding and the fixed 20 MiB bound before any parse or service work (#55).
+            if binding != getattr(app.state, 'bridge_binding', None):
+                return JSONResponse(status_code=409, content={'message': 'Backend context changed. Reconnect and refresh the restore preview.'})
+            too_large = JSONResponse(status_code=413, content={'message': 'Backup exceeds the 20 MiB restore limit. Nothing was changed.'})
+            declared = request.headers.get('content-length')
+            if declared is not None and (not declared.isdigit() or int(declared) > MAX_BACKUP_BYTES + 4096):
+                return too_large
+            chunks, size = [], 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_BACKUP_BYTES + 4096:
+                    return too_large
+                chunks.append(chunk)
+            body = b''.join(chunks)
+            import json
+            try:
+                json.loads(body.decode('utf-8'))
+            except UnicodeDecodeError:
+                return JSONResponse(status_code=422, content={'message': 'Restore request is not valid UTF-8. Nothing was changed.'})
+            except RecursionError:
+                return JSONResponse(status_code=422, content={'message': 'Backup is too deeply nested to restore safely. Nothing was changed.'})
+            except ValueError:
+                return JSONResponse(status_code=422, content={'message': 'Restore request is not valid JSON. Nothing was changed.'})
+            request._body = body
             return await call_next(request)
         if (collection_write or queue_write or local_syllabus_write or local_review_write) and binding != getattr(app.state, 'bridge_binding', None):
             return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
@@ -195,6 +224,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         return JSONResponse(status_code=409, content={'message': str(error)})
 
     app.include_router(reminder_router)
+    app.include_router(backup_router)
     app.include_router(material_download_router)
     app.include_router(queue_router)
     app.include_router(scan_router)

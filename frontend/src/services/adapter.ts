@@ -76,4 +76,16 @@ export interface MoodleHelperAdapter {
   aiAvailability(): Promise<AiAvailability>;
   /** #38 backend-derived reminder plan (first page). Optional: demo mode has no durable scheduler. */
   reminderPlan?(): Promise<import("@/domain/types").ReminderPlan>;
+  /** #55 authoritative restore preview context; HTTP-only, absent from the bridge catalog. */
+  restoreContext?(): Promise<RestoreContext>;
+  /** #55 atomic validated restore. Throws RestoreOutcomeUnknown when a commit may have happened. */
+  restoreBackup?(request: RestoreRequest): Promise<RestoreResult>;
+}
+
+export type RestoreContext = { datasetId: string; epoch: number; revision: number };
+export type RestoreRequest = { idempotencyKey: string; expectedDatasetId: string; expectedEpoch: number; expectedRevision: number; backup: unknown };
+export type RestoreResult = { snapshot: Snapshot; datasetId: string; epoch: number; revision: number; restoreId: string; remindersRebuilt: boolean; reminderGeneration: string; replayed: boolean };
+/** Network loss or unreadable response after sending: the restore may or may not have committed. */
+export class RestoreOutcomeUnknown extends Error {
+  constructor() { super("Restore outcome unknown; checking receipt."); this.name = "RestoreOutcomeUnknown"; }
 }
