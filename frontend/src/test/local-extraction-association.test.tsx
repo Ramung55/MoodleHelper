@@ -6,6 +6,7 @@ import { LocalExtraction } from "@/components/mh/LocalExtraction";
 import { buildDemoSnapshot } from "@/services/fixtures";
 import type { LocalAssociation } from "@/services/local-documents";
 import type { TeachingCalendar } from "@/domain/types";
+import { DEFAULT_OCR_LIMITS } from "@/services/ocr-pdf";
 
 const mock = vi.hoisted(() => ({
   read: vi.fn(),
@@ -14,6 +15,7 @@ const mock = vi.hoisted(() => ({
   route: vi.fn(),
   detect: vi.fn(),
   parse: vi.fn(),
+  ocr: vi.fn(),
   actual: {} as {
     detect?: (...args: unknown[]) => unknown;
     parse?: (...args: unknown[]) => unknown;
@@ -25,6 +27,10 @@ vi.mock("@/services/local-documents", () => ({
 }));
 vi.mock("@/services/extract-pdf", () => ({ extractPdf: mock.extract }));
 vi.mock("@/services/route-local-syllabus", () => ({ routeLocalProposals: mock.route }));
+vi.mock("@/services/ocr-pdf", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/ocr-pdf")>()),
+  runOcr: mock.ocr,
+}));
 vi.mock("@/domain/assessment-mentions", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/domain/assessment-mentions")>();
   mock.actual.detect = actual.detectAssessmentMentions;
@@ -83,6 +89,25 @@ beforeEach(() => {
   mock.extract.mockResolvedValue(pages);
   mock.detect.mockImplementation((...args) => mock.actual.detect!(...args));
   mock.parse.mockImplementation((...args) => mock.actual.parse!(...args));
+  mock.ocr.mockResolvedValue({
+    selectedPages: [1],
+    pages: [
+      {
+        page: 1,
+        width: 100,
+        height: 100,
+        text: "Scanned exam",
+        confidence: 92,
+        regions: [],
+        status: "recognized",
+      },
+    ],
+    complete: true,
+    status: "complete",
+    language: "rus",
+    dpi: 150,
+    engine: "tesseract.js-7.0.0",
+  });
   let next = 0;
   Object.defineProperty(URL, "createObjectURL", {
     configurable: true,
@@ -480,6 +505,41 @@ describe("LocalExtraction state belongs to one association (#71)", () => {
       resolve(pages);
     });
     expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+  });
+
+  it("gives the OCR panel a fresh start when the PDF document changes (#72)", async () => {
+    const { rerender } = setup({ document: A });
+    fireEvent.click(screen.getByText("OCR selected scanned PDF pages"));
+    fireEvent.change(screen.getByLabelText("OCR original pages"), { target: { value: "1, 3" } });
+    fireEvent.change(screen.getByLabelText("OCR language"), { target: { value: "rus" } });
+    fireEvent.change(screen.getByLabelText("OCR Render DPI"), { target: { value: "150" } });
+    fireEvent.click(screen.getByText("Start selected-page OCR"));
+    // Waits for the OCR result on the first PDF.
+    await screen.findByText(/Selected-page OCR finished/);
+    expect(screen.getByText(/source.pdf · original page 1 · recognized/)).toBeVisible();
+    rerender({ document: { ...A, digest: "re-imported" } });
+    // Right after the prop change, without waiting.
+    expect(screen.getByLabelText("OCR original pages")).toHaveValue("");
+    expect(
+      (screen.getByLabelText("OCR language") as HTMLSelectElement).selectedOptions[0]!.textContent,
+    ).toBe("English and Russian");
+    expect(
+      ["Pages/job", "Render DPI", "Milliseconds/page", "Pixels/page"].map(
+        (label) => (screen.getByLabelText(`OCR ${label}`) as HTMLInputElement).value,
+      ),
+    ).toEqual(
+      [
+        DEFAULT_OCR_LIMITS.maxPages,
+        DEFAULT_OCR_LIMITS.dpi,
+        DEFAULT_OCR_LIMITS.millisecondsPerPage,
+        DEFAULT_OCR_LIMITS.maxPixels,
+      ].map(String),
+    );
+    expect(screen.queryByText(/Selected-page OCR finished/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/original page 1 ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Scanned exam")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cancel OCR")).not.toBeInTheDocument();
+    expect(screen.getByText("Start selected-page OCR")).toBeEnabled();
   });
 
   it("aborts in-flight work and revokes the preview URL on unmount", async () => {
