@@ -50,14 +50,20 @@ describe("imported assessment overrides (#53)", () => {
     expect(screen.getByText(/previous baseline/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Hide item" }));
     await waitFor(() => expect(api.updateOverlay).toHaveBeenCalledWith(a.id, { hidden: true }));
+    // Waits for the hide save to finish: "Save changes" is disabled while it is pending (#70).
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled());
     api.updateOverlay.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     expect(api.updateOverlay).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("Display title"), { target: { value: "Renamed" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(api.updateOverlay).toHaveBeenCalledWith(a.id, { titleOverride: "Renamed" }));
+    // Waits for the title save to finish: "Reset date" is disabled while it is pending (#70).
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reset date" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Reset date" }));
     await waitFor(() => expect(api.updateOverlay).toHaveBeenLastCalledWith(a.id, { dateOverride: null }));
+    // Waits for the date reset to finish: "Reset title" is disabled while it is pending (#70).
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reset title" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Reset title" }));
     await waitFor(() => expect(api.updateOverlay).toHaveBeenLastCalledWith(a.id, { titleOverride: null }));
   });

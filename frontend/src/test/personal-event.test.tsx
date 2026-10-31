@@ -87,6 +87,8 @@ describe("personal event inputs", () => {
     expect(screen.getByLabelText("Display title")).toHaveValue("Updated");
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(state.app.api.updateOverlay).toHaveBeenCalledWith("personal-test", { titleOverride: "Updated", dateOverride: { kind: "week", week: 4 } }));
+    // Waits for the save to finish: "Delete event" stays disabled until the pending save clears (#70).
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete event" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Delete event" }));
     expect(screen.getByRole("alertdialog")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -100,5 +102,92 @@ describe("personal event inputs", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm deletion" }));
     await waitFor(() => expect(state.app.api.deletePersonalEvent).toHaveBeenCalledExactlyOnceWith("personal-test"));
     expect(snap.assessments[0]).toEqual(original);
+  });
+});
+
+describe("personal event deletion while a save is pending (#70)", () => {
+  const patch = { titleOverride: "Updated", dateOverride: { kind: "week", week: 4 } };
+  function renderPersonal() {
+    const snap = state.app.snap; const original = snap.assessments[0];
+    snap.assessments.push({ ...original, id: "personal-test", personal: true, sources: [{ source: "personal", date: { kind: "week", week: 4 }, observedAt: original.firstObservedAt }] });
+    state.app.views = viewAll(snap.assessments, snap.overlays, snap.settings);
+    render(<AssessmentSheet id="personal-test" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Display title"), { target: { value: "Updated" } });
+  }
+  /** Calls fn(api) like the real run, so the write is recorded, then keeps the run pending until `finish` is called. */
+  function holdRun() {
+    const held: { finish: (ok: boolean) => void } = { finish: () => {} };
+    state.app.run.mockImplementationOnce((fn: (api: unknown) => unknown) => {
+      const result = new Promise<boolean>((resolve) => { held.finish = resolve; });
+      return Promise.resolve(fn(state.app.api)).then(() => result);
+    });
+    return held;
+  }
+  const deleteButton = () => screen.getByRole("button", { name: "Delete event" });
+
+  it("reproduces the race: updateOverlay is recorded while the save is still pending, so deletion waits for the save to finish", async () => {
+    renderPersonal(); const save = holdRun();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(state.app.api.updateOverlay).toHaveBeenCalledWith("personal-test", patch));
+    // The old test step ended here: the call is recorded but the save has not finished.
+    expect(deleteButton()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    save.finish(true);
+    // Waits for the save to finish: "Delete event" is enabled again once pending clears.
+    await waitFor(() => expect(deleteButton()).toBeEnabled());
+    fireEvent.click(deleteButton());
+    expect(screen.getByRole("alertdialog")).toBeVisible();
+  });
+
+  for (const ok of [true, false]) it(`keeps Delete event disabled while saving, drops clicks without queuing a deletion, and opens one dialog after a ${ok ? "successful" : "failed"} save`, async () => {
+    renderPersonal(); const save = holdRun();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(deleteButton()).toBeDisabled();
+    const button = deleteButton(); fireEvent.click(button); fireEvent.click(button);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    save.finish(ok);
+    // Waits for the save to finish: "Delete event" is enabled again once pending clears.
+    await waitFor(() => expect(deleteButton()).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    if (ok) expect(screen.queryByText(/Changes were not saved/)).not.toBeInTheDocument();
+    else expect(screen.getByText(/Changes were not saved/)).toBeVisible();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(state.app.run).toHaveBeenCalledOnce();
+    expect(state.app.api.deletePersonalEvent).not.toHaveBeenCalled();
+    fireEvent.click(deleteButton());
+    expect(screen.getByRole("alertdialog")).toBeVisible();
+    expect(screen.getByText("Delete personal event?")).toBeVisible();
+    expect(state.app.api.deletePersonalEvent).not.toHaveBeenCalled();
+  });
+
+  it("opens at most one dialog for a double click as the save finishes and deletes nothing without Confirm", async () => {
+    renderPersonal(); const save = holdRun();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(deleteButton());
+    save.finish(true);
+    // Waits for the save to finish: "Delete event" is enabled again once pending clears.
+    await waitFor(() => expect(deleteButton()).toBeEnabled());
+    const button = deleteButton(); fireEvent.click(button); fireEvent.click(button);
+    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(state.app.run).toHaveBeenCalledOnce();
+    expect(state.app.api.deletePersonalEvent).not.toHaveBeenCalled();
+  });
+
+  it("disables Cancel and Confirm and blocks dismissal while a deletion is pending", async () => {
+    renderPersonal();
+    fireEvent.click(deleteButton());
+    const removal = holdRun();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm deletion" }));
+    expect(state.app.api.deletePersonalEvent).toHaveBeenCalledExactlyOnceWith("personal-test");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Deleting…" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(screen.getByRole("alertdialog")).toBeVisible();
+    removal.finish(false);
+    expect(await screen.findByText(/The event was not deleted/)).toBeVisible();
+    expect(state.app.api.deletePersonalEvent).toHaveBeenCalledOnce();
   });
 });
