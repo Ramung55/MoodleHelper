@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,11 +31,42 @@ export function LocalExtraction({ document: association, teachingCalendar, commi
   const routing = useRef(false);
   const previewUrl = useRef<string | undefined>(undefined);
   const revoke = () => { if (previewUrl.current) URL.revokeObjectURL(previewUrl.current); previewUrl.current = undefined; };
-  useEffect(() => {
+  // State belongs to one association (#71). A change of datasetId, courseId or digest resets it during render, so the
+  // new document's first render never shows the previous draft, result, mentions, status or preview, and a later
+  // passive effect cannot clear an edit made in the new document. A re-render with the same association (an equal new
+  // object, a new teachingCalendar or commitRoute) keeps everything.
+  const associationKey = JSON.stringify([
+    association.datasetId,
+    association.courseId,
+    association.digest,
+  ]);
+  const [stateKey, setStateKey] = useState(associationKey);
+  if (stateKey !== associationKey) {
+    setStateKey(associationKey);
+    setResult(undefined);
+    setMentions(undefined);
+    setParsedDates(undefined);
+    setDateOrder("");
+    setSourceTimezone("");
+    setSemesterStart("");
+    setSemesterEnd("");
+    setStatus("");
+    setPending(false);
+    setPreview(undefined);
+  }
+  // Releasing the old association's work stays an effect. A layout effect runs in the same commit as the render-time
+  // reset, before the browser paints or any pending promise continues, so stale extraction, detection, routing or
+  // preview work is fenced (generation bump), aborted and its preview URL revoked before it could write into the new
+  // association. It also runs on unmount.
+  useLayoutEffect(() => {
     routing.current = false;
-    controller.current = undefined; setResult(undefined); setMentions(undefined); setParsedDates(undefined); setDateOrder(""); setSourceTimezone(""); setSemesterStart(""); setSemesterEnd(""); setStatus(""); setPending(false); setPreview(undefined);
-    return () => { generation.current++; controller.current?.abort(); revoke(); };
-  }, [association.datasetId, association.courseId, association.digest]);
+    controller.current = undefined;
+    return () => {
+      generation.current++;
+      controller.current?.abort();
+      revoke();
+    };
+  }, [associationKey]);
   const extract = async () => {
     if (controller.current) return;
     const abort = new AbortController(); controller.current = abort;

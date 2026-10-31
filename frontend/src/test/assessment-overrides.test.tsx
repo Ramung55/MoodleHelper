@@ -285,3 +285,60 @@ describe("AssessmentSheet keeps an early edit when it seeds from the snapshot (#
     expect(dateField()).toHaveValue("2026-11-20T10:00");
   });
 });
+
+describe("AssessmentSheet clears errors and the delete confirmation when it switches assessment (#71)", () => {
+  /** Two personal events (the demo has one; a second is cloned) so the delete confirmation exists on both sides. */
+  function setupPersonal(saves = true) {
+    const snap = buildDemoSnapshot();
+    snap.settings.timezone = "Asia/Almaty";
+    const p1 = snap.assessments.find((x) => x.personal)!;
+    const p2 = { ...p1, id: "p2-switch", title: "Second personal event" };
+    snap.assessments.push(p2);
+    const imported = snap.assessments.filter((x) => !x.personal);
+    const api = { updateOverlay: vi.fn(), deletePersonalEvent: vi.fn() };
+    state.app = {
+      snap,
+      api,
+      run: vi.fn(async (fn) => {
+        await fn(api);
+        return saves;
+      }),
+      views: viewAll(snap.assessments, snap.overlays, snap.settings, snap),
+    };
+    return { p1, p2, a: imported[0]!, b: imported[1]! };
+  }
+
+  it("clears a visible field error when the sheet switches assessment", () => {
+    const { p1, p2 } = setupPersonal();
+    const { rerender } = render(<AssessmentSheet id={p1.id} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Display title"), { target: { value: "  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a title.");
+    rerender(<AssessmentSheet id={p2.id} onClose={vi.fn()} />);
+    expect(screen.getByLabelText("Display title")).toHaveValue("Second personal event");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Display title")).toHaveAttribute("aria-invalid", "false");
+  });
+
+  it("clears a visible save error when the sheet switches assessment", async () => {
+    const { a, b } = setupPersonal(false);
+    const { rerender } = render(<AssessmentSheet id={a.id} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Display title"), { target: { value: "Unsaved" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    // Waits for the failed save to finish and show its error.
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes were not saved.");
+    rerender(<AssessmentSheet id={b.id} onClose={vi.fn()} />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("closes an open delete confirmation when the sheet switches assessment", () => {
+    const { p1, p2 } = setupPersonal();
+    const { rerender } = render(<AssessmentSheet id={p1.id} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete event" }));
+    expect(screen.getByText("Delete personal event?")).toBeInTheDocument();
+    rerender(<AssessmentSheet id={p2.id} onClose={vi.fn()} />);
+    expect(screen.getByLabelText("Display title")).toHaveValue("Second personal event");
+    expect(screen.queryByText("Delete personal event?")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm deletion" })).not.toBeInTheDocument();
+  });
+});
