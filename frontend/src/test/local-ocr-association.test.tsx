@@ -92,9 +92,8 @@ const fresh = {
 /**
  * Edits a field the way a user would: sets the DOM value and dispatches a raw DOM event, not act-wrapped fireEvent, so
  * React handles it like a real user event even inside the layout phase of a commit (same technique as #66/#68).
- * Only for the page selection and language: a limit input's onChange reads event.target.value in a lazy state updater,
- * and inside a commit React restores the controlled DOM value before that updater runs, so limits are edited with
- * fireEvent as the first action after the commit instead.
+ * For the page selection and language. A limit input's onChange reads event.target.value in a lazy state updater, and
+ * inside a commit React restores the controlled DOM value before that updater runs, so limits use editLimit() there.
  */
 function edit(label: string, value: string) {
   const field = document.querySelector<HTMLInputElement | HTMLSelectElement>(
@@ -107,6 +106,18 @@ function edit(label: string, value: string) {
   field.dispatchEvent(
     new Event(field instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }),
   );
+}
+
+/**
+ * Edits a limit input inside the layout phase of a commit. A limit input's onChange reads event.target.value in a lazy
+ * state updater, and React restores the controlled DOM value right after the event, before that updater runs. Setting
+ * the DOM value again after the event (no new event) makes the updater read the edited value, as it would outside a
+ * commit, so the edit lands in the same commit window as edit() and a later reset of the limits cannot hide behind it.
+ */
+function editLimit(label: string, value: string) {
+  edit(label, value);
+  const field = document.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, value);
 }
 
 /**
@@ -408,6 +419,45 @@ describe("LocalOcr state belongs to one document (#72)", () => {
       expect.any(Function),
     );
   });
+
+  it.each([false, true])(
+    "keeps limit edits made after a digest-only switch once every effect for it has run (strict: %s)",
+    async (strict) => {
+      const { firstRenders, rerender } = setup({ document: A }, { strict });
+      fireEvent.change(screen.getByLabelText("OCR Render DPI"), { target: { value: "150" } });
+      fireEvent.change(screen.getByLabelText("OCR Pixels/page"), { target: { value: "4000000" } });
+      rerender({
+        document: B,
+        onCommit: () => {
+          // A limit edit in the layout phase of the switch commit, before any passive effect of that commit runs.
+          editLimit("OCR Render DPI", "100");
+          edit("OCR original pages", "1");
+        },
+      });
+      // The real render-time reset: the new document's first render shows the default limits.
+      expect(firstRenders.at(-1)).toEqual(fresh);
+      // A limit edit as the first action after the switch, before a later (microtask or effect) reset could land.
+      fireEvent.change(screen.getByLabelText("OCR Pixels/page"), { target: { value: "5000000" } });
+      // Lets React finish every pending effect and microtask for the switch.
+      await act(async () => {});
+      const limits = ["20", "100", "60000", "5000000"];
+      expect(limits).not.toEqual(fresh.limits);
+      expect(seen().limits).toEqual(limits);
+      start();
+      // Waits for the run on B to complete.
+      await screen.findByText(/Selected-page OCR finished/);
+      expect(mock.read).toHaveBeenLastCalledWith(B, expect.any(AbortSignal));
+      expect(mock.run).toHaveBeenLastCalledWith(
+        expect.any(Blob),
+        [1],
+        "eng+rus",
+        { ...DEFAULT_OCR_LIMITS, dpi: 100, maxPixels: 5_000_000 },
+        expect.any(AbortSignal),
+        expect.any(Function),
+      );
+      expect(seen().limits).toEqual(limits);
+    },
+  );
 
   it("does not reset or abort OCR when the same document is re-rendered", async () => {
     mock.run.mockImplementationOnce(hold);
