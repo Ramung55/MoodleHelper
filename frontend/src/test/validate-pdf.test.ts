@@ -146,7 +146,7 @@ describe("PDF structural gate", () => {
     const bytes = Uint8Array.from(readFileSync('src/test/fixtures/local-object-bomb.pdf'));
     await expect(validate(bytes)).rejects.toThrow(/corrupt/);
     expect(getDocument).not.toHaveBeenCalled();
-  });
+  }, 15_000); // #69: must inflate past the product's fixed 40 MiB object-stream bound through Node web streams; timed out at 5s under per-core load
   it('rejects a cancelled PDF before parser or network activity', async () => {
     const controller = new AbortController(); controller.abort();
     await expect(validatePdf(copy().buffer, controller.signal)).rejects.toMatchObject({name:'AbortError'});

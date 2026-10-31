@@ -56,7 +56,7 @@ describe("planner route", () => {
     expect(un).toHaveTextContent("Reason: Unknown date");
     expect(un).toHaveTextContent("Precision: unknown date");
     expect(un).toHaveTextContent("weighted estimate");
-  });
+  }, 15_000); // #69: first full-app planner render in the file plus role queries over every week region; ~2.5s under per-core load
   it("warns with numeric reason text when above a threshold", async () => {
     snap.settings.thresholds = { maxOutstanding: 0, maxWeighted: 100 };
     mount("/planner");

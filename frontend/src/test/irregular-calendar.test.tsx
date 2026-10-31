@@ -92,7 +92,7 @@ it("edits explicit policies and overrides, previews unresolved weeks, and update
   fireEvent.click(screen.getByText("Save teaching calendar"));
   await waitFor(() => expect(screen.getByTestId("load")).toHaveTextContent('"week":2,"total":1,"weighted":3'));
   expect(saved.assessments).toEqual(original);
-});
+}, 15_000); // #69: ~12 sequential edits and two saves, each re-rendering the calendar editor and week preview; ~3.1s under per-core load
 it("rejects overlapping/reversed/outside draft ranges without writes and retains failed draft/previous map", async () => {
   saved.settings.teachingCalendar = { ...base, weekOverrides: [override] };
   mount(); await screen.findByLabelText("Override 1 start");
@@ -111,4 +111,4 @@ it("rejects overlapping/reversed/outside draft ranges without writes and retains
   expect(saved.settings.teachingCalendar).toEqual(previous);
   fireEvent.click(screen.getByText("Cancel calendar draft"));
   expect(screen.getByLabelText("Override 1 end")).toHaveValue("2027-01-16");
-});
+}, 15_000); // #69: nine invalid-range edits and three saves, each re-rendering the calendar editor and week preview; ~2.3s in a busy full run

@@ -17,6 +17,22 @@ const routes = [["/", "Overview"], ["/deadlines", "Deadlines"], ["/syllabus", "S
 const snapshot = buildDemoSnapshot();
 snapshot.changes = [];
 snapshot.settings.reminders.enabled = false;
+// Role+name queries compute the accessible name of every button, and each name walks the
+// button's subtree through jsdom getComputedStyle against sonner's injected stylesheet. With
+// the demo data's assessment-row buttons that is ~1s per pass (3s+ under load, #69). These
+// helpers find the one element by its text first and then assert its role and name exactly.
+async function findButton(name: string) {
+  const button = await screen.findByText(name, { selector: "button" });
+  expect(button).toHaveRole("button");
+  expect(button).toHaveAccessibleName(name);
+  return button;
+}
+// No element anywhere has the text, label or title "Exit preview", so no button can be named it.
+function expectNoExitPreview() {
+  expect(screen.queryByText("Exit preview")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Exit preview")).not.toBeInTheDocument();
+  expect(screen.queryByTitle("Exit preview")).not.toBeInTheDocument();
+}
 function mount(url: string) {
   const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [url] }), context: { queryClient: new QueryClient() }, defaultPendingMinMs: 0 });
   render(<RouterProvider router={router} />);
@@ -92,7 +108,7 @@ describe("real router dashboard shell", () => {
     expect(router.state.location.search).toEqual({});
     expect(mocks.load).toHaveBeenCalledTimes(1);
     expect(mocks.aiAvailability).toHaveBeenCalledTimes(1);
-  });
+  }, 15_000); // #69: four full-app route renders (two navigations, retry, exit into HTTP mode) in one test; ~2.3s under per-core load
   for (const [path, title] of routes) it(`${path} preserves actual normal page actions and heading`, async () => {
     mount(path);
     await waitFor(() => expect(mocks.load).toHaveBeenCalled());
@@ -100,7 +116,7 @@ describe("real router dashboard shell", () => {
     await waitFor(() => expect(screen.queryByRole("status", { name: `Loading ${title}` })).not.toBeInTheDocument());
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: new RegExp(`^${title}`) })).toHaveAttribute("aria-current", "page");
-    expect(screen.queryByRole("button", { name: "Exit preview" })).not.toBeInTheDocument();
+    expectNoExitPreview();
   });
   it("retries actual failed initialization repeatedly and clears errors only after successful recovery", async () => {
     mocks.load.mockRejectedValueOnce(new Error("Backend unavailable")).mockRejectedValueOnce(new Error("Still unavailable")).mockResolvedValueOnce(structuredClone(snapshot));
@@ -110,7 +126,7 @@ describe("real router dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await screen.findByText("Still unavailable");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await screen.findByRole("button", { name: "Personal event" });
+    await findButton("Personal event");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByText("Still unavailable")).not.toBeInTheDocument();
     expect(mocks.load).toHaveBeenCalledTimes(3);
@@ -142,7 +158,7 @@ describe("real router dashboard shell", () => {
       expect(within(screen.getByRole("navigation", { name: "Main" })).getAllByRole("link", { current: "page" })).toHaveLength(1);
     }
     expect(mocks.getAdapter).not.toHaveBeenCalled();
-  });
+  }, 15_000); // #69: six full-app route renders, each followed by nav/link role queries, in one test; ~3.4s under per-core load
   for (const [path, title] of [["/planner", "Weekly planner"], ["/alerts", "Alerts"]] as const) it(`preserves integrated ${title}`, async () => {
     mount(path);
     await screen.findByRole("heading", { name: title, level: 1 });
