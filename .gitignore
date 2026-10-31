@@ -21,3 +21,5 @@ browser-workspace/e2e/.artifacts/
 browser-workspace/e2e/.run/
 frontend/.playwright-browsers/
 pilot-package/
+# Local QA scratch folders (#67)
+.qa-temp/
