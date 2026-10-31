@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,8 +16,13 @@ export function WorkloadWeights() {
   const [draft, setDraft] = useState(() => draftFrom(s)); const [dirty, setDirty] = useState(false);
   const [errors, setErrors] = useState<WorkloadDraftErrors>({}); const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false); const busy = useRef(false);
-  // A source refresh never overwrites an open draft.
-  useEffect(() => { if (!dirty) setDraft(draftFrom(s)); }, [savedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A source refresh never overwrites an open draft (#66): adopt a new saved key during render, reading the current
+  // `dirty`, instead of in a passive effect whose stale `dirty === false` closure could land after the first edit.
+  const [seenKey, setSeenKey] = useState(savedKey);
+  if (seenKey !== savedKey) {
+    setSeenKey(savedKey);
+    if (!dirty) setDraft(draftFrom(s));
+  }
   const save = async () => {
     if (busy.current) return;
     const { errors: found, value } = validateDraft(draft); setErrors(found);

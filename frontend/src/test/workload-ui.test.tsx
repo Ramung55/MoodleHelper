@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AppProvider, useApp } from "@/lib/app-store";
 import { WorkloadWeights } from "@/components/mh/WorkloadWeights";
@@ -87,4 +88,83 @@ it("rejects an overflowing proposed aggregate before saving or replacing prior t
   expect(screen.getByRole("alert")).toHaveTextContent("exceeds the supported numeric range");
   expect(state.adapter.updateSettings).not.toHaveBeenCalled(); expect(saved.settings.weights.exam).toBe(3);
   expect(screen.getByTestId("totals")).toHaveTextContent('"weighted":10');
+});
+function EditOnCommit({ value }: { value: string }) {
+  // Layout effects run in the commit that first mounts the form, before its passive effects flush: the window a
+  // quick user edit can hit when the snapshot lands outside act on a loaded machine (#66). Raw DOM dispatch, not
+  // act-wrapped fireEvent, so the edit is handled like a real user event inside that window.
+  useLayoutEffect(() => {
+    const exam = document.getElementById("w-exam") as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(exam, value);
+    exam.dispatchEvent(new Event("input", { bubbles: true }));
+  }, [value]);
+  return null;
+}
+function EditBeforeEffectsHarness() {
+  const { snap } = useApp();
+  if (!snap) return <p>Loading</p>;
+  return (
+    <>
+      <WorkloadWeights />
+      <EditOnCommit value="0.5" />
+    </>
+  );
+}
+function RefreshHarness() {
+  const { snap, setSnap } = useApp();
+  if (!snap) return <p>Loading</p>;
+  const refresh = (exam: number) =>
+    setSnap({
+      ...snap,
+      settings: { ...snap.settings, weights: { ...snap.settings.weights, exam } },
+    });
+  return (
+    <>
+      <WorkloadWeights />
+      <button type="button" onClick={() => refresh(4)}>
+        Refresh to 4
+      </button>
+      <button type="button" onClick={() => refresh(5)}>
+        Refresh to 5
+      </button>
+    </>
+  );
+}
+it("keeps an edit made before the form's mount effects flush instead of resetting it to saved values (#66)", async () => {
+  render(
+    <AppProvider>
+      <EditBeforeEffectsHarness />
+    </AppProvider>,
+  );
+  const exam = await screen.findByLabelText("exam");
+  expect(exam).toHaveValue(0.5);
+  expect(screen.getByText(/Unsaved changes/)).toBeInTheDocument();
+  save();
+  await waitFor(() => expect(saved.settings.weights.exam).toBe(0.5));
+  expect(state.adapter.updateSettings).toHaveBeenLastCalledWith({
+    weights: { exam: 0.5, assignment: 2, quiz: 1, other: 0 },
+    thresholds: { maxOutstanding: 5, maxWeighted: 10 },
+  });
+});
+it("follows snapshot refreshes while clean, keeps a dirty draft across refreshes, and Cancel and Save still settle it (#66)", async () => {
+  render(
+    <AppProvider>
+      <RefreshHarness />
+    </AppProvider>,
+  );
+  const exam = await screen.findByLabelText("exam");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh to 4" }));
+  expect(exam).toHaveValue(4);
+  fireEvent.change(exam, { target: { value: "0.5" } });
+  fireEvent.click(screen.getByRole("button", { name: "Refresh to 5" }));
+  expect(exam).toHaveValue(0.5);
+  expect(screen.getByText(/Unsaved changes/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(exam).toHaveValue(5);
+  expect(screen.queryByText(/Unsaved changes/)).not.toBeInTheDocument();
+  fireEvent.change(exam, { target: { value: "2" } });
+  save();
+  await waitFor(() => expect(saved.settings.weights.exam).toBe(2));
+  await waitFor(() => expect(screen.queryByText(/Unsaved changes/)).not.toBeInTheDocument());
+  expect(exam).toHaveValue(2);
 });
