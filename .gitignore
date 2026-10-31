@@ -7,3 +7,19 @@ htmlcov/
 .env
 .env.*
 !.env.example
+data/
+.uv-cache/
+node_modules/
+dist/
+.cache/
+.vite/
+coverage/
+frontend/public/ocr/7.0.0/
+*.local
+# Playwright fixture harness (#47): artifacts, per-run TEMP data/profiles, local browser assets
+browser-workspace/e2e/.artifacts/
+browser-workspace/e2e/.run/
+frontend/.playwright-browsers/
+pilot-package/
+# Local QA scratch folders (#67)
+.qa-temp/

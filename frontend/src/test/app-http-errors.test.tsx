@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider, useApp } from "@/lib/app-store";
 import { buildDemoSnapshot } from "@/services/fixtures";
 import { Route as SettingsRoute } from "@/routes/settings";
+import { HttpAdapter } from "@/services/http-adapter";
 
 const mocks = vi.hoisted(() => ({
   adapter: { load: vi.fn(), connection: vi.fn(), updateSettings: vi.fn(), syncAll: vi.fn(), resetDemo: vi.fn(), aiAvailability: vi.fn(), saveAlerts: vi.fn() },
@@ -42,6 +43,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("HTTP-backed UI failures", () => {
+  it("displays the storage 503 envelope and retains the last successful dashboard data", async () => {
+    const message = "Database is locked. Stop other writers and retry. No save was confirmed.";
+    const http = new HttpAdapter("", async (url) => new Response(JSON.stringify(String(url).endsWith("/api/bridge-context") ? { version: "1", binding: "b-test" } : { message }), { status: String(url).endsWith("/api/bridge-context") ? 200 : 503, headers: { "Content-Type": "application/json" } }));
+    mocks.adapter.updateSettings.mockImplementationOnce(() => http.updateSettings({ semesterWeeks: 17 }));
+    render(<AppProvider><Probe /></AppProvider>);
+    await screen.findByText("Tracked courses");
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() => expect(screen.getByTestId("result")).toHaveTextContent("false"));
+    expect(screen.getByTestId("snapshot")).toHaveTextContent(String(data.settings.semesterWeeks));
+    expect(mocks.toast.error).toHaveBeenCalledWith(message);
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+  });
+
   it("shows load failures without substituting fixture data", async () => {
     mocks.adapter.load.mockRejectedValueOnce(new Error("Backend unavailable"));
     render(<AppProvider><Probe /></AppProvider>);
@@ -65,6 +79,17 @@ describe("HTTP-backed UI failures", () => {
     await screen.findByText("Tracked courses");
     fireEvent.click(screen.getByText("Sync"));
     await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith("Sync unreachable"));
+    expect(screen.getByTestId("sync-state")).toHaveTextContent("idle");
+    expect(screen.getByTestId("snapshot")).toHaveTextContent(String(data.settings.semesterWeeks));
+  });
+
+  it("shows unavailable live sync without a success toast or changed snapshot", async () => {
+    mocks.adapter.syncAll.mockRejectedValueOnce(new Error("Live course sync is unavailable until Moodle access is verified."));
+    render(<AppProvider><Probe /></AppProvider>);
+    await screen.findByText("Tracked courses");
+    fireEvent.click(screen.getByText("Sync"));
+    await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith("Live course sync is unavailable until Moodle access is verified."));
+    expect(mocks.toast.success).not.toHaveBeenCalled();
     expect(screen.getByTestId("sync-state")).toHaveTextContent("idle");
     expect(screen.getByTestId("snapshot")).toHaveTextContent(String(data.settings.semesterWeeks));
   });

@@ -1,0 +1,251 @@
+{
+ "issue": 48,
+ "spec": "browser-workspace/e2e/privacy-evidence.spec.ts (AC2 + AC4 session)",
+ "total_requests": 2181,
+ "note": "Method/host/normalized route only. No query, header or body values recorded. SDU answered by Playwright routing with synthetic pages; host resolver blocks all non-loopback hosts; fonts aborted locally. Initiator is the frame origin at request time; SDU rows are top-level GET navigations of a tab.",
+ "routes": [
+  {
+   "method": "GET",
+   "scheme": "chrome-extension",
+   "host": "<extension-id>",
+   "route": "/transfer.js",
+   "initiator": "extension-page",
+   "answered": "local",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "(dashboard page/module asset)",
+   "initiator": "dashboard",
+   "answered": "local",
+   "count": 2033
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "(dashboard page/module asset)",
+   "initiator": "extension-page",
+   "answered": "local",
+   "count": 2
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "/api/ai/availability",
+   "initiator": "dashboard",
+   "answered": "local",
+   "count": 4
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "/api/bridge-context",
+   "initiator": "dashboard",
+   "answered": "local",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "/api/connection",
+   "initiator": "dashboard",
+   "answered": "local",
+   "count": 9
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "/api/data-context",
+   "initiator": "dashboard",
+   "answered": "local",
+   "count": 20
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "/api/local-context",
+   "initiator": "dashboard",
+   "answered": "local",
+   "count": 54
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "/api/reminders/plan",
+   "initiator": "dashboard",
+   "answered": "local",
+   "count": 4
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "/api/snapshot",
+   "initiator": "dashboard",
+   "answered": "local",
+   "count": 11
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/backups/restore-context",
+   "initiator": "extension-worker",
+   "answered": "local",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/bridge-context",
+   "initiator": "extension-worker",
+   "answered": "local",
+   "count": 11
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/bridge-context",
+   "initiator": "extension-page",
+   "answered": "local",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/collection-context",
+   "initiator": "extension-worker",
+   "answered": "local",
+   "count": 4
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/data-context",
+   "initiator": "extension-worker",
+   "answered": "local",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/local-context",
+   "initiator": "extension-worker",
+   "answered": "local",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/queue/current",
+   "initiator": "extension-worker",
+   "answered": "local",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "https",
+   "host": "fonts.googleapis.com",
+   "route": "/css2",
+   "initiator": "dashboard",
+   "answered": "aborted",
+   "count": 9
+  },
+  {
+   "method": "GET",
+   "scheme": "https",
+   "host": "moodle.sdu.edu.kz",
+   "route": "/calendar/view.php",
+   "initiator": "top-level navigation (tab)",
+   "answered": "fixture",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "https",
+   "host": "moodle.sdu.edu.kz",
+   "route": "/course/view.php",
+   "initiator": "top-level navigation (tab)",
+   "answered": "fixture",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "https",
+   "host": "moodle.sdu.edu.kz",
+   "route": "/course/view.php",
+   "initiator": "top-level navigation (tab)",
+   "answered": "fixture",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "https",
+   "host": "moodle.sdu.edu.kz",
+   "route": "/mod/assign/view.php",
+   "initiator": "top-level navigation (tab)",
+   "answered": "fixture",
+   "count": 1
+  },
+  {
+   "method": "GET",
+   "scheme": "https",
+   "host": "moodle.sdu.edu.kz",
+   "route": "/pluginfile.php/9103/mod_resource/content/1/synthetic.pdf",
+   "initiator": "top-level navigation (tab)",
+   "answered": "fixture",
+   "count": 1
+  },
+  {
+   "method": "POST",
+   "scheme": "http",
+   "host": "127.0.0.1:5173",
+   "route": "/api/local-syllabus/route",
+   "initiator": "dashboard",
+   "answered": "local",
+   "count": 1
+  },
+  {
+   "method": "POST",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/material-downloads/synthetic-transfer-48/descriptor",
+   "initiator": "extension-page",
+   "answered": "local",
+   "count": 1
+  },
+  {
+   "method": "POST",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/queue/claim",
+   "initiator": "extension-worker",
+   "answered": "local",
+   "count": 5
+  },
+  {
+   "method": "POST",
+   "scheme": "http",
+   "host": "127.0.0.1:8000",
+   "route": "/api/reminders/reconcile",
+   "initiator": "extension-worker",
+   "answered": "local",
+   "count": 1
+  }
+ ]
+}

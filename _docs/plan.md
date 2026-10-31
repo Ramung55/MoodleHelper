@@ -6,7 +6,7 @@ Help SDU students track deadlines, discover assessments mentioned in syllabuses,
 
 Target Moodle: https://moodle.sdu.edu.kz
 
-This document records the agreed scope from brainstorming. Implementation and compatibility with SDU's Moodle have not yet been validated.
+This document records the agreed product scope. The local FastAPI backend and frontend/API integration have passed independent QA; compatibility with live SDU Moodle remains unverified. See the [toolchain decision](architecture/toolchain.md) and milestone checkpoints below for implemented boundaries.
 
 ## Audience and platform
 
@@ -103,12 +103,16 @@ This document records the agreed scope from brainstorming. Implementation and co
 - Commit regularly. When revising documents based on corrections, commit current work before making those revisions.
 - Ask before adding a dependency. Dependency additions belong in `pyproject.toml`, as specified in AGENTS.md.
 
-## Stack clarification before implementation
+## Implemented toolchain decision
 
-The earlier stack proposal used TypeScript, React, WXT, Vite, Dexie, and Vitest. The current AGENTS.md instead specifies `uv sync`, `uv run pytest`, and dependency declarations in `pyproject.toml`; no Python project or tests have been implemented yet. Resolve how these Python commands relate to the browser components before implementing issue 1 or adding dependencies; do not silently substitute a different test command or dependency manifest.
+The TypeScript React/TanStack/Vite frontend in `frontend/` and the Python FastAPI backend in `backend/` are complementary implemented packages. Root `pyproject.toml`, `uv.lock`, and `tests/` use the existing AGENTS.md uv/pytest commands; `frontend/package.json` and `frontend/bun.lock` retain the frontend's Bun/Vite/Vitest commands. The default frontend HTTP adapter now calls the local backend through a same-origin development proxy. Exact paths, verified runtimes, commands, dependency approvals and remaining decisions are recorded in [architecture/toolchain.md](architecture/toolchain.md), resolving the earlier Python-versus-TypeScript ambiguity without replacing either package.
+
+The backend now implements environment-configured file SQLite through explicitly approved SQLAlchemy, with atomic Snapshot transactions, versioned migrations, source replay and trusted startup namespace partitioning. [Storage operations](architecture/sqlite-storage.md) and the [milestone-3 checkpoint](milestone-3-checkpoint.md) record behavior and verification; #6 still requires independent QA. Backend authority supersedes the old extension-owned storage proposal. This does not claim authentication, live identity discovery, live collection, document-byte extraction or external AI. The extension/shared package and future credential-free collector handoff remain #51/#7/#9/#3.
 
 ## Current planning status
 
-All 49 original GitHub issues have been groomed one at a time. Seven linked follow-ups bring the backlog to 56 open issues: #50 resolves toolchain instructions, #51 preserves browser workspace setup, #52 handles irregular teaching calendars, #53 and #54 split personal overrides and completion, and #55 and #56 split restore and deletion from backup export. See [tasks.md](tasks.md) for all issue links.
+All 49 original GitHub issues were groomed one at a time, followed by seven linked planning/scope follow-ups (#50–#56). Focused backend and integration follow-ups were added as #57 and #58 where no existing issue owned that work. GitHub remains the source of truth for current issue state; [tasks.md](tasks.md) is the historical local index and [backlog-feasibility.md](backlog-feasibility.md) records the remaining dependency and blocker review.
 
-No application code has been written. Issue #1 remains the first implementation task, setting up an empty project with a passing test, after the command and stack mismatch is resolved in [#50](https://github.com/Ramung55/MoodleHelper/issues/50). Grooming does not mark any implementation acceptance criterion complete.
+Bootstrap [#1](https://github.com/Ramung55/MoodleHelper/issues/1), in-memory API [#57](https://github.com/Ramung55/MoodleHelper/issues/57) and frontend/API integration [#58](https://github.com/Ramung55/MoodleHelper/issues/58) are closed after independent QA. The [backend checkpoint](milestone-1-checkpoint.md) records the first gate; the [integration checkpoint](milestone-2-checkpoint.md) and final [QA PASS](https://github.com/Ramung55/MoodleHelper/issues/58#issuecomment-6397890196) record the second. Current engineering verification includes 91 backend tests, 49 frontend tests and a passing frontend production build; QA verified the real browser create/reload workflow and the escaped-identifier fix. This is not completion of the broader product backlog.
+
+The mandatory order is in-memory backend PASS → frontend/API integration PASS → SQLite/SQLAlchemy persistence PASS → remaining feature implementation. SQLAlchemy approval and #50/#2/#5 prerequisites are resolved; #6 implementation is complete at engineer handoff and awaits independent QA. Milestone-4 features remain gated on that verdict. Grooming or documentation linkage does not count as implementation or QA PASS for other issues.

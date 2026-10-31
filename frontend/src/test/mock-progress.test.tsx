@@ -1,0 +1,185 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { buildDemoSnapshot } from '@/services/fixtures';
+import { MockProgress } from '@/components/mh/MockProgress';
+import { installPopup } from '../../../extension/src/popup';
+import { createMockProgress, type ProgressState } from '../../../shared/src/mock-progress';
+import { fullSyncFreshness } from '../../../shared/src/full-sync';
+import { Overview } from '@/routes/index';
+
+const mock = vi.hoisted(()=>({ current:vi.fn(), start:vi.fn(), cancel:vi.fn(), connect:vi.fn(), useApp:vi.fn() }));
+vi.mock('@/services/extension-adapter',()=>({BridgeClient:class {connect=mock.connect; currentMockRun=mock.current; startMockRun=mock.start; cancelMockRun=mock.cancel; dispose(){} }}));
+vi.mock('@tanstack/react-router',()=>({Link:({children,to}:any)=><a href={to}>{children}</a>,createFileRoute:()=>()=>({})}));
+vi.mock('@/lib/app-store',()=>({useApp:mock.useApp}));
+const run={id:'run1',idempotencyKey:'key1',courseIds:['c-csc'],createdAt:1000,status:'pending',cancelled:false,progress:{total:1,pending:1,running:0,completed:0,failed:0,cancelled:0},jobs:[{id:'job1',courseId:'c-csc',state:'pending',attempts:0,generation:0}]};
+
+const fixture=()=>{
+  const snapshot=buildDemoSnapshot(); snapshot.settings.trackedCourseIds=[snapshot.courses[0]!.id]; snapshot.settings.timezone='UTC';
+  snapshot.courses[0]!.discovery={sourceCourseId:'123',sourceUrl:'https://moodle.sdu.edu.kz/course/view.php?id=123',title:{kind:'unknown'},termIndicators:{kind:'unknown'},currentTermStatus:'current'};
+  snapshot.collection={records:[],reviews:[],refreshes:[{visitId:'visit',pageUrl:'https://moodle.sdu.edu.kz/course/view.php?id=123',observedAt:'2024-02-02T02:00:00Z',collector:'material',sourceCourseIds:['123'],outcome:'ok',coverage:'complete',scope:'supplied_pages_only',reasons:[],evidenceMode:'synthetic',pages:[]}]};
+  return snapshot;
+};
+afterEach(()=>{cleanup(); document.body.innerHTML=''; vi.useRealTimers(); vi.restoreAllMocks(); vi.resetAllMocks(); sessionStorage.clear(); localStorage.clear();});
+
+it('validates example attestations strictly and scopes exact selected IDs',()=>{
+  const good={completedAt:'2024-01-01T12:30:00+05:00',courseIds:['a','b'],provenance:'synthetic-example' as const};
+  expect(fullSyncFreshness(['b','a'],good,'UTC')).toContain('01/01/2024, 07:30:00 (UTC)');
+  expect(fullSyncFreshness(['a','b'],good,'invalid zone')).toContain('(UTC)');
+  for(const [selection,evidence] of [
+    [['a'],good], [[],good], [['a','a'],good], [['a','b'],{...good,courseIds:['a','a']}],
+    [['a','b'],{...good,courseIds:['a',' ']}], [['a','b'],{...good,completedAt:'2024-02-30T12:00:00Z'}],
+    [['a','b'],{...good,completedAt:'2024-01-01T12:00:00'}], [['a','b'],{...good,completedAt:'2024-01-01T12:00:00+25:00'}],
+    [['a','b'],{...good,completedAt:'2024-01-01T12:00:00-00:00'}],
+  ] as const) expect(fullSyncFreshness([...selection],evidence)).toBe('No successful full sync yet.');
+  expect(fullSyncFreshness(['a'])).toBe('No successful full sync yet.');
+});
+
+it('overview and dashboard render scoped synthetic full sync, page receipt and failed attempt separately',async()=>{
+  const snapshot=fixture(), evidence={completedAt:'2024-01-01T12:30:00Z',courseIds:[...snapshot.settings.trackedCourseIds],provenance:'synthetic-example' as const};
+  mock.useApp.mockReturnValue({snap:snapshot,views:[],weeks:[],currentWeek:null,syncAll:vi.fn(),syncing:false});
+  mock.connect.mockResolvedValue({}); mock.current.mockResolvedValue({courseIds:evidence.courseIds,lastFailedRun:{...run,status:'failed'}});
+  const view=render(<Overview fullSyncAttestation={evidence}/>);
+  expect(screen.getAllByText(/Synthetic example — successful full sync:.*01\/01\/2024/)).toHaveLength(2);
+  expect(screen.getByText(/Latest page refresh: 2024-02-02T02:00:00Z.*supplied_pages_only.*synthetic/)).toBeInTheDocument();
+  await screen.findByText(/Last failed mock attempt started:.*1970/);
+  view.rerender(<Overview fullSyncAttestation={{...evidence,courseIds:['different']}}/>);
+  expect(screen.getAllByText(/No successful full sync yet/)).toHaveLength(2);
+  view.rerender(<Overview/>); expect(screen.getAllByText(/No successful full sync yet/)).toHaveLength(2);
+});
+
+it('popup renders an injected example separately from receipt and failed attempt; mismatch is no-success',async()=>{
+  document.body.innerHTML='<p id="full-sync"></p><div id="status"></div><div id="freshness"></div><button id="start"></button><button id="cancel"></button><button id="reconnect"></button><button id="example-retry"></button>';
+  const snapshot=fixture(), evidence={completedAt:'2024-01-01T12:30:00Z',courseIds:[...snapshot.settings.trackedCourseIds],provenance:'synthetic-example' as const};
+  const fetcher=vi.fn(async (input:RequestInfo|URL)=>{const path=new URL(String(input)).pathname; const value=path==='/api/bridge-context'?{version:'1',binding:'a'.repeat(32)}:path==='/api/snapshot'?snapshot:{courseIds:evidence.courseIds,lastFailedRun:{...run,status:'failed'}};return new Response(JSON.stringify(value),{status:200});});
+  let controller=installPopup(document,fetcher as typeof fetch,localStorage,evidence);
+  await waitFor(()=>expect(document.querySelector('#full-sync')!.textContent).toContain('Synthetic example — successful full sync: 01/01/2024'));
+  expect(document.querySelector('#freshness')!.textContent).toContain('2024-02-02T02:00:00Z');
+  await waitFor(()=>expect(document.querySelector('#status')!.textContent).toMatch(/Last failed mock attempt started:.*1970/));
+  controller.dispose(); controller=installPopup(document,fetcher as typeof fetch,localStorage,{...evidence,courseIds:['different']});
+  await waitFor(()=>expect(document.querySelector('#full-sync')!.textContent).toBe('No successful full sync yet.'));
+  controller.dispose(); controller=installPopup(document,fetcher as typeof fetch,localStorage);
+  await waitFor(()=>expect(document.querySelector('#full-sync')!.textContent).toBe('No successful full sync yet.')); controller.dispose();
+});
+
+it('dashboard real controls start and cancel a labelled mock run while retaining data',async()=>{
+  mock.connect.mockResolvedValue({}); mock.current.mockResolvedValueOnce({courseIds:['c-csc']}).mockResolvedValueOnce({courseIds:['c-csc'],run}).mockResolvedValue({courseIds:['c-csc'],run:{...run,status:'cancelled',cancelled:true}});
+  mock.start.mockResolvedValue(run); mock.cancel.mockResolvedValue({...run,status:'cancelled'});
+  const snapshot=buildDemoSnapshot(); render(<MockProgress snapshot={snapshot}/>);
+  expect(screen.getByText(/No successful full sync yet/)).toBeInTheDocument();
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Start mock run'})).toBeEnabled());
+  fireEvent.click(screen.getByRole('button',{name:'Start mock run'}));
+  await screen.findByText(/Mock run: pending/);
+  expect(mock.start).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button',{name:'Cancel mock run'}));
+  await screen.findByText(/Mock run: cancelled/);
+  expect(mock.cancel).toHaveBeenCalledWith('run1');
+  expect(screen.getByText(/No successful full sync yet/)).toBeInTheDocument();
+});
+
+it('popup real controls call fixed mock endpoints and show recorded status',async()=>{
+  document.body.innerHTML='<div id="status"></div><div id="freshness"></div><button id="start"></button><button id="cancel"></button><button id="reconnect"></button><button id="example-retry"></button>';
+  const snapshot=buildDemoSnapshot(); let current:any={courseIds:['c-csc']};
+  const requests:string[]=[];
+  const fetcher=vi.fn(async (input:RequestInfo|URL, init?:RequestInit)=>{
+    const path=new URL(String(input)).pathname; requests.push(`${init?.method} ${path}`);
+    let value:any=path==='/api/bridge-context'?{version:'1',binding:'a'.repeat(32)}:path==='/api/snapshot'?snapshot:current;
+    if(path==='/api/queue/current'&&init?.method==='POST') {value=run;current={courseIds:['c-csc'],run};}
+    if(path.endsWith('/cancel')) {value={...run,status:'cancelled',cancelled:true};current={courseIds:['c-csc'],run:value};}
+    return new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}});
+  });
+  const controller=installPopup(document,fetcher as typeof fetch,localStorage);
+  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('#start')!.disabled).toBe(false));
+  document.querySelector<HTMLButtonElement>('#start')!.click();
+  await waitFor(()=>expect(document.querySelector('#status')!.textContent).toContain('Mock run: pending'));
+  document.querySelector<HTMLButtonElement>('#cancel')!.click();
+  await waitFor(()=>expect(document.querySelector('#status')!.textContent).toContain('Mock run: cancelled'));
+  expect(requests).toContain('POST /api/queue/runs/run1/cancel'); controller.dispose();
+});
+
+it('uncertain start survives reconnect and explicitly reuses its key',async()=>{
+  let last:ProgressState|undefined; let key='';
+  const transport={connect:vi.fn().mockResolvedValue({}),current:vi.fn().mockResolvedValue({courseIds:['c-csc']}),start:vi.fn(async (k:string)=>{key=k;throw Error('lost response');}),cancel:vi.fn()};
+  const c=createMockProgress(transport,s=>{last=s;},sessionStorage);
+  await waitFor(()=>expect(last?.current?.courseIds).toEqual(['c-csc']));
+  await c.start(); expect(last?.unavailable).toBe(true); expect(sessionStorage.getItem('mock-start-key')).toBe(key);
+  await c.reconnect(); expect(last?.uncertain).toBe(true);
+  await c.start(); expect(transport.start).toHaveBeenCalledTimes(2); expect(transport.start).toHaveBeenLastCalledWith(key);
+  c.dispose();
+});
+
+it('a delayed poll cannot replace a later cancellation readback',async()=>{
+  let last:ProgressState|undefined, resolveOld:(value:any)=>void=()=>{};
+  const cancelled={...run,status:'cancelled' as const,cancelled:true};
+  const transport={connect:vi.fn().mockResolvedValue({}),current:vi.fn().mockResolvedValueOnce({courseIds:['c-csc'],run}).mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve;})).mockResolvedValue({courseIds:['c-csc'],run:cancelled}),start:vi.fn(),cancel:vi.fn().mockResolvedValue(cancelled)};
+  const c=createMockProgress(transport,s=>{last=s;},sessionStorage);
+  await waitFor(()=>expect(last?.current?.run?.status).toBe('pending'));
+  const old=c.reconnect(); await waitFor(()=>expect(transport.current).toHaveBeenCalledTimes(2));
+  await c.cancel(); resolveOld({courseIds:['c-csc'],run}); await old;
+  expect(last?.current?.run?.status).toBe('cancelled'); c.dispose();
+});
+
+it('empty selection prevents a start and reconnect retains previously confirmed state',async()=>{
+  let last:ProgressState|undefined;
+  const transport={connect:vi.fn().mockResolvedValue({}),current:vi.fn().mockResolvedValueOnce({courseIds:[]}).mockRejectedValueOnce(Error('offline')),start:vi.fn(),cancel:vi.fn()};
+  const c=createMockProgress(transport,s=>{last=s;},sessionStorage);
+  await waitFor(()=>expect(last?.current?.courseIds).toEqual([]));
+  await c.start(); expect(transport.start).not.toHaveBeenCalled();
+  await c.reconnect(); expect(last?.unavailable).toBe(true); expect(last?.current?.courseIds).toEqual([]);
+  c.dispose();
+});
+
+it('serializes slow periodic reads, recovers after a network failure and stops on disposal',async()=>{
+  vi.useFakeTimers();
+  vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+  let last:ProgressState|undefined, concurrent=0, maxConcurrent=0, calls=0;
+  const transport={connect:vi.fn().mockResolvedValue({}), current:vi.fn(()=>{
+    const attempt=++calls; concurrent++; maxConcurrent=Math.max(maxConcurrent,concurrent);
+    return new Promise<any>((resolve,reject)=>setTimeout(()=>{
+      concurrent--;
+      if(attempt===3) reject(Error('offline'));
+      else resolve({courseIds:[`course-${attempt}`]});
+    },4000));
+  }),start:vi.fn(),cancel:vi.fn()};
+  const c=createMockProgress(transport,s=>{last=s;},sessionStorage);
+  await vi.advanceTimersByTimeAsync(3000); expect(calls).toBe(1);
+  await vi.advanceTimersByTimeAsync(1000); expect(last?.current?.courseIds).toEqual(['course-1']);
+  await vi.advanceTimersByTimeAsync(5000); expect(calls).toBe(2);
+  await vi.advanceTimersByTimeAsync(1000); expect(last?.current?.courseIds).toEqual(['course-2']);
+  await vi.advanceTimersByTimeAsync(6000); expect(last?.unavailable).toBe(true);
+  expect(last?.current?.courseIds).toEqual(['course-2']);
+  const reconnect=c.reconnect(); await vi.advanceTimersByTimeAsync(4000); await reconnect;
+  expect(last?.current?.courseIds).toEqual(['course-4']); expect(last?.unavailable).toBe(false);
+  expect(maxConcurrent).toBe(1);
+  c.dispose(); await vi.advanceTimersByTimeAsync(12000); expect(calls).toBe(4);
+  vi.restoreAllMocks();
+});
+
+it('dashboard renders successive four-second reads despite three-second poll ticks',async()=>{
+  vi.useFakeTimers(); vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+  let calls=0;
+  mock.connect.mockResolvedValue({}); mock.current.mockImplementation(()=>new Promise(resolve=>{
+    const attempt=++calls; setTimeout(()=>resolve({courseIds:['c-csc'],run:{...run,status:attempt===1?'pending':'completed'}}),4000);
+  }));
+  render(<MockProgress snapshot={buildDemoSnapshot()}/>);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(4000);});
+  expect(screen.getByText(/Mock run: pending/)).toBeInTheDocument();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(6000);});
+  expect(screen.getByText(/Mock run: completed/)).toBeInTheDocument(); expect(calls).toBe(2);
+  cleanup(); vi.restoreAllMocks();
+});
+
+it('popup renders successive four-second reads despite three-second poll ticks',async()=>{
+  vi.useFakeTimers(); vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+  document.body.innerHTML='<div id="status"></div><div id="freshness"></div><button id="start"></button><button id="cancel"></button><button id="reconnect"></button><button id="example-retry"></button>';
+  const snapshot=buildDemoSnapshot(); let calls=0;
+  const fetcher=vi.fn(async (input:RequestInfo|URL)=>{
+    const path=new URL(String(input)).pathname;
+    let value:any=path==='/api/bridge-context'?{version:'1',binding:'a'.repeat(32)}:snapshot;
+    if(path==='/api/queue/current') {const attempt=++calls; await new Promise(resolve=>setTimeout(resolve,4000)); value={courseIds:['c-csc'],run:{...run,status:attempt===1?'pending':'completed'}};}
+    return new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}});
+  });
+  const controller=installPopup(document,fetcher as typeof fetch,localStorage);
+  await vi.advanceTimersByTimeAsync(4000); expect(document.querySelector('#status')!.textContent).toContain('Mock run: pending');
+  await vi.advanceTimersByTimeAsync(6000); expect(document.querySelector('#status')!.textContent).toContain('Mock run: completed'); expect(calls).toBe(2);
+  controller.dispose(); vi.restoreAllMocks();
+});

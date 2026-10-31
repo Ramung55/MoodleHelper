@@ -1,0 +1,120 @@
+import { getDocument, GlobalWorkerOptions, VerbosityLevel } from "pdfjs-dist";
+import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { readXrefStream, validateObjectStreams, type XrefEntry } from "./pdf-xref-stream";
+
+/** Bounded classic, stream and hybrid xrefs, including incremental revisions. */
+export async function validatePdf(buffer: ArrayBuffer, signal: AbortSignal, maximumPages = 10000): Promise<void> {
+  const fail = (reason: string): never => { throw new Error(reason); };
+  const bad = () => fail("The PDF is corrupt or uses an unsupported structure. Export a new unencrypted PDF and retry.");
+  const check = () => { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); };
+  check();
+  const bytes = new Uint8Array(buffer);
+  const text = new TextDecoder("latin1").decode(bytes);
+  if (!/^%PDF-(?:1\.[0-7]|2\.0)(?:\r\n|\r|\n)/.test(text)) return bad();
+  const tail = /startxref\s+(\d+)\s+%%EOF\s*$/.exec(text);
+  if (!tail) return bad();
+  let offset = Number(tail[1]);
+  let root: [number, number] | undefined;
+  const entries = new Map<number, XrefEntry>();
+  const seen = new Set<number>();
+  const newestOffset = offset;
+  while (true) {
+    check();
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset >= tail.index || seen.has(offset) || seen.size >= 128) return bad();
+    seen.add(offset);
+    let trailer: string;
+    if (text.slice(offset, offset + 4) !== "xref") {
+      let stream: Awaited<ReturnType<typeof readXrefStream>>;
+      try { stream = await readXrefStream(bytes, text, offset, tail.index, signal); }
+      catch { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); return bad(); }
+      trailer = stream.trailer;
+      for (const entry of stream.entries) if (!entries.has(entry.object)) entries.set(entry.object, entry);
+    } else {
+      const sectionEntries = new Map<number, XrefEntry>();
+      const trailerIndex = text.indexOf("trailer", offset + 4);
+      if (trailerIndex < 0 || trailerIndex >= tail.index) return bad();
+      const match = /^\s*<<((?:(?!<<|>>)[\s\S])*)>>/.exec(text.slice(trailerIndex + 7, tail.index));
+      if (!match) return bad();
+      const endOfTrailer = trailerIndex + 7 + match[0].length;
+      const footer = /^\s*startxref\s+(\d+)\s+%%EOF(?:\s|$)/.exec(text.slice(endOfTrailer));
+      if (!footer || Number(footer[1]) !== offset) return bad();
+      trailer = match[1]!;
+      const lines = text.slice(offset + 4, trailerIndex).trim().split(/\r\n|\r|\n/); let i = 0;
+      const local = new Set<number>();
+      while (i < lines.length) {
+        const section = /^(\d+)\s+(\d+)\s*$/.exec(lines[i++] ?? "");
+        if (!section) return bad();
+        const first = Number(section[1]), count = Number(section[2]);
+        if (!Number.isSafeInteger(first) || !Number.isSafeInteger(count) || count > 100000 || i + count > lines.length) return bad();
+        for (let j = 0; j < count; j++) {
+          const entry = /^(\d{10})\s+(\d{5})\s+([nf])\s*$/.exec(lines[i++] ?? "");
+          if (!entry) return bad();
+          const position = Number(entry[1]), generation = Number(entry[2]), object = first + j;
+          if (local.has(object)) return bad();
+          local.add(object);
+          if (entry[3] === "n" && (position >= offset || !text.slice(position).startsWith(`${object} ${generation} obj`))) return bad();
+          const value = { object, generation, inUse: entry[3] === "n", position, type: entry[3] === "n" ? 1 : 0, index: 0 };
+          sectionEntries.set(object, value);
+          if (!entries.has(object)) entries.set(object, value);
+        }
+      }
+      const hybridRefs = [...trailer.matchAll(/\/XRefStm\s+(\d+)\b/g)];
+      if (hybridRefs.length > 1 || (/\/XRefStm\b/.test(trailer) && !hybridRefs.length) || /\/XRefStm\s+\d+\s+\d+\s+R\b/.test(trailer)) return bad();
+      if (hybridRefs.length) {
+        const streamOffset = Number(hybridRefs[0]![1]);
+        if (!Number.isSafeInteger(streamOffset) || streamOffset < 0 || streamOffset >= offset || seen.has(streamOffset) || seen.size >= 128) return bad();
+        seen.add(streamOffset);
+        let supplemental: Awaited<ReturnType<typeof readXrefStream>>;
+        try { supplemental = await readXrefStream(bytes, text, streamOffset, offset, signal, true); }
+        catch { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); return bad(); }
+        if (/\/(?:Prev|Encrypt|XRefStm)\b/.test(supplemental.trailer)) return bad();
+        const baseRoot = [...trailer.matchAll(/\/Root\s+(\d+)\s+(\d+)\s+R\b/g)];
+        const extraRoot = [...supplemental.trailer.matchAll(/\/Root\s+(\d+)\s+(\d+)\s+R\b/g)];
+        if (extraRoot.length > 1 || (extraRoot.length && (!baseRoot.length || extraRoot[0]![1] !== baseRoot[0]![1] || extraRoot[0]![2] !== baseRoot[0]![2]))) return bad();
+        const baseSize = [...trailer.matchAll(/\/Size\s+(\d+)\b/g)], extraSize = [...supplemental.trailer.matchAll(/\/Size\s+(\d+)\b/g)];
+        if (baseSize.length !== 1 || extraSize.length !== 1 || baseSize[0]![1] !== extraSize[0]![1] || /\/Size\s+\d+\s+\d+\s+R\b/.test(trailer)) return bad();
+        for (const entry of supplemental.entries) {
+          const tableEntry = sectionEntries.get(entry.object);
+          if (tableEntry && (tableEntry.type !== entry.type || tableEntry.generation !== entry.generation || tableEntry.position !== entry.position || tableEntry.index !== entry.index)) return bad();
+          if (!entries.has(entry.object)) entries.set(entry.object, entry);
+        }
+      }
+    }
+    if (entries.size > 100000) return bad();
+    if (/\/Encrypt\b/.test(trailer)) return fail("Password-protected PDFs are unsupported. Export an unencrypted copy and retry.");
+    const rootMatches = [...trailer.matchAll(/\/Root\s+(\d+)\s+(\d+)\s+R\b/g)];
+    const prevMatches = [...trailer.matchAll(/\/Prev\s+(\d+)\b/g)];
+    if (rootMatches.length > 1 || prevMatches.length > 1 || (/\/Prev\b/.test(trailer) && !prevMatches.length)) return bad();
+    if (!root && rootMatches.length) root = [Number(rootMatches[0]![1]), Number(rootMatches[0]![2])];
+    if (!prevMatches.length) break;
+    const prev = Number(prevMatches[0]![1]);
+    if (!Number.isSafeInteger(prev) || prev >= offset) return bad();
+    offset = prev;
+  }
+  if (!root || !entries.get(root[0])?.inUse || entries.get(root[0])?.generation !== root[1]) return bad();
+  try { await validateObjectStreams(bytes, text, newestOffset, [...entries.values()], signal); }
+  catch { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); return bad(); }
+  check(); GlobalWorkerOptions.workerSrc = workerUrl;
+  const task = getDocument({ data: bytes, stopAtErrors: true, verbosity: VerbosityLevel.ERRORS,
+    useWorkerFetch: false, useSystemFonts: false, useWasm: false, isEvalSupported: false, disableFontFace: true,
+    disableAutoFetch: true, disableStream: true, disableRange: true });
+  const abort = () => { void task.destroy(); };
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    const pdf = await task.promise; check();
+    if (pdf.numPages < 1) return bad();
+    if (pdf.numPages > maximumPages) throw new RangeError(`This operation supports at most ${maximumPages} PDF pages. Split the document and retry.`);
+    for (let page = 1; page <= pdf.numPages; page++) {
+      check();
+      const current = await pdf.getPage(page);
+      await current.getOperatorList();
+      current.cleanup();
+    }
+    check();
+  } catch (error) {
+    if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+    if (error instanceof RangeError) throw error;
+    if (error instanceof Error && error.name === "PasswordException") return fail("Password-protected PDFs are unsupported. Export an unencrypted copy and retry.");
+    return bad();
+  } finally { signal.removeEventListener("abort", abort); await task.destroy(); }
+}

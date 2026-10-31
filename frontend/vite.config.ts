@@ -7,6 +7,10 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
+  // The default Cloudflare output has no standalone local Node server, and
+  // Vite preview looks for dist/server/server.js instead of Nitro's .output.
+  // Use the existing Nitro Node entry for local production route verification.
+  nitro: { preset: "node-server" },
   vite: {
     server: {
       host: "127.0.0.1",

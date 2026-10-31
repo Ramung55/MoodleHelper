@@ -13,10 +13,12 @@ from backend import schemas
 
 
 OPERATIONS = [
+    ("get", "/api/bridge-context", None),
     ("get", "/api/connection", None),
     ("get", "/api/snapshot", None),
     ("put", "/api/snapshot", "snapshot"),
     ("put", "/api/tracked-courses", []),
+    ("post", "/api/courses/discovery", {"observations": []}),
     ("patch", "/api/assessments/{assessmentId}/overlay", {"completed": True}),
     ("post", "/api/personal-events", {"courseId": "c-csc", "title": "Study", "type": "other", "date": {"kind": "unknown"}}),
     ("delete", "/api/personal-events/{id}", None),
@@ -85,15 +87,28 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
     generated = client.get("/openapi.json").json()
     expected_operations = {(method, path) for path, ops in contract["paths"].items() for method in ops}
     actual_operations = {(method, path) for path, ops in generated["paths"].items() for method in ops}
-    assert actual_operations == expected_operations == {(method, path) for method, path, _ in OPERATIONS}
-    assert len(actual_operations) == 16
+    internal = {('get','/api/collection-context'),('post','/api/collection/visits'),('post','/api/collection/refresh'), ('post','/api/queue/runs'), ('get','/api/queue/runs/{runId}'), ('post','/api/queue/runs/{runId}/cancel'), ('post','/api/queue/claim'), ('post','/api/queue/renew'), ('post','/api/queue/finish')}
+    internal |= {('get','/api/queue/current'), ('post','/api/queue/current'), ('post','/api/scan/runs'), ('get','/api/scan/runs/{runId}'), ('post','/api/scan/runs/{runId}/cancel'), ('post','/api/scan/claim'), ('post','/api/scan/renew'), ('post','/api/scan/finish'), ('get','/api/scan/jobs/{jobId}/pages')}
+    internal |= {('post','/api/reconciliation/pairs'), ('post','/api/reconciliation/decisions')}
+    internal |= {('post','/api/syllabus-revisions/preview'), ('post','/api/syllabus-revisions/confirm')}
+    internal |= {('post','/api/syllabus-suggestions/dismissal')}
+    internal |= {('get','/api/local-context')}
+    internal |= {('post','/api/local-syllabus/route')}
+    internal |= {('get','/api/reminders/plan'), ('post','/api/reminders/reconcile'), ('post','/api/reminders/dispatch')}
+    internal |= {('post','/api/reminders/delivery-status'), ('post','/api/reminders/notification-target'), ('post','/api/alerts/update')}
+    internal |= {('post','/api/material-downloads'), ('get','/api/material-downloads'), ('get','/api/material-downloads/{transferId}'), ('post','/api/material-downloads/{transferId}/cancel'), ('post','/api/material-downloads/{transferId}/descriptor'), ('post','/api/material-downloads/{transferId}/status')}
+    internal |= {('post','/api/ai/extract')}
+    internal |= {('get','/api/backups/restore-context'), ('post','/api/backups/restore')}
+    internal |= {('get','/api/data-context'), ('post','/api/local-data/erase'), ('get','/api/local-data/erasures/{eraseId}'), ('post','/api/local-data/erasures/{eraseId}/ack')}
+    assert actual_operations == expected_operations == {(method, path) for method, path, _ in OPERATIONS} | internal
+    assert len(actual_operations) == 62
     assert not generated["components"].get("securitySchemes")
     for method, path in expected_operations:
         expected = contract["paths"][path][method]
         actual = generated["paths"][path][method]
         assert actual["operationId"] == expected["operationId"]
         assert not actual.get("security")
-        assert actual.get("parameters", []) == expected.get("parameters", []) or canonical(actual.get("parameters", []), generated) == canonical(expected.get("parameters", []), contract)
+        assert sorted(canonical(actual.get("parameters", []), generated), key=lambda p: (p["in"], p["name"])) == sorted(canonical(expected.get("parameters", []), contract), key=lambda p: (p["in"], p["name"]))
         assert ("requestBody" in actual) == ("requestBody" in expected)
         if "requestBody" in expected:
             assert actual["requestBody"]["required"] is True

@@ -1,0 +1,124 @@
+import { it, expect } from 'vitest';
+import { createReminderWorker, installReminderWorker, REMINDER_DUE_ALARM, REMINDER_MAINTENANCE_ALARM } from '../extension/src/reminders';
+const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
+const NOW=Date.parse('2027-02-10T12:00:00Z');
+
+/** Deterministic fake backend: receipts keyed by idempotency key, ledger of requested item ids. */
+function backend(items:{id:string;dueAt:string}[], opts:{dataset?:string}={}) {
+  const requested=new Set<string>(), receipts=new Map<string,unknown>(), log:{url:string;body?:any;binding?:string|null}[]=[];
+  let binding='b1', down=false;
+  const plan=()=>{const it=items.map(i=>({...i,status:requested.has(i.id)?'requested':Date.parse(i.dueAt)<=NOW?'due':'scheduled'}));
+    const next=it.filter(i=>i.status==='scheduled').map(i=>i.dueAt).sort()[0];
+    return {datasetId:opts.dataset??'ds',generation:'g-abc',serverTime:'x',items:it,...(next?{nextWakeAt:next}:{})};};
+  const fetcher:typeof fetch=async(input,init)=>{
+    const url=String(input), body=init?.body?JSON.parse(String(init.body)):undefined, header=(init?.headers as any)?.['X-Moodle-Helper-Bridge-Binding']??null;
+    log.push({url,body,binding:header});
+    if(down) throw new TypeError('offline');
+    expect(init?.credentials).toBe('omit'); expect(init?.redirect).toBe('error');
+    if(url.endsWith('/api/bridge-context')) return json({version:'1',binding});
+    if(url.endsWith('/api/local-context')) return json({datasetId:'ds'});
+    if(header!==binding||body?.datasetId!=='ds') return json({message:'Collection context changed. Reconnect.'},409);
+    if(url.endsWith('/reconcile')) return json(plan());
+    if(url.endsWith('/dispatch')){
+      if(receipts.has(body.idempotencyKey)) return json({...(receipts.get(body.idempotencyKey) as object),replayed:true});
+      const due=plan().items.filter(i=>i.status==='due');due.forEach(i=>requested.add(i.id));
+      const requests=due.length>1?[{requestId:'rq-catch',kind:'catch_up',state:'requested',total:due.length,targets:[]}]:due.map(i=>({requestId:'rq-'+i.id,kind:'deadline',state:'requested',total:1,targets:[]}));
+      const p=plan(); const result={datasetId:'ds',generation:'g-abc',serverTime:'x',replayed:false,requests,...(p.nextWakeAt?{nextWakeAt:p.nextWakeAt}:{})};
+      receipts.set(body.idempotencyKey,result); return json(result);
+    }
+    throw Error('unexpected '+url);
+  };
+  return {fetcher,log,requested,setBinding:(b:string)=>{binding=b;},setDown:(d:boolean)=>{down=d;}};
+}
+function alarms(){const set=new Map<string,any>();return {set,create:(n:string,i:any)=>{set.set(n,i);},clear:(n:string)=>{set.delete(n);}};}
+
+it('mirrors only one opaque due wakeup with the Chrome 106 one-minute floor',async()=>{
+  const b=backend([{id:'a',dueAt:'2027-02-11T00:00:00Z'},{id:'c',dueAt:'2027-02-10T12:00:30Z'}]);const a=alarms();
+  const w=createReminderWorker({alarms:a,fetcher:b.fetcher,now:()=>NOW-60_000});
+  expect((await w.wake()).status).toBe('ready');
+  expect([...a.set.keys()]).toEqual([REMINDER_DUE_ALARM]);
+  expect(a.set.get(REMINDER_DUE_ALARM).when).toBe(Date.parse('2027-02-10T12:00:30Z'));
+  expect(JSON.stringify([...a.set])).not.toMatch(/Title|assessment/i);
+  expect(b.log.some(l=>l.url.endsWith('/dispatch'))).toBe(false);
+});
+
+it('missed items after restart become one catch-up request; restart and lost alarms never re-request',async()=>{
+  const b=backend([{id:'a',dueAt:'2027-02-09T00:00:00Z'},{id:'c',dueAt:'2027-02-08T00:00:00Z'},{id:'f',dueAt:'2027-03-01T00:00:00Z'}]);
+  const delivered:string[][]=[];
+  const make=()=>createReminderWorker({alarms:alarms(),fetcher:b.fetcher,now:()=>NOW});
+  const first=await make().wake();
+  delivered.push(first.lastRequests);
+  expect(delivered).toEqual([['rq-catch']]);expect(first.nextWakeAt).toBe('2027-03-01T00:00:00Z');
+  const lost=alarms();const second=createReminderWorker({alarms:lost,fetcher:b.fetcher,now:()=>NOW});await second.wake();
+  expect(delivered).toHaveLength(1);
+  expect(lost.set.has(REMINDER_DUE_ALARM)).toBe(true); // recreated after alarm loss
+  expect(b.log.filter(l=>l.url.endsWith('/dispatch'))).toHaveLength(1);
+});
+
+it('uncertain dispatch response never creates a new request on the next wake (ledger fences it; #39 reconciles receipt)',async()=>{
+  const b=backend([{id:'a',dueAt:'2027-02-10T11:59:00Z'}]);let drop=true;
+  const fetcher:typeof fetch=async(u,i)=>{const r=await b.fetcher(u,i);if(String(u).endsWith('/dispatch')&&drop){drop=false;throw new TypeError('lost response');}return r;};
+  const delivered:string[]=[];const opts={alarms:alarms(),fetcher,now:()=>NOW};
+  expect((await createReminderWorker(opts).wake()).status).toBe('unavailable');
+  await createReminderWorker(opts).wake();
+  const keys=b.log.filter(l=>l.url.endsWith('/dispatch')).map(l=>l.body.idempotencyKey);
+  expect(keys).toHaveLength(1);expect(b.requested).toEqual(new Set(['a']));expect(delivered).toEqual([]);
+});
+
+it('stale binding or backend down cancels the unsafe mirror and sends nothing',async()=>{
+  const b=backend([{id:'a',dueAt:'2027-02-11T00:00:00Z'}]);const a=alarms();
+  const w=createReminderWorker({alarms:a,fetcher:b.fetcher,now:()=>NOW});await w.wake();expect(a.set.has(REMINDER_DUE_ALARM)).toBe(true);
+  b.setDown(true);expect((await w.wake()).status).toBe('unavailable');expect(a.set.has(REMINDER_DUE_ALARM)).toBe(false);
+  b.setDown(false);const stale:typeof fetch=async(u,i)=>{const r=await b.fetcher(u,i);if(String(u).endsWith('/bridge-context'))b.setBinding('b2');return r;};
+  const s=createReminderWorker({alarms:a,fetcher:stale,now:()=>NOW});expect((await s.wake()).status).toBe('reconnect');expect(a.set.size).toBe(0);
+});
+
+it('installs listeners synchronously with fixed names and a periodic maintenance wake',async()=>{
+  const created=new Map<string,any>(),alarm:any[]=[],life:any[]=[];
+  const chrome={alarms:{create:(n:string,i:any)=>created.set(n,i),clear:()=>{},onAlarm:{addListener:(f:any)=>alarm.push(f)}},
+    runtime:{onStartup:{addListener:(f:any)=>life.push(f)},onInstalled:{addListener:(f:any)=>life.push(f)}}};
+  const b=backend([]);installReminderWorker(chrome,{fetcher:b.fetcher});
+  expect(alarm).toHaveLength(1);expect(life).toHaveLength(2);
+  expect(created.get(REMINDER_MAINTENANCE_ALARM)).toEqual({delayInMinutes:1,periodInMinutes:1});
+  const before=b.log.length;alarm[0]({name:'moodle-helper-mock-queue'});await new Promise(r=>setTimeout(r,10));
+  alarm[0]({name:REMINDER_DUE_ALARM});await new Promise(r=>setTimeout(r,10));expect(b.log.length).toBeGreaterThan(before);
+});
+
+it('#55 restore epoch change clears the old alarm mirror before reconciling the rebuilt plan',async()=>{
+  let items=[{id:'old',dueAt:'2027-02-12T00:00:00Z'}];let epoch=0;const seq:string[]=[];
+  const fetcher:typeof fetch=async(u,i)=>{
+    if(String(u).endsWith('/api/backups/restore-context')){seq.push('context');return json({datasetId:'ds',epoch,revision:1});}
+    if(String(u).endsWith('/reconcile')) seq.push('reconcile');
+    return backend(items).fetcher(u,i);
+  };
+  const a=alarms();const tracked={...a,clear:(n:string)=>{seq.push('clear');a.clear(n);}};
+  const w=createReminderWorker({alarms:tracked,fetcher,now:()=>NOW});
+  await w.wake();
+  expect(a.set.get(REMINDER_DUE_ALARM).when).toBe(Date.parse('2027-02-12T00:00:00Z'));
+  expect(w.state().epoch).toBe(0);expect(seq.slice(0,2)).toEqual(['context','reconcile']);
+  items=[{id:'restored',dueAt:'2027-02-15T00:00:00Z'}];epoch=1;seq.length=0;
+  const s=await w.wake();
+  expect(seq.slice(0,3)).toEqual(['context','clear','reconcile']);
+  expect(s.epoch).toBe(1);expect(s.restoredAt).toBe(NOW);
+  expect(a.set.get(REMINDER_DUE_ALARM).when).toBe(Date.parse('2027-02-15T00:00:00Z'));
+  seq.length=0;await w.wake();expect(seq.slice(0,2)).toEqual(['context','reconcile']);
+});
+
+it('#56 confirmed erase clears only the tool wakeup and delivery metadata, then acknowledges once per epoch',async()=>{
+  const eraseId='e'.repeat(32);let extension='pending';const acks:{url:string;body:any;binding:string|null}[]=[];
+  const inner=backend([]);
+  const fetcher:typeof fetch=async(u,i)=>{
+    const url=String(u);
+    if(url.endsWith('/api/backups/restore-context')) return json({datasetId:'ds',epoch:1,revision:2});
+    if(url.endsWith('/api/data-context')) return json({datasetId:'ds',epoch:1,revision:2,lifecycle:'cleanup_pending',erasure:{eraseId,cleanup:{backend:'complete',dashboard:'complete',extension}}});
+    if(url.endsWith(`/api/local-data/erasures/${eraseId}/ack`)){acks.push({url,body:JSON.parse(String(i!.body)),binding:(i!.headers as any)['X-Moodle-Helper-Bridge-Binding']});extension='complete';return json({});}
+    return inner.fetcher(u,i);
+  };
+  const a=alarms();a.create(REMINDER_DUE_ALARM,{when:1});a.create('unrelated-alarm',{when:2});
+  const w=createReminderWorker({alarms:a,fetcher,now:()=>NOW});
+  const s=await w.wake();
+  expect(s.status).toBe('ready');expect(s.lastRequests).toEqual([]);
+  expect(a.set.has(REMINDER_DUE_ALARM)).toBe(false);expect(a.set.has('unrelated-alarm')).toBe(true);
+  expect(acks).toEqual([{url:expect.stringContaining('/ack'),body:{component:'extension',state:'complete'},binding:'b1'}]);
+  await w.wake();expect(acks).toHaveLength(1);
+});

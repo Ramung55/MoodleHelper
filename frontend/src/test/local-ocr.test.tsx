@@ -1,0 +1,92 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+const mock = vi.hoisted(() => ({ read: vi.fn(), context: vi.fn(), run: vi.fn() }));
+vi.mock("@/services/local-documents", () => ({ readLocalDocument: mock.read, currentDataset: mock.context }));
+vi.mock("@/services/ocr-pdf", async (original) => ({ ...await original<typeof import("@/services/ocr-pdf")>(), runOcr: mock.run }));
+import { LocalOcr } from "@/components/mh/LocalOcr";
+const association = { datasetId: "dataset", courseId: "course", digest: "sha256", name: "scan.pdf", size: 100, source: "Local", createdAt: "now" };
+const partial = { selectedPages: [1,3], pages: [{ page: 1, width: 100, height: 100, text: "Exam", confidence: 92, regions: [], status: "recognized" }], complete: false, status: "cancelled", language: "eng+rus", dpi: 120, engine: "tesseract.js-7.0.0" };
+beforeEach(() => { vi.clearAllMocks(); mock.read.mockResolvedValue(new Blob(["pdf"])); mock.context.mockResolvedValue("dataset"); mock.run.mockResolvedValue(partial); });
+afterEach(cleanup);
+it("requires explicit selected pages and shows configurable defaults, original evidence and incomplete cancellation", async () => {
+  const inspect = vi.fn(async () => {}); render(<LocalOcr document={association} onInspect={inspect} />);
+  fireEvent.click(screen.getByText("OCR selected scanned PDF pages"));
+  expect(mock.read).not.toHaveBeenCalled(); expect(screen.getByLabelText("OCR Pages/job")).toHaveValue(20); expect(screen.getByLabelText("OCR Render DPI")).toHaveValue(120);
+  expect(screen.getByLabelText("OCR Milliseconds/page")).toHaveValue(60000);
+  fireEvent.click(screen.getByText("Start selected-page OCR")); expect(screen.getByText(/Enter selected original page/)).toBeVisible(); expect(mock.read).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("OCR original pages"), { target: { value: "1, 3" } });
+  fireEvent.click(screen.getByText("Start selected-page OCR"));
+  expect(await screen.findByText("OCR cancelled. Partial results are incomplete.")).toBeVisible();
+  expect(mock.run).toHaveBeenCalledWith(expect.any(Blob), [1,3], "eng+rus", expect.objectContaining({ maxPages: 20, dpi: 120, millisecondsPerPage: 60000 }), expect.any(AbortSignal), expect.any(Function));
+  expect(screen.getByText(/scan.pdf · original page 1 · recognized · incomplete job/)).toBeVisible();
+  fireEvent.click(screen.getByText("Inspect OCR original page 1")); expect(inspect).toHaveBeenCalledWith(1);
+});
+it("aborts active OCR and suppresses late progress after cancellation or unmount", async () => {
+  let finish!: (value: unknown) => void;
+  mock.run.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  const view = render(<LocalOcr document={association} onInspect={vi.fn()} />); fireEvent.click(screen.getByText("OCR selected scanned PDF pages"));
+  fireEvent.change(screen.getByLabelText("OCR original pages"), { target: { value: "1,3" } }); fireEvent.click(screen.getByText("Start selected-page OCR"));
+  await waitFor(() => expect(mock.run).toHaveBeenCalledOnce()); const signal = mock.run.mock.calls[0]![4] as AbortSignal;
+  fireEvent.click(screen.getByText("Cancel OCR")); expect(signal.aborted).toBe(true);
+  act(() => mock.run.mock.calls[0]![5]({ total: 2, completed: 2, failed: 0, remaining: 0, pages: [{ ...partial.pages[0], text: "late private result" }] }));
+  expect(screen.queryByText("late private result")).not.toBeInTheDocument();
+  view.unmount(); await act(async () => finish(partial)); expect(screen.queryByText("Exam")).not.toBeInTheDocument();
+});
+it("fails closed when the dataset changes before publication", async () => {
+  mock.context.mockResolvedValue("other-dataset"); render(<LocalOcr document={association} onInspect={vi.fn()} />); fireEvent.click(screen.getByText("OCR selected scanned PDF pages"));
+  fireEvent.change(screen.getByLabelText("OCR original pages"), { target: { value: "1" } }); fireEvent.click(screen.getByText("Start selected-page OCR"));
+  expect(await screen.findByText(/The dataset changed/)).toBeVisible(); expect(screen.queryByText("Exam")).not.toBeInTheDocument();
+});
+it.each(["same", "changed", "rejected"])("keeps mounted OCR cancellation terminal while final context is %s", async (outcome) => {
+  let resolve!: (value: string) => void, reject!: (error: Error) => void;
+  mock.context.mockImplementation(() => new Promise<string>((done, fail) => { resolve = done; reject = fail; }));
+  mock.run.mockImplementation(async (...args) => {
+    args[5]({ total: 1, completed: 1, failed: 0, remaining: 0, pages: partial.pages });
+    return { ...partial, selectedPages: [1], complete: true, status: "complete" };
+  });
+  render(<LocalOcr document={association} onInspect={vi.fn()} />); fireEvent.click(screen.getByText("OCR selected scanned PDF pages"));
+  fireEvent.change(screen.getByLabelText("OCR original pages"), { target: { value: "1" } }); fireEvent.click(screen.getByText("Start selected-page OCR"));
+  await waitFor(() => expect(mock.context).toHaveBeenCalledOnce());
+  const signal = mock.context.mock.calls[0]![0] as AbortSignal;
+  fireEvent.click(screen.getByText("Cancel OCR")); expect(signal.aborted).toBe(true);
+  expect(screen.getByText(/original page 1 · recognized · incomplete job/)).toBeVisible();
+  act(() => mock.run.mock.calls[0]![5]({ total: 1, completed: 1, failed: 0, remaining: 0, pages: [{ ...partial.pages[0], text: "late complete private text" }] }));
+  expect(screen.queryByText("late complete private text")).not.toBeInTheDocument();
+  await act(async () => { if (outcome === "rejected") reject(new Error("Context unavailable")); else resolve(outcome === "same" ? "dataset" : "other-dataset"); });
+  expect(screen.queryByText(/Selected-page OCR finished/)).not.toBeInTheDocument();
+  expect(screen.getByText(/OCR cancelled/)).toBeVisible();
+  expect(screen.getByText("Start selected-page OCR")).toBeEnabled();
+  if (outcome === "same") expect(screen.getByText(/original page 1 · recognized · incomplete job/)).toBeVisible();
+  else expect(screen.queryByText("Exam")).not.toBeInTheDocument();
+});
+it("publishes normal completion only after the final matching context resolves", async () => {
+  let finish!: (value: string) => void;
+  mock.context.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  mock.run.mockResolvedValue({ ...partial, selectedPages: [1], complete: true, status: "complete" });
+  render(<LocalOcr document={association} onInspect={vi.fn()} />); fireEvent.click(screen.getByText("OCR selected scanned PDF pages"));
+  fireEvent.change(screen.getByLabelText("OCR original pages"), { target: { value: "1" } }); fireEvent.click(screen.getByText("Start selected-page OCR"));
+  await waitFor(() => expect(mock.context).toHaveBeenCalledOnce()); expect(screen.queryByText(/Selected-page OCR finished/)).not.toBeInTheDocument();
+  await act(async () => finish("dataset")); expect(screen.getByText(/Selected-page OCR finished/)).toBeVisible();
+  expect(screen.getByText(/scan.pdf · original page 1 · recognized$/)).toBeVisible();
+});
+it("does not publish an old completed job after association replacement", async () => {
+  let finish!: (value: string) => void;
+  mock.context.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  mock.run.mockResolvedValue({ ...partial, complete: true, status: "complete" });
+  const view = render(<LocalOcr document={association} onInspect={vi.fn()} />); fireEvent.click(screen.getByText("OCR selected scanned PDF pages"));
+  fireEvent.change(screen.getByLabelText("OCR original pages"), { target: { value: "1" } }); fireEvent.click(screen.getByText("Start selected-page OCR"));
+  await waitFor(() => expect(mock.context).toHaveBeenCalledOnce()); const signal = mock.run.mock.calls[0]![4] as AbortSignal;
+  view.rerender(<LocalOcr document={{ ...association, digest: "replacement" }} onInspect={vi.fn()} />); expect(signal.aborted).toBe(true);
+  await act(async () => finish("dataset")); expect(screen.queryByText("Exam")).not.toBeInTheDocument(); expect(screen.queryByText(/Selected-page OCR finished/)).not.toBeInTheDocument();
+});
+it("does not start final context verification or publish late completion when cancelled during recognition while mounted", async () => {
+  let finish!: (value: unknown) => void;
+  mock.run.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  render(<LocalOcr document={association} onInspect={vi.fn()} />); fireEvent.click(screen.getByText("OCR selected scanned PDF pages"));
+  fireEvent.change(screen.getByLabelText("OCR original pages"), { target: { value: "1" } }); fireEvent.click(screen.getByText("Start selected-page OCR"));
+  await waitFor(() => expect(mock.run).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByText("Cancel OCR"));
+  await act(async () => finish({ ...partial, complete: true, status: "complete" }));
+  expect(mock.context).not.toHaveBeenCalled(); expect(screen.queryByText("Exam")).not.toBeInTheDocument();
+  expect(screen.getByText(/OCR cancelled/)).toBeVisible(); expect(screen.getByText("Start selected-page OCR")).toBeEnabled();
+});

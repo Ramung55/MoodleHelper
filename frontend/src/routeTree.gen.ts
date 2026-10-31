@@ -15,6 +15,7 @@ import { Route as DeadlinesRouteImport } from './routes/deadlines'
 import { Route as MaterialsRouteImport } from './routes/materials'
 import { Route as PlannerRouteImport } from './routes/planner'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SyllabusRouteImport } from './routes/syllabus'
 
 const IndexRoute = IndexRouteImport.update({
@@ -47,6 +48,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SyllabusRoute = SyllabusRouteImport.update({
   id: '/syllabus',
   path: '/syllabus',
@@ -60,6 +66,7 @@ export interface FileRoutesByFullPath {
   '/materials': typeof MaterialsRoute
   '/planner': typeof PlannerRoute
   '/settings': typeof SettingsRoute
+  '/setup': typeof SetupRoute
   '/syllabus': typeof SyllabusRoute
 }
 export interface FileRoutesByTo {
@@ -69,6 +76,7 @@ export interface FileRoutesByTo {
   '/materials': typeof MaterialsRoute
   '/planner': typeof PlannerRoute
   '/settings': typeof SettingsRoute
+  '/setup': typeof SetupRoute
   '/syllabus': typeof SyllabusRoute
 }
 export interface FileRoutesById {
@@ -79,6 +87,7 @@ export interface FileRoutesById {
   '/materials': typeof MaterialsRoute
   '/planner': typeof PlannerRoute
   '/settings': typeof SettingsRoute
+  '/setup': typeof SetupRoute
   '/syllabus': typeof SyllabusRoute
 }
 export interface FileRouteTypes {
@@ -90,6 +99,7 @@ export interface FileRouteTypes {
     | '/materials'
     | '/planner'
     | '/settings'
+    | '/setup'
     | '/syllabus'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -99,6 +109,7 @@ export interface FileRouteTypes {
     | '/materials'
     | '/planner'
     | '/settings'
+    | '/setup'
     | '/syllabus'
   id:
     | '__root__'
@@ -108,6 +119,7 @@ export interface FileRouteTypes {
     | '/materials'
     | '/planner'
     | '/settings'
+    | '/setup'
     | '/syllabus'
   fileRoutesById: FileRoutesById
 }
@@ -118,6 +130,7 @@ export interface RootRouteChildren {
   MaterialsRoute: typeof MaterialsRoute
   PlannerRoute: typeof PlannerRoute
   SettingsRoute: typeof SettingsRoute
+  SetupRoute: typeof SetupRoute
   SyllabusRoute: typeof SyllabusRoute
 }
 
@@ -165,6 +178,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/syllabus': {
       id: '/syllabus'
       path: '/syllabus'
@@ -182,6 +202,7 @@ const rootRouteChildren: RootRouteChildren = {
   MaterialsRoute: MaterialsRoute,
   PlannerRoute: PlannerRoute,
   SettingsRoute: SettingsRoute,
+  SetupRoute: SetupRoute,
   SyllabusRoute: SyllabusRoute,
 }
 export const routeTree = rootRouteImport

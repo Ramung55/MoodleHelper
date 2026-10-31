@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/mh/bits";
 import { formatDate } from "@/domain/dates";
 import { useApp } from "@/lib/app-store";
 import { cn } from "@/lib/utils";
+import { MockProgress } from "@/components/mh/MockProgress";
+import { fullSyncFreshness, type FullSyncAttestation } from "../../../shared/src/full-sync";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -32,8 +34,8 @@ function Card({ to, search, title, value, tone, children }: { to: string; search
   );
 }
 
-function Overview() {
-  const { snap, views, weeks, currentWeek, syncAll, syncing } = useApp();
+export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAttestation} = {}) {
+  const { snap, views, weeks, workloadError, currentWeek, syncAll, syncing } = useApp();
   const s = snap!;
   const tz = s.settings.timezone;
   const now = Date.now();
@@ -43,14 +45,12 @@ function Overview() {
   const overloaded = weeks.filter((w) => w.overloaded && (currentWeek == null || w.week >= currentWeek));
   const review = s.candidates.filter((c) => c.status === "pending").length;
   const attention = visible.filter((v) => v.needsAttention);
-  const lastOk = s.sync.map((c) => c.lastSuccessAt).filter(Boolean).sort().at(-1);
-  const failed = s.sync.filter((c) => c.status === "failed" || c.status === "partial");
 
   return (
     <>
       <PageHeader
         title="Overview"
-        sub={currentWeek ? `Teaching week ${currentWeek} of ${s.settings.semesterWeeks}` : "Semester not started"}
+        sub={currentWeek ? `Teaching week ${currentWeek} · ${weeks.length} resolved ranges` : s.settings.teachingCalendar ? "Today is outside a resolved teaching week" : "Teaching calendar is not configured"}
         actions={
           <Button onClick={syncAll} disabled={syncing}>
             <RefreshCw className={cn("mr-2 h-4 w-4", syncing && "animate-spin")} aria-hidden />
@@ -58,24 +58,31 @@ function Overview() {
           </Button>
         }
       />
+      <p className="mb-4 text-sm text-muted-foreground">
+        {s.settings.trackedCourseIds.length && s.settings.teachingCalendar ? "Want to review your setup?" : "Finish first-run setup to choose courses and your semester calendar."}{" "}
+        <Link to="/setup" className="text-primary underline">Open setup checklist</Link>
+      </p>
+      {workloadError && <p role="alert" className="mb-4 text-destructive">{workloadError} <Link to="/settings" className="underline">Review workload weights</Link></p>}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card to="/deadlines" search={{ status: "outstanding" }} title="Outstanding this week" value={thisWeek?.outstanding ?? 0}>
-          {thisWeek ? `${thisWeek.total} total · weighted ${thisWeek.weighted}` : "—"}
+        <Card to="/deadlines" search={{ status: "outstanding" }} title="Outstanding this week" value={workloadError ? "Unavailable" : thisWeek?.outstanding ?? 0}>
+          {thisWeek ? `${thisWeek.total} total · weighted estimate ${thisWeek.weighted} (not study hours)` : s.settings.teachingCalendar ? "Today is outside a resolved teaching week" : "Teaching calendar not configured — set it in Settings"}
         </Card>
-        <Card to="/planner" title="Busy weeks ahead" value={overloaded.length} tone={overloaded.length ? "warn" : undefined}>
-          {overloaded.length ? overloaded.map((w) => `Week ${w.week}`).join(", ") : "No overload warnings"}
+        <Card to="/planner" title="Busy weeks ahead" value={workloadError ? "Unavailable" : overloaded.length} tone={overloaded.length ? "warn" : undefined}>
+          {workloadError ? "Workload weights need attention" : overloaded.length ? overloaded.map((w) => `Week ${w.week} (${w.outstanding} outstanding, estimate ${w.weighted})`).join(", ") : "No busy-week warnings"}
         </Card>
         <Card to="/syllabus" title="Needs syllabus review" value={review} tone={review ? "warn" : undefined}>
           Uncertain dates are never confirmed automatically
         </Card>
-        <Card to="/deadlines" search={{ status: "attention" }} title="Drafts & resubmissions" value={attention.length} tone={attention.length ? "bad" : undefined}>
+        <Card to="/deadlines" search={{ status: "attention" }} title="Needs submission" value={attention.length} tone={attention.length ? "bad" : undefined}>
           {attention.map((a) => a.title).join(" · ") || "Nothing pending in Moodle"}
         </Card>
-        <Card to="/settings" title="Last successful sync" value={lastOk ? new Date(lastOk).toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }) : "Never"} tone={failed.length ? "warn" : undefined}>
-          {failed.length ? `${failed.length} course(s) incomplete — earlier data kept` : "All tracked courses synced"} · demo
+        <Card to="/settings" title="Successful full sync" value={fullSyncFreshness(s.settings.trackedCourseIds,fullSyncAttestation,s.settings.timezone).startsWith('Synthetic example') ? 'Example' : 'Never'}>
+          {fullSyncFreshness(s.settings.trackedCourseIds,fullSyncAttestation,s.settings.timezone)}
         </Card>
         <Card to="/alerts" title="Unread alerts" value={s.alerts.filter((a) => !a.read).length} />
       </div>
+
+      <MockProgress snapshot={s} fullSyncAttestation={fullSyncAttestation} />
 
       <section className="mt-10">
         <div className="mb-3 flex items-center justify-between">

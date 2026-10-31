@@ -1,13 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { DateInput } from "@/components/mh/DateInput";
+import { ReconciliationReview } from "@/components/mh/ReconciliationReview";
+import { SyllabusRevisionReview } from "@/components/mh/SyllabusRevisionReview";
 import { CourseTag, EmptyState, PageHeader, TYPE_LABEL } from "@/components/mh/bits";
+import { rankSyllabusSuggestions } from "@/domain/syllabus-suggestions";
 import { formatDate } from "@/domain/dates";
 import type { DateValue, ExtractionCandidate } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
+import { registerLocalWork } from "@/services/local-erase";
+import { currentDataset, listLocalDocuments, saveLocalDocument, updateLocalJob, recoverLocalJobs, acquireLocalJobLease, type LocalAssociation, type LocalJob } from "@/services/local-documents";
+import { validateDocx } from "@/services/validate-docx";
+import { LocalExtraction } from "@/components/mh/LocalExtraction";
+import { LocalReviewCard } from "@/components/mh/LocalReviewCard";
+
+const LOCAL_FILE_LIMIT = 20 * 1024 * 1024;
 
 export const Route = createFileRoute("/syllabus")({
   head: () => ({
@@ -21,27 +31,152 @@ export const Route = createFileRoute("/syllabus")({
   component: Syllabus,
 });
 
-function Syllabus() {
-  const { snap, run, setSnap, adapter } = useApp();
+export function Syllabus() {
+  const { snap, run } = useApp();
   const s = snap!;
   const fileRef = useRef<HTMLInputElement>(null);
-  const [course, setCourse] = useState(s.settings.trackedCourseIds[0] ?? "");
+  const [course, setCourse] = useState("");
   const [importing, setImporting] = useState(false);
+  const [localDocuments, setLocalDocuments] = useState<LocalAssociation[]>([]);
+  const [localStatus, setLocalStatus] = useState("");
+  const [retryFile, setRetryFile] = useState<File>();
+  const [interrupted, setInterrupted] = useState<LocalJob[]>([]);
+  const [contextReady, setContextReady] = useState(false);
+  const [showLocalRecords, setShowLocalRecords] = useState(false);
+  const cancellation = useRef<AbortController | null>(null);
+  const owner = useRef("");
+  const boundDataset = useRef<string | null>(null);
+  const contextGeneration = useRef(0);
+  useEffect(() => {
+    let active = true;
+    let sequence = 0;
+    let revealPending = false;
+    try {
+      owner.current = sessionStorage.getItem("moodle-helper-import-tab") ?? crypto.randomUUID();
+      sessionStorage.setItem("moodle-helper-import-tab", owner.current);
+    } catch { setLocalStatus("Secure browser storage is unavailable. Local imports cannot start."); }
+    const refresh = async (reveal = false) => {
+      if (!reveal && revealPending) return;
+      const request = ++sequence;
+      const generation = contextGeneration.current;
+      if (reveal) revealPending = true;
+      try {
+        const id = await currentDataset();
+        if (!active || request !== sequence) return;
+        if (boundDataset.current && boundDataset.current !== id) {
+          contextGeneration.current++;
+          cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false); setShowLocalRecords(false);
+          setLocalStatus("The dataset changed. Reload the page to continue with the current courses.");
+          return;
+        }
+        if (!boundDataset.current) {
+          const rows = await listLocalDocuments(id);
+          const jobs = await recoverLocalJobs(id, owner.current);
+          if (!active || request !== sequence) return;
+          boundDataset.current = id; setLocalDocuments(rows); setInterrupted(jobs.filter((job) => job.state === "failed" || (job.leaseVersion !== 1 && (job.state === "queued" || job.state === "parsing")))); setContextReady(true); setShowLocalRecords(!document.hidden);
+        } else if (reveal && !document.hidden) {
+          const rows = await listLocalDocuments(id);
+          if (!active || request !== sequence || contextGeneration.current !== generation) return;
+          setLocalDocuments(rows); setShowLocalRecords(true);
+        }
+      } catch (error) {
+        if (!active || request !== sequence) return;
+        contextGeneration.current++;
+        cancellation.current?.abort(); setLocalDocuments([]); setInterrupted([]); setContextReady(false); setShowLocalRecords(false);
+        setLocalStatus(error instanceof Error && /Web Locks/.test(error.message) ? error.message : "Local files are unavailable. Check the backend and reload the page.");
+      } finally {
+        if (request === sequence) revealPending = false;
+      }
+    };
+    const onFocus = () => { setShowLocalRecords(false); void refresh(true); };
+    const onVisibility = () => { setShowLocalRecords(false); if (!document.hidden) void refresh(true); };
+    const onPageShow = () => { setShowLocalRecords(false); void refresh(true); };
+    void refresh(); window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onPageShow); document.addEventListener("visibilitychange", onVisibility);
+    const timer = window.setInterval(() => { void refresh(); }, 2000);
+    return () => { active = false; contextGeneration.current++; window.clearInterval(timer); window.removeEventListener("focus", onFocus); window.removeEventListener("pageshow", onPageShow); document.removeEventListener("visibilitychange", onVisibility); cancellation.current?.abort(); };
+  }, []);
   const pending = s.candidates.filter((c) => c.status === "pending");
   const decided = s.candidates.filter((c) => c.status !== "pending");
-  const suggestions = s.materials.filter((m) => m.syllabusSuggestion);
+  const suggestions = rankSyllabusSuggestions(s);
+  const [selected, setSelected] = useState<{ id: string; title: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const dismissed = new Set(s.dismissedSyllabusSuggestions ?? []);
+  const changeDismissal = async (id: string, value: boolean) => {
+    setSaving(true);
+    try { await run((a) => a.setSyllabusSuggestionDismissal(id, value)); }
+    finally { setSaving(false); }
+  };
 
   const onFile = async (f?: File) => {
     if (!f) return;
+    const controller = new AbortController(); cancellation.current = controller;
+    const unregister = registerLocalWork(controller);
+    let job: LocalJob | undefined;
+    let jobGeneration: number | undefined;
+    let releaseLease: (() => void) | undefined;
+    setRetryFile(f);
     setImporting(true);
+    setLocalStatus("Queued for local validation.");
     try {
-      const { result, snapshot } = await adapter.importDocument(course, f.name, setSnap);
-      setSnap(snapshot);
-      if (!result.ok) toast.error(result.reason);
-      else toast.success("Imported. Review the extracted items below.");
+      if (!contextReady || !boundDataset.current) throw new Error("Reload the page to reconnect to the current dataset.");
+      if (!s.courses.some((c) => c.id === course)) throw new Error("Choose an existing course first.");
+      if (f.size > LOCAL_FILE_LIMIT) throw new Error("The file exceeds the 20 MiB limit. Choose a smaller file.");
+      if (/\.doc$/i.test(f.name)) throw new Error("Legacy .doc is unsupported. Export it as DOCX.");
+      if (/\.(gdoc|gsheet|gslides)$/i.test(f.name)) throw new Error("Export the Google document as PDF or DOCX and select the exported file.");
+      if (!/\.(pdf|docx)$/i.test(f.name)) throw new Error("Choose a PDF or DOCX file. Google Docs must first be exported.");
+      const datasetId = await currentDataset();
+      if (datasetId !== boundDataset.current) throw new Error("The dataset changed. Reload the page to continue.");
+      const generation = contextGeneration.current;
+      jobGeneration = generation;
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      if (!owner.current || !crypto.randomUUID) throw new Error("Secure browser storage is unavailable. Retry in a supported browser.");
+      job = { datasetId, owner: owner.current, id: crypto.randomUUID(), name: f.name, courseId: course, state: "queued", message: "Queued", leaseVersion: 1 };
+      releaseLease = await acquireLocalJobLease(job);
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      await updateLocalJob(job);
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      job = { ...job, state: "parsing", message: "Validating locally" };
+      await updateLocalJob(job);
+      setLocalStatus("Parsing: validating and hashing locally; no extraction is performed.");
+      const bytes = await f.arrayBuffer();
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      if (!globalThis.crypto?.subtle) throw new Error("Secure hashing is unavailable in this browser. Use a secure local origin and retry.");
+      const hash = await crypto.subtle.digest("SHA-256", bytes);
+      const digest = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      if (/\.pdf$/i.test(f.name)) {
+        const { validatePdf } = await import("@/services/validate-pdf");
+        await validatePdf(bytes, controller.signal);
+      } else await validateDocx(bytes, controller.signal);
+      if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      let rows = await listLocalDocuments(datasetId);
+      const others = rows.filter((row) => row.digest === digest && row.courseId !== course).map((row) => row.courseId);
+      const confirmed = others;
+      if (others.length && !rows.some((row) => row.digest === digest && row.courseId === course)) {
+        const labels = others.map((id) => s.courses.find((c) => c.id === id)?.code ?? id).join(", ");
+        if (!window.confirm(`This document is already associated with ${labels}. Also associate it with ${s.courses.find((c) => c.id === course)?.code}?`)) throw new DOMException("Cancelled", "AbortError");
+      }
+      const result = await saveLocalDocument({ datasetId, courseId: course, digest, name: f.name, size: f.size, source: selected?.title ?? "Local selection", createdAt: new Date().toISOString() }, f, confirmed, controller.signal, job);
+      if (result === "confirmation-required") throw new Error("Another course association was added. Retry to review it.");
+      cancellation.current = null; unregister();
+      if (contextGeneration.current !== generation || boundDataset.current !== datasetId) return;
+      setInterrupted((jobs) => jobs.filter((entry) => entry.state !== "failed" || entry.name !== f.name || entry.courseId !== course));
+      setLocalStatus(result === "duplicate" ? "Already associated with this course." : "Complete: validated and stored locally. Extraction has not been performed.");
+      setRetryFile(undefined);
+      try {
+        rows = await listLocalDocuments(datasetId);
+        if (contextGeneration.current === generation && boundDataset.current === datasetId) setLocalDocuments(rows);
+      } catch {
+        if (contextGeneration.current === generation) { setLocalDocuments([]); setLocalStatus("Saved locally, but the dataset changed or is unavailable. Reconnect to view it."); }
+      }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Import failed. Your saved data was not changed.");
+      const cancelled = e instanceof DOMException && e.name === "AbortError";
+      const message = cancelled ? "Cancelled. No association was added." : `Failed: ${e instanceof Error ? e.message : "Local import failed. Retry."}`;
+      if (jobGeneration === undefined || jobGeneration === contextGeneration.current) setLocalStatus(message);
+      if (job) { try { await updateLocalJob({ ...job, state: cancelled ? "cancelled" : "failed", message }); } catch { /* dataset/storage unavailable; recovery will report interruption */ } }
     } finally {
+      releaseLease?.();
       setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
     }
@@ -49,28 +184,45 @@ function Syllabus() {
 
   return (
     <>
-      <PageHeader title="Syllabus review" sub="Extraction here is mocked in demo mode. Nothing is read from your file's contents yet." />
+      <PageHeader title="Syllabus review" sub="Local documents stay in this browser. Extract PDF or DOCX text explicitly below; existing demo candidates are mocked." />
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-lg border bg-card p-4">
           <h2 className="mb-2 text-lg font-semibold">Suggested from Moodle</h2>
-          <ul className="space-y-2 text-sm">
-            {suggestions.map((m) => (
-              <li key={m.id} className="flex items-center justify-between gap-2">
-                <span><span className="font-medium">{m.title}</span> <CourseTag course={s.courses.find((c) => c.id === m.courseId)} className="ml-1" /></span>
-                <Button size="sm" variant="outline" onClick={() => toast.info("Fetching Moodle files requires the Chrome extension.")}>Import</Button>
-              </li>
-            ))}
-          </ul>
+          {suggestions.length === 0 && <p className="text-sm">No collected file suggestions yet.</p>}
+          {[false, true].map((isDismissed) => {
+            const rows = suggestions.filter((item) => dismissed.has(item.id) === isDismissed);
+            return <div key={String(isDismissed)}>{isDismissed && <h3 className="mt-4 font-semibold">Dismissed suggestions</h3>}
+              {isDismissed && rows.length === 0 && <p className="text-sm">No dismissed suggestions.</p>}
+              <ul className="space-y-2 text-sm">{rows.map((item) => <li key={item.id} className="rounded border p-2">
+                <p className="font-medium">{item.title} {s.courses.find((c) => c.id === item.courseId)?.code ?? "Unknown course"}</p>
+                <p>{item.type === "unknown" ? "Unknown type" : item.type} · {item.reason}{item.uncertain && " · Uncertain"}</p>
+                {item.link ? <a href={item.link} target="_blank" rel="noreferrer" className="underline">Original link</a> : <span>Link unavailable</span>}
+                <div className="mt-2 flex gap-2">
+                  {!isDismissed && <Button size="sm" variant="outline" disabled={importing || !s.courses.some((c) => c.id === item.courseId)} onClick={() => { setCourse(item.courseId); setSelected({ id: item.id, title: item.title }); }}>Choose local file for this course</Button>}
+                  <Button size="sm" variant="ghost" disabled={saving} onClick={() => void changeDismissal(item.id, !isDismissed)}>{isDismissed ? "Restore" : "Dismiss"}</Button>
+                </div>
+              </li>)}</ul></div>;
+          })}
         </section>
         <section className="rounded-lg border bg-card p-4">
           <h2 className="mb-2 text-lg font-semibold">Import a file</h2>
-          <p className="mb-3 text-sm text-muted-foreground">Text-based PDF or DOCX, English or Russian. Scanned pages need local OCR (not available yet).</p>
+          <p className="mb-3 text-sm text-muted-foreground">Select a local PDF or DOCX up to 20 MiB. Some PDF and ZIP structures are unsupported; export a new copy if validation fails. Files stay in this browser profile and origin; clearing browser storage removes them.</p>
+          {selected && <p className="mb-3 text-sm">Selected resource: {selected.title}. Choose a local file below or cancel. <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>Cancel</Button></p>}
           <div className="flex flex-wrap gap-2">
-            <select aria-label="Course for import" className="h-9 rounded-md border bg-card px-2 text-sm" value={course} onChange={(e) => setCourse(e.target.value)}>
+            <select aria-label="Course for import" disabled={importing || !contextReady} className="h-9 rounded-md border bg-card px-2 text-sm" value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); }}>
+              <option value="">Choose a course</option>
               {s.courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
             </select>
-            <input ref={fileRef} type="file" aria-label="Syllabus file" aria-busy={importing} disabled={importing} className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" aria-label="Syllabus file" aria-busy={importing} disabled={importing || !contextReady} className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />
           </div>
+          {localStatus && <p role="status" className="mt-2 text-sm">{localStatus}</p>}
+          {showLocalRecords && interrupted.map((job) => <div key={job.id} className="mt-2 text-sm">
+            <p>{job.leaseVersion !== 1 && job.state !== "failed" ? "Unconfirmed older import: " : ""}{job.name}: {job.message}</p>
+            {job.leaseVersion !== 1 && job.state !== "failed" && <Button size="sm" variant="ghost" onClick={() => setInterrupted((jobs) => jobs.filter((entry) => entry.id !== job.id || entry.owner !== job.owner))}>Hide guidance for now</Button>}
+          </div>)}
+          {importing && <Button size="sm" variant="outline" onClick={() => cancellation.current?.abort()}>Cancel import</Button>}
+          {!importing && retryFile && <Button size="sm" variant="outline" onClick={() => void onFile(retryFile)}>Retry selected file</Button>}
+          <ul className="mt-3 space-y-2">{showLocalRecords && localDocuments.map((d) => <li key={`${d.datasetId}:${d.courseId}:${d.digest}`} className="text-sm break-all">{d.name} · {s.courses.find((c) => c.id === d.courseId)?.code ?? d.courseId} · {d.source} · {d.size} bytes · SHA-256 {d.digest} · Complete (local validation only){/\.(pdf|docx)$/i.test(d.name) && <LocalExtraction document={d} teachingCalendar={s.settings.teachingCalendar} commitRoute={(work) => run(() => work())} />}</li>)}</ul>
           <ul className="mt-4 space-y-2">
             {s.documents.map((d) => (
               <li key={d.id} className="text-sm">
@@ -83,10 +235,12 @@ function Syllabus() {
         </section>
       </div>
 
+      <ReconciliationReview />
+      <SyllabusRevisionReview />
       <section className="mt-8">
         <h2 className="mb-3 text-xl font-semibold">Needs review ({pending.length})</h2>
         {pending.length === 0 ? <EmptyState title="Review queue is empty" /> : (
-          <div className="space-y-3">{pending.map((c) => <CandidateCard key={c.id} c={c} onDecide={(d) => run((a) => a.review(c.id, d))} />)}</div>
+          <div className="space-y-3">{pending.map((c) => c.localEvidence ? <LocalReviewCard key={c.id} c={c} /> : <CandidateCard key={c.id} c={c} onDecide={(d) => run((a) => a.review(c.id, d))} />)}</div>
         )}
       </section>
       {decided.length > 0 && (
@@ -94,7 +248,7 @@ function Syllabus() {
           <h2 className="mb-3 text-lg font-semibold">Decided</h2>
           <ul className="divide-y rounded-lg border bg-card text-sm">
             {decided.map((c) => (
-              <li key={c.id} className="flex justify-between p-3"><span>{c.title} — {formatDate(c.date, s.settings.timezone)}</span><span className="capitalize text-muted-foreground">{c.status === "auto" ? "added automatically (clear evidence)" : c.status}</span></li>
+              <li key={c.id} className="flex justify-between gap-2 p-3"><span>{c.title} — {formatDate(c.date, s.settings.timezone)}{c.localDecision?.correctedValues && <span className="text-xs text-muted-foreground"> (original proposal: {c.localDecision.originalValues.title} — {formatDate(c.localDecision.originalValues.date, s.settings.timezone)})</span>}</span><span className="capitalize text-muted-foreground">{c.status === "auto" ? "added automatically (clear evidence)" : c.status}{c.localDecision?.evidenceMode === "stored-evidence-only" && " · manual, stored evidence only"}{c.localDecision?.evidenceMode === "unavailable" && " · original evidence unavailable"}</span></li>
             ))}
           </ul>
         </section>
@@ -116,13 +270,12 @@ function CandidateCard({ c, onDecide }: { c: ExtractionCandidate; onDecide: (d: 
           <p className="font-semibold">{c.title} <span className="text-xs uppercase text-muted-foreground">{TYPE_LABEL[c.type]} · {c.language.toUpperCase()}</span></p>
           <CourseTag course={snap!.courses.find((x) => x.id === c.courseId)} />
         </div>
-        <span className="rounded bg-warning px-2 py-0.5 text-xs text-warning-foreground">Confidence {Math.round(c.confidence * 100)}%</span>
+        <span className="rounded bg-warning px-2 py-0.5 text-xs text-warning-foreground">Mock demo candidate · Confidence {Math.round(c.confidence * 100)}%</span>
       </div>
-      <blockquote className="mt-3 border-l-2 pl-3 text-sm italic">“{c.excerpt}”</blockquote>
-      <p className="text-xs text-muted-foreground">{c.location}</p>
+      <blockquote className="mt-3 border-l-2 pl-3 text-sm italic">“{c.excerpt}”</blockquote><p className="text-xs text-muted-foreground">{c.location}</p>
       <p className="mt-2 text-sm">Proposed: <strong>{formatDate(c.date, snap!.settings.timezone)}</strong> from “{c.rawDateText}”</p>
       {c.reason && <p className="text-sm text-muted-foreground">Why review: {c.reason}</p>}
-      {match && <p className="text-sm">Possible match: <strong>{match.title}</strong>. Confirming links them; Moodle's date keeps priority.</p>}
+      {match && <p className="text-sm">Possible related item: <strong>{match.title}</strong>. Moodle and syllabus matches are reviewed separately.</p>}
       {editing && (
         <div className="mt-3 space-y-2">
           <input aria-label="Corrected title" className="h-9 w-full rounded-md border bg-card px-2 text-sm" value={title} onChange={(e) => setTitle(e.target.value)} />

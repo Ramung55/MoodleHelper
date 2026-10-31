@@ -1,0 +1,357 @@
+{
+  "formatVersion": 1,
+  "observedCoverage": {
+    "status": "pending",
+    "blockedBy": 3,
+    "reason": "No observed supported SDU variants; do not infer vacuous coverage."
+  },
+  "expectationKind": "Raw fixture facts, not Snapshot wire objects or working collector output.",
+  "fixtures": [
+    {
+      "id": "courses",
+      "path": "courses.html",
+      "sourceVariant": "invented-courses",
+      "pageClass": "course_list",
+      "language": "en",
+      "purpose": "Synthetic course_list input for duplicates; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "duplicates"
+      ],
+      "expected": {
+        "rawFacts": {
+          "course_id": "fiction-course-101",
+          "course_code": "DEMO101",
+          "course_title": "Fictional course",
+          "course_url": "https://moodle.example.invalid/course/101",
+          "duplicate_of": "fiction-course-101",
+          "duplicate_course_id": "fiction-course-101"
+        },
+        "absentFields": [],
+        "unknownFields": [],
+        "schemaGapOwners": [],
+        "duplicateRelationships": [
+          {
+            "field": "duplicate_course_id",
+            "sameAs": "course_id"
+          }
+        ]
+      }
+    },
+    {
+      "id": "assignment",
+      "path": "assignment.html",
+      "sourceVariant": "invented-assignment",
+      "pageClass": "assignment",
+      "language": "en",
+      "purpose": "Synthetic assignment input for exact_date, individual_override, draft; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "exact_date",
+        "individual_override",
+        "draft"
+      ],
+      "expected": {
+        "rawFacts": {
+          "course_id": "fiction-course-101",
+          "activity_id": "fiction-assign-201",
+          "course_module_id": "fiction-module-901",
+          "title": "Fictional assignment",
+          "base_due": "2028-02-29T14:00:00+05:00",
+          "base_cutoff": "2028-03-01T14:00:00+05:00",
+          "effective_due": "2028-02-29T16:00:00+05:00",
+          "override_scope": "individual fictional override",
+          "timezone": "Asia/Almaty",
+          "submission_status": "draft",
+          "source_url": "https://moodle.example.invalid/assignment/201"
+        },
+        "absentFields": [],
+        "unknownFields": [],
+        "schemaGapOwners": [
+          "13"
+        ],
+        "duplicateRelationships": []
+      }
+    },
+    {
+      "id": "reopened",
+      "path": "reopened.html",
+      "sourceVariant": "invented-reopened",
+      "pageClass": "assignment",
+      "language": "en",
+      "purpose": "Synthetic assignment input for reopened, absent_dates; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "reopened",
+        "absent_dates"
+      ],
+      "expected": {
+        "rawFacts": {
+          "activity_id": "fiction-assign-202",
+          "title": "Fictional resubmission",
+          "submission_status": "reopened"
+        },
+        "absentFields": [
+          "due",
+          "cutoff",
+          "timezone"
+        ],
+        "unknownFields": [],
+        "schemaGapOwners": [],
+        "duplicateRelationships": []
+      }
+    },
+    {
+      "id": "unknown",
+      "path": "unknown.html",
+      "sourceVariant": "invented-unknown",
+      "pageClass": "assignment",
+      "language": "ru",
+      "purpose": "Synthetic assignment input for unknown_status, ambiguous_date; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "unknown_status",
+        "ambiguous_date"
+      ],
+      "expected": {
+        "rawFacts": {
+          "activity_id": "fiction-assign-203",
+          "title": "Учебный пример",
+          "submission_status": "unknown",
+          "date_text": "После объявления",
+          "date_kind": "unknown"
+        },
+        "absentFields": [
+          "exact_instant",
+          "timezone"
+        ],
+        "unknownFields": [
+          "date",
+          "submission_status"
+        ],
+        "schemaGapOwners": [],
+        "duplicateRelationships": []
+      }
+    },
+    {
+      "id": "quiz",
+      "path": "quiz.html",
+      "sourceVariant": "invented-quiz",
+      "pageClass": "quiz",
+      "language": "en",
+      "purpose": "Synthetic quiz input for quiz_attempts, date_only; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "quiz_attempts",
+        "date_only"
+      ],
+      "expected": {
+        "rawFacts": {
+          "activity_id": "fiction-quiz-301",
+          "course_module_id": "fiction-module-902",
+          "title": "Fictional quiz",
+          "close_date": "2028-03-02",
+          "date_kind": "date",
+          "attempts_allowed": "3",
+          "attempts_used": "1",
+          "attempts_remaining": "2",
+          "attempt_state": "in_progress"
+        },
+        "absentFields": [
+          "close_time",
+          "timezone"
+        ],
+        "unknownFields": [],
+        "schemaGapOwners": [
+          "14"
+        ],
+        "duplicateRelationships": []
+      }
+    },
+    {
+      "id": "calendar",
+      "path": "calendar.html",
+      "sourceVariant": "invented-calendar",
+      "pageClass": "calendar",
+      "language": "ru",
+      "purpose": "Synthetic calendar input for date_only; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "date_only"
+      ],
+      "expected": {
+        "rawFacts": {
+          "event_id": "fiction-event-401",
+          "activity_id": "fiction-assign-201",
+          "title": "Учебное событие",
+          "date_text": "2028-03-02",
+          "date_kind": "date",
+          "source_url": "https://moodle.example.invalid/event/401"
+        },
+        "absentFields": [
+          "exact_instant",
+          "timezone"
+        ],
+        "unknownFields": [],
+        "schemaGapOwners": [],
+        "duplicateRelationships": []
+      }
+    },
+    {
+      "id": "resource",
+      "path": "resource.html",
+      "sourceVariant": "invented-resource",
+      "pageClass": "material",
+      "language": "en",
+      "purpose": "Synthetic material input for materials; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "materials"
+      ],
+      "expected": {
+        "rawFacts": {
+          "resource_id": "fiction-resource-501",
+          "course_module_id": "fiction-module-903",
+          "course_id": "fiction-course-101",
+          "section": "Fictional week",
+          "title": "Fictional reference link",
+          "file_type": "link",
+          "resource_url": "https://materials.example.invalid/reference",
+          "accessible": "true"
+        },
+        "absentFields": [],
+        "unknownFields": [],
+        "schemaGapOwners": [],
+        "duplicateRelationships": []
+      }
+    },
+    {
+      "id": "folder",
+      "path": "folder.html",
+      "sourceVariant": "invented-folder",
+      "pageClass": "folder",
+      "language": "en",
+      "purpose": "Synthetic folder input for nested_folder; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "nested_folder"
+      ],
+      "expected": {
+        "rawFacts": {
+          "folder_id": "fiction-folder-601",
+          "child_folder_id": "fiction-folder-602",
+          "child_folder_parent_id": "fiction-folder-601",
+          "file_id": "fiction-file-603",
+          "file_parent_id": "fiction-folder-602",
+          "file_title": "Fictional outline",
+          "file_type": "pdf",
+          "file_url": "https://materials.example.invalid/outline.pdf"
+        },
+        "absentFields": [],
+        "unknownFields": [],
+        "schemaGapOwners": [
+          "17"
+        ],
+        "duplicateRelationships": []
+      }
+    },
+    {
+      "id": "login",
+      "path": "login.html",
+      "sourceVariant": "invented-login",
+      "pageClass": "access",
+      "language": "en",
+      "purpose": "Synthetic access input for login_redirect; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "login_redirect"
+      ],
+      "expected": {
+        "rawFacts": {
+          "access_outcome": "login_redirect",
+          "redirect_target": "https://moodle.example.invalid/login",
+          "redirect_representation": "inert text only"
+        },
+        "absentFields": [
+          "course_records"
+        ],
+        "unknownFields": [],
+        "schemaGapOwners": [],
+        "duplicateRelationships": []
+      }
+    },
+    {
+      "id": "denied",
+      "path": "denied.html",
+      "sourceVariant": "invented-denied",
+      "pageClass": "access",
+      "language": "ru",
+      "purpose": "Synthetic access input for denied_access; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "denied_access"
+      ],
+      "expected": {
+        "rawFacts": {
+          "access_outcome": "denied",
+          "message": "Доступ запрещён"
+        },
+        "absentFields": [
+          "activity_records"
+        ],
+        "unknownFields": [],
+        "schemaGapOwners": [],
+        "duplicateRelationships": []
+      }
+    },
+    {
+      "id": "incomplete",
+      "path": "incomplete.html",
+      "sourceVariant": "invented-incomplete",
+      "pageClass": "assignment",
+      "language": "en",
+      "purpose": "Synthetic assignment input for malformed_markup, incomplete_markup; not observed SDU markup.",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "malformed_markup",
+        "incomplete_markup"
+      ],
+      "expected": {
+        "rawFacts": {
+          "activity_id": "fiction-assign-204",
+          "title": "Fictional incomplete item",
+          "markup_outcome": "truncated after final value"
+        },
+        "absentFields": [
+          "due",
+          "submission_status"
+        ],
+        "unknownFields": [],
+        "schemaGapOwners": [],
+        "duplicateRelationships": []
+      }
+    }
+  ]
+}

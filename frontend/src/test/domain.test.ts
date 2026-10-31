@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isOutstanding, reconciledSourceDate, viewAssessment } from "@/domain/assessments";
 import { eligibleAlerts } from "@/domain/alerts";
 import { makeBackup, previewRestore } from "@/domain/backup";
-import { weekOfYmd } from "@/domain/dates";
+import { instantMicros, sameDate, weekOfYmd } from "@/domain/dates";
 import { canAutoAccept, checkFormat, proposeMatches } from "@/domain/extraction";
 import { weeklyLoad } from "@/domain/workload";
 import type { Assessment, ExtractionCandidate } from "@/domain/types";
@@ -10,8 +10,14 @@ import { buildDemoSnapshot } from "@/services/fixtures";
 import { DemoAdapter, type KV } from "@/services/demo-adapter";
 
 const snap = buildDemoSnapshot(Date.UTC(2026, 9, 24, 9));
-const S = snap.settings;
+// Workload/matching tests explicitly configure their calendar; demo defaults remain unverified.
+const S = { ...snap.settings, teachingCalendar: { startDate: snap.settings.semesterStart, endDate: new Date(Date.parse(snap.settings.semesterStart) + (15 * 7 - 1) * 86400000).toISOString().slice(0, 10), timezone: "Asia/Almaty", excludedWeekStarts: [] } };
 const t = "2026-10-01T00:00:00Z";
+it('retains submicrosecond exact deadline differences and offset equality', () => {
+  const value = {kind:'exact' as const, iso:'2026-11-01T10:00:00.0000001Z', tz:'UTC'};
+  expect(sameDate(value,{kind:'exact',iso:'2026-11-01T15:00:00.000000100+05:00',tz:'Asia/Almaty'})).toBe(true);
+  expect(sameDate(value,{kind:'exact',iso:'2026-11-01T10:00:00.0000002Z',tz:'UTC'})).toBe(false);
+});
 const mk = (x: Partial<Assessment>): Assessment => ({
   id: "x", courseId: "c-csc", title: "T", type: "assignment", personal: false,
   sources: [{ source: "moodle", date: { kind: "date", date: S.semesterStart }, observedAt: t }],
@@ -20,6 +26,13 @@ const mk = (x: Partial<Assessment>): Assessment => ({
 const memKV = (): KV => { const m = new Map<string, string>(); return { get: (k) => m.get(k) ?? null, set: (k, v) => void m.set(k, v), remove: (k) => void m.delete(k) }; };
 
 describe("dates", () => {
+  it("orders Python-compatible legacy instants across the supported year range", () => {
+    expect(instantMicros("0001-01-01T00:00:00Z")).toBe(-62135596800000000n);
+    expect(instantMicros("9999-12-31T23:59:59.999999Z")).toBe(253402300799999999n);
+    expect(instantMicros("99991231 235959.999999+0100")).toBe(instantMicros("9999-12-31T22:59:59.999999Z"));
+    expect(instantMicros("2026-W01-1T12:30.5+05:30.5")).toBe(instantMicros("2025-12-29T07:00:00Z"));
+    expect(instantMicros("0001-01-01T00:00:00+01:00")).toBeNull();
+  });
   it("maps days to teaching weeks", () => {
     expect(weekOfYmd("2026-09-01", "2026-09-01")).toBe(1);
     expect(weekOfYmd("2026-09-08", "2026-09-01")).toBe(2);
@@ -28,6 +41,27 @@ describe("dates", () => {
 });
 
 describe("reconciliation", () => {
+  it("keeps a known syllabus date when the newest Moodle date is unknown", () => {
+    const a = mk({ sources: [
+      { source: "moodle", date: { kind: "date", date: "2026-10-01" }, observedAt: t },
+      { source: "moodle", date: { kind: "unknown" }, observedAt: "2026-10-02T00:00:00Z" },
+      { source: "syllabus", date: { kind: "week", week: 8 }, observedAt: t },
+    ] });
+    expect(reconciledSourceDate(a.sources)).toEqual({ kind: "week", week: 8 });
+    expect(viewAssessment(a, undefined, S).conflict).toBeUndefined();
+  });
+  it("recognizes equivalent exact instants across offsets", () => {
+    const a = mk({ sources: [
+      { source: "moodle", date: { kind: "exact", iso: "2026-10-01T10:00:00Z", tz: "UTC" }, observedAt: t },
+      { source: "syllabus", date: { kind: "exact", iso: "2026-10-01T15:00:00+05:00", tz: "Asia/Almaty" }, observedAt: t },
+    ] });
+    expect(viewAssessment(a, undefined, S).conflict).toBeUndefined();
+    const different = mk({ sources: [
+      { source: "moodle", date: { kind: "exact", iso: "2026-10-01T10:00:00.000001Z", tz: "UTC" }, observedAt: t },
+      { source: "syllabus", date: { kind: "exact", iso: "2026-10-01T15:00:00.000002+05:00", tz: "Asia/Almaty" }, observedAt: t },
+    ] });
+    expect(viewAssessment(different, undefined, S).conflict?.comparison).toBe("different");
+  });
   it("Moodle date wins over syllabus and the conflict is shown", () => {
     const a = mk({ sources: [
       { source: "syllabus", date: { kind: "date", date: "2026-10-01" }, observedAt: t },
@@ -48,8 +82,8 @@ describe("submission & completion", () => {
   it("draft stays outstanding even when personally completed", () => {
     expect(isOutstanding(mk({ submission: { status: "draft", observedAt: t } }), { assessmentId: "x", hidden: false, completed: true })).toBe(true);
   });
-  it("personal completion clears a not-submitted item", () => {
-    expect(isOutstanding(mk({ submission: { status: "not_submitted", observedAt: t } }), { assessmentId: "x", hidden: false, completed: true })).toBe(false);
+  it("not-submitted source remains actionable after personal completion", () => {
+    expect(isOutstanding(mk({ submission: { status: "not_submitted", observedAt: t } }), { assessmentId: "x", hidden: false, completed: true })).toBe(true);
   });
   it("hidden items are never outstanding", () => {
     expect(isOutstanding(mk({}), { assessmentId: "x", hidden: true, completed: false })).toBe(false);
