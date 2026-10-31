@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -11,7 +11,36 @@ export function LocalOcr({ document: association, onInspect }: { document: Local
   const [pending, setPending] = useState(false); const [message, setMessage] = useState("");
   const [progress, setProgress] = useState<OcrProgress>(); const [result, setResult] = useState<OcrJob>();
   const generation = useRef(0), controller = useRef<AbortController | undefined>(undefined);
-  useEffect(() => { controller.current = undefined; setProgress(undefined); setResult(undefined); setPending(false); setMessage(""); return () => { generation.current++; controller.current?.abort(); }; }, [association.datasetId, association.courseId, association.digest]);
+  // State belongs to one document (#72). A change of datasetId, courseId or digest resets it during render, so the new
+  // document's first render never shows the previous OCR result, progress, message, pending state, page selection,
+  // language or limits, and a later passive effect cannot clear an edit made in the new document. A re-render with the
+  // same document (an equal new object, a changed name, a new onInspect) keeps everything.
+  const associationKey = JSON.stringify([
+    association.datasetId,
+    association.courseId,
+    association.digest,
+  ]);
+  const [stateKey, setStateKey] = useState(associationKey);
+  if (stateKey !== associationKey) {
+    setStateKey(associationKey);
+    setSelection("");
+    setLanguage("eng+rus");
+    setLimits({ ...DEFAULT_OCR_LIMITS });
+    setPending(false);
+    setMessage("");
+    setProgress(undefined);
+    setResult(undefined);
+  }
+  // Releasing the old document's OCR stays an effect. A layout effect runs in the same commit as the render-time reset,
+  // before the browser paints or any pending promise continues, so stale OCR is fenced (generation bump) and aborted
+  // before it could write into the new document. It also runs on unmount.
+  useLayoutEffect(() => {
+    controller.current = undefined;
+    return () => {
+      generation.current++;
+      controller.current?.abort();
+    };
+  }, [associationKey]);
   const start = async () => {
     if (controller.current) return;
     if (!/^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(selection)) { setMessage("Enter selected original page numbers separated by commas, such as 1, 3."); return; }
