@@ -495,14 +495,18 @@ What it does (fixture mode, all synthetic):
 - `journey.spec.ts` (#47) walks through these named steps: saving the tracked-course
   selection and reopening it; an explicit teaching calendar; real local DOCX extraction
   (`frontend/src/test/fixtures/extraction-bilingual.docx`) with evidence kept and
-  routing; manual review of the uncertain week-only demo candidate (60%), which creates
-  one event; a draft submission next to your own completion mark; the reopened badge;
+  routing; the committed `teaching-weeks.docx` fixture, whose four week-only or
+  unresolved proposals go to review through the real policy, where confirming
+  "Exam Week 6" creates exactly one event; a draft submission next to your own completion mark; the reopened badge;
   the Moodle/syllabus conflict showing both dates; a separate personal completion
   check; weekly planner counts and weighted estimates compared with values derived from
   the fixture; a mock run started from the dashboard with progress per course; a
   genuine MV3 worker stop (DevTools `ServiceWorker.stopAllWorkers`) followed by
   reconnecting, a new bridge `workerGeneration` and the same durable run completing
-  from SQLite; and a backend outage in the middle of a run, after which saved records,
+  from SQLite; a partial failed sync, where a test-only hook acting as a second queue
+  worker over the real HTTP queue API fails one course job while the extension
+  completes the other two (run `failed · 2/3`, saved data and course timestamps
+  unchanged); and a backend outage in the middle of a run, after which saved records,
   overlays, candidates, course timestamps and "No successful full sync yet." are
   unchanged once it recovers. The mock executor is synthetic and never claims a live
   full sync.
@@ -520,6 +524,15 @@ What it does (fixture mode, all synthetic):
   manifest declarations. It reloads through `chrome://extensions` Developer mode and
   checks that no grant is added. The popup is opened as an extension tab, not the
   toolbar popup.
+
+- `document-import.spec.ts` (#24 evidence) imports a valid PDF (through the real PDF.js
+  browser worker) and a valid DOCX into chosen courses, stored in IndexedDB. It covers
+  a same-course duplicate, declining (cancelled) and accepting a cross-course
+  association, the queued/parsing/complete/failed states, and Retry. A simulated
+  QuotaExceededError is injected into IndexedDB writes by test code only, then Retry
+  succeeds. The records survive a real browser restart of the same profile. A network
+  capture across the whole context shows no request carrying document bytes or
+  multipart content.
 
 Results: list output, an HTML report (never auto-opened), `results.json`, and, on
 failure, a screenshot, trace and error context under

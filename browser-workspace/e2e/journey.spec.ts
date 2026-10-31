@@ -15,6 +15,8 @@ import {
 
 const BROKEN = process.env.MH_E2E_BROKEN === "1";
 const DOCX = path.join(ROOT, "frontend", "src", "test", "fixtures", "extraction-bilingual.docx");
+const WEEKS_DOCX = path.join(ROOT, "frontend", "src", "test", "fixtures", "teaching-weeks.docx");
+const COURSE_NAMES: Record<string, string> = { "c-csc": "Data Structures", "c-math": "Calculus II", "c-phy": "General Physics" };
 const TZ = "Asia/Almaty";
 
 type Totals = { total: number; outstanding: number; weighted: number };
@@ -106,13 +108,28 @@ test("fixture student journey: selection, sync, review, conflict, completion, re
     for (const c of local) { expect(c.excerpt).toBe(""); expect(c.rawDateText).toBe(""); }
   });
 
-  await test.step("Syllabus: uncertain week-only candidate needs manual review and creates one event", async () => {
-    const card = page.locator("div,article,li").filter({ hasText: "Mock demo candidate · Confidence 60%" }).filter({ has: page.getByRole("button", { name: "Confirm" }) }).last();
-    await expect(card).toContainText("Proposed: Week 8 (no exact date)");
+  await test.step("Syllabus: genuinely uncertain week-only proposal from a real local DOCX routes to review; manual confirm creates one event", async () => {
+    // Committed #30 synthetic fixture: "Exam Week 6", "Экзамен неделя 6", "Assignment Week 31", "Quiz Week 2–3".
+    await page.getByLabel("Course for import").selectOption({ label: "PHY 201" });
+    await page.getByLabel("Syllabus file").setInputFiles(WEEKS_DOCX);
+    await expect(page.getByRole("status").filter({ hasText: "Complete: validated and stored locally." })).toBeVisible();
+    const doc = page.locator("li").filter({ hasText: "teaching-weeks.docx" }).first();
+    await doc.getByRole("button", { name: "Extract text" }).click();
+    await doc.getByRole("button", { name: "Find assessments" }).click();
+    await doc.getByRole("button", { name: "Interpret explicit dates" }).click();
+    await doc.getByRole("button", { name: "Retain evidence and route proposals" }).click();
+    await expect(page.getByText("4 stored proposals routed.")).toBeVisible();
+    const card = page.locator("div,article,li").filter({ hasText: "Original date wording: Exam Week 6" }).filter({ has: page.getByRole("button", { name: "Confirm" }) }).last();
+    await expect(card).toContainText("Deterministic policy · review required");
+    await expect(card).toContainText("Why review: Date is not explicit; Only a teaching week is given");
+    await expect(card).toContainText("Original document is available locally.");
+    const pendingBefore = (await api("/api/snapshot")).candidates.filter((c: any) => c.localEvidence && c.status === "pending").length;
+    expect(pendingBefore, "all four week-only/unresolved proposals wait for review").toBe(4);
     await card.getByRole("button", { name: "Confirm" }).click();
-    await expect(page.getByText("Needs review (1)")).toBeVisible();
+    await expect.poll(async () => (await api("/api/snapshot")).assessments.filter((a: any) => a.title === "Exam" && a.courseId === "c-phy").length, { message: "exactly one reviewed event" }).toBe(1);
     const after = await api("/api/snapshot");
-    expect(after.assessments.filter((a: any) => a.title === "Контрольная работа")).toHaveLength(1);
+    expect(after.candidates.filter((c: any) => c.localEvidence && c.status === "pending")).toHaveLength(3);
+    expect(after.assessments.find((a: any) => a.title === "Exam" && a.courseId === "c-phy").sources[0].date).toEqual({ kind: "week", week: 6 });
   });
 
   await test.step("Deadlines: draft submission and personal completion stay independent", async () => {
@@ -157,7 +174,7 @@ test("fixture student journey: selection, sync, review, conflict, completion, re
       { date: moodleDate, weight: 2, outstanding: true },            // Problem set 4: reopened (Moodle date used)
       { date: moodleDate, weight: 0, outstanding: false },           // Study group: personally completed
       { date: null, week: 9, weight: 3, outstanding: true },         // Midterm exam: week only
-      { date: null, week: 8, weight: 1, outstanding: true },         // Reviewed quiz: week only
+      { date: null, week: 6, weight: 3, outstanding: true },         // Reviewed local "Exam Week 6"
       { date: "2026-10-29", weight: 2, outstanding: true },          // Local DOCX Assignment 1
       { date: "2026-11-05", weight: 3, outstanding: true },          // Local DOCX exam
       { date: "unknown", weight: 2, outstanding: true },             // Final lab report: unknown date
@@ -207,6 +224,41 @@ test("fixture student journey: selection, sync, review, conflict, completion, re
     expect(after.progress).toMatchObject({ total: 3, completed: 3, failed: 0 });
     testInfo.annotations.push({ type: "worker-status", description: stopped.statuses.join(" → ") });
     await stopped.detach();
+  });
+
+  await test.step("Partial failed sync: one course fails while the others complete; saved data and freshness preserved", async () => {
+    const before = await api("/api/snapshot");
+    const panel = page.getByRole("region", { name: "Mock scan progress" });
+    const timestamps = await panel.getByText(/Saved course timestamp/).allInnerTexts();
+    await panel.getByRole("button", { name: "Retry mock run" }).click();
+    await expect(panel).toContainText(/Mock run: (pending|running) · 0\/3 completed/);
+    // TEST-ONLY fixture hook: the harness acts as a second queue worker over the real
+    // HTTP queue contract (current bridge binding) and fails exactly one course job.
+    // No product code or route is changed; the extension worker completes the rest.
+    const binding = (await api("/api/bridge-context")).binding;
+    const post = async (p: string, body: unknown) => {
+      const r = await fetch(BACKEND + p, { method: "POST", headers: { "Content-Type": "application/json", "X-Moodle-Helper-Bridge-Binding": binding }, body: JSON.stringify(body) });
+      expect(r.ok, `POST ${p}`).toBe(true); return r.json();
+    };
+    const { claim } = await post("/api/queue/claim", {});
+    expect(claim, "a pending course job was available to fail").toBeTruthy();
+    await post("/api/queue/finish", { jobId: claim.job.id, generation: claim.generation, token: claim.token, outcome: "failed", errorCode: "mock_failure" });
+    const failedName = COURSE_NAMES[claim.job.courseId]!;
+    testInfo.annotations.push({ type: "partial-failure", description: `failed course ${claim.job.courseId} via test-only queue hook` });
+    const stopped = await stopExtensionWorker(session.context, page, session.extensionId); // wake a fresh worker for the rest
+    await stopped.detach();
+    await expect(panel.getByRole("alert")).toContainText("Saved data remains visible", { timeout: 20_000 });
+    await panel.getByRole("button", { name: "Reconnect" }).click();
+    await expect(panel).toContainText("Mock run: failed · 2/3 completed", { timeout: 30_000 });
+    await expect(panel).toContainText(`${failedName}: failed`);
+    for (const [id, name] of Object.entries(COURSE_NAMES)) if (id !== claim.job.courseId) await expect(panel).toContainText(`${name}: completed`);
+    await expect(panel).toContainText("Last failed mock attempt started");
+    await expect(panel).toContainText("No successful full sync yet.");
+    expect(await panel.getByText(/Saved course timestamp/).allInnerTexts(), "per-course saved timestamps unchanged").toEqual(timestamps);
+    const run = (await api("/api/queue/current")).run;
+    expect(run.progress).toMatchObject({ total: 3, completed: 2, failed: 1 });
+    const after = await api("/api/snapshot");
+    for (const key of ["assessments", "overlays", "candidates", "documents", "sync"]) expect(after[key], `${key} preserved after partial failure`).toEqual(before[key]);
   });
 
   await test.step("Interrupted sync: backend outage mid-run preserves saved data and freshness", async () => {
