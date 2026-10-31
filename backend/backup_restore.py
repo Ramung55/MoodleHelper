@@ -160,8 +160,9 @@ def prepare_snapshot(data: dict, namespace: str) -> dict:
 
 
 class RestoreService:
-    def __init__(self, store, clock=None, resolver=None):
+    def __init__(self, store, clock=None, resolver=None, material_rows=None):
         self.store = store
+        self.material_rows = material_rows  # in-memory transfer rows (SQLite uses its table)
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.resolver = resolver
         # Test seam: called after the Snapshot write and before commit.
@@ -202,6 +203,17 @@ class RestoreService:
             return self._restore_sql(body, print_, snapshot)
         return self._restore_memory(body, print_, snapshot)
 
+    def _fence_transfer(self, row: dict) -> bool:
+        from backend.material_downloads import ACTIVE
+        if row.get('state') not in ACTIVE:
+            return False
+        stamp = self.clock().astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        # Same semantics as a user cancel: generation bump fences old descriptors/status reports.
+        row.update(cancelRequested=True, generation=row['generation'] + 1, updatedAt=stamp)
+        if row['state'] == 'queued' and not row.get('descriptorIssued'):
+            row.update(state='cancelled', reason='cancelled_by_user')
+        return True
+
     def _check_context(self, body, current):
         if (current['datasetId'], current['epoch'], current['revision']) != (body['expectedDatasetId'], body['expectedEpoch'], body['expectedRevision']):
             raise RestoreRejected(409, 'Local data changed since the restore preview. Refresh the preview and confirm again.')
@@ -234,7 +246,12 @@ class RestoreService:
                 return self._receipt(body['idempotencyKey'], print_)
             self._check_context(body, {'datasetId': store.dataset_id, 'epoch': store.epoch, 'revision': store.revision})
             previous = (store._snapshot, store.revision, store.epoch)
+            rows_before = deepcopy(self.material_rows.rows) if self.material_rows is not None else None
             try:
+                if self.material_rows is not None:
+                    for row in self.material_rows.all(store.namespace):
+                        if self._fence_transfer(row):
+                            self.material_rows.put(row)
                 store._snapshot = snapshot
                 store.revision += 1
                 store.epoch += 1
@@ -246,6 +263,8 @@ class RestoreService:
                 store.restore_receipts[body['idempotencyKey']] = (print_, meta)
             except BaseException:
                 store._snapshot, store.revision, store.epoch = previous
+                if rows_before is not None:
+                    self.material_rows.rows = rows_before
                 raise
             return self._response(deepcopy(snapshot), meta, generation)
 
@@ -271,6 +290,10 @@ class RestoreService:
                     c.execute(text("UPDATE queue_jobs SET state='cancelled', generation=generation+1, token=NULL, expires=NULL, error_code='restored' "
                                    "WHERE namespace=:n AND state IN ('pending','running')"), ns)
                     c.execute(text('UPDATE queue_runs SET cancelled=1 WHERE namespace=:n AND cancelled=0'), ns)
+                    for tid, record in c.execute(text('SELECT transfer_id, record FROM material_transfers WHERE namespace=:n'), ns).all():
+                        row = json.loads(record)
+                        if self._fence_transfer(row):
+                            c.execute(text('UPDATE material_transfers SET record=:r WHERE namespace=:n AND transfer_id=:t'), {**ns, 't': tid, 'r': json.dumps(row)})
                     c.execute(text('INSERT OR IGNORE INTO data_lifecycle(namespace,epoch) VALUES(:n,0)'), ns)
                     c.execute(text('UPDATE data_lifecycle SET epoch=epoch+1 WHERE namespace=:n'), ns)
                     generation = self._rebuild_plan(snapshot)

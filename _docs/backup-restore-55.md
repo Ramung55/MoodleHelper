@@ -15,5 +15,6 @@
   already-requested reminders are not replayed. Memory store mirrors this under its lock.
 - Same key + same payload returns the receipt (`replayed: true`); a different payload under the key is 409.
   The UI retries after response loss ("Restore outcome unknown; checking receipt").
+- Active material transfers are fenced in the same transaction (queued -> cancelled; in-flight -> cancelRequested + generation bump, no new descriptor). The extension reminder worker reads the epoch each wake; a change clears the old due alarm before reconciling the rebuilt plan.
 - Not restored: document bytes, local extraction/OCR evidence, downloaded files. Links are metadata;
-  access is unverified. Browser alarms update on the extension's next reconcile.
+  access is unverified.

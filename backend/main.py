@@ -52,8 +52,9 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(selected, app.state.bridge_binding, collection_provider)
         app.state.reminders = make_reminders(selected)
-        app.state.restore = RestoreService(selected, reminder_clock, reminder_resolver)
         app.state.material_downloads = MaterialDownloadService(selected, material_download_capability)
+        app.state.restore = RestoreService(selected, reminder_clock, reminder_resolver,
+                                           None if hasattr(app.state.material_downloads.rows, 'connection') else app.state.material_downloads.rows)
         app.state.scan = ScanQueueService(selected, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
         app.state.ai_gateway = gateway
         try:
@@ -71,8 +72,9 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(store, app.state.bridge_binding, collection_provider)
         app.state.reminders = make_reminders(store)
-        app.state.restore = RestoreService(store, reminder_clock, reminder_resolver)
         app.state.material_downloads = MaterialDownloadService(store, material_download_capability)
+        app.state.restore = RestoreService(store, reminder_clock, reminder_resolver,
+                                           None if hasattr(app.state.material_downloads.rows, 'connection') else app.state.material_downloads.rows)
         app.state.scan = ScanQueueService(store, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
 
     @app.middleware("http")

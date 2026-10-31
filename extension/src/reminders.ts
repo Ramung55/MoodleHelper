@@ -24,7 +24,7 @@ export type ReminderAlarms = {
   create:(name:string,info:{when?:number;delayInMinutes?:number;periodInMinutes?:number})=>void;
   clear:(name:string)=>void;
 };
-export type ReminderState = { status:'ready'|'reconnect'|'unavailable'; nextWakeAt?:string; delivery?:DeliveryResult; lastRequests:string[] };
+export type ReminderState = { status:'ready'|'reconnect'|'unavailable'; nextWakeAt?:string; delivery?:DeliveryResult; lastRequests:string[]; epoch?:number; restoredAt?:number };
 
 /** Callback-compatible port (Chrome 106; no Promise-only API assumed). */
 export type NotificationPort = {
@@ -87,6 +87,13 @@ export function createReminderWorker(options:{alarms:ReminderAlarms; fetcher?:ty
     try {
       const {binding}=await request('/api/bridge-context') as {binding:string};
       const {datasetId}=await request('/api/local-context') as {datasetId:string};
+      // #55: a changed data-lifecycle epoch means a backup restore replaced the data.
+      // Drop the old wakeup mirror before reconciling the rebuilt backend plan.
+      let epoch:number|undefined;
+      try { const ctx=await request('/api/backups/restore-context') as {datasetId?:string;epoch?:unknown};
+        if (ctx.datasetId===datasetId && Number.isInteger(ctx.epoch)) epoch=ctx.epoch as number; } catch { /* older backend: no epoch */ }
+      if (epoch!==undefined && state.epoch!==undefined && epoch!==state.epoch) { options.alarms.clear(REMINDER_DUE_ALARM); state.restoredAt=now(); }
+      if (epoch!==undefined) state.epoch=epoch;
       let plan=await request('/api/reminders/reconcile',binding,{datasetId}) as Plan;
       if (plan.items.some(i=>i.status==='due')) {
         // Deterministic key: same plan generation + same outstanding wake boundary

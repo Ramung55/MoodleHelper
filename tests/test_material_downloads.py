@@ -183,3 +183,37 @@ def test_body_bound(make):
     client, store = make()
     big = client.post('/api/material-downloads', content=b'{"x":"' + b'a' * (1024 * 1024 + 10) + b'"}', headers={'content-type': 'application/json'})
     assert big.status_code == 422
+
+
+def _restore(client, store):
+    ctx = client.get('/api/backups/restore-context').json()
+    backup = {'app': 'moodle-helper', 'version': 1, 'exportedAt': '2026-10-01T10:00:00Z', 'note': '', 'datasetId': ctx['datasetId'], 'data': client.get('/api/snapshot').json()}
+    return client.post('/api/backups/restore', json={'idempotencyKey': 'restore-mat-1', 'expectedDatasetId': ctx['datasetId'], 'expectedEpoch': ctx['epoch'], 'expectedRevision': ctx['revision'], 'backup': backup})
+
+
+def test_restore_cancels_queued_and_fences_in_flight_transfers_atomically(make):
+    """#55: restore neutralizes active transfers in the same transaction."""
+    client, store = make()
+    queued = start(client, store).json()['transfer']
+    assert _restore(client, store).status_code == 200
+    after = client.get(f"/api/material-downloads/{queued['transferId']}").json()
+    assert after['state'] == 'cancelled' and after['cancelRequested']
+    assert client.post(f"/api/material-downloads/{queued['transferId']}/descriptor").status_code == 409
+
+
+def test_restore_fences_saving_transfer_and_rollback_keeps_it(make):
+    client, store = make()
+    t = start(client, store).json()['transfer']
+    d, saving = run_to_saving(client, t['transferId'])
+    from backend.sqlite_store import StorageError
+    def boom():
+        raise StorageError('injected')
+    client.app.state.restore.before_commit = boom
+    assert _restore(client, store).status_code == 503
+    kept = client.get(f"/api/material-downloads/{t['transferId']}").json()
+    assert kept['state'] == 'saving' and not kept['cancelRequested'] and kept['generation'] == saving['generation']
+    client.app.state.restore.before_commit = None
+    assert _restore(client, store).status_code == 200
+    fenced = client.get(f"/api/material-downloads/{t['transferId']}").json()
+    assert fenced['cancelRequested'] and fenced['generation'] == saving['generation'] + 1
+    assert client.post(f"/api/material-downloads/{t['transferId']}/descriptor").status_code == 409

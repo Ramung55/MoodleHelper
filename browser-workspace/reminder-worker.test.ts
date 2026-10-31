@@ -83,3 +83,23 @@ it('installs listeners synchronously with fixed names and a periodic maintenance
   const before=b.log.length;alarm[0]({name:'moodle-helper-mock-queue'});await new Promise(r=>setTimeout(r,10));
   alarm[0]({name:REMINDER_DUE_ALARM});await new Promise(r=>setTimeout(r,10));expect(b.log.length).toBeGreaterThan(before);
 });
+
+it('#55 restore epoch change clears the old alarm mirror before reconciling the rebuilt plan',async()=>{
+  let items=[{id:'old',dueAt:'2027-02-12T00:00:00Z'}];let epoch=0;const seq:string[]=[];
+  const fetcher:typeof fetch=async(u,i)=>{
+    if(String(u).endsWith('/api/backups/restore-context')){seq.push('context');return json({datasetId:'ds',epoch,revision:1});}
+    if(String(u).endsWith('/reconcile')) seq.push('reconcile');
+    return backend(items).fetcher(u,i);
+  };
+  const a=alarms();const tracked={...a,clear:(n:string)=>{seq.push('clear');a.clear(n);}};
+  const w=createReminderWorker({alarms:tracked,fetcher,now:()=>NOW});
+  await w.wake();
+  expect(a.set.get(REMINDER_DUE_ALARM).when).toBe(Date.parse('2027-02-12T00:00:00Z'));
+  expect(w.state().epoch).toBe(0);expect(seq.slice(0,2)).toEqual(['context','reconcile']);
+  items=[{id:'restored',dueAt:'2027-02-15T00:00:00Z'}];epoch=1;seq.length=0;
+  const s=await w.wake();
+  expect(seq.slice(0,3)).toEqual(['context','clear','reconcile']);
+  expect(s.epoch).toBe(1);expect(s.restoredAt).toBe(NOW);
+  expect(a.set.get(REMINDER_DUE_ALARM).when).toBe(Date.parse('2027-02-15T00:00:00Z'));
+  seq.length=0;await w.wake();expect(seq.slice(0,2)).toEqual(['context','reconcile']);
+});
