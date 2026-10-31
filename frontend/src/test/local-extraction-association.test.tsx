@@ -282,8 +282,8 @@ describe("LocalExtraction state belongs to one association (#71)", () => {
         await waitFor(() => expect(mock.extract).toHaveBeenCalledOnce());
         signal = () => mock.extract.mock.calls[0]![1];
       } else {
-        // Waits for the extraction result to render.
         fireEvent.click(screen.getByText("Extract text"));
+        // Waits for the extraction result to render.
         await screen.findByText(TEXT);
         if (work === "detection") {
           mock.detect.mockImplementationOnce(hold);
@@ -292,10 +292,11 @@ describe("LocalExtraction state belongs to one association (#71)", () => {
           await waitFor(() => expect(mock.detect).toHaveBeenCalledOnce());
           signal = () => mock.detect.mock.calls[0]![1];
         } else if (work === "routing") {
-          // Waits for detection, then for date interpretation, so routing is enabled.
           fireEvent.click(screen.getByText("Find assessments"));
+          // Waits for detection to show the mentions.
           await screen.findByText("Possible assessments · unconfirmed");
           fireEvent.click(screen.getByText("Interpret explicit dates"));
+          // Waits for date interpretation to finish, which enables routing.
           await screen.findByText(/Date proposals are ready for inspection/);
           mock.route.mockImplementationOnce(hold);
           fireEvent.click(screen.getByText("Retain evidence and route proposals"));
@@ -337,8 +338,8 @@ describe("LocalExtraction state belongs to one association (#71)", () => {
   it("keeps context edits made right after the fieldset appears and across same-association re-renders, and interprets with them", async () => {
     const first = vi.fn(async () => true);
     const { rerender } = setup({ document: A, teachingCalendar: calendar, commitRoute: first });
-    // Waits for the extraction result to render.
     fireEvent.click(screen.getByText("Extract text"));
+    // Waits for the extraction result to render.
     await screen.findByText(TEXT);
     fireEvent.click(screen.getByText("Find assessments"));
     // Waits for detection to show the context fieldset; the edits below follow it immediately.
@@ -396,6 +397,89 @@ describe("LocalExtraction state belongs to one association (#71)", () => {
     rerender({ document: A });
     expect(firstRenders.at(-1)).toEqual(nothingCarried);
     expect(seen()).toEqual(nothingCarried);
+  });
+
+  it.each([
+    ["a new document", [{ ...A, digest: "re-imported" }]],
+    ["A -> B -> A", [{ ...A, digest: "re-imported" }, A]],
+  ])(
+    "re-extracting and re-detecting %s shows empty context fields and fresh mentions",
+    async (_case, switches) => {
+      const { rerender } = setup({ document: A });
+      await fillEverything();
+      fireEvent.click(screen.getByText("Задание 1 · assignment · Unconfirmed"));
+      expect(screen.getByText('{"kind":"date","date":"2026-10-29"}')).toBeInTheDocument();
+      for (const document of switches) rerender({ document });
+      fireEvent.click(screen.getByText("Extract text"));
+      // Waits for the new document's extraction result.
+      await screen.findByText(TEXT);
+      fireEvent.click(screen.getByText("Find assessments"));
+      // Waits for the new document's detection to show the context fieldset.
+      await screen.findByText("Explicit document context (optional)");
+      expect(contextValues()).toEqual(["", "", "", ""]);
+      expect(screen.getAllByText("Задание 1 · assignment · Unconfirmed")).toHaveLength(1);
+      expect(screen.queryByText(/Date proposals are ready for inspection/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Original date expression/)).not.toBeInTheDocument();
+      // Interpreting on the new document uses no context carried from the old one.
+      mock.parse.mockClear();
+      fireEvent.click(screen.getByText("Interpret explicit dates"));
+      // Waits for date interpretation on the new document to finish.
+      await screen.findByText(/Date proposals are ready for inspection/);
+      expect(mock.parse).toHaveBeenCalledWith(expect.anything(), {
+        dateOrder: undefined,
+        timezone: undefined,
+        semester: undefined,
+      });
+      expect(screen.getByText(/Missing year; no explicit semester/)).toBeInTheDocument();
+    },
+  );
+
+  it("labels a new document's extraction as an extraction after a switch made mid-routing", async () => {
+    let resolve!: (value: unknown) => void;
+    const commit = vi.fn(async (run: () => Promise<unknown>) => {
+      try {
+        await run();
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    const { rerender } = setup({ document: A, commitRoute: commit });
+    fireEvent.click(screen.getByText("Extract text"));
+    // Waits for the extraction result to render.
+    await screen.findByText(TEXT);
+    fireEvent.click(screen.getByText("Find assessments"));
+    // Waits for detection to show the mentions.
+    await screen.findByText("Possible assessments · unconfirmed");
+    fireEvent.click(screen.getByText("Interpret explicit dates"));
+    // Waits for date interpretation to finish, which enables routing.
+    await screen.findByText(/Date proposals are ready for inspection/);
+    mock.route.mockImplementationOnce(() => new Promise(() => {}));
+    fireEvent.click(screen.getByText("Retain evidence and route proposals"));
+    // Waits for the never-settling route to start.
+    await waitFor(() => expect(mock.route).toHaveBeenCalledOnce());
+    expect(screen.getByText("Cancel routing")).toBeInTheDocument();
+    rerender({ document: { ...A, digest: "re-imported" }, commitRoute: commit });
+    mock.extract.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    fireEvent.click(screen.getByText("Extract text"));
+    // Waits for the new document's held extraction to start.
+    await waitFor(() => expect(mock.extract).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Cancel extraction")).toBeInTheDocument();
+    expect(screen.queryByText("Cancel routing")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Cancel extraction"));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Extraction cancelled. No complete result was saved.",
+    );
+    // Settles the cancelled extraction; nothing may render.
+    await act(async () => {
+      resolve(pages);
+    });
+    expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
   });
 
   it("aborts in-flight work and revokes the preview URL on unmount", async () => {
