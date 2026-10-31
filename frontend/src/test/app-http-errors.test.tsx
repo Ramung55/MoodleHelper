@@ -45,7 +45,7 @@ afterEach(cleanup);
 describe("HTTP-backed UI failures", () => {
   it("displays the storage 503 envelope and retains the last successful dashboard data", async () => {
     const message = "Database is locked. Stop other writers and retry. No save was confirmed.";
-    const http = new HttpAdapter("", async () => new Response(JSON.stringify({ message }), { status: 503, headers: { "Content-Type": "application/json" } }));
+    const http = new HttpAdapter("", async (url) => new Response(JSON.stringify(String(url).endsWith("/api/bridge-context") ? { version: "1", binding: "b-test" } : { message }), { status: String(url).endsWith("/api/bridge-context") ? 200 : 503, headers: { "Content-Type": "application/json" } }));
     mocks.adapter.updateSettings.mockImplementationOnce(() => http.updateSettings({ semesterWeeks: 17 }));
     render(<AppProvider><Probe /></AppProvider>);
     await screen.findByText("Tracked courses");

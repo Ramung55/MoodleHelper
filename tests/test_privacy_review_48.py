@@ -54,7 +54,7 @@ BOUND_PREFIXES = ('/api/ai/', '/api/backups/restore', '/api/local-data/erase', '
 
 
 def test_bound_writes_reject_missing_binding_before_work():
-    with TestClient(create_app(InMemoryStore())) as client:
+    with TestClient(create_app(InMemoryStore()), bind_writes=False) as client:
         checked = 0
         for method, path, concrete in _ops(client):
             if method == 'GET' or not path.startswith(BOUND_PREFIXES):
@@ -69,9 +69,11 @@ def test_no_cors_grant_to_foreign_origin():
     with TestClient(create_app(InMemoryStore())) as client:
         for path in ['/api/snapshot', '/api/bridge-context']:
             assert 'access-control-allow-origin' not in client.get(path, headers={'origin': 'https://evil.example'}).headers
-        preflight = client.options('/api/ai/extract', headers={'origin': 'https://evil.example',
-                                                                 'access-control-request-method': 'POST'})
-        assert 'access-control-allow-origin' not in preflight.headers
+        for path in ['/api/ai/extract', '/api/demo/reset', '/api/sync']:
+            preflight = client.options(path, headers={'origin': 'https://evil.example',
+                                                      'access-control-request-method': 'POST',
+                                                      'access-control-request-headers': 'x-moodle-helper-bridge-binding'})
+            assert 'access-control-allow-origin' not in preflight.headers, path
 
 
 def test_ai_provider_inactive_by_default():
@@ -80,10 +82,33 @@ def test_ai_provider_inactive_by_default():
         assert body['available'] is False
 
 
-@pytest.mark.xfail(strict=True, reason='#48 finding F1: unbound CORS-simple POST /api/demo/reset replaces local data')
 def test_finding_f1_demo_reset_rejects_cross_site_simple_post():
-    with TestClient(create_app(InMemoryStore())) as client:
-        assert client.post('/api/demo/reset', headers=EVIL).status_code in (403, 409)
+    # Fixed by #62: the reproduction is rejected and nothing changes.
+    with TestClient(create_app(InMemoryStore()), bind_writes=False) as client:
+        before = client.get('/api/snapshot').json()
+        assert client.post('/api/demo/reset', headers=EVIL).status_code == 409
+        assert client.get('/api/snapshot').json() == before
+
+
+# #62: no non-GET operation is exempt. Any future exemption must be listed here
+# with a comment proving the route never writes.
+UNBOUND_WRITE_ALLOWLIST: frozenset[tuple[str, str]] = frozenset()
+
+
+def test_every_non_get_operation_rejects_unbound_cross_site_simple_request():
+    with TestClient(create_app(InMemoryStore()), bind_writes=False) as client:
+        before = client.get('/api/snapshot').json()
+        checked = 0
+        for method, path, concrete in _ops(client):
+            if method in ('GET', 'HEAD') or (method, path) in UNBOUND_WRITE_ALLOWLIST:
+                continue
+            for body in (b'', b'{}', b'plain text'):
+                response = client.request(method, concrete, content=body, headers=EVIL)
+                assert response.status_code == 409, (method, path, body, response.status_code)
+                assert set(response.json()) == {'message'}
+            checked += 1
+        assert checked >= 40
+        assert client.get('/api/snapshot').json() == before
 
 
 @pytest.mark.xfail(strict=True, reason='#48 finding F2: no Host validation, DNS-rebinding reads possible')

@@ -348,12 +348,21 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
     expect(direct).toEqual(before);
     await client.connect();
     expect(await client.load()).toEqual(before);
+    // #62: an unbound legacy write is rejected before any work; a bound one still works.
     const legacy = await fetch(isolatedBackend + "/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ semesterWeeks: 18 }),
     });
-    expect(legacy.ok).toBe(true);
+    expect(legacy.status).toBe(409);
+    expect(await client.load()).toEqual(before);
+    const binding = (await (await fetch(isolatedBackend + "/api/bridge-context")).json()).binding;
+    const bound = await fetch(isolatedBackend + "/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-Moodle-Helper-Bridge-Binding": binding },
+      body: JSON.stringify({ semesterWeeks: 18 }),
+    });
+    expect(bound.ok).toBe(true);
     expect((await client.load()).settings.semesterWeeks).toBe(18);
   }, 30000);
   it("revoked grant rejects without fetch; reload loses sessions and never replays a mutation", async () => {

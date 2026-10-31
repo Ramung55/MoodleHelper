@@ -15,7 +15,7 @@ def service(request: Request) -> BackendService:
 Service = Annotated[BackendService, Depends(service)]
 
 
-def bridge_header(binding: Annotated[str, Header(alias="X-Moodle-Helper-Bridge-Binding", description="Optional process binding precondition. Absence preserves legacy clients; mismatch rejects before parsing or service work.")] = None):
+def bridge_header(binding: Annotated[str, Header(alias="X-Moodle-Helper-Bridge-Binding", description="Process binding from /api/bridge-context. Required on every non-GET request: absent or stale returns 409 before parsing or service work; optional on reads, where a mismatch also returns 409.")] = None):
     # Enforcement is middleware, before parsing; dependency documents the wire.
     pass
 
@@ -181,7 +181,7 @@ def import_document(body: s.ImportDocumentInput, api: Service):
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
-def review_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bridge-Binding', description='Optional for legacy/mock decisions; REQUIRED current process binding for registered local candidates.')] = None):
+def review_binding(binding: Annotated[str, Header(alias='X-Moodle-Helper-Bridge-Binding', description='Required current process binding from /api/bridge-context; absent or stale returns 409 before parsing.')] = None):
     pass
 
 

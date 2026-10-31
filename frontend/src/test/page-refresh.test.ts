@@ -36,7 +36,7 @@ async function start() {
   const until=Date.now()+20000;while(Date.now()<until){try{if((await fetch(base+'/docs')).ok){api=new HttpAdapter(base);return;}}catch{}if(server.exitCode!==null)break;await new Promise(r=>setTimeout(r,50));}throw Error(log);
 }
 async function stop(){if(server&&server.exitCode===null)await new Promise<void>(resolve=>{server.once('exit',()=>resolve());server.kill();});}
-async function json(url:string,method='GET',body?:unknown){const r=await fetch(base+url,{method,headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json();}
+async function json(url:string,method='GET',body?:unknown){const binding=method==='GET'?{}:{'X-Moodle-Helper-Bridge-Binding':(await (await fetch(base+'/api/bridge-context')).json()).binding};const r=await fetch(base+url,{method,headers:{'Content-Type':'application/json',...binding},...(body===undefined?{}:{body:JSON.stringify(body)})});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json();}
 beforeAll(async()=>{temporary=await mkdtemp(path.join(tmpdir(),'moodle-page-refresh-'));database=path.join(temporary,'synthetic-collection.sqlite3');await start();seed=await json('/api/snapshot');seed.courses[0]!.discovery={sourceCourseId:'101',sourceUrl:origin+'/course/view.php?id=101',title:{kind:'known',value:'Synthetic course'},termIndicators:{kind:'unknown'},currentTermStatus:'unknown'};seed.settings.trackedCourseIds=[seed.courses[0]!.id];},25000);
 afterAll(async()=>{await stop();if(temporary)await rm(temporary,{recursive:true,force:true});});
 beforeEach(async()=>{await json('/api/snapshot','PUT',seed);});

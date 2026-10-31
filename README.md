@@ -59,7 +59,20 @@ document imports and material downloads use the wrappers from `openapi.yaml`.
 | POST | `/api/demo/reset` | Restores fresh fictional sample data |
 | GET | `/api/ai/availability` | Reports unavailable AI with a reason |
 
-For example, create an event with JSON:
+Every non-GET request (POST, PUT, PATCH, DELETE) must send the current process
+binding in `X-Moodle-Helper-Bridge-Binding`, read from `GET /api/bridge-context`.
+An absent or stale binding returns 409 `{"message":"Backend context changed. Reconnect."}`
+before the body is read or anything is stored; the binding changes on every backend
+restart. Cross-site pages cannot set this header, so they cannot change data. Swagger
+`/docs` still loads, but "Try it out" on a write (for example `POST /api/demo/reset`)
+returns 409 unless you fill in the header parameter. For example:
+
+```sh
+BINDING=$(curl -s http://127.0.0.1:8000/api/bridge-context | python -c "import sys,json;print(json.load(sys.stdin)['binding'])")
+curl -X POST -H "X-Moodle-Helper-Bridge-Binding: $BINDING" http://127.0.0.1:8000/api/demo/reset
+```
+
+Create an event with JSON (and the same header):
 
 ```json
 {"courseId":"c-csc","title":"Study group","type":"other","date":{"kind":"week","week":8}}

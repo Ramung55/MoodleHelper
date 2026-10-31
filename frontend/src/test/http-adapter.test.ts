@@ -7,15 +7,18 @@ const snapshot = buildDemoSnapshot();
 const connection = { state: "demo", extensionDetected: false, message: "Local fictional backend" };
 const input = { courseId: "c-csc", title: "Study", type: "other" as const, date: { kind: "week" as const, week: 8 } };
 const fetcher = vi.fn<typeof fetch>();
-const api = new HttpAdapter("http://127.0.0.1:8000/", fetcher);
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+/** #62: answers /api/bridge-context outside `fetcher`, so call indices below count only the operation requests. */
+const bridgeContexts = vi.fn(async () => response({ version: "1", binding: "b-test" }));
+const bridged: typeof fetch = (url, init) => String(url).endsWith("/api/bridge-context") ? bridgeContexts() : fetcher(url, init);
+const api = new HttpAdapter("http://127.0.0.1:8000/", bridged);
 
-beforeEach(() => fetcher.mockReset());
+beforeEach(() => { fetcher.mockReset(); bridgeContexts.mockClear(); });
 const context = { datasetId: "12345678-1234-4123-8123-123456789abc", epoch: 3, revision: 7, lifecycle: "active" };
 
 describe("#56 data-lifecycle epoch", () => {
   it("reads the epoch before the Snapshot and attaches it to writes, never to reads", async () => {
-    const adapter = new HttpAdapter("", fetcher);
+    const adapter = new HttpAdapter("", bridged);
     fetcher.mockResolvedValueOnce(response(context)).mockResolvedValueOnce(response(snapshot)).mockResolvedValueOnce(response(snapshot)).mockResolvedValueOnce(response(connection));
     expect(await adapter.load()).toEqual(snapshot);
     expect(fetcher.mock.calls.map(([url]) => url)).toEqual(["/api/data-context", "/api/snapshot"]);
@@ -25,7 +28,7 @@ describe("#56 data-lifecycle epoch", () => {
     expect((fetcher.mock.calls[3]![1]!.headers as Record<string, string>)["X-Moodle-Helper-Data-Epoch"]).toBeUndefined();
   });
   it("keeps legacy behaviour (no header) when the context is unavailable", async () => {
-    const adapter = new HttpAdapter("", fetcher);
+    const adapter = new HttpAdapter("", bridged);
     fetcher.mockResolvedValueOnce(response({ message: "x" }, 404)).mockResolvedValueOnce(response(snapshot)).mockResolvedValueOnce(response(snapshot));
     await adapter.load(); await adapter.updateSettings({ semesterWeeks: 9 });
     expect((fetcher.mock.calls[2]![1]!.headers as Record<string, string>)["X-Moodle-Helper-Data-Epoch"]).toBeUndefined();
@@ -35,14 +38,14 @@ describe("#56 data-lifecycle epoch", () => {
     const cleanup = { backend: "complete", dashboard: "pending", extension: "pending" };
     const request = { idempotencyKey: "erase-key-1", expectedDatasetId: context.datasetId, expectedEpoch: 3, expectedRevision: 7 };
     fetcher.mockResolvedValueOnce(response({ version: "1", binding: "b1" })).mockResolvedValueOnce(response({ eraseId: "e".repeat(32), datasetId: context.datasetId, epoch: 4, revision: 8, snapshot, cleanup }))
-      .mockResolvedValueOnce(response(snapshot));
+      .mockResolvedValueOnce(response({ version: "1", binding: "b1" })).mockResolvedValueOnce(response(snapshot));
     expect((await adapter.eraseLocalData(request)).epoch).toBe(4);
     const [url, init] = fetcher.mock.calls[1]!;
     expect(url).toBe("/api/local-data/erase");
     expect(JSON.parse(String(init!.body))).toEqual(request);
     expect((init!.headers as Record<string, string>)["X-Moodle-Helper-Bridge-Binding"]).toBe("b1");
     await adapter.updateSettings({ semesterWeeks: 9 });
-    expect((fetcher.mock.calls[2]![1]!.headers as Record<string, string>)["X-Moodle-Helper-Data-Epoch"]).toBe("4");
+    expect((fetcher.mock.calls[3]![1]!.headers as Record<string, string>)["X-Moodle-Helper-Data-Epoch"]).toBe("4");
     fetcher.mockResolvedValueOnce(response({ version: "1", binding: "b1" })).mockRejectedValueOnce(new TypeError("Failed to fetch"));
     await expect(adapter.eraseLocalData(request)).rejects.toMatchObject({ name: "EraseOutcomeUnknown" });
   });
@@ -76,6 +79,7 @@ describe("HTTP request mappings", () => {
     expect(init?.method).toBe(method);
     expect(init?.credentials).toBe("omit");
     expect(init?.body).toBe(body === undefined ? undefined : JSON.stringify(body));
+    expect((init?.headers as Record<string, string>)["X-Moodle-Helper-Bridge-Binding"]).toBe(method === "GET" ? undefined : "b-test");
   });
 
   it("defaults to HTTP without a localStorage fallback", () => {
@@ -101,6 +105,46 @@ describe("HTTP request mappings", () => {
     fetcher.mockResolvedValue(response(snapshot));
     await api.updateOverlay("a1", { hidden: true });
     expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string)).toEqual({ hidden: true });
+  });
+});
+
+describe("#62 process binding on writes", () => {
+  const header = (call: number) => (fetcher.mock.calls[call]![1]!.headers as Record<string, string>)["X-Moodle-Helper-Bridge-Binding"];
+  const stale = () => response({ message: "Backend context changed. Reconnect." }, 409);
+
+  it("resetDemo and sync fetch /api/bridge-context and send the binding", async () => {
+    const adapter = new HttpAdapter("", bridged);
+    fetcher.mockResolvedValueOnce(response(snapshot)).mockResolvedValueOnce(response(snapshot));
+    await adapter.resetDemo();
+    await adapter.syncAll(() => {});
+    expect(fetcher.mock.calls.map(([url, init]) => `${init?.method} ${url}`)).toEqual(["POST /api/demo/reset", "POST /api/sync"]);
+    expect([header(0), header(1)]).toEqual(["b-test", "b-test"]);
+    expect(bridgeContexts).toHaveBeenCalledOnce();
+  });
+
+  it("refetches a rotated binding once and retries, never looping", async () => {
+    const adapter = new HttpAdapter("", bridged);
+    fetcher.mockResolvedValueOnce(response(snapshot));
+    await adapter.resetDemo();
+    bridgeContexts.mockResolvedValueOnce(response({ version: "1", binding: "b-rotated" }));
+    fetcher.mockResolvedValueOnce(stale()).mockResolvedValueOnce(response(snapshot));
+    expect(await adapter.resetDemo()).toEqual(snapshot);
+    expect([header(1), header(2)]).toEqual(["b-test", "b-rotated"]);
+    fetcher.mockResolvedValueOnce(stale()).mockResolvedValueOnce(stale()).mockResolvedValueOnce(response(snapshot));
+    await expect(adapter.syncAll(() => {})).rejects.toMatchObject({ status: 409 });
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(bridgeContexts).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry other 409 conflicts and never writes without a verified binding", async () => {
+    const adapter = new HttpAdapter("", bridged);
+    fetcher.mockResolvedValueOnce(response({ message: "Data was erased. Reload." }, 409));
+    await expect(adapter.resetDemo()).rejects.toThrow("Data was erased");
+    expect(fetcher).toHaveBeenCalledOnce();
+    const unverified = new HttpAdapter("", fetcher);
+    fetcher.mockResolvedValueOnce(response({ message: "nope" }, 404));
+    await expect(unverified.resetDemo()).rejects.toThrow("Could not verify the local process");
+    expect(fetcher.mock.calls.at(-1)![0]).toBe("/api/bridge-context");
   });
 });
 

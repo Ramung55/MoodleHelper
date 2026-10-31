@@ -3,6 +3,9 @@ import { z } from "zod";
 import { ConnectionState, ReminderPlan, Snapshot, TeachingCalendar, LocalReviewContext, LocalSyllabusDate, SyllabusRevisionPreview, LocalSyllabusInput, LocalSyllabusResult, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
 import { RestoreOutcomeUnknown, EraseOutcomeUnknown, type EraseRequest, type MoodleHelperAdapter, type OverlayPatch, type PersonalEventInput, type ReviewDecision, type RestoreRequest } from "./adapter";
 
+const BINDING_HEADER = "X-Moodle-Helper-Bridge-Binding";
+/** Exact backend message for an absent or stale binding (backend/main.py); only this 409 is retried. */
+const STALE_BINDING = "Backend context changed. Reconnect.";
 const connectionSchema = z.object({ state: ConnectionState, message: z.string(), extensionDetected: z.boolean() });
 const importSchema = z.object({ snapshot: Snapshot, result: z.union([
   z.object({ ok: z.literal(true) }), z.object({ ok: z.literal(false), reason: z.string() }),
@@ -37,26 +40,48 @@ export class HttpAdapter implements MoodleHelperAdapter {
     return this.epoch === undefined ? {} : { "X-Moodle-Helper-Data-Epoch": String(this.epoch) };
   }
 
+  /** #62: every write carries the current process binding, fetched once and cached. */
+  private writeBinding: string | undefined;
+
+  private async currentBinding(refresh: boolean): Promise<string> {
+    if (this.writeBinding !== undefined && !refresh) return this.writeBinding;
+    this.writeBinding = undefined;
+    let context: Response;
+    try { context = await this.fetcher(`${this.baseUrl.replace(/\/$/, "")}/api/bridge-context`, { credentials: "omit", cache: "no-store" }); }
+    catch { throw new Error("Could not reach the local backend. Check that FastAPI and the frontend API proxy are running, then try again."); }
+    const parsed = context.ok ? z.object({ version: z.literal("1"), binding: z.string().min(1) }).strict().safeParse(await context.json().catch(() => null)) : undefined;
+    if (!parsed?.success) throw new BackendResponseError("Could not verify the local process. Nothing was changed; reconnect and retry.", context.status || 0);
+    this.writeBinding = parsed.data.binding;
+    return this.writeBinding;
+  }
+
   private async request<S extends z.ZodTypeAny>(method: string, path: string, schema: S, body?: unknown): Promise<z.output<S>> {
-    let response: Response;
-    try {
-      response = await this.fetcher(`${this.baseUrl.replace(/\/$/, "")}/api${path}`, {
-        method, credentials: "omit",
-        headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...(method === "GET" ? {} : this.epochHeader()) },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-    } catch {
-      throw new Error("Could not reach the local backend. Check that FastAPI and the frontend API proxy are running, then try again.");
-    }
+    const write = method !== "GET";
+    let response: Response | undefined;
     let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new Error(response.ok ? "The backend returned an invalid JSON response." : `Backend request failed (HTTP ${response.status}).`);
+    // A stale binding (backend restarted) is rejected before any work, so one refetch-and-retry is safe; never loops.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const binding = write ? await this.currentBinding(attempt > 0) : undefined;
+      try {
+        response = await this.fetcher(`${this.baseUrl.replace(/\/$/, "")}/api${path}`, {
+          method, credentials: "omit",
+          headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...(write ? { ...this.epochHeader(), [BINDING_HEADER]: binding! } : {}) },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+      } catch {
+        throw new Error("Could not reach the local backend. Check that FastAPI and the frontend API proxy are running, then try again.");
+      }
+      try {
+        payload = await response.json();
+      } catch {
+        throw new Error(response.ok ? "The backend returned an invalid JSON response." : `Backend request failed (HTTP ${response.status}).`);
+      }
+      const staleBinding = write && response.status === 409 && z.object({ message: z.literal(STALE_BINDING) }).safeParse(payload).success;
+      if (!staleBinding) break;
     }
-    if (!response.ok) {
+    if (!response!.ok) {
       const error = z.object({ message: z.string() }).safeParse(payload);
-      throw new BackendResponseError(error.success ? error.data.message : `Backend request failed (HTTP ${response.status}).`, response.status);
+      throw new BackendResponseError(error.success ? error.data.message : `Backend request failed (HTTP ${response!.status}).`, response!.status);
     }
     const parsed = schema.safeParse(payload);
     if (!parsed.success) throw new Error(`The backend returned an invalid response (${parsed.error.issues[0]?.path.join(".") || "response"}).`);

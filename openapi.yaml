@@ -549,7 +549,7 @@ paths:
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: false
-        description: Optional for legacy/mock decisions; REQUIRED current process binding for registered local candidates.
+        description: Required current process binding from /api/bridge-context; absent or stale returns 409 before parsing.
         schema: {type: string}
       requestBody:
         required: true
@@ -2146,11 +2146,9 @@ paths:
         required: false
         schema:
           type: string
-          description: Optional process binding precondition. Absence preserves legacy clients; mismatch
-            rejects before parsing or service work.
+          description: Process binding from /api/bridge-context. Required on every non-GET request (absent or stale returns 409 before parsing or service work); optional on reads.
           title: X-Moodle-Helper-Bridge-Binding
-        description: Optional process binding precondition. Absence preserves legacy clients; mismatch rejects
-          before parsing or service work.
+        description: Process binding from /api/bridge-context. Required on every non-GET request (absent or stale returns 409 before parsing or service work); optional on reads.
       requestBody:
         required: true
         content:
@@ -7025,7 +7023,6 @@ components:
       name: X-Moodle-Helper-Bridge-Binding
       in: header
       required: false
-      description: Optional process binding precondition. Absence preserves legacy
-        clients; mismatch rejects before parsing or service work.
+      description: Process binding from /api/bridge-context. Required on every non-GET request (absent or stale returns 409 before parsing or service work); optional on reads.
       schema:
         type: string

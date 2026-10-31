@@ -158,6 +158,11 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
             return await call_next(request)
         if (collection_write or queue_write or local_syllabus_write or local_review_write) and binding != getattr(app.state, 'bridge_binding', None):
             return JSONResponse(status_code=409, content={'message':'Collection context changed. Reconnect.'})
+        if (request.url.path.startswith('/api/') and request.method not in ['GET', 'HEAD', 'OPTIONS']
+                and binding != getattr(app.state, 'bridge_binding', None)):
+            # #62: every write needs the current binding, before body parsing or store work, so
+            # cross-site CORS-simple posts (no custom header possible) can never change data.
+            return JSONResponse(status_code=409, content={'message': 'Backend context changed. Reconnect.'})
         if request.url.path.startswith(('/api/collection', '/api/queue/', '/api/scan/', '/api/reminders/', '/api/material-downloads')) or local_syllabus_write or local_review_write:
             chunks = []
             size = 0

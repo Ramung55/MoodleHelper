@@ -47,7 +47,7 @@ it('shares one SQLite request authority across workers using different data data
       const snapshot=await (await fetch(endpoint+'/api/snapshot')).json();
       snapshot.courses[0].discovery={sourceCourseId:'101',sourceUrl:'https://moodle.sdu.edu.kz/course/view.php?id=101',title:{kind:'known',value:'Synthetic course'},termIndicators:{kind:'unknown'},currentTermStatus:'unknown'};
       snapshot.settings.trackedCourseIds=[snapshot.courses[0].id];
-      expect((await fetch(endpoint+'/api/snapshot',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(snapshot)})).ok).toBe(true);
+      expect((await fetch(endpoint+'/api/snapshot',{method:'PUT',headers:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':(await (await fetch(endpoint+'/api/bridge-context')).json()).binding},body:JSON.stringify(snapshot)})).ok).toBe(true);
     }
     const call=async(...args:string[])=>JSON.parse((await promisify(execFile)(python,['-m','tests.synthetic_authority_cli',...args],{cwd:root,windowsHide:true})).stdout);
     const file=path.join(dir,'shared-authority.sqlite3'),marker=await call('provision',file);
@@ -86,7 +86,7 @@ it('wakes the synthetic worker through HTTP and commits actual assignment parser
   const snapshot=await (await fetch(base+'/api/snapshot')).json();
   snapshot.courses[0].discovery={sourceCourseId:'101',sourceUrl:'https://moodle.sdu.edu.kz/course/view.php?id=101',title:{kind:'known',value:'Synthetic course'},termIndicators:{kind:'unknown'},currentTermStatus:'unknown'};
   snapshot.settings.trackedCourseIds=[snapshot.courses[0].id];
-  expect((await fetch(base+'/api/snapshot',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(snapshot)})).ok).toBe(true);
+  expect((await fetch(base+'/api/snapshot',{method:'PUT',headers:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':(await (await fetch(base+'/api/bridge-context')).json()).binding},body:JSON.stringify(snapshot)})).ok).toBe(true);
   const course='https://moodle.sdu.edu.kz/course/view.php?id=101', activity='https://moodle.sdu.edu.kz/mod/assign/view.php?id=303', calendar='https://moodle.sdu.edu.kz/calendar/view.php';
   const account='<nav aria-label="Account"><a href="/login/logout.php">Sign out</a></nav>';
   const html=`${account}<main data-region="course-content"><h1>Course</h1><a data-role="course-link" href="/course/view.php?id=101">Course</a><section data-region="course-section"><h2>Week 1</h2><article data-region="material" data-module-type="resource" data-course-module-id="201" data-file-type="pdf"><a data-role="material-link" href="/mod/resource/view.php?id=201">Synthetic lecture</a><a data-role="destination" href="/pluginfile.php/700/mod_resource/content/1/lecture.pdf" type="application/pdf">Open</a></article></section></main>`;
@@ -156,7 +156,7 @@ it('aborts on changed selection before any later request or merge',async()=>{
   const h={'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':binding};
   const run=await (await fetch(base+'/api/scan/runs',{method:'POST',headers:h,body:JSON.stringify({idempotencyKey:'selection-change'})})).json();
   const work=worker.wake();await started;
-  expect((await fetch(base+'/api/tracked-courses',{method:'PUT',headers:{'Content-Type':'application/json'},body:'[]'})).status).toBe(200);
+  expect((await fetch(base+'/api/tracked-courses',{method:'PUT',headers:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':(await (await fetch(base+'/api/bridge-context')).json()).binding},body:'[]'})).status).toBe(200);
   await stopped;await work;
   const after=await (await fetch(base+'/api/snapshot')).json();
   expect(after.settings.trackedCourseIds).toEqual([]);expect(after.collection).toEqual(snapshot.collection);

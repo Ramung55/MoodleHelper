@@ -29,7 +29,7 @@ it('recovers a pre-commit worker interruption and does not repeat a committed sc
     const snapshot=await (await fetch(base+'/api/snapshot')).json();
     snapshot.courses[0].discovery={sourceCourseId:'101',sourceUrl:'https://moodle.sdu.edu.kz/course/view.php?id=101',title:{kind:'known',value:'Synthetic course'},termIndicators:{kind:'unknown'},currentTermStatus:'unknown'};
     snapshot.settings.trackedCourseIds=[snapshot.courses[0].id];
-    await fetch(base+'/api/snapshot',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(snapshot)});
+    await fetch(base+'/api/snapshot',{method:'PUT',headers:{'Content-Type':'application/json','X-Moodle-Helper-Bridge-Binding':(await (await fetch(base+'/api/bridge-context')).json()).binding},body:JSON.stringify(snapshot)});
     let entered!:()=>void;const started=new Promise<void>(r=>entered=r);let active=false,now=10000,last=-1000;
     const authority={async acquire(at:number){if(active||at<last+1000)return null;active=true;last=at;return 'owner';},async releaseAfterTermination(){active=false;return true;}};
     const stalled={start(_url:string){entered();let reject!:(e:Error)=>void,ack!:(v:boolean)=>void;
