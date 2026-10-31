@@ -20,3 +20,4 @@ frontend/public/ocr/7.0.0/
 browser-workspace/e2e/.artifacts/
 browser-workspace/e2e/.run/
 frontend/.playwright-browsers/
+pilot-package/
