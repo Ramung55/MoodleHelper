@@ -82,3 +82,43 @@ date precision/calendar/offset/zone errors and private-safe diagnostics. Report
 these as candidate checks, never supported-variant acceptance or overall QA PASS.
 Use approved Vitest/jsdom/Intl only, no dependency installation, live fetch,
 Chrome/manual gate invention, Moodle writes, UI, storage or external service.
+
+## Implementation for the verified variant (2026-11-01)
+
+#3 now verifies one quiz variant (matrix rows 4 and 7: English UI, theme
+`alpha`, quiz view page with a finished attempt, and the course-page quiz
+card). #4 supplies observed-structure fixtures for it. The collector is
+`extension/src/moodle-quizzes.ts`, tested in
+`frontend/src/test/moodle-quizzes.test.ts`.
+
+- **Registry.** `SUPPORTED_QUIZ_VARIANTS` lists only
+  `sdu-en-alpha/quiz-finished-no-attempts-left` (quiz view) and
+  `sdu-en-alpha/course-page-format-topics` (course card), the #4 manifest
+  source variants. Other languages, other theme assets, the standard
+  `table.quizattemptsummary`, in-progress or multiple attempts, attempt
+  controls other than "No more attempts are allowed", and date labels other
+  than "Opened:" / "Closed:" give an explicit `unsupported` result.
+- **Dates.** Each row keeps its full wording, label, `meaning`
+  (`quiz_open` / `quiz_close`) and location. The #3 display format is read as
+  an exact time at the observed UTC+5 offset, zone `Asia/Almaty`. No "Closed:"
+  row gives `close: "open_ended"` and no closing observation.
+- **Attempts.** "Attempts allowed", "Time limit", the `rui-attempts-list`
+  Status / Started / Completed and "No more attempts are allowed" are kept as
+  wording with the wire field vocabulary (state, allowed, used, remaining,
+  other). Counts are never derived. Marks, grade, duration and the password
+  notice are not kept. No attempt markup gives explicit unknown.
+- **Identity.** Course id and cmid come from the observed body classes or the
+  `#module-<cmid>` card and its link; the source link is rebuilt from the cmid.
+  The quiz instance id is not observable on this variant, so
+  `sourceActivityId` is explicit unknown. The view-page title element was not
+  recorded by #3, so that title stays unknown; the course card title comes
+  from `.instancename`.
+- **Access.** The #10 gate's synthetic vocabulary does not match the observed
+  pages, so the collector classifies the observed envelope itself: final path
+  `/login/index.php` (HTTP 200) or 401 is `signed_out`, 403 is `denied`, the
+  observed 404 is `missing_source`, and missing or contradictory structure is
+  `incomplete`.
+- **Wire.** Output stays internal raw evidence. It is not dispatched by the
+  page-refresh registry, and no OpenAPI, Zod or Python change was made. The
+  existing `RawQuizObservation` wire DTO requires a quiz instance id, which this
+  variant does not show; mapping is left to #18/#20.
