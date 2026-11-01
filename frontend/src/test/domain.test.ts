@@ -74,7 +74,7 @@ describe("reconciliation", () => {
     const a = mk({});
     const v = viewAssessment(a, { assessmentId: "x", hidden: false, completed: false, dateOverride: { kind: "week", week: 3 }, overrideBase: { kind: "date", date: "2020-01-01" } }, S);
     expect(v.date).toEqual({ kind: "week", week: 3 });
-    expect(v.overrideDisagreement?.now).toEqual(a.sources[0].date);
+    expect(v.overrideDisagreement?.now).toEqual(a.sources[0]!.date);
   });
 });
 
@@ -94,15 +94,15 @@ describe("workload", () => {
   it("uses weights exam 3 / assignment 2 / quiz 1 and warns above 10 weighted", () => {
     const d = (type: Assessment["type"], i: number) => mk({ id: `i${i}`, type });
     const vs = [d("exam", 1), d("exam", 2), d("assignment", 3), d("assignment", 4), d("quiz", 5)].map((a) => viewAssessment(a, undefined, S));
-    const w1 = weeklyLoad(vs, S).weeks[0];
+    const w1 = weeklyLoad(vs, S).weeks[0]!;
     expect(w1.weighted).toBe(11);
     expect(w1.outstanding).toBe(5);
     expect(w1.overloaded).toBe(true);
   });
   it("warns at more than 5 outstanding but not at exactly 5", () => {
     const vs = (n: number) => Array.from({ length: n }, (_, i) => viewAssessment(mk({ id: `q${i}`, type: "quiz" }), undefined, S));
-    expect(weeklyLoad(vs(5), S).weeks[0].overloaded).toBe(false);
-    expect(weeklyLoad(vs(6), S).weeks[0].overloaded).toBe(true);
+    expect(weeklyLoad(vs(5), S).weeks[0]!.overloaded).toBe(false);
+    expect(weeklyLoad(vs(6), S).weeks[0]!.overloaded).toBe(true);
   });
   it("puts unknown dates in Unallocated", () => {
     const v = viewAssessment(mk({ sources: [{ source: "syllabus", date: { kind: "unknown" }, observedAt: t }] }), undefined, S);

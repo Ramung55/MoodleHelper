@@ -38,7 +38,7 @@ beforeEach(() => {
   state.adapter.load.mockImplementation(async () => structuredClone(saved));
   state.adapter.connection.mockResolvedValue({ state: "demo", message: "Invented fixture", extensionDetected: false });
   state.adapter.decideReconciliation.mockImplementation(async (_id, _fingerprint, _revision, kind) => {
-    saved.reconciliation!.pairs[0].status = kind === "confirm" ? "confirmed" : "rejected";
+    saved.reconciliation!.pairs[0]!.status = kind === "confirm" ? "confirmed" : "rejected";
     return structuredClone(saved);
   });
   state.adapter.proposeReconciliation.mockImplementation(async () => structuredClone(saved));
@@ -48,7 +48,7 @@ afterEach(cleanup);
 
 describe("match review controls with invented data", () => {
   it("shows the same latest evidence used for reconciliation, including microseconds and ties", async () => {
-    const moodle = saved.assessments[0];
+    const moodle = saved.assessments[0]!;
     moodle.sources = [
       { source: "moodle", date: { kind: "date", date: "2026-11-01" }, observedAt: "2026-10-27T10:00:00.123001Z" },
       { source: "moodle", date: { kind: "date", date: "2026-11-03" }, observedAt: "2026-10-27T10:00:00.123002Z" },
@@ -58,7 +58,7 @@ describe("match review controls with invented data", () => {
     expect(await screen.findByText(/Moodle: Invented Moodle assignment/, { selector: "p" })).toHaveTextContent("4 Nov");
   });
   it("orders far-future and legacy offset timestamps like the backend", async () => {
-    saved.assessments[0].sources = [
+    saved.assessments[0]!.sources = [
       { source: "moodle", date: { kind: "date", date: "2026-11-01" }, observedAt: "0001-01-01T00:00:00Z" },
       { source: "moodle", date: { kind: "date", date: "2026-11-03" }, observedAt: "9999-12-31T22:59:59.999998Z" },
       { source: "moodle", date: { kind: "date", date: "2026-11-04" }, observedAt: "99991231 235959.999999+0100" },

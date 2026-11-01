@@ -20,7 +20,7 @@ it("sends a bound request and parses unconfirmed proposals; rejects oversize bef
       new Response(JSON.stringify({ version: "ai-extract.v1", requestId: "r1", mode: "mock", policyVersion: "mock-policy-1", status: "ok",
         proposals: [{ title: "Mock candidate (quiz)", type: "quiz", date: { value: "2026-12-05", precision: "date" }, uncertain: false, confirmed: false, evidence: [{ excerptId: "ex-0", locationId: "loc-0", start: 16, end: 26 }] }] }))));
   const result = await requestAiExtract("http://127.0.0.1:8000", request, fetcher as unknown as typeof fetch);
-  expect(result.proposals[0].confirmed).toBe(false);
+  expect(result.proposals[0]!.confirmed).toBe(false);
   fetcher.mockClear();
   await expect(requestAiExtract("http://127.0.0.1:8000", { ...request, excerpts: [{ ...excerpt, text: "ж".repeat(1001) }] }, fetcher as unknown as typeof fetch)).rejects.toThrow("2000 bytes");
   expect(fetcher).not.toHaveBeenCalled();

@@ -20,16 +20,16 @@ describe("synthetic raw course discovery", () => {
   it.each([card("1", "", []), card("1", " \n ", [" "]), card("1").replace(/<span.*<\/span>/, "")])(
     "represents blank/absent title and term as unknown without link-text fallback", html => {
       const result = collectMoodleCourses([page(list(html))]);
-      expect(result.observations[0].title).toEqual({ kind: "unknown" });
-      expect(result.observations[0].termIndicators).toEqual({ kind: "unknown" });
-      expect(Object.keys(result.observations[0]).sort()).toEqual(["sourceCourseId", "sourceUrl", "termIndicators", "title"]);
+      expect(result.observations[0]!.title).toEqual({ kind: "unknown" });
+      expect(result.observations[0]!.termIndicators).toEqual({ kind: "unknown" });
+      expect(Object.keys(result.observations[0]!).sort()).toEqual(["sourceCourseId", "sourceUrl", "termIndicators", "title"]);
     },
   );
 
   it("deduplicates sections/pages by exact decimal identity and fills unknowns", () => {
     const result = collectMoodleCourses([page(list(`<section>${card("1", "", [])}</section><section>${card("1")}</section>${card("2")}`)), page(list(card("1") + card("9007199254740992") + card("9007199254740993")))]);
     expect(result.observations.map(item => item.sourceCourseId)).toEqual(["1", "2", "9007199254740992", "9007199254740993"]);
-    expect(result.observations[0].title).toEqual({ kind: "known", value: "Fictional course" });
+    expect(result.observations[0]!.title).toEqual({ kind: "known", value: "Fictional course" });
     expect(result.coverage).toBe("complete");
   });
 
@@ -38,8 +38,8 @@ describe("synthetic raw course discovery", () => {
     if (reverse) cards.reverse();
     const result = collectMoodleCourses([...cards, cards[0]].map(html => page(list(html))));
     expect(result.observations).toHaveLength(1);
-    expect(result.observations[0].title).toEqual({ kind: "unknown" });
-    expect(result.observations[0].termIndicators).toEqual({ kind: "unknown" });
+    expect(result.observations[0]!.title).toEqual({ kind: "unknown" });
+    expect(result.observations[0]!.termIndicators).toEqual({ kind: "unknown" });
     expect(result.diagnostics.map(d => d.reason)).toEqual(["title_conflict", "term_conflict"]);
     expect(result.coverage).toBe("partial");
     expect(result.pages.every(p => p.coverage === "partial")).toBe(true);
@@ -48,7 +48,7 @@ describe("synthetic raw course discovery", () => {
   it("normalizes term sets without creating conflicts from markup order", () => {
     const result = collectMoodleCourses([page(list(card("1", "A", ["Spring", "Fall", "Fall"]) + card("1", "A", ["Fall", "Spring"])))]);
     expect(result.coverage).toBe("complete");
-    expect(result.observations[0].termIndicators).toEqual({ kind: "known", value: ["Fall", "Spring"] });
+    expect(result.observations[0]!.termIndicators).toEqual({ kind: "known", value: ["Fall", "Spring"] });
   });
 
   it.each(["", "0", "01", "-1", "1.0", "1e3", "fiction-1", "１２", " 1", "Infinity"])("skips noncanonical identity %s", id => {
@@ -86,7 +86,7 @@ describe("synthetic raw course discovery", () => {
 
   it("resolves relative anchors using trusted final URL, ignoring malicious base", () => {
     const result = collectMoodleCourses([page('<base href="https://private.invalid/">' + list(card("1", "A", [], "view.php?id=1")), { finalUrl: `${origin}/course/index.php` })]);
-    expect(result.observations[0].sourceUrl).toBe(`${origin}/course/view.php?id=1`);
+    expect(result.observations[0]!.sourceUrl).toBe(`${origin}/course/view.php?id=1`);
     expect(result.coverage).toBe("complete");
     expect(collectMoodleCourses([page(list(card("1", "A", [], `${origin}:443/course/view.php?id=1`)))]).coverage).toBe("complete");
   });
@@ -101,7 +101,7 @@ describe("synthetic raw course discovery", () => {
   });
 
   it.each(["data-incomplete", "data-truncated"])("reports explicit incomplete marker %s", marker => {
-    expect(collectMoodleCourses([page(list(card(), marker))]).diagnostics[0].reason).toBe("incomplete_list");
+    expect(collectMoodleCourses([page(list(card(), marker))]).diagnostics[0]!.reason).toBe("incomplete_list");
   });
 
   it.each([
@@ -144,7 +144,7 @@ describe("synthetic raw course discovery", () => {
     const result = collectMoodleCourses([page(), failed]);
     expect(result.observations).toHaveLength(1);
     expect(result.coverage).toBe("partial");
-    expect(result.pages[1].coverage).toBe("none");
+    expect(result.pages[1]!.coverage).toBe("none");
     expect(collectMoodleCourses([failed]).coverage).toBe("none");
   });
 
@@ -163,9 +163,9 @@ describe("synthetic raw course discovery", () => {
     const html = input.document.documentElement.outerHTML;
     const batch = Object.freeze([input]);
     const result = collectMoodleCourses(batch);
-    result.observations[0].title = { kind: "known", value: "Changed output" };
+    result.observations[0]!.title = { kind: "known", value: "Changed output" };
     expect(input.document.documentElement.outerHTML).toBe(html);
-    expect(collectMoodleCourses(batch).observations[0].title).toEqual({ kind: "known", value: "Fictional course" });
+    expect(collectMoodleCourses(batch).observations[0]!.title).toEqual({ kind: "known", value: "Fictional course" });
     expect(JSON.stringify(saved)).toBe(snapshot);
     expect(network).not.toHaveBeenCalled();
     expect(storage).not.toHaveBeenCalled();

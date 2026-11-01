@@ -15,7 +15,7 @@ it("produces the documented fixed raw/outstanding/weighted totals without mutati
   const all = [...result.weeks.flatMap(week => week.items), ...result.unallocated];
   expect(all.filter(view => view.a.id === "h-merged")).toHaveLength(1);
   expect(all.some(view => /h-moodle|h-syllabus|j-hidden/.test(view.a.id))).toBe(false);
-  expect(result.weeks[2].items[0]).toMatchObject({ date: { kind: "week", week: 3 }, sourceDate: { kind: "week", week: 1 } });
+  expect(result.weeks[2]!.items[0]).toMatchObject({ date: { kind: "week", week: 3 }, sourceDate: { kind: "week", week: 1 } });
   expect(result.unallocated.every(view => !view.teachingMapping.resolved)).toBe(true);
   expect({ snap, views }).toEqual(before);
 });
@@ -36,7 +36,7 @@ it.each(["submitted", "draft", "not_submitted", "reopened", "unknown", undefined
 });
 it("recomputes input flags/dates and handles absent/invalid calendar and precision safely", () => {
   const { snap, views } = workloadFixture();
-  const stale = { ...views[0], week: 7, outstanding: false, hidden: true };
+  const stale = { ...views[0]!, week: 7, outstanding: false, hidden: true };
   expect(weeklyLoad([stale], snap.settings).weeks[0]).toMatchObject({ total: 1, outstanding: 1, weighted: 3 });
   for (const teachingCalendar of [undefined, { ...snap.settings.teachingCalendar!, endDate: "invalid" }]) {
     const result = weeklyLoad(views, { ...snap.settings, teachingCalendar }, snap);
@@ -50,12 +50,12 @@ it("recomputes input flags/dates and handles absent/invalid calendar and precisi
 it("deduplicates identical IDs, refuses conflicting IDs and never merges equal titles", () => {
   const { snap } = workloadFixture();
   const first = viewAssessment(assessment("same", "quiz", { kind: "week", week: 1 }), undefined, snap.settings);
-  expect(weeklyLoad([first, structuredClone(first)], snap.settings).weeks[0].total).toBe(1);
+  expect(weeklyLoad([first, structuredClone(first)], snap.settings).weeks[0]!.total).toBe(1);
   const other = viewAssessment({ ...first.a, id: "other" }, undefined, snap.settings);
-  expect(weeklyLoad([first, other], snap.settings).weeks[0].total).toBe(2);
+  expect(weeklyLoad([first, other], snap.settings).weeks[0]!.total).toBe(2);
   const conflict = viewAssessment({ ...first.a, type: "exam" }, undefined, snap.settings);
   for (const input of [[first, conflict], [conflict, first]]) expect(() => weeklyLoad(input, snap.settings)).toThrow("Conflicting records");
-  snap.reconciliation!.logicalAssessments.push({ ...snap.reconciliation!.logicalAssessments[0], type: "other" });
+  snap.reconciliation!.logicalAssessments.push({ ...snap.reconciliation!.logicalAssessments[0]!, type: "other" });
   expect(() => weeklyLoad([], snap.settings, snap)).toThrow("Conflicting canonical projection");
 });
 it("personal events use absent-source completion rules even if legacy data contains a submission field", () => {
@@ -72,7 +72,7 @@ it("recalculates fractions/zero and yields identical totals and ordering under p
   const { snap, views } = workloadFixture();
   snap.settings.weights = { exam: 0.1, assignment: 0.2, quiz: 0.3, other: 0 };
   const result = weeklyLoad(views, snap.settings, snap);
-  expect(result.weeks[0].weighted).toBeCloseTo(0.9);
+  expect(result.weeks[0]!.weighted).toBeCloseTo(0.9);
   for (const input of [[...views].reverse(), [...views.slice(6), ...views.slice(0, 6)], [...views].sort((a, b) => b.a.id.localeCompare(a.a.id))]) expect(weeklyLoad(input, snap.settings, snap)).toEqual(result);
   snap.settings.weights = { exam: 0, assignment: 0, quiz: 0, other: 0 };
   expect(weeklyLoad(views, snap.settings, snap).weeks[0]).toMatchObject({ total: 7, outstanding: 5, weighted: 0 });

@@ -81,7 +81,7 @@ it("shows a sanitized failure and retries only explicitly with the same request 
   fireEvent.click(screen.getByRole("button", { name: "Retry same request" }));
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("already processed"));
   expect(send).toHaveBeenCalledTimes(2);
-  expect(send.mock.calls[1][0].requestId).toBe(send.mock.calls[0][0].requestId);
+  expect(send.mock.calls[1]![0].requestId).toBe(send.mock.calls[0]![0].requestId);
   expect(screen.getByRole("button", { name: "Continue local review" })).toBeVisible();
 });
 
@@ -97,19 +97,19 @@ it("validates evidence against selected excerpts, forces AI review and never inv
   const [e0, e1] = preview.excerpts;
   const base = { title: "Quiz 1", type: "quiz", uncertain: false, confirmed: false };
   const result = await validateAiResponse(preview, ok(preview, [
-    { ...base, date: { value: "2026-12-05", precision: "date" }, evidence: [{ excerptId: "ex-0", locationId: e0.locationId, start: 10, end: 20 }] },
-    { ...base, date: { value: "2026-02-31", precision: "date" }, evidence: [{ excerptId: "ex-1", locationId: e1.locationId, start: 0, end: 4 }] },
-    { ...base, date: { precision: "none" }, uncertain: true, uncertaintyReason: "missing_year", evidence: [{ excerptId: "ex-1", locationId: e1.locationId, start: 0, end: 4 }] },
-    { ...base, date: { precision: "none" }, evidence: [{ excerptId: "ex-0", locationId: e1.locationId, start: 0, end: 4 }] },
-    { ...base, date: { precision: "none" }, evidence: [{ excerptId: "ex-9", locationId: e0.locationId, start: 0, end: 4 }] },
-    { ...base, date: { precision: "none" }, evidence: [{ excerptId: "ex-1", locationId: e1.locationId, start: 0, end: 999 }] },
+    { ...base, date: { value: "2026-12-05", precision: "date" }, evidence: [{ excerptId: "ex-0", locationId: e0!.locationId, start: 10, end: 20 }] },
+    { ...base, date: { value: "2026-02-31", precision: "date" }, evidence: [{ excerptId: "ex-1", locationId: e1!.locationId, start: 0, end: 4 }] },
+    { ...base, date: { precision: "none" }, uncertain: true, uncertaintyReason: "missing_year", evidence: [{ excerptId: "ex-1", locationId: e1!.locationId, start: 0, end: 4 }] },
+    { ...base, date: { precision: "none" }, evidence: [{ excerptId: "ex-0", locationId: e1!.locationId, start: 0, end: 4 }] },
+    { ...base, date: { precision: "none" }, evidence: [{ excerptId: "ex-9", locationId: e0!.locationId, start: 0, end: 4 }] },
+    { ...base, date: { precision: "none" }, evidence: [{ excerptId: "ex-1", locationId: e1!.locationId, start: 0, end: 999 }] },
   ]));
   expect(result.records).toHaveLength(3); expect(result.rejected.map(r => r.index)).toEqual([3, 4, 5]);
   expect(result.records.every(r => r.proposal.facts.aiProposal === true && r.proposal.facts.explicitDate === false)).toBe(true);
-  expect(result.records[0].proposal.date).toEqual({ kind: "date", date: "2026-12-05" });
-  expect(result.records[1].proposal.date).toEqual({ kind: "unknown" });
-  expect(result.records[2].proposal.facts.inferredYear).toBe(true);
-  expect(result.records[0].original.mention.excerpt).toBe(m1.excerpt);
+  expect(result.records[0]!.proposal.date).toEqual({ kind: "date", date: "2026-12-05" });
+  expect(result.records[1]!.proposal.date).toEqual({ kind: "unknown" });
+  expect(result.records[2]!.proposal.facts.inferredYear).toBe(true);
+  expect(result.records[0]!.original.mention.excerpt).toBe(m1.excerpt);
   await expect(validateAiResponse(preview, { ...ok(preview, []), requestId: "other" })).rejects.toThrow("does not match");
 });
 
@@ -122,7 +122,7 @@ it("sends the frozen body through the real client only after re-checking dataset
     bodies.push(String(init?.body)); return new Response(JSON.stringify(ok(preview, [])));
   });
   await sendFrozen(preview, new AbortController().signal, { fetcher: fetcher as unknown as typeof fetch, dataset: async () => "dataset" });
-  expect(JSON.parse(bodies[0])).toEqual(preview.request);
+  expect(JSON.parse(bodies[0]!)).toEqual(preview.request);
   await expect(sendFrozen(preview, new AbortController().signal, { fetcher: fetcher as unknown as typeof fetch, dataset: async () => "other" })).rejects.toThrow("dataset changed");
   const changed = vi.fn(async (url: string) => url.endsWith("/availability") ? new Response(JSON.stringify({ ...info, policyVersion: "mock-policy-2" })) : new Response("{}"));
   await expect(sendFrozen(preview, new AbortController().signal, { fetcher: changed as unknown as typeof fetch, dataset: async () => "dataset" })).rejects.toThrow("policy or destination changed");

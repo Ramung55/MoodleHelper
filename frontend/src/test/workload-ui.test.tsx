@@ -29,7 +29,7 @@ it("rejects blank, negative and invalid input with field errors and no writes, t
   expect(screen.getByTestId("totals")).toHaveTextContent('"weighted":7');
   for (const [value, message] of [["-1", "Must be zero or more."], ["", "Required."]]) {
     fireEvent.change(exam, { target: { value } }); save();
-    expect(screen.getByText(message)).toBeInTheDocument(); expect(exam).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(message!)).toBeInTheDocument(); expect(exam).toHaveAttribute("aria-invalid", "true");
     expect(state.adapter.updateSettings).not.toHaveBeenCalled();
     expect(saved.settings.weights.exam).toBe(3);
     expect(screen.getByTestId("totals")).toHaveTextContent('"weighted":7');
