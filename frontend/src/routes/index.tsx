@@ -20,7 +20,7 @@ export const Route = createFileRoute("/")({
   component: Overview,
 });
 
-function Card({ to, search, title, value, tone, children }: { to: string; search?: Record<string, string>; title: string; value: string | number; tone?: "warn" | "bad"; children?: React.ReactNode }) {
+function Card({ to, search, title, value, tone, children }: { to: string; search?: Record<string, string>; title: string; value: string | number; tone?: "warn" | "bad" | undefined; children?: React.ReactNode }) {
   return (
     <Link
       to={to}

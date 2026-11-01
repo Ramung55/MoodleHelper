@@ -193,7 +193,7 @@ function SettingsPage() {
   const s = snap!;
   const st = s.settings;
   const [preview, setPreview] = useState<RestorePreview | null>(null);
-  const [restore, setRestore] = useState<{ context?: RestoreContext; key: string; phase: "preview" | "restoring" | "unknown" | "done" | "failed"; message?: string }>({ key: "", phase: "preview" });
+  const [restore, setRestore] = useState<{ context?: RestoreContext | undefined; key: string; phase: "preview" | "restoring" | "unknown" | "done" | "failed"; message?: string | undefined }>({ key: "", phase: "preview" });
   const openRestore = async (file: File) => {
     const read = await readBackupFile(file);
     if (!read.ok) { setPreview({ ok: false, error: read.error }); return; }
