@@ -4,7 +4,8 @@ const DAY = 86_400_000;
 
 function parseYmd(ymd: string): number {
   const [y, m, d] = ymd.split("-").map(Number);
-  return Date.UTC(y, m - 1, d);
+  // String.split always returns at least one element, so y is always defined.
+  return Date.UTC(y!, Number(m) - 1, d);
 }
 
 export function toYmd(ms: number): string {

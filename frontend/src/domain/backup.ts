@@ -225,7 +225,8 @@ export function previewRestore(raw: string, current: Snapshot, datasetId?: strin
     : !datasetId ? "Identity unavailable: the current dataset could not be verified. Reconnect to the local backend and retry." : undefined;
   return {
     ok: true, backup: parsed.data, raw: json, bytes,
-    diff: next.map((n, i) => ({ label: n.label, current: now[i].count, incoming: n.count })),
+    // `now` and `next` both come from backupCounts, which always returns the same fixed-length list, so now[i] is defined.
+    diff: next.map((n, i) => ({ label: n.label, current: now[i]!.count, incoming: n.count })),
     identity, restorable: identity === "match", ...(reason ? { reason } : {}),
     exclusions: parsed.data.summary?.exclusions.length ? parsed.data.summary.exclusions : [...BACKUP_EXCLUSIONS],
     settingsReplaced: true, overlaysReplaced: true,

@@ -35,7 +35,8 @@ export function validTimeZone(tz: string): boolean {
 function validYmd(ymd: string): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
   if (!m) return false;
-  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  // The regex matched and all three groups are required, so m[1], m[2] and m[3] are defined.
+  const d = new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!));
   return d.toISOString().slice(0, 10) === ymd;
 }
 
@@ -101,7 +102,8 @@ export function sourceFreshness(v: AssessmentView, snap: Snapshot, tz: string): 
   if (!lastText) return { stale: false, label: "Freshness unknown — no valid observation time" };
   const urls = new Set(v.a.sources.map((s) => s.url).filter(Boolean));
   const failedRefresh = (snap.collection?.refreshes ?? [])
-    .filter((r) => urls.has(r.pageUrl) && Number.isFinite(Date.parse(r.observedAt)) && Date.parse(r.observedAt) > Date.parse(last))
+    // fmtInstant returns null for an undefined `last` and that case returned above, so `last` is defined here.
+    .filter((r) => urls.has(r.pageUrl) && Number.isFinite(Date.parse(r.observedAt)) && Date.parse(r.observedAt) > Date.parse(last!))
     .sort((x, y) => Date.parse(y.observedAt) - Date.parse(x.observedAt))[0];
   if (failedRefresh && (failedRefresh.outcome === "failed" || failedRefresh.outcome === "unavailable"))
     return { stale: true, label: `Stale — last observed ${lastText}; refresh ${failedRefresh.outcome} ${fmtInstant(failedRefresh.observedAt, tz)}` };
@@ -114,7 +116,7 @@ export function sourceFreshness(v: AssessmentView, snap: Snapshot, tz: string): 
   return { stale: false, label: `Last observed ${lastText}` };
 }
 
-export type Group = { key: string; label: string; detail?: string; order: number };
+export type Group = { key: string; label: string; detail?: string | undefined; order: number };
 
 /** Week grouping uses the resolved #30 interval; everything else is an explicit unresolved category. */
 export function weekGroup(v: AssessmentView): Group {

@@ -29,7 +29,8 @@ export function mapTeachingDate(value: DateValue, calendar?: TeachingCalendar): 
   if (!realCalendarDate(date)) return { resolved: false, reason: "The source calendar date is invalid." };
   if (date < calendar.startDate || date > calendar.endDate) return { resolved: false, reason: "The source date is outside the explicit semester boundaries." };
   const matches = teachingRanges(calendar).filter(candidate => candidate.resolved && date >= candidate.start && date <= candidate.end);
-  if (matches.length === 1 && matches[0].resolved) return { ...matches[0], timezone: calendar.timezone };
+  // matches.length === 1 is checked first, so matches[0] is defined.
+  if (matches.length === 1 && matches[0]!.resolved) return { ...matches[0]!, timezone: calendar.timezone };
   if (teachingSlots(calendar).some(slot => slot.week === null && date >= slot.start && date <= slot.end)) return { resolved: false, reason: "The source date falls in an excluded full-week break." };
   return { resolved: false, reason: "The source day has no unique resolved teaching range; institutional numbering or an uncovered interval needs review." };
 }

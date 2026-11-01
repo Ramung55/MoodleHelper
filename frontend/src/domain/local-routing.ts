@@ -23,6 +23,7 @@ function language(mention: AssessmentMention): "en" | "ru" | undefined {
   const keyword = mention.mention.text;
   if (/^(?:final\s+exam(?:ination)?s?|exam(?:ination)?s?|quizz?es|quiz|tests?|assignments?|homework)$/i.test(keyword)) return "en";
   if (/^(?:экзамен(?:ы|а|ов|у|ом|е)?|тест(?:ы|а|ов|у|ом|е)?|контрольн(?:ая|ую|ой|ые)\s+работ(?:а|у|ы|е|ой)|задани(?:е|я|й|ю|ем|и)|домашн(?:ее|его|ему|им|ем)\s+задани(?:е|я|й|ю|ем|и))$/iu.test(keyword)) return "ru";
+  return undefined;
 }
 export async function prepareLocalEvidence(extraction: LocalExtraction, mentions: AssessmentMention[], parsed: ParsedAssessmentMention[], calendar: TeachingCalendar | undefined, sourceAvailable: boolean, signal: AbortSignal): Promise<LocalEvidenceRecord[]> {
   if (mentions.length > 1000) throw new Error("Route at most 1,000 proposals at a time.");
@@ -36,15 +37,18 @@ export async function prepareLocalEvidence(extraction: LocalExtraction, mentions
     // #29 emits a typed placeholder when no explicit date expression exists.
     // It is not an additional date competing with the independent week parser.
     const week = parseTeachingWeek(mention, calendar), dates = parent.dates.filter(date => date.id !== `${mention.id}/date:unresolved`);
-    const singleDate = dates.length === 1 && dates[0].state === "proposed" && dates[0].date.kind !== "unknown" && week.expressions.length === 0;
-    const date: DateValue = singleDate ? dates[0].date : dates.length === 0 && week.expressions.length === 1 ? week.value : { kind: "unknown" };
+    // dates.length === 1 is checked first, so dates[0] is defined.
+    const singleDate = dates.length === 1 && dates[0]!.state === "proposed" && dates[0]!.date.kind !== "unknown" && week.expressions.length === 0;
+    // singleDate implies dates.length === 1, so dates[0] is defined.
+    const date: DateValue = singleDate ? dates[0]!.date : dates.length === 0 && week.expressions.length === 1 ? week.value : { kind: "unknown" };
     const reasons = [...mention.reasons, ...dates.flatMap(date => date.reasons)].join(" ");
     const ocr = mention.location?.kind === "ocr_region" ? mention.location : undefined;
     const facts = {
       complete: extraction.format === "pdf" ? extraction.complete && extraction.pages.every(page => page.status !== "ocr_needed") : extraction.complete,
       evidenceRetained: true, traceable: traceableMention(mention) && extractedUnits.has(stableJson({ text: mention.rawScheduleText, location: mention.location })), sourceAvailable, contextVerified: true,
       singleAssociation: !/Multiple assessment mentions/i.test(reasons) && (dates.length === 1 && !week.expressions.length || dates.length === 0 && week.expressions.length === 1),
-      explicitDate: singleDate && !dates[0].yearInferredFrom,
+      // singleDate implies dates.length === 1, so dates[0] is defined.
+      explicitDate: singleDate && !dates[0]!.yearInferredFrom,
       inferredYear: dates.some(date => !!date.yearInferredFrom), localeAmbiguous: /ambiguous numeric|date-order.*(?:invalid|conflicting)|invalid or conflicting/i.test(reasons),
       contradictory: /contradict/i.test(reasons), policyOrHeading: /grading-policy|Heading-only/i.test(reasons),
       conflictingMatch: false, mappingResolved: date.kind === "week" ? week.mapping.resolved : singleDate,

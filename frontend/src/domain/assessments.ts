@@ -8,19 +8,19 @@ export function resolveAssessmentId(snapshot: Snapshot, id: string): string {
 
 export interface AssessmentView {
   a: Assessment;
-  overlay?: Overlay;
+  overlay?: Overlay | undefined;
   title: string;
   /** Date shown to the student (override wins for display) */
   date: DateValue;
   /** Reconciled source date: Moodle beats syllabus */
   sourceDate: DateValue;
-  sourceKind?: SourceEvidence["source"];
+  sourceKind?: SourceEvidence["source"] | undefined;
   week: number | null;
   teachingMapping: TeachingMapping;
   /** Moodle and syllabus disagree */
-  conflict?: { moodle: DateValue; syllabus: DateValue; comparison: "different" | "incomparable" };
+  conflict?: { moodle: DateValue; syllabus: DateValue; comparison: "different" | "incomparable" } | undefined;
   /** Source date moved after the student set an override */
-  overrideDisagreement?: { was: DateValue; now: DateValue };
+  overrideDisagreement?: { was: DateValue; now: DateValue } | undefined;
   hidden: boolean;
   completed: boolean;
   outstanding: boolean;
@@ -52,7 +52,8 @@ function newest(sources: SourceEvidence[]): SourceEvidence[] {
 export function reconciledSourceDate(sources: SourceEvidence[]): DateValue {
   const sorted = newest(sources).sort((x, y) => PRIORITY[x.source] - PRIORITY[y.source]);
   const perSource = sorted.filter((s, i) => sorted.findIndex((x) => x.source === s.source) === i);
-  return (perSource.find((s) => s.date.kind !== "unknown") ?? perSource[0]).date;
+  // perSource[0] is defined because callers pass non-empty sources; an empty list still throws a TypeError here, as before.
+  return (perSource.find((s) => s.date.kind !== "unknown") ?? perSource[0]!).date;
 }
 
 export function latest(sources: SourceEvidence[], src: SourceEvidence["source"]) {

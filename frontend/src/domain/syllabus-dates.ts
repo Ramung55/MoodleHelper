@@ -8,7 +8,7 @@ export type SyllabusDateContext = {
   semester?: { start: string; end: string };
 };
 export type SyllabusDateProposal = {
-  id: string; parentId: string; expression: string; start: number; end: number; label?: string;
+  id: string; parentId: string; expression: string; start: number; end: number; label?: string | undefined;
   date: DateValue; status: "unconfirmed"; state: "proposed" | "unresolved" | "invalid"; reasons: string[];
   wallTime?: { date: string; time: string }; yearInferredFrom?: { start: string; end: string };
   zoneProvenance?: { kind: "offset" | "written_iana" | "document" | "course"; value: string };
@@ -30,7 +30,7 @@ const dayMonth = new RegExp(`(?<![\\p{L}\\d])(?<day>\\d{1,2})[ \\t]+(?<month>${m
 const monthDay = new RegExp(`(?<!\\p{L})(?<month>${monthPattern})\\.?[ \\t]+(?<day>\\d{1,2})(?![\\p{L}\\d])${yearPattern}`, "giu");
 const iso = /(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g;
 const numeric = /(?<![\d/.])(\d{1,2})([/.])(\d{1,2})(?:\2(\d{4}|\d{2})(?!\d))?(?![\d/.])/g;
-type Found = { start: number; end: number; day: number; month: number; year?: number; yearText?: string; numeric?: [number, number] };
+type Found = { start: number; end: number; day: number; month: number; year?: number | undefined; yearText?: string | undefined; numeric?: [number, number] };
 const ymd = (year: number, month: number, day: number) => `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 const valid = (year: number, month: number, day: number) => year >= 1 && year <= 9999 && calendarDate(ymd(year, month, day));
 
@@ -38,8 +38,8 @@ function expressions(text: string): Found[] {
   const found: Found[] = [];
   for (const match of text.matchAll(iso)) found.push({ start: match.index!, end: match.index! + match[0].length, year: Number(match[1]), yearText: match[1], month: Number(match[2]), day: Number(match[3]) });
   for (const pattern of [dayMonth, monthDay]) for (const match of text.matchAll(pattern)) {
-    const yearText = match.groups!.year;
-    found.push({ start: match.index!, end: match.index! + match[0].length, month: MONTHS[match.groups!.month!.toLowerCase()]!, day: Number(match.groups!.day), year: yearText ? Number(yearText) : undefined, yearText });
+    const yearText = match.groups!["year"];
+    found.push({ start: match.index!, end: match.index! + match[0].length, month: MONTHS[match.groups!["month"]!.toLowerCase()]!, day: Number(match.groups!["day"]), year: yearText ? Number(yearText) : undefined, yearText });
   }
   for (const match of text.matchAll(numeric)) found.push({ start: match.index!, end: match.index! + match[0].length, day: Number(match[1]), month: Number(match[3]), numeric: [Number(match[1]), Number(match[3])], year: match[4] ? Number(match[4]) : undefined, yearText: match[4] });
   const selected: Found[] = [];
@@ -85,7 +85,7 @@ const zoneLooking = (value: string) => zoneToken(value) || /^(?:Z|UTC|GMT)/iu.te
 const clockPayload = (value: string) => !value || /^(?:[\d+−:-]|a\.?m\.?\b|p\.?m\.?\b|noon\b|midnight\b|полдень(?!\p{L})|полночь(?!\p{L}))/iu.test(value);
 
 /** Lex the whole associated clock first; only then may trusted zone context apply. */
-function clockContinuation(tail: string): { length: number; unsupported: boolean; clock?: { hour: string; minute: string; zone?: string } } {
+function clockContinuation(tail: string): { length: number; unsupported: boolean; clock?: { hour: string; minute: string; zone?: string | undefined } } {
   const horizontal = /^[^\S\r\n]*/u.exec(tail)![0].length;
   let cursor = 0, intent = false;
   if (/^T/i.test(tail)) { cursor = 1; intent = true; }

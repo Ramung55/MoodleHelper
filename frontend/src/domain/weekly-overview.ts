@@ -54,5 +54,6 @@ export function validateDraft(d: WorkloadDraft): { errors: WorkloadDraftErrors; 
     else n[key] = value;
   }
   if (Object.keys(errors).length) return { errors };
-  return { errors, value: { weights: { exam: n.exam, assignment: n.assignment, quiz: n.quiz, other: n.other }, thresholds: { maxOutstanding: n.maxOutstanding, maxWeighted: n.maxWeighted } } };
+  // No field had an error, so the loop above set n[key] for every WorkloadDraft key.
+  return { errors, value: { weights: { exam: n["exam"]!, assignment: n["assignment"]!, quiz: n["quiz"]!, other: n["other"]! }, thresholds: { maxOutstanding: n["maxOutstanding"]!, maxWeighted: n["maxWeighted"]! } } };
 }
