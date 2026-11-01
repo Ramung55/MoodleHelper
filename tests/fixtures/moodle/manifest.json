@@ -614,7 +614,8 @@
               "9002",
               "9003"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.rui-course-card[data-region=\"course-content\"][data-course-id]: attr"
           },
           {
             "selector": "div.rui-course-card a[data-href*=\"/course/view.php?id=\"]",
@@ -624,7 +625,8 @@
               "/course/view.php?id=9002",
               "/course/view.php?id=9003"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.rui-course-card a[data-href*=\"/course/view.php?id=\"]: attr"
           },
           {
             "selector": "div.rui-course-card .multiline",
@@ -633,7 +635,8 @@
               "Fictional Course Beta",
               "Fictional Course Gamma"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.rui-course-card .multiline: text"
           },
           {
             "selector": "div.rui-course-card .sr-only",
@@ -642,7 +645,8 @@
               "Fictional Course Beta",
               "Fictional Course Gamma"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.rui-course-card .sr-only: text"
           },
           {
             "selector": "[data-region=\"paging-bar\"]",
@@ -650,12 +654,14 @@
             "values": [
               "paging-bar"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "[data-region=\"paging-bar\"]: attr"
           },
           {
             "selector": "[data-region=\"paging-control-container\"]",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "[data-region=\"paging-control-container\"]: count"
           },
           {
             "selector": "[data-region=\"paging-control-container\"] [data-region=\"paging-bar\"]",
@@ -664,19 +670,19 @@
               "paging-bar"
             ],
             "basis": "assumed",
-            "unrecorded": "paging region nesting (paging-bar inside paging-control-container assumed; #3 recorded only that both regions exist)"
+            "asserts": "paging region nesting (paging-bar inside paging-control-container assumed; #3 recorded only that both regions exist)"
           },
           {
             "selector": "ul.pagination > li.page-item > a.page-link",
             "count": 1,
             "basis": "assumed",
-            "unrecorded": "pagination and course-link markup (nav, ul.pagination, li.page-item, a.page-link and a.coursename assumed from Moodle defaults; #3 recorded only a[href*=\"/course/view.php?id=\"])"
+            "asserts": "pagination and course-link markup (nav, ul.pagination, li.page-item, a.page-link and a.coursename assumed from Moodle defaults; #3 recorded only a[href*=\"/course/view.php?id=\"])"
           },
           {
             "selector": "div.rui-course-card a.coursename",
             "count": 3,
             "basis": "assumed",
-            "unrecorded": "pagination and course-link markup (nav, ul.pagination, li.page-item, a.page-link and a.coursename assumed from Moodle defaults; #3 recorded only a[href*=\"/course/view.php?id=\"])"
+            "asserts": "pagination and course-link markup (nav, ul.pagination, li.page-item, a.page-link and a.coursename assumed from Moodle defaults; #3 recorded only a[href*=\"/course/view.php?id=\"])"
           }
         ],
         "derived": {
@@ -733,57 +739,67 @@
             "path": "0/error",
             "equals": false,
             "basis": "assumed",
-            "unrecorded": "AJAX envelope (standard Moodle [{error, data}] assumed)"
+            "asserts": "AJAX envelope (standard Moodle [{error, data}] assumed)"
           },
           {
             "path": "0/data/courses",
             "length": 3,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses: length"
           },
           {
             "path": "0/data/nextoffset",
             "equals": 3,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/nextoffset: equals"
           },
           {
             "path": "0/data/courses/0/id",
             "equals": 9001,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses/0/id: equals"
           },
           {
             "path": "0/data/courses/0/fullname",
             "equals": "Fictional Course Alpha",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses/0/fullname: equals"
           },
           {
             "path": "0/data/courses/0/shortname",
             "equals": "DEMO101-1-redacted-2028-1",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses/0/shortname: equals"
           },
           {
             "path": "0/data/courses/0/idnumber",
             "equals": "",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses/0/idnumber: equals"
           },
           {
             "path": "0/data/courses/0/coursecategory",
             "equals": "Fictional Term 2028 (2027-2028)",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses/0/coursecategory: equals"
           },
           {
             "path": "0/data/courses/0/viewurl",
             "equals": "https://moodle.example.invalid/course/view.php?id=9001",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses/0/viewurl: equals"
           },
           {
             "path": "0/data/courses/0/startdate",
             "equals": 1831489200,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses/0/startdate: equals"
           },
           {
             "path": "0/data/courses/0/enddate",
             "equals": 1843326000,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses/0/enddate: equals"
           }
         ],
         "derived": {
@@ -835,18 +851,19 @@
             "path": "0/error",
             "equals": false,
             "basis": "assumed",
-            "unrecorded": "AJAX envelope (standard Moodle [{error, data}] assumed)"
+            "asserts": "AJAX envelope (standard Moodle [{error, data}] assumed)"
           },
           {
             "path": "0/data/courses",
             "length": 0,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "0/data/courses: length"
           },
           {
             "path": "0/data/nextoffset",
             "absent": true,
             "basis": "assumed",
-            "unrecorded": "nextoffset (value for an empty grouping was not recorded, so it is omitted)"
+            "asserts": "nextoffset (value for an empty grouping was not recorded, so it is omitted)"
           }
         ],
         "derived": {
@@ -905,7 +922,8 @@
           {
             "selector": "body.format-topics",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "body.format-topics: count"
           },
           {
             "selector": "li.section",
@@ -914,7 +932,8 @@
               "70001",
               "70002"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.section: attr"
           },
           {
             "selector": "li.activity",
@@ -929,37 +948,44 @@
               "module-990106",
               "module-990107"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity: attr"
           },
           {
             "selector": "li.activity.modtype_assign",
             "count": 2,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_assign: count"
           },
           {
             "selector": "li.activity.modtype_quiz",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_quiz: count"
           },
           {
             "selector": "li.activity.modtype_resource",
             "count": 2,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_resource: count"
           },
           {
             "selector": "li.activity.modtype_url",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_url: count"
           },
           {
             "selector": "li.activity.modtype_page",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_page: count"
           },
           {
             "selector": "li.activity.modtype_forum",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_forum: count"
           },
           {
             "selector": "li.activity a[data-href*=\"/mod/\"]",
@@ -974,7 +1000,8 @@
               "/mod/url/view.php?id=990106",
               "/mod/page/view.php?id=990107"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity a[data-href*=\"/mod/\"]: attr"
           },
           {
             "selector": "li.activity.modtype_resource .instancename",
@@ -982,7 +1009,8 @@
               "Fictional Reading Pack File",
               "Fictional Lecture Slides File"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_resource .instancename: text"
           },
           {
             "selector": "li.activity.modtype_resource .instancename .accesshide",
@@ -990,21 +1018,24 @@
               "File",
               "File"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_resource .instancename .accesshide: text"
           },
           {
             "selector": "li.activity.modtype_url .instancename",
             "text": [
               "Fictional Reference Link URL"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_url .instancename: text"
           },
           {
             "selector": "li.activity.modtype_url .instancename .accesshide",
             "text": [
               "URL"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_url .instancename .accesshide: text"
           },
           {
             "selector": "li.activity .instancename",
@@ -1019,7 +1050,7 @@
               "Fictional Course Notes Page"
             ],
             "basis": "assumed",
-            "unrecorded": "accesshide type labels for assign, quiz, forum and page (\"Assignment\", \"Quiz\", \"Forum\", \"Page\" assumed from Moodle defaults; #3 recorded only \"File\", \"URL\" and \"Folder\")"
+            "asserts": "accesshide type labels for assign, quiz, forum and page (\"Assignment\", \"Quiz\", \"Forum\", \"Page\" assumed from Moodle defaults; #3 recorded only \"File\", \"URL\" and \"Folder\")"
           },
           {
             "selector": "li.activity .instancename .accesshide",
@@ -1034,7 +1065,7 @@
               "Page"
             ],
             "basis": "assumed",
-            "unrecorded": "accesshide type labels for assign, quiz, forum and page (\"Assignment\", \"Quiz\", \"Forum\", \"Page\" assumed from Moodle defaults; #3 recorded only \"File\", \"URL\" and \"Folder\")"
+            "asserts": "accesshide type labels for assign, quiz, forum and page (\"Assignment\", \"Quiz\", \"Forum\", \"Page\" assumed from Moodle defaults; #3 recorded only \"File\", \"URL\" and \"Folder\")"
           },
           {
             "selector": "li.activity.modtype_resource .activitybadge",
@@ -1042,7 +1073,8 @@
               "PDF",
               "PPTX"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_resource .activitybadge: text"
           },
           {
             "selector": "li.modtype_assign [data-region=\"activity-dates\"] > div",
@@ -1052,7 +1084,8 @@
               "Opened: Wednesday, 1 March 2028, 9:00 AM",
               "Due: Tuesday, 7 March 2028, 2:30 PM"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.modtype_assign [data-region=\"activity-dates\"] > div: text"
           },
           {
             "selector": "li.modtype_quiz [data-region=\"activity-dates\"] > div",
@@ -1060,12 +1093,14 @@
               "Opened: Thursday, 2 March 2028, 9:00 AM",
               "Closed: Saturday, 4 March 2028, 9:00 AM"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.modtype_quiz [data-region=\"activity-dates\"] > div: text"
           },
           {
             "selector": ".availabilityinfo",
             "count": 0,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".availabilityinfo: count"
           }
         ],
         "derived": {
@@ -1129,7 +1164,8 @@
             "values": [
               "lang-en cmid-990101 course-9001"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "body#page-mod-assign-view: attr"
           },
           {
             "selector": "[data-region=\"activity-dates\"] > div",
@@ -1137,7 +1173,8 @@
               "Opened: Wednesday, 1 March 2028, 12:00 AM",
               "Due: Wednesday, 8 March 2028, 11:59 PM"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "[data-region=\"activity-dates\"] > div: text"
           },
           {
             "selector": ".submissionstatustable h3",
@@ -1145,7 +1182,7 @@
               "Submission status"
             ],
             "basis": "assumed",
-            "unrecorded": "submission status table heading and wrapper (h3 \"Submission status\" and div.submissionstatustable > table.generaltable assumed; #3 recorded only the th -> td rows)"
+            "asserts": "submission status table heading and wrapper (h3 \"Submission status\" and div.submissionstatustable > table.generaltable assumed; #3 recorded only the th -> td rows)"
           },
           {
             "selector": ".submissionstatustable th",
@@ -1157,28 +1194,32 @@
               "File submissions",
               "Submission comments"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".submissionstatustable th: text"
           },
           {
             "selector": ".submissionstatustable td.submissionstatussubmitted",
             "text": [
               "Submitted for grading"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".submissionstatustable td.submissionstatussubmitted: text"
           },
           {
             "selector": ".submissionstatustable td.submissionnotgraded",
             "text": [
               "Not graded"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".submissionstatustable td.submissionnotgraded: text"
           },
           {
             "selector": ".submissionstatustable td.earlysubmission",
             "text": [
               "Assignment was submitted 5 days 13 hours early"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".submissionstatustable td.earlysubmission: text"
           }
         ],
         "derived": {
@@ -1237,7 +1278,8 @@
             "values": [
               "lang-en cmid-990102 course-9001"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "body#page-mod-assign-view: attr"
           },
           {
             "selector": "[data-region=\"activity-dates\"] > div",
@@ -1245,7 +1287,8 @@
               "Opened: Wednesday, 1 March 2028, 9:00 AM",
               "Due: Tuesday, 7 March 2028, 2:30 PM"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "[data-region=\"activity-dates\"] > div: text"
           },
           {
             "selector": ".submissionstatustable td",
@@ -1253,7 +1296,8 @@
               "No submissions have been made yet",
               "1 day 17 hours remaining"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".submissionstatustable td: contains"
           },
           {
             "selector": ".submissionstatustable td",
@@ -1264,19 +1308,21 @@
               "Comments (0)"
             ],
             "basis": "assumed",
-            "unrecorded": "Last modified and Submission comments cell text (\"-\" and \"Comments (0)\" assumed; #3 recorded only the row names)"
+            "asserts": "Last modified and Submission comments cell text (\"-\" and \"Comments (0)\" assumed; #3 recorded only the row names)"
           },
           {
             "selector": ".submissionstatustable td[class*=\"submissionstatus\"]",
             "count": 0,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".submissionstatustable td[class*=\"submissionstatus\"]: count"
           },
           {
             "selector": ".submissionstatustable td.timeremaining",
             "text": [
               "1 day 17 hours remaining"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".submissionstatustable td.timeremaining: text"
           }
         ],
         "derived": {
@@ -1335,7 +1381,8 @@
           {
             "selector": "body#page-mod-quiz-view",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "body#page-mod-quiz-view: count"
           },
           {
             "selector": "[data-region=\"activity-dates\"] > div",
@@ -1343,7 +1390,8 @@
               "Opened: Thursday, 2 March 2028, 9:00 AM",
               "Closed: Saturday, 4 March 2028, 9:00 AM"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "[data-region=\"activity-dates\"] > div: text"
           },
           {
             "selector": ".quizinfo p",
@@ -1352,7 +1400,8 @@
               "Attempts allowed: 1",
               "Time limit: 10 mins"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".quizinfo p: count, contains"
           },
           {
             "selector": ".quizinfo p",
@@ -1362,19 +1411,21 @@
               "To attempt this quiz you need to know the quiz password"
             ],
             "basis": "assumed",
-            "unrecorded": "quiz password notice wording (\"To attempt this quiz you need to know the quiz password\" assumed; #3 recorded only that a password notice exists)"
+            "asserts": "quiz password notice wording (\"To attempt this quiz you need to know the quiz password\" assumed; #3 recorded only that a password notice exists)"
           },
           {
             "selector": "table.quizattemptsummary",
             "count": 0,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "table.quizattemptsummary: count"
           },
           {
             "selector": "div.rui-attempts-list h4.card-title",
             "text": [
               "Attempt 1"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.rui-attempts-list h4.card-title: text"
           },
           {
             "selector": "div.rui-attempts-list .rui-infobox h5.rui-infobox-title",
@@ -1386,26 +1437,33 @@
               "Marks",
               "Grade"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.rui-attempts-list .rui-infobox h5.rui-infobox-title: text"
           },
           {
             "selector": "div.rui-attempts-list .rui-infobox .rui-infobox-content--small",
-            "text": [
-              "Finished",
-              "Friday, 3 March 2028, 10:05 AM",
-              "Friday, 3 March 2028, 10:13 AM",
-              "8 mins",
-              "[not retained]",
-              "[not retained]"
+            "contains": [
+              "Finished"
             ],
-            "basis": "observed"
+            "matches": [
+              "Finished",
+              "[A-Z][a-z]+day, [1-9]\\d? [A-Z][a-z]+ \\d{4}, [1-9]\\d?:[0-5]\\d (AM|PM)",
+              "[A-Z][a-z]+day, [1-9]\\d? [A-Z][a-z]+ \\d{4}, [1-9]\\d?:[0-5]\\d (AM|PM)",
+              "[1-9]\\d* mins \\d{1,2} secs",
+              "\\[not retained\\]",
+              "\\[not retained\\]"
+            ],
+            "basis": "observed",
+            "asserts": "div.rui-attempts-list .rui-infobox .rui-infobox-content--small: contains, matches",
+            "note": "Addendum 2 of the 2026-11-01 notes recorded the value formats only: Started/Completed as \"<Weekday>, <d> <Month> <yyyy>, <h:mm> <AM|PM>\" and Duration as \"<n> mins <n> secs\". The values themselves are invented."
           },
           {
             "selector": ".box.quizattempt",
             "text": [
               "No more attempts are allowed"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".box.quizattempt: text"
           }
         ],
         "derived": {
@@ -1467,7 +1525,8 @@
           {
             "selector": "div.calendar-event-box[data-type=\"event\"]",
             "count": 2,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.calendar-event-box[data-type=\"event\"]: count"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1476,7 +1535,8 @@
               "880001",
               "880002"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.calendar-event-box: attr"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1485,7 +1545,8 @@
               "9001",
               "9002"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.calendar-event-box: attr"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1494,7 +1555,8 @@
               "mod_assign",
               "mod_assign"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.calendar-event-box: attr"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1503,7 +1565,8 @@
               "due",
               "due"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.calendar-event-box: attr"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1512,7 +1575,8 @@
               "Fictional Lab Report is due",
               "Fictional Problem Set is due"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.calendar-event-box: attr"
           },
           {
             "selector": "div.calendar-event-box a[data-href^=\"/calendar/view.php?view=day\"]",
@@ -1521,7 +1585,8 @@
               "/calendar/view.php?view=day&time=1836034200",
               "/calendar/view.php?view=day&time=1836639000"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.calendar-event-box a[data-href^=\"/calendar/view.php?view=day\"]: attr"
           },
           {
             "selector": "div.calendar-event-box a[data-href*=\"action=editsubmission\"]",
@@ -1530,7 +1595,8 @@
               "/mod/assign/view.php?id=990102&action=editsubmission",
               "/mod/assign/view.php?id=990201&action=editsubmission"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.calendar-event-box a[data-href*=\"action=editsubmission\"]: attr"
           },
           {
             "selector": "div.calendar-event-box a[data-href*=\"action=editsubmission\"]",
@@ -1538,7 +1604,8 @@
               "Add submission",
               "Add submission"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.calendar-event-box a[data-href*=\"action=editsubmission\"]: text"
           },
           {
             "selector": "div.calendar-event-box > div",
@@ -1549,7 +1616,7 @@
               "Add submission"
             ],
             "basis": "assumed",
-            "unrecorded": "calendar event date text format (\"Tuesday, 7 March, 2:30 PM\" and its div wrapper assumed; #3 recorded only the displayed time, e.g. 2:30 PM)"
+            "asserts": "calendar event date text format (\"Tuesday, 7 March, 2:30 PM\" and its div wrapper assumed; #3 recorded only the displayed time, e.g. 2:30 PM)"
           }
         ],
         "derived": {
@@ -1614,21 +1681,24 @@
             "values": [
               "module-991001"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.activity.modtype_folder.folder: attr"
           },
           {
             "selector": "li.modtype_folder .instancename",
             "text": [
               "Fictional Shared Folder Folder"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.modtype_folder .instancename: text"
           },
           {
             "selector": "li.modtype_folder .instancename .accesshide",
             "text": [
               "Folder"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.modtype_folder .instancename .accesshide: text"
           },
           {
             "selector": "li.modtype_folder a[data-href*=\"/mod/folder/view.php?id=\"]",
@@ -1636,12 +1706,14 @@
             "values": [
               "/mod/folder/view.php?id=991001"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "li.modtype_folder a[data-href*=\"/mod/folder/view.php?id=\"]: attr"
           },
           {
             "selector": ".foldertree",
             "count": 0,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": ".foldertree: count"
           }
         ],
         "derived": {
@@ -1683,7 +1755,8 @@
           {
             "selector": "body#page-mod-folder-view",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "body#page-mod-folder-view: count"
           },
           {
             "selector": "div.box.generalbox.foldertree > div.filemanager",
@@ -1691,17 +1764,20 @@
             "values": [
               "folder_tree0"
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.box.generalbox.foldertree > div.filemanager: attr"
           },
           {
             "selector": "div#folder_tree0.filemanager > ul > li",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div#folder_tree0.filemanager > ul > li: count"
           },
           {
             "selector": "div.filemanager > ul > li > div.fp-filename-icon > span.fp-icon > img.icon",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.filemanager > ul > li > div.fp-filename-icon > span.fp-icon > img.icon: count"
           },
           {
             "selector": "div.fp-filename-icon > span.fp-filename",
@@ -1709,23 +1785,27 @@
               "Fictional Shared Folder"
             ],
             "basis": "observed",
+            "asserts": "div.fp-filename-icon > span.fp-filename: text",
             "note": "Observed: span.fp-filename is a sibling of span.fp-icon, both children of div.fp-filename-icon, per the orchestrator's 2026-11-01 correction to the #3 notes (folder tree nesting). The one-line chain 'span.fp-icon > img.icon + span.fp-filename' in #3 was a transcription error."
           },
           {
             "selector": "span.fp-icon span.fp-filename",
             "count": 0,
             "basis": "observed",
+            "asserts": "span.fp-icon span.fp-filename: count",
             "note": "Observed: span.fp-filename is a sibling of span.fp-icon, both children of div.fp-filename-icon, per the orchestrator's 2026-11-01 correction to the #3 notes (folder tree nesting). The one-line chain 'span.fp-icon > img.icon + span.fp-filename' in #3 was a transcription error."
           },
           {
             "selector": "div.filemanager ul ul",
             "count": 0,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "div.filemanager ul ul: count"
           },
           {
             "selector": "[data-href*=\"pluginfile.php\"]",
             "count": 0,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "[data-href*=\"pluginfile.php\"]: count"
           }
         ],
         "derived": {
@@ -1753,7 +1833,7 @@
       "sourceVariant": "sdu-en-alpha/error-nonexistent-id",
       "pageClass": "access",
       "language": "en",
-      "purpose": "HTTP 404 error page for non-existent course and module ids.",
+      "purpose": "HTTP 404 error page for non-existent course and module ids; the message text is the non-existent module variant.",
       "synthetic": false,
       "sourceKind": "observed-structure",
       "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
@@ -1773,14 +1853,25 @@
           {
             "selector": "body#page-site-index",
             "count": 1,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "body#page-site-index: count"
+          },
+          {
+            "selector": "body#page-site-index",
+            "includes": [
+              "Can't find data record in database."
+            ],
+            "basis": "observed",
+            "asserts": "body#page-site-index: includes",
+            "note": "Addendum 2 of the 2026-11-01 notes: non-existent module text. The non-existent course variant reads \"Can't find data record in database table course.\"."
           },
           {
             "selector": "body#page-site-index p",
             "text": [
               "Can't find data record in database."
             ],
-            "basis": "observed"
+            "basis": "assumed",
+            "asserts": "message element (the p wrapper is assumed; Addendum 2 of the 2026-11-01 notes recorded only the text, taken from #region-main / the body)"
           }
         ],
         "derived": {
@@ -1794,7 +1885,7 @@
         "absentFields": [],
         "redactedFields": [],
         "unrecordedFields": [
-          "message text after 'in database'"
+          "message element (the p wrapper is assumed; Addendum 2 of the 2026-11-01 notes recorded only the text, taken from #region-main / the body)"
         ],
         "schemaGapOwners": []
       }
@@ -1829,23 +1920,26 @@
           {
             "path": "request/path",
             "equals": "/course/view.php?id=9001",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "request/path: equals"
           },
           {
             "path": "response/status",
             "equals": 200,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "response/status: equals"
           },
           {
             "path": "response/finalPath",
             "equals": "/login/index.php",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "response/finalPath: equals"
           },
           {
             "path": "response/contentType",
             "equals": null,
             "basis": "assumed",
-            "unrecorded": "contentType (not recorded for this request in #3, so null)"
+            "asserts": "contentType (not recorded for this request in #3, so null)"
           }
         ],
         "derived": {
@@ -1893,27 +1987,32 @@
           {
             "path": "request/path",
             "equals": "/mod/resource/view.php?id=990104",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "request/path: equals"
           },
           {
             "path": "request/authenticatedTarget",
             "equals": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "request/authenticatedTarget: equals"
           },
           {
             "path": "response/status",
             "equals": 200,
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "response/status: equals"
           },
           {
             "path": "response/finalPath",
             "equals": "/login/index.php",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "response/finalPath: equals"
           },
           {
             "path": "response/contentType",
             "equals": "text/html",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "response/contentType: equals"
           }
         ],
         "derived": {
@@ -1961,7 +2060,8 @@
           {
             "path": "request/path",
             "equals": "/mod/resource/view.php?id=990104",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "request/path: equals"
           },
           {
             "path": "redirect/statusOneOf",
@@ -1969,22 +2069,26 @@
               303,
               302
             ],
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "redirect/statusOneOf: equals"
           },
           {
             "path": "redirect/locationPath",
             "equals": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "redirect/locationPath: equals"
           },
           {
             "path": "final/contentType",
             "equals": "application/pdf",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "final/contentType: equals"
           },
           {
             "path": "final/contentDisposition",
             "equals": "inline",
-            "basis": "observed"
+            "basis": "observed",
+            "asserts": "final/contentDisposition: equals"
           }
         ],
         "derived": {

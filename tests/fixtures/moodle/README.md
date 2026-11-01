@@ -43,7 +43,11 @@ The rows #3 marks UNVERIFIED or unavailable are listed in `observedCoverage.unve
   - the `h3` "Submission status" heading and the `div.submissionstatustable > table.generaltable` wrapping on assignment pages, and the not-submitted page's "-" and "Comments (0)" cell text (#3 recorded only the th-to-td rows);
   - `paging-bar` nested inside `paging-control-container`, the `nav`/`ul.pagination`/`li.page-item`/`a.page-link` markup and `a.coursename` on the course list (#3 recorded only that both regions exist and the course link pattern);
   - the calendar event date text format, such as "Tuesday, 7 March, 2:30 PM", and its `div` wrapper (#3 recorded only the displayed time);
+  - the `p` element around the 404 message (the text itself is observed, see below);
   - the AJAX `[{error, data}]` envelope, the request `limit` of 24 and the omitted `nextoffset` for an empty grouping.
+- Addendum 2 of the 2026-11-01 inspection notes recorded two more facts, which are observed:
+  - The 404 text for a non-existent module is "Can't find data record in database." (for a non-existent course it is "Can't find data record in database table course."). The fixture uses the module variant. The text is checked against the page body, because the notes did not record its element.
+  - The quiz attempt Started and Completed values use the format "<Weekday>, <d> <Month> <yyyy>, <h:mm> <AM|PM>", and Duration uses "<n> mins <n> secs". Only the formats were recorded, so the observed check matches these shapes (`matches`) rather than the invented values.
 - Values #3 did not record are either left out, kept as `null`, or filled with an assumed value. Every one is listed under `unrecordedFields`, and an assumed value never backs an expected field.
 
 ## Manifest
@@ -51,7 +55,7 @@ The rows #3 marks UNVERIFIED or unavailable are listed in `observedCoverage.unve
 Each entry names its ID, path, source variant, page class, language, purpose, provenance and edge cases. Observed-structure entries also carry `inspectionDate` 2026-11-01 and theme `alpha`. Their `expected` block has:
 
 - `fields`: the visible raw facts, all listed again in `observedFields`.
-- `checks`: CSS selectors (HTML) or JSON paths (records) that tie each field to the fixture's visible markup. Each check has `basis: observed` (recorded by #3) or `basis: assumed`. An assumed check names its `unrecordedFields` entry in `unrecorded`, and only observed checks can back a field.
+- `checks`: CSS selectors (HTML) or JSON paths (records) that tie each field to the fixture's visible markup. Each check has `basis: observed` (recorded by #3 or the inspection notes) or `basis: assumed`, and names the detail it covers in `asserts`. An assumed check's `asserts` is one of its `unrecordedFields` entries; an observed check's `asserts` must not be one, and is exactly its own target and check kinds (for example `request/path: equals`), so it cannot be a free-text detail. Only observed checks can back a field. Besides `count`, `attr`/`values` and `text`, an HTML check can use `contains` (exact node texts present), `includes` (substrings of the selected region's text) and `matches` (one full-match pattern per node, for formats whose values are invented).
 - `derived`: the expected interpretation, for example `submission_status`, the exact instant in UTC+5, attempt counts and `moreAvailable`.
 - `absentFields`, `redactedFields`, `unrecordedFields` and `schemaGapOwners`.
 
@@ -72,7 +76,7 @@ Run `uv run pytest tests/test_moodle_fixtures.py`. The checks cover the followin
 - Manifest discovery and safe paths.
 - That every Observed row in the #3 matrix maps to an observed-structure fixture, and every other row to `synthetic-only`.
 - Selector and JSON-path facts.
-- Observed/assumed labelling: every check has a basis, every assumed check names an `unrecordedFields` entry, every field is in `observedFields` and is backed by an observed check, and the details QA found unrecorded stay labelled as assumed.
+- Observed/assumed labelling, generic for every observed-structure entry: every check has a basis and an `asserts` detail, an assumed check asserts a listed `unrecordedFields` entry, an observed check never asserts one, and every field is in `observedFields` and is backed by an observed check. Relabelling any assumed check as observed therefore fails. The details QA found unrecorded also stay listed.
 - Inert markup, through an allowlist for each kind.
 - Safe invented URLs and personal-data patterns (grade values, session keys and cookies, real host, e-mail, instructor-login shortnames).
 - Negative controls for scripts, handlers, `href`/`src`, styles, forms, frames, comments and unsafe paths or URLs.

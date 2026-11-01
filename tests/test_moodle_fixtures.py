@@ -348,19 +348,36 @@ def check_observed_metadata(entry):
     check_basis_labels(expected)
 
 
-def check_basis_labels(expected):
-    """Every check is labelled observed or assumed; an assumed check names its unrecordedFields entry.
+CHECK_KINDS = ("count", "attr", "text", "contains", "includes", "matches", "absent", "length", "equals")
 
-    Every field must be listed in observedFields, and only observed checks may back a field (see
+
+def observed_detail(check):
+    """An observed check asserts exactly its own target and kinds, never a free-text detail."""
+    target = check.get("selector") or check["path"]
+    return f"{target}: {', '.join(kind for kind in CHECK_KINDS if kind in check)}"
+
+
+def check_basis_labels(expected):
+    """Generic observed/assumed guard, applied to every observed-structure entry.
+
+    Every check names the detail it covers in `asserts`. An assumed check must assert a listed
+    unrecordedFields entry, and an observed check must not assert any detail listed there, so relabelling
+    an assumed check as observed fails unless its detail is also removed from unrecordedFields. Every
+    field must be listed in observedFields, and only observed checks may back a field (see
     check_fields_observed), so an unrecorded detail cannot pass silently as an observed one.
     """
     assert list(expected["fields"]) == expected["observedFields"]
+    unrecorded = expected["unrecordedFields"]
+    assert len(set(unrecorded)) == len(unrecorded)
     for check in expected["checks"]:
         assert check.get("basis") in {"observed", "assumed"}, check
+        assert "unrecorded" not in check, check  # replaced by `asserts`
+        detail = check.get("asserts")
+        assert isinstance(detail, str) and detail.strip(), check
         if check["basis"] == "assumed":
-            assert check.get("unrecorded") in expected["unrecordedFields"], check
+            assert detail in unrecorded, check
         else:
-            assert "unrecorded" not in check, check
+            assert detail not in unrecorded and detail == observed_detail(check), check
 
 
 def check_fields_observed(expected, verified):
@@ -396,6 +413,15 @@ def test_observed_html_is_inert_and_matches_manifest(entry):
             texts = [node.text() for node in found]
             assert all(text in texts for text in check["contains"]), check
             seen += check["contains"]
+        if "includes" in check:
+            region = " ".join(node.text() for node in found)
+            assert all(text in region for text in check["includes"]), check
+            seen += check["includes"]
+        if "matches" in check:
+            # Shape check: each node's text fully matches its pattern; the invented values back no field.
+            texts = [node.text() for node in found]
+            assert len(texts) == len(check["matches"]), check
+            assert all(re.fullmatch(pattern, text) for pattern, text in zip(check["matches"], texts)), check
         if check["basis"] == "observed":
             verified += seen
     check_fields_observed(entry["expected"], verified)
@@ -495,6 +521,7 @@ UNRECORDED_DETAILS = {
     "observed-assign-not-submitted": ["h3", "table.generaltable"],
     "observed-course-list": ["paging-bar inside paging-control-container", "ul.pagination", "a.coursename"],
     "observed-calendar-upcoming": ["Tuesday, 7 March, 2:30 PM"],
+    "observed-not-found": ["p wrapper"],
 }
 UNRECORDED_TEXT = {"Assignment", "Quiz", "Forum", "Page", "To attempt this quiz you need to know the quiz password"}
 
@@ -513,28 +540,60 @@ def test_unrecorded_details_are_labelled_assumed():
             assert " h3" not in selector and "generaltable" not in selector, check
             assert "pagination" not in selector and "coursename" not in selector, check
             assert not re.search(r"paging-control-container.*paging-bar", selector), check
-            assert not any(re.match(r"[A-Z][a-z]+day, ", text) for text in check.get("text", [])
-                           if not text.startswith(("Opened", "Due", "Closed"))) \
-                or "rui-infobox" in selector, check
+            # The calendar's year-less date text ("Tuesday, 7 March, 2:30 PM") stays unrecorded.
+            assert not any(re.search(r"[A-Z][a-z]+day, \d{1,2} [A-Z][a-z]+, ", text)
+                           for text in check.get("text", []) + check.get("contains", [])), check
     folder = by_id["observed-folder-empty"]
     assert "fpFilenamePlacement" not in folder["derived"]
     sibling = [c for c in folder["checks"] if c.get("selector") == "div.fp-filename-icon > span.fp-filename"]
     assert sibling and sibling[0]["basis"] == "observed" and "correction" in sibling[0]["note"]
 
 
+
+def test_quiz_attempt_values_are_checked_by_observed_format_only():
+    expected = {entry["id"]: entry["expected"] for entry in OBSERVED}["observed-quiz-finished"]
+    [check] = [c for c in expected["checks"] if c.get("selector", "").endswith(".rui-infobox-content--small")]
+    assert check["basis"] == "observed" and "text" not in check and check["contains"] == ["Finished"]
+    status, started, completed, duration = check["matches"][:4]
+    # Shapes from Addendum 2 of the 2026-11-01 inspection notes.
+    assert re.fullmatch(started, "Tuesday, 13 October 2026, 2:30 PM") and started == completed
+    assert re.fullmatch(duration, "9 mins 59 secs")
+    assert not re.fullmatch(duration, "8 mins")  # minutes-only was not observed
+
+
+def test_not_found_text_is_observed_and_its_element_assumed():
+    expected = {entry["id"]: entry["expected"] for entry in OBSERVED}["observed-not-found"]
+    text = "Can't find data record in database."
+    observed = [c for c in expected["checks"] if c["basis"] == "observed" and text in c.get("includes", [])]
+    assumed = [c for c in expected["checks"] if c["basis"] == "assumed" and c.get("text") == [text]]
+    assert observed and observed[0]["selector"] == "body#page-site-index"
+    assert assumed and assumed[0]["selector"].endswith(" p") and "p wrapper" in assumed[0]["asserts"]
+    assert not any("after 'in database'" in entry for entry in expected["unrecordedFields"])
+
+
 @pytest.mark.parametrize("mutate", [
     lambda e: e["checks"][0].pop("basis"),
     lambda e: e["checks"][0].update(basis="guessed"),
     lambda e: e["checks"][0].update(basis="assumed"),
-    lambda e: e["checks"][0].update(basis="assumed", unrecorded="not listed"),
+    lambda e: e["checks"][0].update(basis="assumed", asserts="not listed"),
+    lambda e: e["checks"][0].pop("asserts"),
+    lambda e: e["checks"][0].update(asserts=""),
+    lambda e: e["checks"][0].update(asserts="markup"),
     lambda e: e["checks"][0].update(unrecorded="markup"),
+    lambda e: e["checks"][1].update(basis="observed"),
+    lambda e: e["checks"][1].pop("asserts"),
+    lambda e: e["checks"][1].update(basis="observed", asserts="renamed detail"),
+    lambda e: e["checks"][0].update(asserts="p: count"),
     lambda e: e["observedFields"].pop(),
-], ids=["no-basis", "unknown-basis", "assumed-without-reason", "assumed-unlisted", "observed-with-reason",
+], ids=["no-basis", "unknown-basis", "assumed-without-listed-detail", "assumed-unlisted", "no-asserts",
+        "empty-asserts", "observed-asserts-unrecorded", "legacy-unrecorded-key", "assumed-flipped-to-observed",
+        "assumed-without-asserts", "assumed-flipped-and-renamed", "observed-asserts-wrong-kind",
         "field-not-listed"])
 def test_basis_guard_rejects_unlabelled_or_unlisted_checks(mutate):
     expected = {
         "fields": {"name": "x"}, "observedFields": ["name"], "unrecordedFields": ["markup"],
-        "checks": [{"selector": "p", "text": ["x"], "basis": "observed"}],
+        "checks": [{"selector": "p", "text": ["x"], "basis": "observed", "asserts": "p: text"},
+                   {"selector": "div > p", "count": 1, "basis": "assumed", "asserts": "markup"}],
     }
     check_basis_labels(expected)
     mutate(expected)
