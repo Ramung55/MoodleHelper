@@ -104,7 +104,7 @@ it("does not turn malformed written clock-zone evidence into an exact preview us
 it.each(["cancel", "context-change", "reject", "complete"])("fences mounted local routing outcome: %s", async mode => {
   vi.stubGlobal("crypto", webcrypto);
   const text = "Assignment 1 due 29 October 2027";
-  mock.extract.mockResolvedValue([{ ...pages[0], rows: [{ text, items: [{ ...pages[0].rows[0].items[0], text }] }] }]);
+  mock.extract.mockResolvedValue([{ ...pages[0], rows: [{ text, items: [{ ...pages[0]!.rows[0]!.items[0], text }] }] }]);
   let resolve!: (value: unknown) => void, reject!: (error: Error) => void;
   mock.route.mockImplementation(() => new Promise((yes, no) => { resolve = yes; reject = no; }));
   const publish = vi.fn();

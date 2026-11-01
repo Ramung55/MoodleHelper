@@ -18,7 +18,7 @@ it("recovers abandoned jobs while leaving a live tab's locked job untouched", as
   const db = { close: () => {}, transaction: () => {
     const tx: {oncomplete?:()=>void;onabort?:()=>void;objectStore:()=>unknown} = {objectStore:()=>({
       getAll: () => { const request: {result?:LocalJob[]} = {}; queueMicrotask(() => { request.result=[...records.values()].map(v=>({...v})); tx.oncomplete?.(); }); return request; },
-      get: (key: string[]) => { const request: {result?:LocalJob;onsuccess?:()=>void} = {}; queueMicrotask(() => { const row=records.get(key[2]!); request.result=row && {...row}; request.onsuccess?.(); tx.oncomplete?.(); }); return request; },
+      get: (key: string[]) => { const request: {result?:LocalJob|undefined;onsuccess?:()=>void} = {}; queueMicrotask(() => { const row=records.get(key[2]!); request.result=row && {...row}; request.onsuccess?.(); tx.oncomplete?.(); }); return request; },
       put: (row: LocalJob) => { records.set(row.id,{...row}); },
     })}; return tx;
   } };

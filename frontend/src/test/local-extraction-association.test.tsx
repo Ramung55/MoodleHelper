@@ -17,8 +17,8 @@ const mock = vi.hoisted(() => ({
   parse: vi.fn(),
   ocr: vi.fn(),
   actual: {} as {
-    detect?: (...args: unknown[]) => unknown;
-    parse?: (...args: unknown[]) => unknown;
+    detect?: typeof import("@/domain/assessment-mentions").detectAssessmentMentions;
+    parse?: typeof import("@/domain/syllabus-dates").parseSyllabusMention;
   },
 }));
 vi.mock("@/services/local-documents", () => ({
@@ -87,8 +87,8 @@ beforeEach(() => {
   mock.read.mockResolvedValue(new Blob(["pdf"]));
   mock.context.mockResolvedValue("dataset");
   mock.extract.mockResolvedValue(pages);
-  mock.detect.mockImplementation((...args) => mock.actual.detect!(...args));
-  mock.parse.mockImplementation((...args) => mock.actual.parse!(...args));
+  mock.detect.mockImplementation((...args: Parameters<NonNullable<typeof mock.actual.detect>>) => mock.actual.detect!(...args));
+  mock.parse.mockImplementation((...args: Parameters<NonNullable<typeof mock.actual.parse>>) => mock.actual.parse!(...args));
   mock.ocr.mockResolvedValue({
     selectedPages: [1],
     pages: [
