@@ -90,7 +90,8 @@ function canonical(raw: string | null, path: string, query = ""): boolean {
 }
 function linkedId(raw: string | null, path: string): string | null {
   const m = /\?id=([1-9][0-9]*)$/.exec(raw ?? "");
-  return m && canonical(raw, path, `?id=${m[1]}`) ? m[1] : null;
+  // Group 1 is required in the regex, so it is defined whenever m is.
+  return m && canonical(raw, path, `?id=${m[1]}`) ? m[1]! : null;
 }
 function signature(c: CalendarCandidate): string {
   const dates = (["start", "end", "date"] as const).map((field) => {
@@ -100,7 +101,8 @@ function signature(c: CalendarCandidate): string {
     if (v.kind === "exact") {
       const precision = /T\d\d:\d\d(Z|[+-])/.test(v.iso)
         ? "minute"
-        : (/\.(\d{1,3})/.exec(v.iso)?.[1].length ?? "second");
+        : // Group 1 is required in the regex, so it is defined whenever exec matches.
+          (/\.(\d{1,3})/.exec(v.iso)?.[1]!.length ?? "second");
       return [Date.parse(v.iso), precision];
     }
     return [v, v.kind === "unknown" ? d.rawText : null];
@@ -138,11 +140,13 @@ function parseArticle(
   const headings = article.querySelectorAll("h2"),
     links = article.querySelectorAll('a[data-role="event-link"]');
   if (headings.length !== 1 || links.length !== 1) return null;
-  const title = normalize(headings[0].textContent ?? "");
+  // headings.length is checked to be 1 above, so index 0 is defined.
+  const title = normalize(headings[0]!.textContent ?? "");
   const query = `?event=${event}${occurrence === null ? "" : `&occurrence=${occurrence}`}`;
   if (
     !title ||
-    !canonical(links[0].getAttribute("href"), "/calendar/view.php", query)
+    // links.length is checked to be 1 above, so index 0 is defined.
+    !canonical(links[0]!.getAttribute("href"), "/calendar/view.php", query)
   )
     return null;
   const candidate: CalendarCandidate = {
@@ -160,7 +164,8 @@ function parseArticle(
     courses = article.querySelectorAll('a[data-role="course-link"]');
   if ((course !== null && !idValid(course)) || courses.length > 1) return null;
   const linkedCourse = courses.length
-    ? linkedId(courses[0].getAttribute("href"), "/course/view.php")
+    ? // This branch runs only when courses.length is non-zero.
+      linkedId(courses[0]!.getAttribute("href"), "/course/view.php")
     : null;
   if (courses.length && !linkedCourse) return null;
   if (course === null) reasons.push("missing_course");
@@ -176,7 +181,8 @@ function parseArticle(
   )
     return null;
   if (activities.length) {
-    const a = activities[0],
+    // This block runs only when activities.length is non-zero.
+    const a = activities[0]!,
       instance = a.getAttribute("data-activity-id");
     const assign = linkedId(a.getAttribute("href"), "/mod/assign/view.php"),
       quiz = linkedId(a.getAttribute("href"), "/mod/quiz/view.php");
@@ -268,7 +274,9 @@ export function collectMoodleCalendar(
       pages: Set<number>;
       signature: string;
       selected: boolean;
-      exclusionReason?: CalendarCollection["exclusions"][number]["reason"];
+      exclusionReason?:
+        | CalendarCollection["exclusions"][number]["reason"]
+        | undefined;
       pageIndex: number;
       recordIndex: number;
     }[]
@@ -308,13 +316,15 @@ export function collectMoodleCalendar(
         diagnostic("invalid_page");
         return;
       }
-      const main = mains[0],
+      // The check above returned unless mains has exactly one element.
+      const main = mains[0]!,
         headings = main.querySelectorAll("h1"),
         start = main.getAttribute("data-range-start") ?? "",
         end = main.getAttribute("data-range-end") ?? "";
       if (
         headings.length !== 1 ||
-        !normalize(headings[0].textContent ?? "") ||
+        // headings.length !== 1 is checked first, so index 0 is defined here.
+        !normalize(headings[0]!.textContent ?? "") ||
         !realDay(start) ||
         !realDay(end) ||
         start > end
@@ -417,7 +427,8 @@ export function collectMoodleCalendar(
       if (conflict) {
         item.reasons.push("event_conflict");
         item.pages.forEach((index) => {
-          result.pages[index].coverage = "partial";
+          // Every index in item.pages is a pageIndex whose page was pushed into result.pages.
+          result.pages[index]!.coverage = "partial";
         });
       }
       if (item.exclusionReason) continue;
@@ -427,7 +438,8 @@ export function collectMoodleCalendar(
           reasons: [...new Set(item.reasons)],
         });
         item.pages.forEach((index) => {
-          result.pages[index].coverage = "partial";
+          // Every index in item.pages is a pageIndex whose page was pushed into result.pages.
+          result.pages[index]!.coverage = "partial";
         });
       } else if (item.selected)
         result.observations.push(item.candidate as RawCalendarObservation);
