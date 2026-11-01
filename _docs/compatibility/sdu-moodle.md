@@ -10,6 +10,7 @@ This is the compatibility report for [#3](https://github.com/Ramung55/MoodleHelp
 - **Read-only:** no submit, upload, enrol, settings or other state-changing action was taken. The "Add submission" action link was recorded but never clicked. Same-origin course page fetches were spaced 1.2 s apart.
 - **Not recorded:** cookies, `sesskey` values, session tokens, grades, marks, instructor or student names, file names and document bodies.
 - **Identifier choice:** numeric course and course-module (cmid) ids are generalised to `N` / `<cmid>` throughout. Raw ids from one account's enrolment and submission state could help identify that student. The exceptions are ids `2` and `1`, which were used only as non-existent ids for the error-page probe. The course shortname is described only by its pattern, because it embeds an instructor login.
+- **Folder addendum:** in the same session on 2026-11-01, extra read-only same-origin GETs (1.2 s apart) were made to course pages of not-enrolled, guest-viewable courses and to one folder module page, because no enrolled course has a folder. These courses are not the student's own. Only page structure was read; no content, names or files were kept.
 - **Single-account scope:** the evidence comes from one student account with 8 in-progress courses. "Unavailable" below means "not present in this account on 2026-11-01". It does not mean that SDU Moodle cannot produce the case.
 
 Status vocabulary: **Observed** means seen live, with sanitized evidence below. **Unavailable** means the page was inspected and the field or state was absent in this account. **UNVERIFIED** means the page or variant was not inspected, so nothing is known about it.
@@ -32,6 +33,8 @@ All rows were inspected on 2026-11-01 with the English interface.
 | 10 | `/course/view.php?id=N` with credentials omitted | GET | Login redirect behaviour |
 | 11 | `/course/view.php?id=2`, `/mod/assign/view.php?id=1` | GET | Error page for non-existent ids |
 | 12 | `/course/view.php?id=N` for 2 courses the student is not enrolled in | GET | Access behaviour only (no content kept) |
+| 13 | `/course/view.php?id=N` for 11 not-enrolled, guest-viewable courses (same-origin, 1.2 s apart; not the student's own courses) | GET | Structure only: searched for `li.activity.modtype_folder` (all HTTP 200; no content kept) |
+| 14 | `/mod/folder/view.php?id=<cmid>` for one folder in a not-enrolled course (not the student's own course) | GET | Structure only: page id, language, folder-tree markup (no names or files kept) |
 
 The pages also made these requests themselves; Claude did not call them: `core_calendar_get_action_events_by_timesort`, `core_get_user_dates`, `block_recentlyaccesseditems_get_recent_items`, `media_videojs_get_language`.
 
@@ -57,7 +60,8 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 | Material | File resource (PDF) via `mod/resource` redirect | Observed | 2026-11-01 | English | 4, 9 |
 | Material | URL and page modules | Observed in activity list only; targets not inspected | 2026-11-01 | English | 4 |
 | Material | Video, restricted resource | UNVERIFIED | — | — | — |
-| Folder | `mod/folder` parent listing, nested folder, child file/link | Unavailable: no folder module in any of 8 enrolled courses → UNVERIFIED | 2026-11-01 | English | 4 |
+| Folder | Empty folder, separate-page display (`mod/folder` card on the course page and the folder page), not-enrolled guest-viewable course | Observed | 2026-11-01 | English | 13, 14 |
+| Folder | Folder with files, nested subfolders, inline display on the course page, "Download folder" button | UNVERIFIED (not observed; no folder in any of the 8 enrolled courses, and the inspected folder was empty) | — | — | — |
 | Restricted activity | `.availabilityinfo` present | Unavailable: none observed → UNVERIFIED | 2026-11-01 | English | 4 |
 | Any page | Russian (RU) or Kazakh (KK) interface | UNVERIFIED (not inspected) | — | — | — |
 
@@ -86,7 +90,7 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 | Activity node / cmid | Observed | `li.activity.modtype_<mod>#module-<cmid>` |
 | Activity link | Observed | `a[href*="/mod/<mod>/view.php?id=<cmid>"]` |
 | Activity name | Observed | `.instancename`; type label in nested `.accesshide` (e.g. "File", "URL"), which must be removed from the name |
-| Module type | Observed | Seen across 8 courses: `assign`, `quiz`, `forum`, `url`, `resource`, `page`. No `folder`. |
+| Module type | Observed | Seen across 8 enrolled courses: `assign`, `quiz`, `forum`, `url`, `resource`, `page`. No `folder` in enrolled courses; `folder` was observed only in a not-enrolled, guest-viewable course (rows 13, 14). |
 | Section | Observed | `li.section` / `data-sectionid`; 17 section nodes on the sample course (`format-topics`) |
 | Inline dates | Observed | `[data-region="activity-dates"]` children: "Opened: <weekday>, <d> <Month> <yyyy>, <h:mm AM/PM>", "Due: …", "Closed: …" |
 | Resource file type | Observed | `.activitybadge` / details text "PDF", "PPTX"; icon path `/theme/image.php/alpha/core/<rev>/f/pdf` |
@@ -145,7 +149,21 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 | Content type | Observed | `Content-Type: application/pdf`, `Content-Disposition: inline` |
 | File type label | Observed | `.activitybadge` "PDF" / "PPTX" on the course page |
 | URL / page targets | UNVERIFIED | Seen as modtypes only |
-| Folder relationships | Unavailable | No folder module in this account |
+| Folder relationships | Unavailable in enrolled courses; parent-to-child UNVERIFIED | No folder module in this account's courses. The one inspected folder (row 14) was empty, so no parent-to-child file or subfolder relationship was observed. |
+
+### Folder (`/mod/folder/view.php?id=<cmid>`)
+
+Evidence: rows 13 and 14, one empty folder in a not-enrolled, guest-viewable course, English, 2026-11-01. Only structure was read.
+
+| Field | Status | Sanitized evidence |
+| --- | --- | --- |
+| Course-page card | Observed | `li.activity.modtype_folder.folder`; the nested `.instancename .accesshide` type label reads "Folder" and must be removed from the name |
+| Display mode | Observed (separate page) | The tree is not rendered inline on the course page; the folder opens on its own page. Inline display is UNVERIFIED. |
+| Page | Observed | `body#page-mod-folder-view`, `<html lang="en">`, HTTP 200 |
+| Folder tree | Observed | `div.box.generalbox.foldertree > div#folder_tree<N>.filemanager > ul > li > div.fp-filename-icon > span.fp-icon > img.icon + span.fp-filename`. The single root `li` is the folder itself. |
+| Child files | UNVERIFIED | The inspected folder was empty: 0 `pluginfile.php` links |
+| Nested subfolders | UNVERIFIED | 0 nested `ul` under the root `li` |
+| "Download folder" button | UNVERIFIED | No download-folder form was present; the only form on the page was the `/course/jumpto.php` navigation |
 
 ## Navigation and access behaviour collectors must handle
 
@@ -156,8 +174,8 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 | Dynamic navigation | Observed (partially) | `/my/courses.php` issues its own `core_course_get_enrolled_courses_by_timeline_classification` POST to fill the card list, so prefer the endpoint over the rendered cards. Pages also issued `core_calendar_get_action_events_by_timesort`, `core_get_user_dates` and `block_recentlyaccesseditems_get_recent_items` themselves. Section expand/collapse and calendar range changes are UNVERIFIED. | #11, #15 |
 | Permission failure: not enrolled | Observed | Two not-enrolled course ids returned **HTTP 200 and rendered the course page**. Page reachability does not prove enrolment, so enrolment must come only from the enrolled-courses endpoint. | #11, #12 |
 | Permission failure: non-existent id | Observed | HTTP 404, `body#page-site-index`, text "Can't find data record in database…" for both course and module ids | #13–#17 |
-| Permission failure: restricted activity / folder | UNVERIFIED | No restricted activity or folder was observed | #13–#17 |
-| Login redirect: page | Observed | An unauthenticated `/course/view.php?id=N` redirects to final path `/login/index.php` with **HTTP 200**, `text/html`. A 200 status therefore does not prove success; check the final path. | #10 |
+| Permission failure: restricted activity / folder | UNVERIFIED | No restricted activity was observed. The one inspected folder page (row 14, not-enrolled guest-viewable course) returned HTTP 200; a restricted or inaccessible folder was not observed. | #13–#17 |
+| Login redirect: page | Observed | An unauthenticated `/course/view.php?id=N` redirects to final path `/login/index.php` with **HTTP 200**. The content type was not recorded for this request. A 200 status therefore does not prove success; check the final path. | #10 |
 | Login redirect: file download | Observed | An unauthenticated `/mod/resource/view.php?id=<cmid>` also ends at `/login/index.php`, HTTP 200, `text/html`. **Downloaders must check the final path and content type, or they will save the login page as the PDF.** | #17 |
 | Session expiry mid-collection | UNVERIFIED as a timed event | Expected to look the same as the unauthenticated redirect above, but this was not observed | #10 |
 
@@ -165,7 +183,7 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 
 These cases were not observed on 2026-11-01. They stay UNVERIFIED, and collectors must not claim support for them until they are inspected:
 
-- **Folders:** the `mod/folder` parent listing, nested folders and child files or links. No folder module appeared in any of the 8 enrolled courses.
+- **Folder variants beyond the empty one:** a folder with files, nested subfolders, inline display on the course page and the "Download folder" button. No folder module appeared in any of the 8 enrolled courses, and the one folder inspected in a not-enrolled, guest-viewable course was empty and shown on a separate page.
 - **Cut-off dates and extensions** on assignments.
 - **Individual overrides** on assignments and quizzes.
 - **Draft and reopened** assignment submissions.
@@ -187,15 +205,15 @@ The [#5 data-model inventory](../architecture/data-model.md) records the current
 | Courses and identity | `Course.id`, `code`, `name`, `color`, `current`; `Settings.trackedCourseIds`; `Assessment.id`, optional `activityId`, `courseId`, `title`, `type` | Stable sources were observed: the course id (`data-course-id` / `courses[].id`) and the cmid (`#module-<cmid>`, `cmid-<cmid>`). `code` must be derived from the first shortname segment. `name` must have the parenthesised instructor name stripped. `current` maps to the `inprogress` classification. `activityId` must hold the cmid, not the assign or quiz instance id. Those are different id spaces, and only the cmid was observed. Owners: [#11](https://github.com/Ramung55/MoodleHelper/issues/11) / [#12](https://github.com/Ramung55/MoodleHelper/issues/12). |
 | Dates and provenance | `Assessment.availableFrom` (optional string), `sources` (nonempty `SourceEvidence[]`), `firstObservedAt`, `lastObservedAt`; `SourceEvidence.source`, `date`, `observedAt`, optional `excerpt`, `location`, `url` | Displayed dates are minute-precision in UTC+5 (Asia/Almaty) with no offset. The calendar provides epochs. Both fit the exact `DateValue` branch (`iso`, `tz`). There is still no dedicated cut-off field and no structured individual-override model. Cut-offs and overrides were unavailable live, so the gap is not yet exercised. Owners: [#13](https://github.com/Ramung55/MoodleHelper/issues/13) (cut-off), [#14](https://github.com/Ramung55/MoodleHelper/issues/14) (quiz open/close and attempts), [#15](https://github.com/Ramung55/MoodleHelper/issues/15) (calendar). |
 | Submission versus personal completion | Optional `Assessment.submission`: `status` = submitted/draft/not_submitted/reopened/unknown, `observedAt`, optional `evidence`; `Overlay.completed` is separate | Observed mappings: `submissionstatussubmitted` → `submitted`; the class-less "No submissions have been made yet" → `not_submitted`. The `draft` and `reopened` labels remain unverified, so any unrecognised status must map to `unknown`. There are no wire fields for the quiz's attempts allowed or used, or its attempt state. The RaiseUI `rui-attempts-list` is the live source for these. Owners: [#16](https://github.com/Ramung55/MoodleHelper/issues/16), #14. Moodle individual overrides are not the personal `Overlay.dateOverride` / `overrideBase`. |
-| Materials and folders | `Material.id`, `courseId`, `section`, `title`, `fileType` = pdf/docx/pptx/link/video/other, `url`, `accessible`, `stale`, `lastCheckedAt`, `syllabusSuggestion`, optional `downloadedAt` | `fileType` covers the observed "PDF"/"PPTX" badges and `url` modules. `section` is available from `data-sectionid`. `accessible` must come from the final path and content type, not the HTTP status (see the login redirect rows). There are still no folder parent/child fields; folders were unavailable live. Owner: [#17](https://github.com/Ramung55/MoodleHelper/issues/17). |
+| Materials and folders | `Material.id`, `courseId`, `section`, `title`, `fileType` = pdf/docx/pptx/link/video/other, `url`, `accessible`, `stale`, `lastCheckedAt`, `syllabusSuggestion`, optional `downloadedAt` | `fileType` covers the observed "PDF"/"PPTX" badges and `url` modules. `section` is available from `data-sectionid`. `accessible` must come from the final path and content type, not the HTTP status (see the login redirect rows). There are still no folder parent/child fields. Only an empty folder was observed (rows 13, 14), so the parent-to-child shape is not yet exercised. Owner: [#17](https://github.com/Ramung55/MoodleHelper/issues/17). |
 | Coverage and failures | `CourseSyncState.courseId`, `status`, `coverage`, `progress`, optional `lastSuccessAt`, `error` | Collectors must report a login-page final path as a session failure, not as empty content, and a 404 "Can't find data record" as a missing source. Owners: [#10](https://github.com/Ramung55/MoodleHelper/issues/10), [#19](https://github.com/Ramung55/MoodleHelper/issues/19) / [#21](https://github.com/Ramung55/MoodleHelper/issues/21). |
 
 Wire timestamp, time zone and URL strings remain permissive, and date strings validate their shape only. Unknown keys may be stripped or ignored, so collectors must report unsupported facts (cut-off, override, attempt counts, folder tree) explicitly. Each owning feature must agree additive Zod/OpenAPI/Python changes first. Cross-source reconciliation remains [#33](https://github.com/Ramung55/MoodleHelper/issues/33). [#4](https://github.com/Ramung55/MoodleHelper/issues/4) owns sanitized fixtures; this document creates none.
 
 ## Acceptance-criteria status
 
-1. **Inspected variants, language and date:** met for the course list, course page, assignment, quiz, calendar and material variants listed above (English, 2026-11-01). Folder is recorded as unavailable in this account, with its variants UNVERIFIED.
-2. **Field status with sanitized evidence:** every field is marked. Due dates are observed. Individual overrides, drafts and reopened submissions are unavailable in this account and remain UNVERIFIED for SDU in general.
+1. **Inspected variants, language and date:** met for the course list, course page, assignment, quiz, calendar, material and folder variants listed above (English, 2026-11-01). The folder variant is an empty folder shown on a separate page, inspected in a not-enrolled, guest-viewable course because no enrolled course has a folder. A folder with files, nested subfolders, inline display and the "Download folder" button remain UNVERIFIED.
+2. **Field status with sanitized evidence:** every field is marked, including the folder fields. Due dates are observed. Individual overrides, drafts and reopened submissions are unavailable in this account and remain UNVERIFIED for SDU in general.
 3. **Pagination, dynamic navigation, permission failures and login redirects:** each one is observed, with the remaining sub-cases marked UNVERIFIED.
 4. **Unverified sources and access:** the unobserved variants are listed explicitly; no live compatibility is claimed for them.
 5. **Read-only and privacy:** the inspection was read-only, and the report contains no credentials, session tokens, grades or personal names.
