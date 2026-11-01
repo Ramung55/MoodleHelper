@@ -41,7 +41,7 @@ ALLOWED_FILES = frozenset(
 )
 EXPECTED_MATCHES = {
     "content.js": ["https://moodle.sdu.edu.kz/*"],
-    "dashboard-relay.js": ["http://127.0.0.1:5173/*", "http://localhost:5173/*"],
+    "dashboard-relay.js": ["http://127.0.0.1:5173/*", "http://localhost:5173/*", "https://ramung55.github.io/MoodleHelper/*"],
 }
 EXPECTED_HOSTS = ["http://127.0.0.1:8000/*", "https://moodle.sdu.edu.kz/*"]
 EXPECTED_PERMISSIONS = ["alarms", "downloads", "notifications"]
@@ -136,7 +136,7 @@ def package(dist: Path, out: Path, commit: str, tree_dirty: bool, tools: dict) -
         "files": sorted(ALLOWED_FILES),
         "permissions": manifest["permissions"],
         "host_permissions": manifest["host_permissions"],
-        "approved_https_dashboard_origin": None,
+        "approved_https_dashboard_origin": "https://ramung55.github.io/MoodleHelper/",
     }
     (out / "build-info.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
     return archive

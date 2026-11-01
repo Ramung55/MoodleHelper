@@ -13,7 +13,7 @@ const expected = {
   permissions: ["alarms", "downloads", "notifications"],
   icons: { "128": "icon-128.png" },
   content_scripts: [{ matches: ["https://moodle.sdu.edu.kz/*"], js: ["content.js"] },
-    {matches:["http://127.0.0.1:5173/*","http://localhost:5173/*"],js:["dashboard-relay.js"]}],
+    {matches:["http://127.0.0.1:5173/*","http://localhost:5173/*","https://ramung55.github.io/MoodleHelper/*"],js:["dashboard-relay.js"]}],
 };
 
 function validateManifest(manifest: unknown) {

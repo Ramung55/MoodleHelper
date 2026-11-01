@@ -1,3 +1,4 @@
+import { apiBase } from "./api-base";
 /**
  * #44 consent-based optional AI fallback: selection, frozen preview, sanitized
  * failure mapping, response validation and review-first #31 records.
@@ -24,7 +25,7 @@ export type AiAvailabilityInfo = z.infer<typeof AiAvailabilityInfo>;
 export type AvailableAi = Extract<AiAvailabilityInfo, { available: true }>;
 
 /** Unreachable, malformed or unavailable all mean the same thing: local-only, no Send. */
-export async function loadAiAvailability(baseUrl = "", fetcher: typeof fetch = (...a) => globalThis.fetch(...a), signal?: AbortSignal): Promise<AiAvailabilityInfo> {
+export async function loadAiAvailability(baseUrl = apiBase(), fetcher: typeof fetch = (...a) => globalThis.fetch(...a), signal?: AbortSignal): Promise<AiAvailabilityInfo> {
   try {
     const response = await fetcher(`${baseUrl.replace(/\/$/, "")}/api/ai/availability`, { credentials: "omit", cache: "no-store", ...(signal ? { signal } : {}) });
     if (!response.ok) return { available: false, reason: UNAVAILABLE_COPY };
@@ -114,7 +115,7 @@ export async function sendFrozen(preview: FrozenPreview, signal: AbortSignal, de
   const info = await loadAiAvailability(deps.baseUrl, deps.fetcher, signal);
   if (!info.available || policyKey(info) !== policyKey({ ...preview.policy, available: true } as AvailableAi)) throw new AiRequestError("The AI policy or destination changed. Review a new preview.", 409, "policy_changed");
   const timeout = AbortSignal.timeout(AI_CLIENT_TIMEOUT_MS), combined = AbortSignal.any([signal, timeout]);
-  return requestAiExtract(deps.baseUrl ?? "", preview.request, deps.fetcher, combined);
+  return requestAiExtract(deps.baseUrl ?? apiBase(), preview.request, deps.fetcher, combined);
 }
 
 export type ValidatedAi = { records: LocalEvidenceRecord[]; rejected: { index: number; reason: string }[] };

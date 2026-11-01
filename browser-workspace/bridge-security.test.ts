@@ -144,6 +144,15 @@ describe("closed bridge trust and schemas", () => {
     expect(await h.handler(hello(), { ...sender, ...change })).toBeNull();
     expect(h.fetch).not.toHaveBeenCalled();
   });
+  it("trusts the #49 Pages dashboard only over https and inside /MoodleHelper/", () => {
+    const pages = (url: string) => ({ ...sender, url, origin: "https://ramung55.github.io", tab: { id: 3, url } });
+    expect(trustedSender(pages("https://ramung55.github.io/MoodleHelper/"), "extension")).toBe(true);
+    expect(trustedSender(pages("https://ramung55.github.io/MoodleHelper/deadlines/"), "extension")).toBe(true);
+    expect(trustedSender(pages("https://ramung55.github.io/OtherProject/"), "extension")).toBe(false);
+    expect(trustedSender(pages("https://ramung55.github.io/"), "extension")).toBe(false);
+    expect(trustedSender({ ...sender, url: "http://ramung55.github.io/MoodleHelper/", origin: "http://ramung55.github.io", tab: { id: 3 } }, "extension")).toBe(false);
+    expect(trustedSender(pages("https://user:pw@ramung55.github.io/MoodleHelper/"), "extension")).toBe(false);
+  });
   it("accepts absent tab.url/origin and consistent supplied values; document metadata fails closed", async () => {
     expect(trustedSender(sender, "extension")).toBe(true);
     expect(

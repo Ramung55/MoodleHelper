@@ -29,7 +29,7 @@ def test_manifest_matches_reviewed_inventory(path):
     assert sorted(m['permissions']) == ['alarms', 'downloads', 'notifications']
     assert sorted(m['host_permissions']) == ['http://127.0.0.1:8000/*', 'https://moodle.sdu.edu.kz/*']
     assert [c['matches'] for c in m['content_scripts']] == [
-        ['https://moodle.sdu.edu.kz/*'], ['http://127.0.0.1:5173/*', 'http://localhost:5173/*']]
+        ['https://moodle.sdu.edu.kz/*'], ['http://127.0.0.1:5173/*', 'http://localhost:5173/*', 'https://ramung55.github.io/MoodleHelper/*']]
     assert 'optional_permissions' not in m and 'externally_connectable' not in m
     assert 'web_accessible_resources' not in m
 
@@ -38,8 +38,9 @@ def test_bridge_allowlist_equals_dashboard_content_script_matches():
     src = (ROOT / 'shared/src/bridge.ts').read_text(encoding='utf-8')
     origins = json.loads(re.search(r'APPROVED_ORIGINS = (\[[^\]]*\])', src).group(1))
     relay = manifest('extension/manifest.json')['content_scripts'][1]['matches']
-    assert [o + '/*' for o in origins] == relay
-    assert all(o.startswith('http://') for o in origins)  # no approved HTTPS origin
+    # Dev origins match whole hosts; the one approved HTTPS origin (#49) is scoped to its project path.
+    assert [o + '/*' for o in origins[:-1]] + [origins[-1] + '/MoodleHelper/*'] == relay
+    assert all(o.startswith('http://') for o in origins[:-1]) and origins[-1] == 'https://ramung55.github.io'
 
 
 def _ops(client):

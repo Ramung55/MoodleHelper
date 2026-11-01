@@ -1,5 +1,6 @@
 /** Native ownership permits immediate termination even while v7 initializes. */
-export const OCR_ASSET_BASE = "/ocr/7.0.0";
+// Under the Vite base, so the GitHub Pages build (#49) loads /MoodleHelper/ocr/7.0.0.
+export const OCR_ASSET_BASE = `${import.meta.env.BASE_URL}ocr/7.0.0`;
 export type OcrEngineOutput = { text: string; confidence: number; blocks?: { paragraphs?: { lines?: { text: string; confidence: number; bbox: { x0: number; y0: number; x1: number; y1: number } }[] }[] }[] };
 export interface LocalOcrEngine { ready: Promise<void>; recognize(image: Uint8Array): Promise<OcrEngineOutput>; terminate(): void }
 

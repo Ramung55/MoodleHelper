@@ -29,7 +29,7 @@ def test_source_manifest_passes_and_zip_is_deterministic(tmp_path):
     sums = (tmp_path / "a" / "SHA256SUMS").read_text()
     assert a.name in sums and "dist/manifest.json" in sums
     info = json.loads((tmp_path / "a" / "build-info.json").read_text())
-    assert info["approved_https_dashboard_origin"] is None
+    assert info["approved_https_dashboard_origin"] == "https://ramung55.github.io/MoodleHelper/"
     assert "Not yet live-validated" in info["label"]
 
 

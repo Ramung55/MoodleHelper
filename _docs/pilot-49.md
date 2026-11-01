@@ -1,8 +1,9 @@
 # Chrome pilot package (#49) — LOCAL REVIEW BUILD
 
 **Status: Not yet live-validated.** Not signed, not a store build, not published or
-distributed. No approved HTTPS dashboard origin exists. Issue #49 stays open until all
-six original criteria pass.
+distributed. The approved HTTPS dashboard origin is `https://ramung55.github.io/MoodleHelper/`
+(owner approval, 2026-11-01), but GitHub Pages is **not enabled**, so nothing is published.
+Issue #49 stays open until all six original criteria pass.
 
 ## 1. Build the package
 
@@ -27,7 +28,7 @@ stale output first), then refuses to package unless:
 
 Output in gitignored `pilot-package/`: `moodle-helper-extension-<version>-<commit7>.zip`,
 `SHA256SUMS`, `build-info.json` (version, commit, dirty flag, tool versions, commands,
-`approved_https_dashboard_origin: null`). The zip uses sorted entries and fixed
+`approved_https_dashboard_origin: "https://ramung55.github.io/MoodleHelper/"`). The zip uses sorted entries and fixed
 timestamps, so identical `dist/` bytes give an identical zip. Bit-identical `dist/`
 across machines is not claimed. Version stays `0.0.0`, and no release tag exists.
 
@@ -55,28 +56,58 @@ Permissions in the emitted manifest:
 | `notifications` | OS reminder notifications (depends on OS/Chrome notification settings) |
 | host `http://127.0.0.1:8000/*` | local backend |
 | host + content script `https://moodle.sdu.edu.kz/*` | read Moodle pages you visit |
-| content script `http://127.0.0.1:5173/*`, `http://localhost:5173/*` | dashboard relay |
+| content script `http://127.0.0.1:5173/*`, `http://localhost:5173/*` | dashboard relay (development) |
+| content script `https://ramung55.github.io/MoodleHelper/*` | dashboard relay (approved HTTPS dashboard) |
 
-Prerequisites: the backend `uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000`
-and the dashboard `bun run --cwd frontend dev` (port 5173). Removing or disabling the
+Prerequisites: the backend `uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000`,
+and either the dev dashboard `bun run --cwd frontend dev` (port 5173) or the hosted
+dashboard at `https://ramung55.github.io/MoodleHelper/`. Removing or disabling the
 extension stops scans, reminders and the relay. Dashboard-origin browser data (IndexedDB
 documents) stays until you clear site data, and backend SQLite stays until you erase it.
+The dev and hosted dashboards are different origins, so their IndexedDB data is separate.
 
-**BLOCKED (AC2):** the exact approved HTTPS dashboard origin is missing. The owner has
-not supplied a URL (PM update 2026-10-29). The allowlist stays localhost-only, with no
-placeholder or wildcard.
+**Approved HTTPS origin (AC2):** `https://ramung55.github.io/MoodleHelper/`. It is the same
+value in the manifest relay match, `APPROVED_ORIGINS` in `shared/src/bridge.ts` (origin
+`https://ramung55.github.io`), the backend CORS allowlist (`DASHBOARD_ORIGIN` in
+`backend/main.py`) and `build-info.json`. The extension trusts a Pages sender only over
+https and only under `/MoodleHelper/`. A GitHub Pages origin covers every project page of
+the `ramung55` account, so the backend CORS grant also admits other `ramung55.github.io`
+pages; the owner controls all of them.
 
 ## 3. Dashboard deployment
 
-The frontend is TanStack Start with Nitro's node-server preset (`bun run --cwd frontend
-build`, output in `frontend/.output/`). The Vite dev proxy `/api` → `127.0.0.1:8000` is
+The frontend is TanStack Start. `bun run --cwd frontend build` keeps the Nitro node-server
+output for local production checks. The Vite dev proxy `/api` → `127.0.0.1:8000` is
 development-only and is not a production route or authentication. The backend is a
 single-user localhost store and must not be exposed publicly.
 
-**BLOCKED (AC3):** HTTPS hosting, trusted HTTPS→loopback design, and fresh-install
-connection evidence all wait on the origin decision. Production direct-route and
-deep-link checks for /deadlines, /planner, /syllabus, /materials, /settings and /alerts
-have not been recorded in this package yet; QA must still verify them.
+**GitHub Pages build:** `bun run --cwd frontend build:pages` sets `MOODLE_HELPER_PAGES=1`.
+That uses Vite base `/MoodleHelper/` (which also becomes the router basepath) and SPA mode
+with every route prerendered. Output is `frontend/.output/public/`:
+
+- **Asset paths:** every script, style and the OCR assets load from `/MoodleHelper/…`.
+  `scripts/finish-pages.mjs` fails the build if `index.html`, `deadlines/index.html` or
+  `settings/index.html` does not reference `/MoodleHelper/assets/`.
+- **Deep links:** `/deadlines`, `/planner`, `/syllabus`, `/materials`, `/settings`, `/alerts`
+  and `/setup` each have a prerendered `index.html`. Pages redirects `/deadlines` to
+  `/deadlines/`, and the shell matches both forms. Any other path gets `404.html`, a copy
+  of the SPA shell, so the client router renders it. `.nojekyll` is added so `_shell.html`
+  is published.
+- **HTTPS → loopback:** on `https://ramung55.github.io` the dashboard calls
+  `http://127.0.0.1:8000` directly (`frontend/src/services/api-base.ts`); elsewhere it keeps
+  same-origin `/api`. The backend sends CORS headers only for that exact origin (no
+  credentials), answers Chrome's Private Network Access preflight, and keeps the loopback
+  Host check (#63) and the bridge-binding write checks. Chrome may ask the user to allow
+  the site to reach local devices; allow it once.
+- **Deploy (not done):** publish `frontend/.output/public/` as the Pages site of
+  `Ramung55/MoodleHelper`, for example with a GitHub Actions Pages workflow. Enabling Pages
+  makes the dashboard code public, so the owner must approve it first.
+
+Verified on 2026-11-02 with the built output served locally under `/MoodleHelper/`:
+`/MoodleHelper/deadlines` loaded every asset from `/MoodleHelper/assets/`, and with no
+backend at that origin it showed the "Local data could not be loaded" error state with Retry.
+**Not yet verified:** a fresh install against the real Pages origin connecting to the local
+backend and extension. That needs Pages enabled.
 
 ## 4. Privacy summary
 
@@ -88,7 +119,9 @@ have not been recorded in this package yet; QA must still verify them.
   downloaded files on disk or Chrome download history.
 - Workers run only while Chrome and the backend run. Missed alarms catch up only as far as
   `_docs/notifications-39.md` describes.
-- No AI provider is configured, so nothing is sent (#42–#44 mock only).
+- AI is off unless the operator configures the free-tier Gemini provider (#42–#44). When it
+  is on, only excerpts the student approves are sent, after a consent screen that states
+  Google's free-tier data use.
 - Installing grants no Moodle account. The extension only reads pages you are logged in
   to, and it does not prove login.
 
@@ -104,7 +137,9 @@ evidence. No credentials were requested or used.
 - #14 quiz dates, #16 submission status: open.
 - #20 Sync-all wiring and #21 progress/freshness display: open, so full sync is not trusted.
 - #41 optional material downloads: open.
-- #42, #44: AI is mock-only; no real provider, consent or cost.
+- #42, #44: free-tier Gemini provider implemented but not yet run against the real API.
+- Reminder notification clicks still open the development dashboard
+  (`APPROVED_ORIGINS[0]`, `http://127.0.0.1:5173`), not the Pages dashboard.
 - #46 first-run onboarding: open.
 - #48: privacy review findings are unresolved; see the issue for severity and repro.
 - #64: loopback backend local-process authentication is undecided (#48 trust boundary).

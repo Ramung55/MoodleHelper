@@ -7,6 +7,7 @@ from uuid import uuid4
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
@@ -52,6 +53,11 @@ class LoopbackHostMiddleware:
             return await send({'type': 'websocket.close', 'code': 1008})
         response = JSONResponse(status_code=400, content={'message': 'Invalid Host header. Use 127.0.0.1, localhost or [::1].'})
         await response(scope, receive, send)
+
+
+# #49: the approved HTTPS dashboard. Pages serves every project of this account from one
+# origin, so this also admits other ramung55.github.io pages; the owner controls all of them.
+DASHBOARD_ORIGIN = 'https://ramung55.github.io'
 
 
 def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None, reminder_clock=None, reminder_resolver=None,
@@ -310,6 +316,10 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     app.include_router(collection_router)
     app.include_router(local_syllabus_router)
     app.include_router(ai_router)
+    # No credentials: the dashboard never sends cookies. Writes still need the bridge binding header.
+    app.add_middleware(CORSMiddleware, allow_origins=[DASHBOARD_ORIGIN], allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+                       allow_headers=['Accept', 'Content-Type', 'X-Moodle-Helper-Bridge-Binding', 'X-Moodle-Helper-Data-Epoch'],
+                       expose_headers=['Retry-After'], allow_credentials=False, allow_private_network=True, max_age=600)
     # Added last, so it is outermost: runs before every other middleware and routing.
     app.add_middleware(LoopbackHostMiddleware)
     return app

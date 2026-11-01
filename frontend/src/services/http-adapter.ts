@@ -1,3 +1,4 @@
+import { apiBase } from "./api-base";
 import type { RawCourseObservation } from "@/domain/types";
 import { z } from "zod";
 import { ConnectionState, ReminderPlan, Snapshot, TeachingCalendar, LocalReviewContext, LocalSyllabusDate, SyllabusRevisionPreview, LocalSyllabusInput, LocalSyllabusResult, type SyllabusRevisionDecision, type Snapshot as SnapshotValue } from "@/domain/types";
@@ -34,7 +35,7 @@ export class HttpAdapter implements MoodleHelperAdapter {
   /** #56 data-lifecycle epoch captured with the authoritative load; attached to every write. */
   private epoch: number | undefined;
 
-  constructor(private baseUrl = "", private fetcher: typeof fetch = (...args) => globalThis.fetch(...args)) {}
+  constructor(private baseUrl = apiBase(), private fetcher: typeof fetch = (...args) => globalThis.fetch(...args)) {}
 
   private epochHeader(): Record<string, string> {
     return this.epoch === undefined ? {} : { "X-Moodle-Helper-Data-Epoch": String(this.epoch) };

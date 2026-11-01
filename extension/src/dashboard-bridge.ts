@@ -15,6 +15,8 @@ import {
 } from "../../shared/src/bridge";
 
 export const BACKEND = "http://127.0.0.1:8000";
+const PAGES_ORIGIN = "https://ramung55.github.io";
+const PAGES_PATH = "/MoodleHelper/";
 export type Sender = {
   id?: string;
   url?: string;
@@ -40,7 +42,9 @@ export type Runtime = {
 function origin(url: unknown): string | null {
   try {
     const u = new URL(String(url));
-    return u.protocol === "http:" &&
+    // Dev servers are http; the GitHub Pages dashboard is https and limited to its project path.
+    const scheme = u.origin === PAGES_ORIGIN ? u.protocol === "https:" && u.pathname.startsWith(PAGES_PATH) : u.protocol === "http:";
+    return scheme &&
       !u.username &&
       !u.password &&
       approved(u.origin)
@@ -368,7 +372,8 @@ export function installWorker(chromeApi: {
 }
 /** Isolated content world; only same-window top-frame traffic reaches internal runtime. */
 export function installRelay(win: Window, runtime: Runtime): () => void {
-  if (win.top !== win || !approved(win.location.origin)) return () => {};
+  if (win.top !== win || !approved(win.location.origin) ||
+    (win.location.origin === PAGES_ORIGIN && origin(win.location.href) === null)) return () => {};
   const listener = (e: MessageEvent) => {
     if (
       e.source !== win ||

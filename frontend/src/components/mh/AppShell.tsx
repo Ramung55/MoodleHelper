@@ -17,6 +17,9 @@ const NAV = [
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
+/** Static hosts such as GitHub Pages (#49) redirect /deadlines to /deadlines/; match both. */
+export const navPath = (pathname: string) => (pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname);
+
 /** Preview never mounts the provider, an adapter, or real route controls. */
 export function AppShell({ preview }: { preview?: ShellState }) {
   return preview ? <PreviewShell state={preview} /> : <ConnectedShell />;
@@ -24,7 +27,7 @@ export function AppShell({ preview }: { preview?: ShellState }) {
 
 function PreviewShell({ state }: { state: ShellState }) {
   const { pathname } = useLocation();
-  const from = NAV.find((item) => item.to === pathname)?.to ?? "/";
+  const from = NAV.find((item) => item.to === navPath(pathname))?.to ?? "/";
   const navigate = useNavigate({ from });
   return <ShellFrame state={state} preview notice="Development preview. No student data is loaded or saved."
     connection="Preview — no connections" storage="Preview uses no saved data."
@@ -51,7 +54,7 @@ function ShellFrame({ state, preview, notice, connection, storage, retry, exit, 
 }) {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
-  const page = NAV.find((item) => item.to === pathname);
+  const page = NAV.find((item) => item.to === navPath(pathname));
   const main = useRef<HTMLElement>(null);
   const previousPath = useRef(pathname);
   useEffect(() => {

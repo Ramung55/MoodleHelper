@@ -1,3 +1,4 @@
+import { apiBase } from "./api-base";
 /** Browser-origin storage for locally validated documents. No file enters an adapter. */
 export type LocalAssociation = {
   datasetId: string; courseId: string; digest: string; name: string; size: number;
@@ -102,7 +103,7 @@ export async function recoverLocalJobs(datasetId: string, _owner: string): Promi
 }
 
 export async function currentDataset(signal?: AbortSignal): Promise<string> {
-  const response = await fetch("/api/local-context", { method: "GET", credentials: "omit", cache: "no-store", headers: { Accept: "application/json" }, ...(signal ? { signal } : {}) });
+  const response = await fetch(`${apiBase()}/api/local-context`, { method: "GET", credentials: "omit", cache: "no-store", headers: { Accept: "application/json" }, ...(signal ? { signal } : {}) });
   if (!response.ok) throw new Error("Could not identify the current dataset. Reconnect and retry.");
   const value: unknown = await response.json();
   if (!value || typeof value !== "object" || Object.keys(value).length !== 1 ||
