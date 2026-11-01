@@ -15,16 +15,16 @@ import type { AssessmentType, DateValue } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
 import { personalDateError } from "@/domain/personal-event";
 
-type Search = { course?: string; type?: string; status?: string; id?: string; group?: string; week?: number };
+type Search = { course?: string | undefined; type?: string | undefined; status?: string | undefined; id?: string | undefined; group?: string | undefined; week?: number | undefined };
 
 export function parseDeadlineSearch(s: Record<string, unknown>): Search {
-  const week = typeof s.week === "number" || typeof s.week === "string" ? Number(s.week) : NaN;
+  const week = typeof s["week"] === "number" || typeof s["week"] === "string" ? Number(s["week"]) : NaN;
   return {
-    course: typeof s.course === "string" && s.course ? s.course : undefined,
-    type: typeof s.type === "string" && Object.hasOwn(TYPE_LABEL, s.type) ? s.type : undefined,
-    status: typeof s.status === "string" && (STATUS_FILTERS as readonly string[]).includes(s.status) ? s.status : undefined,
-    id: typeof s.id === "string" && s.id ? s.id : undefined,
-    group: s.group === "day" ? "day" : undefined,
+    course: typeof s["course"] === "string" && s["course"] ? s["course"] : undefined,
+    type: typeof s["type"] === "string" && Object.hasOwn(TYPE_LABEL, s["type"]) ? s["type"] : undefined,
+    status: typeof s["status"] === "string" && (STATUS_FILTERS as readonly string[]).includes(s["status"]) ? s["status"] : undefined,
+    id: typeof s["id"] === "string" && s["id"] ? s["id"] : undefined,
+    group: s["group"] === "day" ? "day" : undefined,
     week: Number.isInteger(week) && week > 0 && week < 100 ? week : undefined,
   };
 }
@@ -154,11 +154,11 @@ export function AddEvent({ open, onClose }: { open: boolean; onClose: () => void
             e.preventDefault();
             if (busy.current) return;
             const invalid: Record<string, string> = {};
-            if (!title.trim()) invalid.title = "Enter a title.";
-            if (!snap!.courses.some((c) => c.id === courseId)) invalid.course = "Choose an available course.";
-            if (!Object.hasOwn(TYPE_LABEL, type)) invalid.type = "Choose an assessment type.";
+            if (!title.trim()) invalid["title"] = "Enter a title.";
+            if (!snap!.courses.some((c) => c.id === courseId)) invalid["course"] = "Choose an available course.";
+            if (!Object.hasOwn(TYPE_LABEL, type)) invalid["type"] = "Choose an assessment type.";
             const dateError = personalDateError(date);
-            if (dateError) invalid.date = dateError;
+            if (dateError) invalid["date"] = dateError;
             setErrors(invalid);
             if (Object.keys(invalid).length || !date) return;
             busy.current = true; setPending(true);
@@ -171,24 +171,24 @@ export function AddEvent({ open, onClose }: { open: boolean; onClose: () => void
           }}
         >
           <fieldset disabled={pending} className="space-y-3">
-          <div className="space-y-1"><Label htmlFor="pe-t">Title</Label><Input id="pe-t" required aria-invalid={!!errors.title} aria-describedby="pe-title-error" value={title} onChange={(e) => setTitle(e.target.value)} />{errors.title && <p id="pe-title-error" role="alert" className="text-sm text-destructive">{errors.title}</p>}</div>
+          <div className="space-y-1"><Label htmlFor="pe-t">Title</Label><Input id="pe-t" required aria-invalid={!!errors["title"]} aria-describedby="pe-title-error" value={title} onChange={(e) => setTitle(e.target.value)} />{errors["title"] && <p id="pe-title-error" role="alert" className="text-sm text-destructive">{errors["title"]}</p>}</div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1"><Label htmlFor="pe-c">Course</Label>
-              <select id="pe-c" aria-invalid={!!errors.course} aria-describedby="pe-course-error" className="h-9 w-full rounded-md border bg-card px-2 text-sm" value={courseId} onChange={(e) => setCourse(e.target.value)}>
+              <select id="pe-c" aria-invalid={!!errors["course"]} aria-describedby="pe-course-error" className="h-9 w-full rounded-md border bg-card px-2 text-sm" value={courseId} onChange={(e) => setCourse(e.target.value)}>
                 <option value="">Choose a course</option>
                 {snap!.courses.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
               </select>
-              {errors.course && <p id="pe-course-error" role="alert" className="text-sm text-destructive">{errors.course}</p>}
+              {errors["course"] && <p id="pe-course-error" role="alert" className="text-sm text-destructive">{errors["course"]}</p>}
             </div>
             <div className="space-y-1"><Label htmlFor="pe-y">Type</Label>
               <select id="pe-y" className="h-9 w-full rounded-md border bg-card px-2 text-sm" value={type} onChange={(e) => setType(e.target.value as AssessmentType)}>
                 {Object.entries(TYPE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
-              {errors.type && <p role="alert" className="text-sm text-destructive">{errors.type}</p>}
+              {errors["type"] && <p role="alert" className="text-sm text-destructive">{errors["type"]}</p>}
             </div>
           </div>
-          <div className="space-y-1"><Label>Date ({snap!.settings.timezone})</Label><DateInput value={date} onChange={setDate} personalTimezone={snap!.settings.timezone} errorId="pe-date-error" />{errors.date && <p id="pe-date-error" role="alert" className="text-sm text-destructive">{errors.date}</p>}</div>
-          {errors.save && <p role="alert" className="text-sm text-destructive">{errors.save}</p>}
+          <div className="space-y-1"><Label>Date ({snap!.settings.timezone})</Label><DateInput value={date} onChange={setDate} personalTimezone={snap!.settings.timezone} errorId="pe-date-error" />{errors["date"] && <p id="pe-date-error" role="alert" className="text-sm text-destructive">{errors["date"]}</p>}</div>
+          {errors["save"] && <p role="alert" className="text-sm text-destructive">{errors["save"]}</p>}
           <DialogFooter><Button type="submit">{pending ? "Saving…" : "Add event"}</Button></DialogFooter>
           </fieldset>
         </form>
