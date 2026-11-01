@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import type { LocalExtraction as Extraction } from "@/domain/local-extraction";
 import { currentDataset, readLocalDocument, type LocalAssociation } from "@/services/local-documents";
 import { detectAssessmentMentions, type AssessmentMention } from "@/domain/assessment-mentions";
-import { parseSyllabusMention, type ParsedAssessmentMention } from "@/domain/syllabus-dates";
+import { parseSyllabusMention, type ParsedAssessmentMention, type SyllabusDateContext } from "@/domain/syllabus-dates";
 import { Input } from "@/components/ui/input";
 import { LocalOcr } from "./LocalOcr";
 import { parseTeachingWeek } from "@/domain/teaching-weeks";
@@ -14,7 +14,7 @@ import { routeLocalProposals } from "@/services/route-local-syllabus";
 import { AiFallback } from "./AiFallback";
 
 /** Result and preview URLs live only for this visible, dataset-bound row. */
-export function LocalExtraction({ document: association, teachingCalendar, commitRoute }: { document: LocalAssociation; teachingCalendar?: TeachingCalendar; commitRoute?: (work: () => Promise<Snapshot>) => Promise<boolean> }) {
+export function LocalExtraction({ document: association, teachingCalendar, commitRoute }: { document: LocalAssociation; teachingCalendar?: TeachingCalendar | undefined; commitRoute?: ((work: () => Promise<Snapshot>) => Promise<boolean>) | undefined }) {
   const [result, setResult] = useState<Exclude<Extraction, { format: "ocr" }>>();
   const [mentions, setMentions] = useState<AssessmentMention[]>();
   const [parsedDates, setParsedDates] = useState<ParsedAssessmentMention[]>();
@@ -119,7 +119,7 @@ export function LocalExtraction({ document: association, teachingCalendar, commi
     if (!mentions || controller.current) return;
     const abort = new AbortController(); controller.current = abort;
     const attempt = ++generation.current; const valid = () => attempt === generation.current && !abort.signal.aborted;
-    const context = { dateOrder: dateOrder || undefined, timezone: sourceTimezone.trim() ? { zone: sourceTimezone.trim(), source: "document" as const } : undefined, semester: semesterStart || semesterEnd ? { start: semesterStart, end: semesterEnd } : undefined };
+    const context: SyllabusDateContext = { ...(dateOrder ? { dateOrder } : {}), ...(sourceTimezone.trim() ? { timezone: { zone: sourceTimezone.trim(), source: "document" as const } } : {}), ...(semesterStart || semesterEnd ? { semester: { start: semesterStart, end: semesterEnd } } : {}) };
     setParsedDates(undefined); setPending(true); setStatus("Interpreting explicit source dates locally…");
     try {
       if (await currentDataset() !== association.datasetId) throw new Error("The dataset changed. Reconnect before date interpretation.");

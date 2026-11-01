@@ -11,7 +11,7 @@ import { HttpAdapter } from "@/services/http-adapter";
 type Deps = { loadAvailability?: typeof loadAiAvailability; send?: typeof sendFrozen; route?: typeof routeAiRecords; dataset?: () => Promise<string | undefined> };
 
 /** Optional, explicit, per-request consent. Never opens itself and never preselects text. */
-export function AiFallback({ document: association, mentions, context, commitRoute, deps = {} }: { document: LocalAssociation; mentions: AssessmentMention[]; context?: AiContextValue; commitRoute?: (work: () => Promise<Snapshot>) => Promise<boolean>; deps?: Deps }) {
+export function AiFallback({ document: association, mentions, context, commitRoute, deps = {} }: { document: LocalAssociation; mentions: AssessmentMention[]; context?: AiContextValue | undefined; commitRoute?: ((work: () => Promise<Snapshot>) => Promise<boolean>) | undefined; deps?: Deps }) {
   const dataset = deps.dataset ?? (() => currentDataset());
   const [open, setOpen] = useState(false);
   const [info, setInfo] = useState<AvailableAi | null | undefined>();
@@ -48,7 +48,7 @@ export function AiFallback({ document: association, mentions, context, commitRou
     try {
       if (await dataset() !== epoch) throw new Error("The local dataset changed since selection started. Close and select again.");
       const chosen = mentions.filter(m => selected.includes(m.id));
-      const frozen = await freezePreview({ association, datasetId: epoch, info, mentions: chosen, context: includeContext ? context : undefined });
+      const frozen = await freezePreview({ association, datasetId: epoch, info, mentions: chosen, ...(includeContext && context !== undefined ? { context } : {}) });
       if (attempt === generation.current) { setPreview(frozen); setNote(""); setOutcome(undefined); }
     } catch (error) { if (attempt === generation.current) setNote(error instanceof Error ? error.message : "Could not prepare the preview."); }
   };
