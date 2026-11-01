@@ -7,8 +7,10 @@ import { account, course, denied, envelope, login, origin, unsupported } from ".
 function documentFor(html: string): Document {
   return new DOMParser().parseFromString(html, "text/html");
 }
-function check(html: string, overrides: Partial<MoodleAccessInput> = {}) {
-  return detectMoodleAccess({ ...envelope, document: documentFor(html), ...overrides });
+// Overrides may set a field to an explicit `undefined` to exercise runtime envelope validation.
+type EnvelopeOverrides = { readonly [K in keyof MoodleAccessInput]?: MoodleAccessInput[K] | undefined };
+function check(html: string, overrides: EnvelopeOverrides = {}) {
+  return detectMoodleAccess({ ...envelope, document: documentFor(html), ...overrides } as MoodleAccessInput);
 }
 
 describe("synthetic independently callable Moodle access policy", () => {

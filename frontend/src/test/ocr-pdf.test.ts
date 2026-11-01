@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_OCR_LIMITS, ocrQuality, runOcr, type OcrDependencies } from "@/services/ocr-pdf";
+import { DEFAULT_OCR_LIMITS, ocrQuality, runOcr, type OcrDependencies, type OcrPdf } from "@/services/ocr-pdf";
 const text = { text: "Exam 29 October 2026", confidence: 95, blocks: [] };
 function setup() {
-  const close = vi.fn(async () => {}), render = vi.fn(async () => ({ bytes: new Uint8Array([1]), width: 100, height: 100 })), terminate = vi.fn();
+  const close = vi.fn(async () => {}), render = vi.fn<OcrPdf["render"]>(async () => ({ bytes: new Uint8Array([1]), width: 100, height: 100 })), terminate = vi.fn();
   const engine = { ready: Promise.resolve(), terminate, recognize: vi.fn(async () => text) };
   const dependencies: OcrDependencies = { open: vi.fn(async () => ({ pageCount: 100, render, close })), engine: vi.fn(() => engine) };
   return { dependencies, render, close, engine, terminate };

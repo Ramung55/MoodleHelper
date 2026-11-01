@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { createWorker, OEM } from "tesseract.js";
 import { expect, it } from "vitest";
 import { ocrQuality } from "@/services/ocr-pdf";
+import type { OcrEngineOutput } from "@/services/local-ocr-worker";
 import { detectAssessmentMentions } from "@/domain/assessment-mentions";
 
 it("recognizes real EN/RU scanned images and flags unreadable output using only installed local assets with network denied", async () => {
@@ -17,7 +18,7 @@ it("recognizes real EN/RU scanned images and flags unreadable output using only 
     const russian = (await worker.recognize(readFileSync("src/test/fixtures/ocr-rus.png"), {}, { text: true, blocks: true })).data;
     const unreadable = (await worker.recognize(readFileSync("src/test/fixtures/ocr-unreadable.png"), {}, { text: true, blocks: true })).data;
     expect(english.text).toMatch(/Assignment 1/i); expect(russian.text).toMatch(/Экзамен/iu);
-    const pages = [ocrQuality(english, 2, 1100, 320, 100_000), ocrQuality(russian, 7, 1100, 320, 100_000), ocrQuality(unreadable, 9, 1100, 320, 100_000)];
+    const pages = [ocrQuality(english as OcrEngineOutput, 2, 1100, 320, 100_000), ocrQuality(russian as OcrEngineOutput, 7, 1100, 320, 100_000), ocrQuality(unreadable as OcrEngineOutput, 9, 1100, 320, 100_000)];
     expect(pages[2]!.status).toBe("review_needed");
     const mentions = await detectAssessmentMentions({ format: "ocr", datasetId: "fixture", courseId: "course", digest: "scan", complete: true, status: "complete", selectedPages: [2,7,9], language: "eng+rus", dpi: 120, engine: "tesseract.js-7.0.0", pages }, new AbortController().signal);
     expect(mentions.some((mention) => mention.type === "exam" && mention.location.kind === "ocr_region" && mention.location.page === 7 && !mention.location.synthetic)).toBe(true);

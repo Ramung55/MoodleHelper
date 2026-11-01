@@ -52,7 +52,7 @@ async function stopServer() {
 
 async function startServer() {
   // Isolate both storage and identity from the developer's configured process.
-  const env = { ...process.env, MOODLE_HELPER_DATABASE_URL: `sqlite:///${databasePath.replaceAll("\\", "/")}`, MOODLE_HELPER_DATASET: "demo" };
+  const env: NodeJS.ProcessEnv = { ...process.env, MOODLE_HELPER_DATABASE_URL: `sqlite:///${databasePath.replaceAll("\\", "/")}`, MOODLE_HELPER_DATASET: "demo" };
   for (const key of ["MOODLE_HELPER_MOODLE_ORIGIN", "MOODLE_HELPER_PROFILE_LABEL", "MOODLE_HELPER_STABLE_USER_ID"]) delete env[key];
   // Each start takes a fresh free port, so a restart never races the previous process for its port.
   const started = await startRealBackend("backend.main:app", env);
@@ -109,7 +109,7 @@ describe("actual FastAPI HTTP integration", () => {
         expect(local.record!.receipt?.assessmentId).toBe(route.assessmentId);
       }
       expect(requests).toHaveLength(1);
-      const wire = JSON.parse(requests[0]);
+      const wire = JSON.parse(requests[0]!);
       expect(Object.keys(wire).sort()).toEqual(["courseId", "datasetId", "digest", "format", "pipelineVersion", "proposals"]);
       for (const proposal of wire.proposals) expect(Object.keys(proposal).sort()).toEqual(["date", "facts", "language", "locationId", "mentionId", "title", "type"]);
       for (const prohibited of ["29 October 2026", "5 ноября 2026", "word/document.xml", "bodyBlock", "excerpt", "rawScheduleText", "transform", "Content_Types", "example.invalid"]) expect(requests[0]).not.toContain(prohibited);
@@ -159,7 +159,7 @@ describe("actual FastAPI HTTP integration", () => {
         const again = await routeLocalProposals(week.association, week.extraction, week.mentions, week.parsed, calendar, new AbortController().signal, api);
         expect(again.snapshot.candidates.find(item => item.id === other.id)!.status).toBe("rejected");
       }
-      const beforeCollision = await api.load(), conflicting = JSON.parse(requests[0]); conflicting.proposals[0].title = "Changed immutable title";
+      const beforeCollision = await api.load(), conflicting = JSON.parse(requests[0]!); conflicting.proposals[0].title = "Changed immutable title";
       await expect(api.routeLocalSyllabus(conflicting)).rejects.toThrow(/identity changed/);
       expect(await api.load()).toEqual(beforeCollision);
     } finally { vi.unstubAllGlobals(); await api.replaceAll(original); }
@@ -293,7 +293,7 @@ describe("actual FastAPI HTTP integration", () => {
       await api.saveAlerts([]);
       const before = await api.load();
       let view = openSelection();
-      const target = before.courses[0];
+      const target = before.courses[0]!;
       const confirmed = before.settings.trackedCourseIds.includes(target.id);
       const checkbox = await screen.findByRole("checkbox", { name: `Track ${target.name}` });
       // BEGIN IMMEDIATE permits independent readers while blocking writers.
@@ -382,8 +382,8 @@ describe("actual FastAPI HTTP integration", () => {
     const id = "folder/item %2F? # Пример";
     const restored = await api.addPersonalEvent({ title: "Encoded identifier", courseId: "c-csc", type: "other", date: { kind: "unknown" } });
     restored.assessments.at(-1)!.id = id;
-    restored.candidates[0].id = id;
-    restored.materials[0] = { ...restored.materials[0], id, accessible: true };
+    restored.candidates[0]!.id = id;
+    restored.materials[0] = { ...restored.materials[0]!, id, accessible: true };
     try {
       await api.replaceAll(restored);
       const patched = await api.updateOverlay(id, { completed: true });

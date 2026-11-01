@@ -23,7 +23,7 @@ export function indexedDbFixture() {
       serial = serial.then(async () => {
         working = new Map(stores.map(name => [name, new Map([...data.get(name)!].map(([key, row]) => [key, structuredClone(row)]))]));
         try {
-          for (let index = 0; index < operations.length && !aborted; index++) { operations[index](); await Promise.resolve(); }
+          for (let index = 0; index < operations.length && !aborted; index++) { operations[index]!(); await Promise.resolve(); }
           if (mode === "readwrite" && stores.includes("evidence") && controls.failNextEvidenceWrite) { controls.failNextEvidenceWrite = false; aborted = true; }
           if (aborted) { tx.onabort?.(); return; }
           if (mode === "readwrite") for (const name of stores) data.set(name, working.get(name)!);

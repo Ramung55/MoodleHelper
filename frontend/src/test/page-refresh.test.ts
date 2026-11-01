@@ -41,7 +41,7 @@ beforeEach(async()=>{await json('/api/snapshot','PUT',seed);});
 const tick=()=>new Promise(resolve=>setTimeout(resolve,20));
 async function until(check:()=>boolean){const limit=Date.now()+5000;while(!check()&&Date.now()<limit)await tick();expect(check()).toBe(true);}
 function bridge(source:()=>PageSource,options:{grant?:()=>Promise<boolean>;fetcher?:typeof fetch}={}) {
-  const calls:{url:string;init?:RequestInit}[]=[];
+  const calls:{url:string;init?:RequestInit|undefined}[]=[];
   const fetcher:typeof fetch=async (url,init)=>{calls.push({url:String(url),init});return fetch(String(url).replace('http://127.0.0.1:8000',base),init);};
   const worker=createCollectionWorker({runtimeId:'synthetic-extension',grant:options.grant??(async()=>true),fetcher:options.fetcher??fetcher});
   const sender=():Sender=>({id:'synthetic-extension',frameId:0,documentId:'synthetic-document',url:source().url,origin,tab:{id:7,url:source().url}});
@@ -296,7 +296,7 @@ describe('#18 lifecycle AC3/AC4',()=>{
 
 describe('internal worker sender/message bounds',()=>{
   it.each([{id:'other'},{frameId:1},{documentId:undefined},{tab:{id:-1}},{url:'http://moodle.sdu.edu.kz/mod/assign/view.php?id=303'},{url:'https://student:password@moodle.sdu.edu.kz/mod/assign/view.php?id=303'},{origin:'https://other.example'},{tab:{id:7,url:'https://other.example/'}}])('rejects sender %j before network',async(change)=>{
-    const f=setup();const fetcher=vi.fn();const worker=createCollectionWorker({runtimeId:'synthetic-extension',grant:async()=>true,fetcher});const sender={...f.sender(),...change};expect(collectionSender(sender,'synthetic-extension')).toBe(false);expect(await worker({source:'moodle-helper-collection',version:'1',requestId:'one',operation:'collectionContext',payload:{}},sender)).toBeUndefined();expect(fetcher).not.toHaveBeenCalled();f.coordinator.stop();
+    const f=setup();const fetcher=vi.fn();const worker=createCollectionWorker({runtimeId:'synthetic-extension',grant:async()=>true,fetcher});const sender={...f.sender(),...change} as Sender;expect(collectionSender(sender,'synthetic-extension')).toBe(false);expect(await worker({source:'moodle-helper-collection',version:'1',requestId:'one',operation:'collectionContext',payload:{}},sender)).toBeUndefined();expect(fetcher).not.toHaveBeenCalled();f.coordinator.stop();
   });
   it('rejects dashboard operation, body context switches and payload document key injection',async()=>{
     const f=setup();const context=await f.repository.context();
