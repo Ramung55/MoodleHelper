@@ -5,7 +5,7 @@ import { zonedInput, zonedInstant } from "@/domain/personal-event";
 type Kind = DateValue["kind"] | "none";
 
 /** Lets the student pick which date form they mean — never forces an exact time. */
-export function DateInput({ value, onChange, allowEmpty, allowUnknown, personalTimezone, errorId }: { value?: DateValue; onChange: (d: DateValue | undefined) => void; allowEmpty?: boolean; allowUnknown?: boolean; personalTimezone?: string; errorId?: string }) {
+export function DateInput({ value, onChange, allowEmpty, allowUnknown, personalTimezone, errorId }: { value?: DateValue | undefined; onChange: (d: DateValue | undefined) => void; allowEmpty?: boolean; allowUnknown?: boolean; personalTimezone?: string; errorId?: string | undefined }) {
   const kind: Kind = value?.kind ?? "none";
   const setKind = (k: Kind) => {
     if (k === "none") onChange(undefined);

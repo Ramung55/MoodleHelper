@@ -6,7 +6,7 @@ import type { Course, SubmissionStatus } from "@/domain/types";
 export const COURSE_DOT = ["", "bg-course-1", "bg-course-2", "bg-course-3", "bg-course-4", "bg-course-5", "bg-course-6"];
 export const COURSE_BORDER = ["", "border-l-course-1", "border-l-course-2", "border-l-course-3", "border-l-course-4", "border-l-course-5", "border-l-course-6"];
 
-export function CourseTag({ course, className }: { course?: Course; className?: string }) {
+export function CourseTag({ course, className }: { course?: Course | undefined; className?: string }) {
   if (!course) return <span className="text-xs text-muted-foreground">Unknown course</span>;
   return (
     <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground", className)}>
@@ -24,7 +24,7 @@ const SUB: Record<SubmissionStatus, { label: string; cls: string }> = {
   unknown: { label: "Status unknown", cls: "bg-muted text-muted-foreground border border-dashed border-border" },
 };
 
-export function SubmissionBadge({ status }: { status?: SubmissionStatus }) {
+export function SubmissionBadge({ status }: { status?: SubmissionStatus | undefined }) {
   if (!status) return <Badge variant="outline">No Moodle status</Badge>;
   const s = SUB[status];
   return <Badge className={cn("border-transparent", s.cls)}>Moodle: {s.label}</Badge>;
