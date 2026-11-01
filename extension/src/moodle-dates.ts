@@ -2,14 +2,17 @@ import type { DateValue } from "../../frontend/src/domain/types";
 export function realDay(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return false;
-  const [, y, m, d] = match.map(Number);
+  // The regex has three required groups, so the match always has four entries.
+  const [, y, m, d] = match.map(Number) as [number, number, number, number];
   const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
-  return y >= 1 && m >= 1 && m <= 12 && d >= 1 && d <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+  // m is checked to be 1..12 first, so the month index is always in range.
+  return y >= 1 && m >= 1 && m <= 12 && d >= 1 && d <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]!;
 }
 
 export function exact(value: string): boolean {
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-](\d{2}):(\d{2}))$/.exec(value);
-  return !!match && realDay(match[1]) && +match[2] <= 23 && +match[3] <= 59 &&
+  // Groups 1 to 3 are required in the regex, so they are defined whenever match is.
+  return !!match && realDay(match[1]!) && +match[2]! <= 23 && +match[3]! <= 59 &&
     +(match[4] ?? 0) <= 59 && +(match[7] ?? 0) <= 23 && +(match[8] ?? 0) <= 59 && Number.isFinite(Date.parse(value));
 }
 

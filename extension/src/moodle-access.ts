@@ -116,7 +116,8 @@ export function detectMoodleAccess(input: MoodleAccessInput): MoodleAccessResult
     if (status >= 400 && status !== 401 && status !== 403) return result("unsupported_response");
     if (status >= 200 && status < 300 && status !== 200) return result("transient_response");
     if (input.contentType !== undefined) {
-      const mime = input.contentType.split(";", 1)[0].trim().toLowerCase();
+      // split() always returns at least one element, so index 0 is defined.
+      const mime = input.contentType.split(";", 1)[0]!.trim().toLowerCase();
       if (!mime) return result("invalid_envelope");
       if (mime !== "text/html" && mime !== "application/xhtml+xml") return result("unsupported_response");
     }
