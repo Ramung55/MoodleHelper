@@ -35,8 +35,10 @@ export const disabledRegistry=():CollectorRegistry=>({assignment:unavailable,cal
 export interface RefreshState {status:'idle'|'collecting'|'saved'|'unavailable'|'failed'|'cancelled';visitId?:string;reason?:string;receipts:PageRefreshReceipt[]}
 export function pageRoute(url:string):{kind:string;id?:string}|undefined {
   const m=/^https:\/\/moodle\.sdu\.edu\.kz\/(course|mod\/(assign|quiz|resource|url|folder))\/view\.php\?id=([1-9][0-9]*)(?:#[A-Za-z0-9_-]{1,128})?$/.exec(url);
-  if(m)return {kind:m[2]??'course',id:m[3]};
+  // Group 3 is required in the regex, so it is defined whenever m is.
+  if(m)return {kind:m[2]??'course',id:m[3]!};
   if(/^https:\/\/moodle\.sdu\.edu\.kz\/calendar\/view\.php(?:\?(?:view=(?:month|day|upcoming)(?:&time=[1-9][0-9]*)?|event=[1-9][0-9]*(?:&occurrence=[1-9][0-9]*)?|course=[1-9][0-9]*))?(?:#[A-Za-z0-9_-]{1,128})?$/.test(url))return {kind:'calendar'};
+  return undefined;
 }
 const fingerprint=(c:CollectionContext)=>normalized(c);
 const documentIdentity=(page:PageSource)=>normalized([page.sourceCourseId,[...page.input!.document.querySelectorAll('a[data-role="course-link"], [data-assignment-id], [data-course-module-id], [data-quiz-id]')].map(node=>[node.getAttribute('href'),node.getAttribute('data-course-id'),node.getAttribute('data-assignment-id'),node.getAttribute('data-quiz-id'),node.getAttribute('data-course-module-id')])]);
