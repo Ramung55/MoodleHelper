@@ -1,16 +1,16 @@
 # Optional cloud AI contract (#42)
 
-Status: **PROVIDER SELECTED, OFF BY DEFAULT.** On 2026-11-01 the owner selected Anthropic `claude-haiku-5-5` and approved the `anthropic` Python SDK dependency. External processing stays unavailable until the operator sets `MOODLE_HELPER_AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY` and `MOODLE_HELPER_AI_LEDGER_PATH` in the backend environment. This document is the contract that #43 (gateway) and #44 (consent UI) build on.
+Status: **PROVIDER SELECTED, OFF BY DEFAULT.** On 2026-11-02 the owner replaced the earlier Anthropic choice (2026-11-01) with Google `gemini-3.8-flash` on the **free (unpaid) tier**, and approved the `google-genai` Python SDK dependency (the `anthropic` dependency was removed). External processing stays unavailable until the operator sets `MOODLE_HELPER_AI_PROVIDER=gemini`, `GEMINI_API_KEY` (from a Google Cloud project without billing enabled) and `MOODLE_HELPER_AI_LEDGER_PATH` in the backend environment. This document is the contract that #43 (gateway) and #44 (consent UI) build on.
 
 ## 1. Decision
 
 | Item | Decision |
 | --- | --- |
-| Selected provider | **Anthropic, model `claude-haiku-5-5`, standard API tier** (owner decision, 2026-11-01). Reasons: lowest listed price of the candidates together with OpenAI, documented multilingual support, and an official Python SDK. It sits behind the `Provider` protocol in `backend/ai_gateway.py` (`AnthropicProvider`), so another provider can replace it without changing the wire contract. |
-| Wire mode | `mode: "anthropic"` in `AiAvailable` and `AiExtractResponse` (additive to `"mock"`; OpenAPI, Pydantic and Zod updated together) |
-| Activation | Operator-only environment variables: `MOODLE_HELPER_AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`, `MOODLE_HELPER_AI_LEDGER_PATH` (durable ledger file) and optional `MOODLE_HELPER_AI_MONTHLY_CAP_USD` (default 1, at most 50). No request, header or page message can select a provider. |
-| Missing credential | The owner's server-side API key. Claude never types or stores it. |
-| Missing evidence | Dated EN/RU results from the section 3 fixtures for `claude-haiku-5-5`. This needs one owner-approved paid run (worst case 8 × 0.003 USD). The other candidates are no longer evaluated. |
+| Selected provider | **Google `gemini-3.8-flash`, free tier** (owner decision, 2026-11-02, replacing Anthropic `claude-haiku-5-5` chosen on 2026-11-01). It sits behind the `Provider` protocol in `backend/ai_gateway.py` (`GeminiProvider`, official `google-genai` SDK, SDK retries disabled), so another provider can replace it without changing the wire contract. **Owner-accepted risk:** under the Unpaid Services terms Google uses inputs and outputs to improve its products and human reviewers may read them; users must be 18+, and EEA/Swiss/UK users are not allowed. The consent sheet states this, and section 2's earlier "never use the unpaid tier" advice is overridden by this decision. Whether `gemini-3.8-flash` is offered on the free tier, and its free RPM/RPD limits, were **not** confirmed on 2026-11-02 (the public rate-limit page defers to AI Studio). |
+| Wire mode | `mode: "gemini"` in `AiAvailable` and `AiExtractResponse` (additive to `"mock"`; OpenAPI, Pydantic and Zod updated together) |
+| Activation | Operator-only environment variables: `MOODLE_HELPER_AI_PROVIDER=gemini`, `GEMINI_API_KEY` and `MOODLE_HELPER_AI_LEDGER_PATH` (durable ledger file). No request, header or page message can select a provider. |
+| Missing credential | The owner's free-tier Gemini API key (AI Studio, project without billing). Claude never types or stores it. |
+| Missing evidence | Dated EN/RU results from the section 3 fixtures for `gemini-3.8-flash`, produced by `uv run python tools/run_ai_eval.py` (7 synthetic cases, free tier, 0 USD), and confirmation in AI Studio that the model and limits are available on the free tier. |
 | What may not proceed | Any claim of measured extraction quality before that run is recorded |
 
 ## 2. Candidate comparison
@@ -93,7 +93,7 @@ Rules:
 
 ## 6. Consent copy
 
-Without activation the copy is: **"External AI unavailable: provider not selected; no text sent."** Mock mode adds: "Mock demonstration; stays local." With the Anthropic provider active, `/api/ai/availability` names the destination "Anthropic Claude Haiku 5.5 (external)" and returns the retention disclosure from `ANTHROPIC_RETENTION` in `backend/ai_gateway.py`; the existing consent sheet (#44) displays both.
+Without activation the copy is: **"External AI unavailable: provider not selected; no text sent."** Mock mode adds: "Mock demonstration; stays local." With the Gemini provider active, `/api/ai/availability` names the destination "Google Gemini 3.8 Flash, free tier (external)" and returns the free-tier disclosure from `GEMINI_RETENTION` in `backend/ai_gateway.py` (product improvement, human review, no personal or confidential information, 18+, not EEA/Swiss/UK); the existing consent sheet (#44) displays both.
 
 The consent sheet must show:
 1. Destination: the provider, model and service tier by name, plus the server route the text takes.
@@ -118,7 +118,7 @@ Turning on a Settings flag is not consent to any particular payload. Consent can
 | Exposure | Localhost-only. There is no public or anonymous gateway until an auth/abuse design exists. Origin alone is not authentication | Non-local requests are refused |
 | Features | Text only: no tools, search, files, agents, cache, batch or background | Not offered |
 | Credentials | Gateway env only. Never in `VITE_*` variables or browser code | n/a |
-| Monthly cap | **0 USD unless activated.** With the Anthropic provider: `MOODLE_HELPER_AI_MONTHLY_CAP_USD` (default 1 USD) per calendar month (UTC), with 0.01 USD reserved per request (worst case 0.003 USD) | Rejected before calling (`budget_exhausted`) |
+| Monthly cap | **0 USD.** The free tier is not billed: the price table is 0/0 and the reservation is 0. The ledger still enforces 3 per minute and 20 per day before any call. If the key belongs to a project with billing enabled, Google may bill it, so the operator must use a key from a project without billing | Rate limits reject before calling (`rate_limit`) |
 
 Budget mechanics:
 - A durable SQLite ledger records global spend plus in-flight reservations, and it survives restarts. The worst-case reservation is made atomically before each call. If the actual cost is unknown, the worst-case reservation is kept.
@@ -137,8 +137,8 @@ All three are under the 0.10 USD per-request reservation.
 
 | AC | Status |
 | --- | --- |
-| 1. Comparison with sources and dated nonprivate results | Partial. The comparison and dated publisher examples are recorded. Dated EN/RU fixture results for `claude-haiku-5-5` still need one owner-approved paid run with the owner's API key |
-| 2. Explicit decision | Done: Anthropic `claude-haiku-5-5` selected on 2026-11-01; the missing credential is named (section 1) |
+| 1. Comparison with sources and dated nonprivate results | Partial. The comparison and dated publisher examples are recorded, and the Gemini terms were rechecked on 2026-11-02. Dated EN/RU fixture results for `gemini-3.8-flash` still need one run with the owner's free-tier key |
+| 2. Explicit decision | Done: Google `gemini-3.8-flash`, free tier, selected on 2026-11-02, with its data-use terms accepted by the owner; the missing credential is named (section 1) |
 | 3. Request/response schema | Done (sections 4 and 5) |
 | 4. Consent copy | Done for blocked/mock states. Destination-specific wording is templated until a provider is chosen |
 | 5. Limits and stop behavior | Done (section 7) |

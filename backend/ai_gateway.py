@@ -1,9 +1,9 @@
 """Optional AI extraction gateway (#43) for contract ai-extract.v1 (#42).
 
-Ordinary runtime is unavailable unless the operator selects the Anthropic
-provider (Claude Haiku 5.5) through server-side environment variables; see
+Ordinary runtime is unavailable unless the operator selects the Gemini
+provider (gemini-3.8-flash, free tier) through server-side environment variables; see
 ``gateway_from_environment``. Trusted ``create_app(ai_gateway=...)`` construction
-can also enable the deterministic local mock. Only ``AnthropicProvider`` performs
+can also enable the deterministic local mock. Only ``GeminiProvider`` performs
 network I/O, and no request or provider content is written to logs or to the
 admission ledger.
 """
@@ -34,13 +34,15 @@ UNAVAILABLE_REASON = 'External AI unavailable: provider not selected; no text se
 LEGACY_UNAVAILABLE = 'No AI gateway or provider policy is configured. No document content is sent externally.'
 MOCK_PROVIDER = 'Local mock; no external provider'
 MOCK_RETENTION = 'Mock demonstration; stays local. Nothing is sent or retained externally.'
-ANTHROPIC_MODEL = 'claude-haiku-5-5'
-ANTHROPIC_PROVIDER = 'Anthropic Claude Haiku 5.5 (external)'
-ANTHROPIC_RETENTION = ('The selected excerpts are sent to Anthropic over HTTPS and handled under the operator\'s '
-                       'Anthropic API commercial terms; Anthropic may retain API inputs and outputs for a limited period '
-                       'for safety review. Nothing else from Moodle Helper is sent.')
-# Anthropic list price for claude-haiku-5-5 (prompts up to 100K tokens), recorded 2026-11-01.
-ANTHROPIC_PRICES_VERSION = 'anthropic-haiku-5-5-2026-11-01'
+GEMINI_MODEL = 'gemini-3.8-flash'
+GEMINI_PROVIDER = 'Google Gemini 3.8 Flash, free tier (external)'
+# Wording follows the Gemini API Additional Terms for Unpaid Services, checked 2026-11-02.
+GEMINI_RETENTION = ('The selected excerpts are sent to Google on the free (unpaid) Gemini API tier. Google uses free-tier '
+                    'inputs and outputs to improve its products, and human reviewers may read them. Do not send '
+                    'personal or confidential information. Free-tier use requires age 18+ and is not allowed for EEA, '
+                    'Swiss or UK users. Nothing else from Moodle Helper is sent.')
+# Free tier: no billing. The operator must use a key from a Google Cloud project without billing enabled.
+GEMINI_PRICES_VERSION = 'gemini-3-8-flash-free-2026-11-02'
 MAX_EXCERPTS = 8
 MAX_EXCERPT_BYTES = 2000
 MAX_BODY_BYTES = 16 * 1024
@@ -108,7 +110,7 @@ class PriceTable:
 
 @dataclass
 class GatewayConfig:
-    mode: str = 'unavailable'  # 'unavailable', 'mock' or 'anthropic'
+    mode: str = 'unavailable'  # 'unavailable', 'mock' or 'gemini'
     policy_version: str = 'mock-policy-1'
     destination: str = 'mock'
     timeout_seconds: float = 30.0
@@ -121,8 +123,8 @@ class GatewayConfig:
     simulated_cost: bool = True
 
     def __post_init__(self):
-        if self.mode not in ('unavailable', 'mock', 'anthropic'):
-            raise ValueError('Only the unavailable, local mock and anthropic AI modes exist.')
+        if self.mode not in ('unavailable', 'mock', 'gemini'):
+            raise ValueError('Only the unavailable, local mock and gemini AI modes exist.')
 
 
 def mock_config(ledger_path: str, **overrides) -> GatewayConfig:
@@ -133,27 +135,24 @@ def mock_config(ledger_path: str, **overrides) -> GatewayConfig:
     return GatewayConfig(**values)
 
 
-def anthropic_config(ledger_path: str, **overrides) -> GatewayConfig:
-    """Real, billed Claude Haiku 5.5 calls; the monthly cap is enforced by the ledger before any call."""
-    values = dict(mode='anthropic', policy_version='anthropic-policy-1', destination='anthropic',
-                  monthly_cap_usd=1.0, per_request_reserve_usd=0.01, ledger_path=ledger_path, simulated_cost=False,
-                  prices=PriceTable(ANTHROPIC_PRICES_VERSION, 0.10, 0.50, date(2027, 4, 30)))
+def gemini_config(ledger_path: str, **overrides) -> GatewayConfig:
+    """Real gemini-3.8-flash free-tier calls (0 USD); the ledger still enforces the rate limits before any call."""
+    values = dict(mode='gemini', policy_version='gemini-free-policy-1', destination='gemini',
+                  monthly_cap_usd=0.0, per_request_reserve_usd=0.0, ledger_path=ledger_path, simulated_cost=False,
+                  prices=PriceTable(GEMINI_PRICES_VERSION, 0.0, 0.0, date(2027, 4, 30)))
     values.update(overrides)
     return GatewayConfig(**values)
 
 
 def gateway_from_environment(env=None) -> 'AiGateway':
-    """Operator-only selection. Without MOODLE_HELPER_AI_PROVIDER=anthropic and a key, AI stays unavailable."""
+    """Operator-only selection. Without MOODLE_HELPER_AI_PROVIDER=gemini and a key, AI stays unavailable."""
     env = os.environ if env is None else env
-    if env.get('MOODLE_HELPER_AI_PROVIDER') != 'anthropic' or not env.get('ANTHROPIC_API_KEY'):
+    if env.get('MOODLE_HELPER_AI_PROVIDER') != 'gemini' or not env.get('GEMINI_API_KEY'):
         return AiGateway()
     ledger = env.get('MOODLE_HELPER_AI_LEDGER_PATH')
     if not ledger:
         raise ValueError('MOODLE_HELPER_AI_LEDGER_PATH is required so the monthly AI cost cap survives restarts.')
-    cap = float(env.get('MOODLE_HELPER_AI_MONTHLY_CAP_USD', '1.0'))
-    if not 0 <= cap <= 50:
-        raise ValueError('MOODLE_HELPER_AI_MONTHLY_CAP_USD must be between 0 and 50.')
-    return AiGateway(anthropic_config(ledger, monthly_cap_usd=cap), AnthropicProvider())
+    return AiGateway(gemini_config(ledger), GeminiProvider(api_key=env['GEMINI_API_KEY']))
 
 
 def canonical_payload(consent_policy: str, destination: str, excerpts: list[dict], context: dict | None) -> bytes:
@@ -362,13 +361,15 @@ Each proposal is {"title", "type", "date", "uncertain", "uncertaintyReason"?, "w
 Return {"proposals": []} when there is no assessment."""
 
 
-class AnthropicProvider:
-    """Claude Haiku 5.5 through the official SDK. Sends only excerpt ids, excerpt text and context."""
+class GeminiProvider:
+    """gemini-3.8-flash (free tier) through the official google-genai SDK. Sends only excerpt ids, excerpt text and context."""
 
-    def __init__(self, client: Any = None, model: str = ANTHROPIC_MODEL):
+    def __init__(self, client: Any = None, model: str = GEMINI_MODEL, api_key: str | None = None):
         if client is None:
-            import anthropic
-            client = anthropic.AsyncAnthropic(max_retries=0)  # the gateway never retries silently
+            from google import genai
+            from google.genai import types
+            # attempts=1: the gateway never retries silently.
+            client = genai.Client(api_key=api_key, http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1)))
         self.client = client
         self.model = model
         self.usage: tuple[int, int] | None = None
@@ -377,13 +378,20 @@ class AnthropicProvider:
         self.usage = None
         content = json.dumps({'excerpts': [{'id': e['id'], 'text': e['text']} for e in request['excerpts']],
                               'context': request.get('context') or {}}, ensure_ascii=False)
-        message = await self.client.messages.create(
-            model=self.model, max_tokens=max_output_tokens, system=SYSTEM_PROMPT,
-            output_config={'effort': 'low'}, messages=[{'role': 'user', 'content': content}])
-        self.usage = (message.usage.input_tokens, message.usage.output_tokens)
-        if message.stop_reason != 'end_turn':
-            raise RuntimeError('incomplete provider response')  # refusal or truncation; never surfaced
-        return ''.join(b.text for b in message.content if b.type == 'text').strip().encode('utf-8')
+        response = await self.client.aio.models.generate_content(
+            model=self.model, contents=content,
+            config={'system_instruction': SYSTEM_PROMPT, 'max_output_tokens': max_output_tokens,
+                    'response_mime_type': 'application/json', 'thinking_config': {'thinking_level': 'LOW'}})
+        meta = response.usage_metadata
+        if meta is not None:
+            # Thinking tokens are billed as output.
+            self.usage = (meta.prompt_token_count or 0, (meta.candidates_token_count or 0) + (meta.thoughts_token_count or 0))
+        candidates = response.candidates or []
+        reason = getattr(candidates[0].finish_reason, 'name', candidates[0].finish_reason) if candidates else None
+        if reason != 'STOP':
+            raise RuntimeError('incomplete provider response')  # safety block or truncation; never surfaced
+        parts = (candidates[0].content.parts if candidates[0].content else None) or []
+        return ''.join(part.text for part in parts if part.text and not part.thought).strip().encode('utf-8')
 
 
 def mock_proposal(excerpt: dict) -> dict | None:
@@ -412,7 +420,7 @@ class AiGateway:
     def __init__(self, config: GatewayConfig | None = None, provider: Provider | None = None, clock: Callable[[], float] = time.time):
         self.config = config or GatewayConfig()
         if self.config.mode != 'unavailable' and provider is None:
-            raise ValueError('Mock and anthropic modes require an injected provider.')
+            raise ValueError('Mock and gemini modes require an injected provider.')
         self.provider = provider if self.config.mode != 'unavailable' else None
         self.clock = clock
         self.ledger = Ledger(self.config.ledger_path) if self.enabled else None
@@ -427,8 +435,8 @@ class AiGateway:
             return {'available': False, 'reason': LEGACY_UNAVAILABLE}
         c = self.config
         mock = c.mode == 'mock'
-        return {'available': True, 'provider': MOCK_PROVIDER if mock else ANTHROPIC_PROVIDER,
-                'retention': MOCK_RETENTION if mock else ANTHROPIC_RETENTION, 'mode': c.mode,
+        return {'available': True, 'provider': MOCK_PROVIDER if mock else GEMINI_PROVIDER,
+                'retention': MOCK_RETENTION if mock else GEMINI_RETENTION, 'mode': c.mode,
                 'policyVersion': c.policy_version, 'destination': c.destination,
                 'limits': {'maxExcerpts': MAX_EXCERPTS, 'maxExcerptBytes': MAX_EXCERPT_BYTES, 'maxBodyBytes': MAX_BODY_BYTES,
                            'timeoutSeconds': int(c.timeout_seconds), 'perMinute': c.per_minute, 'perDay': c.per_day,

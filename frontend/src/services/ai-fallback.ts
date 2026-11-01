@@ -16,7 +16,7 @@ export const UNAVAILABLE_COPY = "External AI unavailable; continue locally";
 
 export const AiAvailabilityInfo = z.union([
   z.object({ available: z.literal(false), reason: z.string().max(500) }).passthrough(),
-  z.object({ available: z.literal(true), provider: z.string().min(1).max(200), retention: z.string().min(1).max(500), mode: z.enum(["mock", "anthropic"]),
+  z.object({ available: z.literal(true), provider: z.string().min(1).max(200), retention: z.string().min(1).max(500), mode: z.enum(["mock", "gemini"]),
     policyVersion: z.string().min(1).max(128), destination: z.string().min(1).max(128),
     limits: z.object({ maxExcerpts: z.number().int(), maxExcerptBytes: z.number().int(), maxBodyBytes: z.number().int(), timeoutSeconds: z.number(), monthlyCapUsd: z.number(), perRequestReserveUsd: z.number(), simulatedCost: z.boolean() }).passthrough() }).passthrough(),
 ]);

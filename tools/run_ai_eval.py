@@ -1,7 +1,7 @@
-"""One bounded, owner-approved paid evaluation of the #42 fixtures against Claude Haiku 5.5.
+"""One bounded, owner-approved paid evaluation of the #42 fixtures against gemini-3.8-flash.
 
 Usage (backend environment only; the key is never passed on the command line):
-    $env:ANTHROPIC_API_KEY = '<your key>'
+    $env:GEMINI_API_KEY = '<your key>'
     uv run python tools/run_ai_eval.py
 
 Sends only the nonprivate synthetic fixture texts in _docs/architecture/ai-contract-eval-fixtures.json,
@@ -20,13 +20,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.ai_gateway import (ANTHROPIC_MODEL, MAX_OUTPUT_TOKENS, AiFailure, AnthropicProvider, anthropic_config,  # noqa: E402
+from backend.ai_gateway import (GEMINI_MODEL, MAX_OUTPUT_TOKENS, AiFailure, GeminiProvider, gemini_config,  # noqa: E402
                                 validate_output)
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / '_docs/architecture/ai-contract-eval-fixtures.json'
 RESULTS = ROOT / '_docs/architecture/ai-contract-eval-results.json'
-COST_CAP_USD = 0.05
+COST_CAP_USD = 0.0  # free tier: any nonzero price table stops the run
 
 
 def judge(expect: dict, text: str, proposals: list[dict]) -> list[str]:
@@ -62,15 +62,15 @@ def judge(expect: dict, text: str, proposals: list[dict]) -> list[str]:
 
 
 async def main() -> int:
-    if not os.environ.get('ANTHROPIC_API_KEY'):
-        print('ANTHROPIC_API_KEY is not set; nothing was sent.')
+    if not os.environ.get('GEMINI_API_KEY'):
+        print('GEMINI_API_KEY is not set; nothing was sent.')
         return 2
     data = json.loads(FIXTURES.read_text(encoding='utf-8'))
-    prices = anthropic_config(':memory:').prices
-    provider = AnthropicProvider()
+    prices = gemini_config(':memory:').prices
+    provider = GeminiProvider(api_key=os.environ['GEMINI_API_KEY'])
     spent, rows = 0.0, []
     for case in data['cases']:
-        if spent + prices.worst_case() > COST_CAP_USD:
+        if spent + prices.worst_case() > COST_CAP_USD + 1e-12:
             print(f'stopped before {case["id"]}: cost cap {COST_CAP_USD} USD')
             break
         excerpt = {'id': 'ex-0', 'documentDigest': '0' * 64, 'locationId': 'loc-0', 'text': case['text']}
@@ -91,9 +91,9 @@ async def main() -> int:
         row.update(inputTokens=usage and usage[0], outputTokens=usage and usage[1], costUsd=round(cost, 6))
         rows.append(row)
         print(f'{case["id"]:16} {row["outcome"]:4} {",".join(row["failed"])}')
-    result = {'label': 'Claude Haiku 5.5 run of the #42 nonprivate fixtures', 'model': ANTHROPIC_MODEL, 'tier': 'standard',
+    result = {'label': 'gemini-3.8-flash run of the #42 nonprivate fixtures', 'model': GEMINI_MODEL, 'tier': 'standard',
               'ranAt': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'fixturesVersion': data['version'],
-              'priceTable': prices.version, 'effort': 'low', 'totalCostUsd': round(spent, 6),
+              'priceTable': prices.version, 'thinkingLevel': 'LOW', 'totalCostUsd': round(spent, 6),
               'passed': sum(r['outcome'] == 'pass' for r in rows), 'cases': rows}
     RESULTS.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(f'{result["passed"]}/{len(rows)} passed, {spent:.6f} USD; wrote {RESULTS.relative_to(ROOT)}')
