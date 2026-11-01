@@ -1,61 +1,201 @@
-# SDU Moodle compatibility — UNVERIFIED
+# SDU Moodle compatibility matrix
 
-Report prepared: 2026-10-26. Live inspection date: **not inspected**. Page language: **unknown**.
+Live inspection date: **2026-11-01**. Interface language: **English** (`<html lang="en">`, body class `lang-en`). Theme: `alpha` (RaiseUI, `rui-*` classes), dark variant. Report updated: 2026-11-01.
 
-This is the no-session reporting artifact for [#3](https://github.com/Ramung55/MoodleHelper/issues/3), following the [PM review](https://github.com/Ramung55/MoodleHelper/issues/3#issuecomment-6411584975). It does not establish live compatibility. The issue remains open and externally blocked; the original acceptance criteria remain unchanged.
+This is the compatibility report for [#3](https://github.com/Ramung55/MoodleHelper/issues/3). It replaces the earlier no-session UNVERIFIED artifact (2026-10-26). Scope is Chrome and `https://moodle.sdu.edu.kz`, with read-only access through the student's own session, local-first data and no product account, as the [product scope](../plan.md) specifies.
 
-Scope is Chrome and `https://moodle.sdu.edu.kz`, read-only access through the student's existing authorized session, local-first data and no product account, as specified in the [product scope](../plan.md). No live inspection occurred. No screenshots, credentials, session tokens, private grades or names were collected. No Moodle data was changed or submitted. No Moodle version, theme, selector, route shape or supported page variant is established by this report. Repository examples and synthetic/demo data are not live evidence.
+## Source and privacy record
 
-The browser URL-confidence policy stopped Chrome inspection twice, as recorded in the PM review. No authorized SDU student session or permitted representative page evidence has been supplied. Do not retry or bypass that policy, transfer credentials, or use an alternative network path to circumvent it.
+- **Source type:** one authorized, read-only live inspection of SDU Moodle on 2026-11-01. The student signed in themselves in the Claude built-in browser. Claude never typed credentials.
+- **Read-only:** no submit, upload, enrol, settings or other state-changing action was taken. The "Add submission" action link was recorded but never clicked. Same-origin course page fetches were spaced 1.2 s apart.
+- **Not recorded:** cookies, `sesskey` values, session tokens, grades, marks, instructor or student names, file names and document bodies.
+- **Identifier choice:** numeric course and course-module (cmid) ids are generalised to `N` / `<cmid>` throughout. Raw ids from one account's enrolment and submission state could help identify that student. The exceptions are ids `2` and `1`, which were used only as non-existent ids for the error-page probe. The course shortname is described only by its pattern, because it embeds an instructor login.
+- **Single-account scope:** the evidence comes from one student account with 8 in-progress courses. "Unavailable" below means "not present in this account on 2026-11-01". It does not mean that SDU Moodle cannot produce the case.
 
-## Status and evidence rules
+Status vocabulary: **Observed** means seen live, with sanitized evidence below. **Unavailable** means the page was inspected and the field or state was absent in this account. **UNVERIFIED** means the page or variant was not inspected, so nothing is known about it.
 
-**UNVERIFIED** means there is no inspected evidence for a field or behavior. **Observed** requires permitted, sanitized evidence tied to a source, inspection date and language. **Unavailable** requires inspected evidence of absence on a particular variant; missing access does not establish absence. Every live field and variant below is UNVERIFIED. The variant names are inspection targets, not claims that these variants exist at SDU.
+## Inspected pages and endpoints
 
-## Page and field inspection matrix
+All rows were inspected on 2026-11-01 with the English interface.
 
-Each listed field and awkward case inherits the row's UNVERIFIED status independently; none has supporting live evidence.
+| # | URL (ids generalised) | Method | What was read |
+| --- | --- | --- | --- |
+| 1 | `/login/index.php` | GET (navigation) | Login form only; the student signed in |
+| 2 | `/my/courses.php` | GET | Course card DOM, paging controls |
+| 3 | `/lib/ajax/service.php?info=core_course_get_enrolled_courses_by_timeline_classification` | POST (the page's own call, plus 4 read-only calls: inprogress/past/future/all) | Response shape |
+| 4 | `/course/view.php?id=N` (8 enrolled courses via same-origin fetch, 1.2 s apart) | GET | Activity list DOM, modtypes, dates |
+| 5 | `/mod/assign/view.php?id=<cmid>` (submitted) | GET | Dates, submission status table |
+| 6 | `/mod/assign/view.php?id=<cmid>` (not submitted) | GET | Dates, submission status table |
+| 7 | `/mod/quiz/view.php?id=<cmid>` (finished) | GET | Dates, quiz info, attempts block |
+| 8 | `/calendar/view.php?view=upcoming` | GET | Event DOM attributes |
+| 9 | `/mod/resource/view.php?id=<cmid>` | HEAD, and GET with credentials omitted | Redirect target and content type only (no body kept) |
+| 10 | `/course/view.php?id=N` with credentials omitted | GET | Login redirect behaviour |
+| 11 | `/course/view.php?id=2`, `/mod/assign/view.php?id=1` | GET | Error page for non-existent ids |
+| 12 | `/course/view.php?id=N` for 2 courses the student is not enrolled in | GET | Access behaviour only (no content kept) |
 
-| Page / candidate variants to inspect | Required fields and awkward cases to verify | Live status | Inspection date | Language | Evidence |
+The pages also made these requests themselves; Claude did not call them: `core_calendar_get_action_events_by_timesort`, `core_get_user_dates`, `block_recentlyaccesseditems_get_recent_items`, `media_videojs_get_language`.
+
+**Time zone:** times are displayed in the user's Moodle time zone. The calendar day link epoch `1793698200` is 2026-11-03 09:30 UTC, and the page displayed it as "2:30 PM". The time zone is therefore UTC+5 (Asia/Almaty). Displayed date strings carry no offset, so collectors must apply UTC+5 or use the epoch values from endpoints and links.
+
+## Page variant matrix
+
+| Page family | Variant | Status | Date | Language | Evidence row |
 | --- | --- | --- | --- | --- | --- |
-| Course list: initial, filtered, paginated or dynamically loaded list | Stable course identifier, course code/name, course link, current-course indicators versus student selection, complete enrolled-course coverage | UNVERIFIED | not inspected | unknown | none |
-| Assignment: ordinary, individual override, draft, reopened | Stable course/activity/module identifiers and their distinctions; title, source link, opening time, due date versus cutoff date; individual effective dates and override provenance; submitted/draft/not_submitted/reopened/unknown status and status evidence | UNVERIFIED | not inspected | unknown | none |
-| Quiz: ordinary, individual override, attempt-state variants | Stable identifiers, title/link, opening and closing dates and their meanings, individual effective dates, allowed/used/remaining attempts and attempt state | UNVERIFIED | not inspected | unknown | none |
-| Calendar: event list/detail and alternative ranges | Event identity, course/activity association, title/type, event/source link, date semantics, precision, timezone, duplicate-event relationships and coverage across ranges | UNVERIFIED | not inspected | unknown | none |
-| Material: file, external link, video or restricted resource | Stable resource/course/module identifiers, section, title, file type, target link, accessibility, freshness evidence; redirect targets and syllabus-candidate evidence | UNVERIFIED | not inspected | unknown | none |
-| Folder: parent listing, nested folder, child file/link | Stable folder/child identifiers, parent-child relationships, section/title, child links/types, nested coverage and accessibility | UNVERIFIED | not inspected | unknown | none |
+| Course list | `/my/courses.php` card list, grouping "All" | Observed | 2026-11-01 | English | 2 |
+| Course list | Enrolled-courses AJAX, `inprogress` / `all` | Observed (8 courses) | 2026-11-01 | English | 3 |
+| Course list | `past` / `future` groupings | Observed empty (0 courses); populated shape UNVERIFIED | 2026-11-01 | English | 3 |
+| Course page | `format-topics` course with activity list | Observed | 2026-11-01 | English | 4 |
+| Assignment | Submitted for grading, not graded | Observed | 2026-11-01 | English | 5 |
+| Assignment | Not submitted, time remaining | Observed | 2026-11-01 | English | 6 |
+| Assignment | Draft submission | Unavailable in this account → UNVERIFIED | 2026-11-01 | English | 5, 6 |
+| Assignment | Reopened submission | Unavailable in this account → UNVERIFIED | 2026-11-01 | English | 5, 6 |
+| Assignment | Cut-off date, extension, individual override | Unavailable on sampled assignments → UNVERIFIED | 2026-11-01 | English | 5, 6 |
+| Quiz | Finished attempt, no attempts remaining | Observed | 2026-11-01 | English | 7 |
+| Quiz | Open / in-progress attempt, multiple attempts, individual override | UNVERIFIED (not inspected) | — | — | — |
+| Calendar | Upcoming view, assignment due events | Observed (2 events) | 2026-11-01 | English | 8 |
+| Calendar | Day/month views, other event types (quiz, course, user) | UNVERIFIED (day link observed only as a URL) | — | — | 8 |
+| Material | File resource (PDF) via `mod/resource` redirect | Observed | 2026-11-01 | English | 4, 9 |
+| Material | URL and page modules | Observed in activity list only; targets not inspected | 2026-11-01 | English | 4 |
+| Material | Video, restricted resource | UNVERIFIED | — | — | — |
+| Folder | `mod/folder` parent listing, nested folder, child file/link | Unavailable: no folder module in any of 8 enrolled courses → UNVERIFIED | 2026-11-01 | English | 4 |
+| Restricted activity | `.availabilityinfo` present | Unavailable: none observed → UNVERIFIED | 2026-11-01 | English | 4 |
+| Any page | Russian (RU) or Kazakh (KK) interface | UNVERIFIED (not inspected) | — | — | — |
 
-For every date-bearing row, displayed date text, exact versus date-only precision, explicit offset/timezone, missing or ambiguous dates and locale interpretation are individually UNVERIFIED. Do not infer midnight, timezone, an individual override, or a deadline's meaning from presentation alone. Preserve distinct due/cutoff/open/close semantics in future evidence; a single generic date cannot prove them all.
+## Field matrix
 
-## Current wire capacity versus future collection
+### Course list
 
-The [#5 data-model inventory](../architecture/data-model.md) records current wire fields and their constraints. Its authorities are [OpenAPI](../../openapi.yaml), [Zod](../../frontend/src/domain/types.ts) and [Python](../../backend/schemas.py). The mappings here describe representational capacity only: they do not show that a collector obtains any value from SDU.
-
-| Concern | Present wire fields | Gap / owning follow-up |
+| Field | Status | Sanitized evidence |
 | --- | --- | --- |
-| Courses and identity | `Course.id`, `code`, `name`, `color`, `current`; `Settings.trackedCourseIds`; `Assessment.id`, optional `activityId`, `courseId`, `title`, `type` | Stable source-ID discovery is unverified. `activityId` is provenance, not globally unique; do not conflate activity and course-module IDs. Future namespace/source-key helpers described in #5 do not discover identifiers. [#11](https://github.com/Ramung55/MoodleHelper/issues/11) / [#12](https://github.com/Ramung55/MoodleHelper/issues/12) own collection/selection. |
-| Dates and provenance | `Assessment.availableFrom` (optional string), `sources` (nonempty `SourceEvidence[]`), `firstObservedAt`, `lastObservedAt`; `SourceEvidence.source`, `date`, `observedAt`, optional `excerpt`, `location`, `url` | `DateValue` branches: exact (`iso`, `tz`), date (`date`), week (`week`), unknown (optional `note`). No dedicated due-versus-cutoff fields or structured individual-override provenance/effective-date model. [#13](https://github.com/Ramung55/MoodleHelper/issues/13) owns separate cutoff extension; [#14](https://github.com/Ramung55/MoodleHelper/issues/14) owns quiz date/attempt extensions; [#15](https://github.com/Ramung55/MoodleHelper/issues/15) owns calendar mapping. |
-| Submission versus personal completion | Optional `Assessment.submission`: `status` = submitted/draft/not_submitted/reopened/unknown, `observedAt`, optional `evidence`; `Overlay.completed` is separate | Enum capacity does not prove SDU labels or transitions. No quiz attempt count/state details. [#16](https://github.com/Ramung55/MoodleHelper/issues/16) owns assignment status; #14 owns quiz details. Moodle individual overrides are not personal `Overlay.dateOverride`/`overrideBase`. |
-| Materials and folders | `Material.id`, `courseId`, `section`, `title`, `fileType` = pdf/docx/pptx/link/video/other, `url`, `accessible`, `stale`, `lastCheckedAt`, `syllabusSuggestion`, optional `downloadedAt` | No folder parent/child relationship fields; `section` does not encode a folder tree. [#17](https://github.com/Ramung55/MoodleHelper/issues/17) owns resource collection and folder schema extension. `downloadedAt` is a local observation, not evidence of source accessibility. |
-| Coverage and failures | `CourseSyncState.courseId`, `status`, `coverage`, `progress`, optional `lastSuccessAt`, `error` | A summary is not a durable collection job or proof of full coverage. [#10](https://github.com/Ramung55/MoodleHelper/issues/10) owns session availability; [#19](https://github.com/Ramung55/MoodleHelper/issues/19) / [#21](https://github.com/Ramung55/MoodleHelper/issues/21) own jobs/progress. |
+| Course card | Observed | `div.rui-course-card[data-region="course-content"][data-course-id]` |
+| Course id | Observed | `data-course-id` on the card; `courses[].id` in AJAX |
+| Course link | Observed | `a[href*="/course/view.php?id="]`; `courses[].viewurl` |
+| Course name | Observed | `.multiline` (also duplicated in `sr-only` strings); `courses[].fullname`. **The fullname embeds the instructor name in parentheses. It is personal data and must be stripped before storage or fixtures.** |
+| Course code | Observed | `courses[].shortname`, pattern `<code>-<n>-<instructor login>-<year>-<term>`. The code is the leading segment. The login segment is personal and must be dropped. |
+| `idnumber` | Observed, mostly empty | `courses[].idnumber`; not usable as a stable key |
+| Term / category | Observed | `courses[].coursecategory`, e.g. "Fall 2026 (2026-2027)" |
+| Start / end date | Observed | `courses[].startdate` / `enddate` (epoch seconds) |
+| Visibility, favourite, progress | Observed | `visible`, `hidden`, `isfavourite`, `progress` / `hasprogress` |
+| Current-course indicator | Observed via classification | `classification=inprogress` (8) vs `past` (0) / `future` (0) |
+| Enrolment | Observed, endpoint only | Only the enrolled-courses endpoint establishes enrolment (see Permission failures) |
 
-Wire timestamp/timezone/URL strings remain permissive, and date strings validate shape only. The opt-in ingestion helpers in #5 impose additional semantic checks; they are not installed in HTTP/storage/restore and do not fetch or inspect pages. Unknown keys may be stripped/ignored, so future collectors must report unsupported facts explicitly. Each owning feature must agree additive Zod/OpenAPI/Python changes before claiming support for schema gaps. Cross-source reconciliation remains [#33](https://github.com/Ramung55/MoodleHelper/issues/33).
+### Course page and activities
 
-## Navigation and access requirements — all UNVERIFIED
-
-| Risk to inspect | Required future handling / owner | Evidence status |
+| Field | Status | Sanitized evidence |
 | --- | --- | --- |
-| Pagination, filters, lazy loading and incomplete course/resource listings | Establish completion criteria without claiming missing items are absent; #11/#17 | UNVERIFIED |
-| Dynamic navigation, rerenders, expanded sections and calendar range changes | Establish page readiness, stable identity and duplicate-safe collection; #11/#13–#17 | UNVERIFIED |
-| Permission failures, hidden/restricted activities, broken links and inaccessible folders | Distinguish access failure from empty content; preserve partial coverage and useful errors; #13–#17 | UNVERIFIED |
-| Login redirects, expired sessions, interstitials and redirects to another origin | Detect session/access boundary and stop collection appropriately without credentials transfer; #10 | UNVERIFIED |
+| Activity node / cmid | Observed | `li.activity.modtype_<mod>#module-<cmid>` |
+| Activity link | Observed | `a[href*="/mod/<mod>/view.php?id=<cmid>"]` |
+| Activity name | Observed | `.instancename`; type label in nested `.accesshide` (e.g. "File", "URL"), which must be removed from the name |
+| Module type | Observed | Seen across 8 courses: `assign`, `quiz`, `forum`, `url`, `resource`, `page`. No `folder`. |
+| Section | Observed | `li.section` / `data-sectionid`; 17 section nodes on the sample course (`format-topics`) |
+| Inline dates | Observed | `[data-region="activity-dates"]` children: "Opened: <weekday>, <d> <Month> <yyyy>, <h:mm AM/PM>", "Due: …", "Closed: …" |
+| Resource file type | Observed | `.activitybadge` / details text "PDF", "PPTX"; icon path `/theme/image.php/alpha/core/<rev>/f/pdf` |
+| Restriction info | Unavailable | No `.availabilityinfo` in any enrolled course |
 
-These are requirements for later authorized inspection and implementation, not tested behaviors, working selectors or verified SDU failure modes.
+### Assignment (`/mod/assign/view.php?id=<cmid>`)
 
-## Access needed and acceptance-criteria handoff
+| Field | Status | Sanitized evidence |
+| --- | --- | --- |
+| Page / ids | Observed | `body#page-mod-assign-view`, body classes `cmid-<cmid>`, `course-<courseid>` |
+| Opening date | Observed | "Opened: …" |
+| Due date | Observed | "Due: …" (in the activity dates region and on the course page); calendar `data-event-eventtype="due"` |
+| Cut-off date | Unavailable | No cut-off date on the sampled assignments |
+| Extension | Unavailable | None observed |
+| Individual override | Unavailable | None observed; no DOM marker is known |
+| Status: submitted | Observed | `.submissionstatustable` "Submission status" → `td.submissionstatussubmitted` "Submitted for grading" |
+| Status: not submitted | Observed | Same row has **no status class**; text "No submissions have been made yet". Collectors must match this by text and must not expect a class. |
+| Status: draft | Unavailable | Not present in this account |
+| Status: reopened | Unavailable | Not present in this account |
+| Grading status | Observed | `td.submissionnotgraded` "Not graded" (no grade values recorded) |
+| Time remaining | Observed | `td.timeremaining` "1 day 17 hours remaining"; `td.earlysubmission` "Assignment was submitted … early" |
+| Last modified, submission comments | Observed (row presence) | Rows present in `.submissionstatustable` |
+| File submissions | Observed (row presence) | Contains student file names. **Must be redacted or not collected.** |
 
-Resume live inspection only with the student's authorized existing Chrome session, explicit read-only permission for representative SDU course/activity/calendar/material/folder pages and a browser path allowed by tool policy. Alternatively, explicitly permitted sanitized captures may establish visible page fields if each is labeled with source type, language and actual inspection date. Captures cannot establish unobserved live navigation, pagination or redirect behavior. Never request credential transfer. Collect only the minimum sanitized evidence; redact private names, grades and tokens before retaining supporting artifacts.
+### Quiz (`/mod/quiz/view.php?id=<cmid>`)
 
-The future evidence record must identify each actually inspected variant and field, source type (live page or supplied capture), language, inspection date, sanitized evidence reference and observed/unavailable/unverified outcome. Representative due/cutoff, individual override, draft/reopened and quiz-attempt cases remain outstanding. [#4](https://github.com/Ramung55/MoodleHelper/issues/4) owns sanitized fixtures; this document creates none.
+| Field | Status | Sanitized evidence |
+| --- | --- | --- |
+| Page | Observed | `body#page-mod-quiz-view` |
+| Open / close dates | Observed | "Opened: …" / "Closed: …" |
+| Attempts allowed, time limit | Observed | `.quizinfo p`: "Attempts allowed: 1", "Time limit: 10 mins", password notice |
+| Attempt list | Observed (theme-specific) | The standard `table.quizattemptsummary` is **replaced** by `div.rui-attempts-list`. Each attempt has `h4.card-title` "Attempt 1" and `.rui-infobox` pairs (`h5.rui-infobox-title` / `.rui-infobox-content--small`): Status "Finished", Started, Completed, Duration, Marks, Grade. Marks and grade values were not recorded. |
+| Attempts exhausted | Observed | `.box.quizattempt` "No more attempts are allowed" |
+| Final grade | Observed (heading only) | Value not recorded; out of scope for collection |
+| In-progress / multiple attempts | UNVERIFIED | Not inspected |
+| Individual override | Unavailable | None observed |
 
-Acceptance criteria 1 and 2 remain incomplete: there are no inspected variants or observed/unavailable fields with sanitized evidence. Criterion 3 has a requirements inventory but no verified navigation findings. Criterion 4's no-session reporting path is documented, and criterion 5's privacy/read-only boundary is recorded with no inspection performed. This partial artifact is not an overall compatibility PASS. Keep #3 open until independent QA verifies the remaining authorized evidence against all five original criteria.
+### Calendar (`/calendar/view.php?view=upcoming`)
+
+| Field | Status | Sanitized evidence |
+| --- | --- | --- |
+| Event node | Observed | `div.calendar-event-box[data-type="event"]` |
+| Event id | Observed | `data-event-id` |
+| Course | Observed | `data-course-id` |
+| Component / type | Observed | `data-event-component` (`mod_assign`), `data-event-eventtype` (`due`) |
+| Title | Observed | `data-event-title` "<name> is due" (the suffix must be stripped to match the activity name) |
+| Date / time | Observed | Day link `/calendar/view.php?view=day&time=<epoch>` gives epoch precision; displayed times are UTC+5 |
+| Activity link | Observed | `/mod/assign/view.php?id=<cmid>&action=editsubmission` ("Add submission"). The cmid comes from this link. **Never follow or click it.** |
+| Coverage | Observed | 2 upcoming events, both assignment due events |
+
+### Materials
+
+| Field | Status | Sanitized evidence |
+| --- | --- | --- |
+| File resource target | Observed | `/mod/resource/view.php?id=<cmid>` → 303/302 → `/pluginfile.php/<ctx>/mod_resource/content/<rev>/<filename>` |
+| Content type | Observed | `Content-Type: application/pdf`, `Content-Disposition: inline` |
+| File type label | Observed | `.activitybadge` "PDF" / "PPTX" on the course page |
+| URL / page targets | UNVERIFIED | Seen as modtypes only |
+| Folder relationships | Unavailable | No folder module in this account |
+
+## Navigation and access behaviour collectors must handle
+
+| Behaviour | Status | Evidence and required handling | Owner |
+| --- | --- | --- | --- |
+| Pagination: course list | Observed | `/my/courses.php` has `[data-region="paging-bar"]` and `[data-region="paging-control-container"]`. The AJAX `nextoffset` was 8 even when the list was exhausted. **Do not treat `nextoffset` alone as "more pages". Stop when the returned count is less than the limit.** | #11 |
+| Pagination: calendar ranges, resource lists | UNVERIFIED | Only the upcoming view was inspected | #15, #17 |
+| Dynamic navigation | Observed (partially) | `/my/courses.php` issues its own `core_course_get_enrolled_courses_by_timeline_classification` POST to fill the card list, so prefer the endpoint over the rendered cards. Pages also issued `core_calendar_get_action_events_by_timesort`, `core_get_user_dates` and `block_recentlyaccesseditems_get_recent_items` themselves. Section expand/collapse and calendar range changes are UNVERIFIED. | #11, #15 |
+| Permission failure: not enrolled | Observed | Two not-enrolled course ids returned **HTTP 200 and rendered the course page**. Page reachability does not prove enrolment, so enrolment must come only from the enrolled-courses endpoint. | #11, #12 |
+| Permission failure: non-existent id | Observed | HTTP 404, `body#page-site-index`, text "Can't find data record in database…" for both course and module ids | #13–#17 |
+| Permission failure: restricted activity / folder | UNVERIFIED | No restricted activity or folder was observed | #13–#17 |
+| Login redirect: page | Observed | An unauthenticated `/course/view.php?id=N` redirects to final path `/login/index.php` with **HTTP 200**, `text/html`. A 200 status therefore does not prove success; check the final path. | #10 |
+| Login redirect: file download | Observed | An unauthenticated `/mod/resource/view.php?id=<cmid>` also ends at `/login/index.php`, HTTP 200, `text/html`. **Downloaders must check the final path and content type, or they will save the login page as the PDF.** | #17 |
+| Session expiry mid-collection | UNVERIFIED as a timed event | Expected to look the same as the unauthenticated redirect above, but this was not observed | #10 |
+
+## UNVERIFIED and unavailable variants
+
+These cases were not observed on 2026-11-01. They stay UNVERIFIED, and collectors must not claim support for them until they are inspected:
+
+- **Folders:** the `mod/folder` parent listing, nested folders and child files or links. No folder module appeared in any of the 8 enrolled courses.
+- **Cut-off dates and extensions** on assignments.
+- **Individual overrides** on assignments and quizzes.
+- **Draft and reopened** assignment submissions.
+- **Restricted activities** (`.availabilityinfo`) and restricted or inaccessible resources.
+- **RU/KK UI:** the Russian and Kazakh interface variants. All label-text matching above ("Opened:", "Due:", "Closed:", "Submitted for grading", "No submissions have been made yet", "Attempts allowed:") is English-only. Prefer classes, data attributes and endpoint fields.
+- **Past and future course groupings:** both were empty, so the response shape is only known for in-progress courses.
+- **Quiz variants:** in-progress attempts and multiple attempts.
+- **Calendar variants:** other event types and the day and month views.
+- **URL, page and video targets.**
+
+Inspecting these needs an account or course that has them, with the same authorized, read-only session path. That is follow-up evidence; it is not a blocker for the observed rows.
+
+## Current wire capacity versus observed evidence
+
+The [#5 data-model inventory](../architecture/data-model.md) records the current wire fields and their constraints. Its authorities are [OpenAPI](../../openapi.yaml), [Zod](../../frontend/src/domain/types.ts) and [Python](../../backend/schemas.py). This table compares their representational capacity with what was observed live. It does not show that any collector exists yet.
+
+| Concern | Present wire fields | Live evidence impact / gap / owner |
+| --- | --- | --- |
+| Courses and identity | `Course.id`, `code`, `name`, `color`, `current`; `Settings.trackedCourseIds`; `Assessment.id`, optional `activityId`, `courseId`, `title`, `type` | Stable sources were observed: the course id (`data-course-id` / `courses[].id`) and the cmid (`#module-<cmid>`, `cmid-<cmid>`). `code` must be derived from the first shortname segment. `name` must have the parenthesised instructor name stripped. `current` maps to the `inprogress` classification. `activityId` must hold the cmid, not the assign or quiz instance id. Those are different id spaces, and only the cmid was observed. Owners: [#11](https://github.com/Ramung55/MoodleHelper/issues/11) / [#12](https://github.com/Ramung55/MoodleHelper/issues/12). |
+| Dates and provenance | `Assessment.availableFrom` (optional string), `sources` (nonempty `SourceEvidence[]`), `firstObservedAt`, `lastObservedAt`; `SourceEvidence.source`, `date`, `observedAt`, optional `excerpt`, `location`, `url` | Displayed dates are minute-precision in UTC+5 (Asia/Almaty) with no offset. The calendar provides epochs. Both fit the exact `DateValue` branch (`iso`, `tz`). There is still no dedicated cut-off field and no structured individual-override model. Cut-offs and overrides were unavailable live, so the gap is not yet exercised. Owners: [#13](https://github.com/Ramung55/MoodleHelper/issues/13) (cut-off), [#14](https://github.com/Ramung55/MoodleHelper/issues/14) (quiz open/close and attempts), [#15](https://github.com/Ramung55/MoodleHelper/issues/15) (calendar). |
+| Submission versus personal completion | Optional `Assessment.submission`: `status` = submitted/draft/not_submitted/reopened/unknown, `observedAt`, optional `evidence`; `Overlay.completed` is separate | Observed mappings: `submissionstatussubmitted` → `submitted`; the class-less "No submissions have been made yet" → `not_submitted`. The `draft` and `reopened` labels remain unverified, so any unrecognised status must map to `unknown`. There are no wire fields for the quiz's attempts allowed or used, or its attempt state. The RaiseUI `rui-attempts-list` is the live source for these. Owners: [#16](https://github.com/Ramung55/MoodleHelper/issues/16), #14. Moodle individual overrides are not the personal `Overlay.dateOverride` / `overrideBase`. |
+| Materials and folders | `Material.id`, `courseId`, `section`, `title`, `fileType` = pdf/docx/pptx/link/video/other, `url`, `accessible`, `stale`, `lastCheckedAt`, `syllabusSuggestion`, optional `downloadedAt` | `fileType` covers the observed "PDF"/"PPTX" badges and `url` modules. `section` is available from `data-sectionid`. `accessible` must come from the final path and content type, not the HTTP status (see the login redirect rows). There are still no folder parent/child fields; folders were unavailable live. Owner: [#17](https://github.com/Ramung55/MoodleHelper/issues/17). |
+| Coverage and failures | `CourseSyncState.courseId`, `status`, `coverage`, `progress`, optional `lastSuccessAt`, `error` | Collectors must report a login-page final path as a session failure, not as empty content, and a 404 "Can't find data record" as a missing source. Owners: [#10](https://github.com/Ramung55/MoodleHelper/issues/10), [#19](https://github.com/Ramung55/MoodleHelper/issues/19) / [#21](https://github.com/Ramung55/MoodleHelper/issues/21). |
+
+Wire timestamp, time zone and URL strings remain permissive, and date strings validate their shape only. Unknown keys may be stripped or ignored, so collectors must report unsupported facts (cut-off, override, attempt counts, folder tree) explicitly. Each owning feature must agree additive Zod/OpenAPI/Python changes first. Cross-source reconciliation remains [#33](https://github.com/Ramung55/MoodleHelper/issues/33). [#4](https://github.com/Ramung55/MoodleHelper/issues/4) owns sanitized fixtures; this document creates none.
+
+## Acceptance-criteria status
+
+1. **Inspected variants, language and date:** met for the course list, course page, assignment, quiz, calendar and material variants listed above (English, 2026-11-01). Folder is recorded as unavailable in this account, with its variants UNVERIFIED.
+2. **Field status with sanitized evidence:** every field is marked. Due dates are observed. Individual overrides, drafts and reopened submissions are unavailable in this account and remain UNVERIFIED for SDU in general.
+3. **Pagination, dynamic navigation, permission failures and login redirects:** each one is observed, with the remaining sub-cases marked UNVERIFIED.
+4. **Unverified sources and access:** the unobserved variants are listed explicitly; no live compatibility is claimed for them.
+5. **Read-only and privacy:** the inspection was read-only, and the report contains no credentials, session tokens, grades or personal names.
