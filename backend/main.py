@@ -12,7 +12,7 @@ from starlette.exceptions import HTTPException
 
 from backend.material_downloads import MaterialDownloadService, TransferConflict, material_download_router
 from backend.routers import router, context_router, collection_router, queue_router, scan_router, local_syllabus_router, reminder_router, ai_router, backup_router, erase_router
-from backend.ai_gateway import AiGateway, AiFailure, MAX_BODY_BYTES
+from backend.ai_gateway import AiGateway, AiFailure, MAX_BODY_BYTES, gateway_from_environment
 from backend.reminders import ReminderService, ReminderConflict
 from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
 from backend.services import BackendService, SyncUnavailable, SYNC_UNAVAILABLE
@@ -58,7 +58,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
                store_factory: Callable[[], SnapshotStore] | None = None, ai_gateway: AiGateway | None = None,
                material_download_capability=None) -> FastAPI:
     # Trusted construction only: no request, query, header or page message selects a provider.
-    gateway = ai_gateway or AiGateway()
+    gateway = ai_gateway or gateway_from_environment()
     if store is not None and store_factory is not None:
         raise ValueError('Provide either store or store_factory, not both.')
     raw_concurrency = os.environ.get('MOODLE_HELPER_QUEUE_CONCURRENCY', '1')

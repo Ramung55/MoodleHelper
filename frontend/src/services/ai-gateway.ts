@@ -34,7 +34,7 @@ export const AiProposal = z.object({
   evidence: z.array(z.object({ excerptId: Id, locationId: Id, start: z.number().int().min(0), end: z.number().int().min(1) }).strict()).min(1).max(8),
 }).strict();
 export const AiExtractResponse = z.object({
-  version: z.literal(AI_VERSION), requestId: Id, mode: z.literal("mock"), policyVersion: z.string(), status: z.literal("ok"),
+  version: z.literal(AI_VERSION), requestId: Id, mode: z.enum(["mock", "anthropic"]), policyVersion: z.string(), status: z.literal("ok"),
   proposals: z.array(AiProposal).max(50),
   usage: z.object({ inputTokens: z.number().int().min(0), outputTokens: z.number().int().min(0), costUsd: z.number(), simulated: z.boolean() }).strict().optional(),
 }).strict();

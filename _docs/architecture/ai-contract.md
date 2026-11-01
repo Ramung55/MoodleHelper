@@ -1,19 +1,17 @@
 # Optional cloud AI contract (#42)
 
-Status: **NO PROVIDER ACTIVE.** External processing is unavailable, and the production monthly budget is **0 USD**. This document is the contract that #43 (mock gateway) and #44 (consent UI) build on. It does not authorize any paid request, provider account, credential, upload or dependency.
+Status: **PROVIDER SELECTED, OFF BY DEFAULT.** On 2026-11-01 the owner selected Anthropic `claude-haiku-5-5` and approved the `anthropic` Python SDK dependency. External processing stays unavailable until the operator sets `MOODLE_HELPER_AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY` and `MOODLE_HELPER_AI_LEDGER_PATH` in the backend environment. This document is the contract that #43 (gateway) and #44 (consent UI) build on.
 
 ## 1. Decision
 
 | Item | Decision |
 | --- | --- |
-| Selected provider | **None. Blocked.** |
-| Missing owner decisions | (a) destination provider, model and service tier; (b) acceptance of that provider's retention terms; (c) the activation of a monthly cap (proposed 10 USD) |
-| Missing credentials | A server-side API key on a billed API account (not a chat subscription), held only in gateway env |
-| Missing evidence | Dated, comparable English/Russian syllabus extraction results per candidate (see section 3) |
-| What may proceed | Local PDF/DOCX/OCR extraction (it does not depend on this work); #43 no-network mock; #44 consent/decline flow with truthful "unavailable"/"mock" status |
-| What may not proceed | Any genuine external call, or any claim that one was made |
-
-If activation is requested later, ask the owner for the provider/model/tier, retention acceptance and monthly ceiling, then obtain the credential securely (never in chat, the browser bundle or a `VITE_` variable).
+| Selected provider | **Anthropic, model `claude-haiku-5-5`, standard API tier** (owner decision, 2026-11-01). Reasons: lowest listed price of the candidates together with OpenAI, documented multilingual support, and an official Python SDK. It sits behind the `Provider` protocol in `backend/ai_gateway.py` (`AnthropicProvider`), so another provider can replace it without changing the wire contract. |
+| Wire mode | `mode: "anthropic"` in `AiAvailable` and `AiExtractResponse` (additive to `"mock"`; OpenAPI, Pydantic and Zod updated together) |
+| Activation | Operator-only environment variables: `MOODLE_HELPER_AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`, `MOODLE_HELPER_AI_LEDGER_PATH` (durable ledger file) and optional `MOODLE_HELPER_AI_MONTHLY_CAP_USD` (default 1, at most 50). No request, header or page message can select a provider. |
+| Missing credential | The owner's server-side API key. Claude never types or stores it. |
+| Missing evidence | Dated EN/RU results from the section 3 fixtures for `claude-haiku-5-5`. This needs one owner-approved paid run (worst case 8 × 0.003 USD). The other candidates are no longer evaluated. |
+| What may not proceed | Any claim of measured extraction quality before that run is recorded |
 
 ## 2. Candidate comparison
 
@@ -95,9 +93,9 @@ Rules:
 
 ## 6. Consent copy
 
-The current (blocked) copy is: **"External AI unavailable: provider not selected; no text sent."** Mock mode adds: "Mock demonstration; stays local."
+Without activation the copy is: **"External AI unavailable: provider not selected; no text sent."** Mock mode adds: "Mock demonstration; stays local." With the Anthropic provider active, `/api/ai/availability` names the destination "Anthropic Claude Haiku 5.5 (external)" and returns the retention disclosure from `ANTHROPIC_RETENTION` in `backend/ai_gateway.py`; the existing consent sheet (#44) displays both.
 
-Once a provider is activated, the consent sheet must show:
+The consent sheet must show:
 1. Destination: the provider, model and service tier by name, plus the server route the text takes.
 2. Content sent: the exact selected excerpt text and its location IDs, and nothing else.
 3. Retention: that provider's standard retention caveat from section 2, for example "may be kept up to 30 days for abuse monitoring".
@@ -120,7 +118,7 @@ Turning on a Settings flag is not consent to any particular payload. Consent can
 | Exposure | Localhost-only. There is no public or anonymous gateway until an auth/abuse design exists. Origin alone is not authentication | Non-local requests are refused |
 | Features | Text only: no tools, search, files, agents, cache, batch or background | Not offered |
 | Credentials | Gateway env only. Never in `VITE_*` variables or browser code | n/a |
-| Monthly cap | **0 USD now.** Proposed after owner activation: 10 USD per calendar month (UTC), with at most 0.10 USD reserved per request | Rejected before calling (`limit_exceeded` / `unavailable`) |
+| Monthly cap | **0 USD unless activated.** With the Anthropic provider: `MOODLE_HELPER_AI_MONTHLY_CAP_USD` (default 1 USD) per calendar month (UTC), with 0.01 USD reserved per request (worst case 0.003 USD) | Rejected before calling (`budget_exhausted`) |
 
 Budget mechanics:
 - A durable SQLite ledger records global spend plus in-flight reservations, and it survives restarts. The worst-case reservation is made atomically before each call. If the actual cost is unknown, the worst-case reservation is kept.
@@ -139,8 +137,8 @@ All three are under the 0.10 USD per-request reservation.
 
 | AC | Status |
 | --- | --- |
-| 1. Comparison with sources and dated nonprivate results | Partial. The comparison and dated publisher examples are recorded, but comparable EN/RU syllabus results are **blocked** on owner authorization of a bounded evaluation run plus credentials |
-| 2. Explicit decision | Done: blocked, with missing decisions and credential named (section 1) |
+| 1. Comparison with sources and dated nonprivate results | Partial. The comparison and dated publisher examples are recorded. Dated EN/RU fixture results for `claude-haiku-5-5` still need one owner-approved paid run with the owner's API key |
+| 2. Explicit decision | Done: Anthropic `claude-haiku-5-5` selected on 2026-11-01; the missing credential is named (section 1) |
 | 3. Request/response schema | Done (sections 4 and 5) |
 | 4. Consent copy | Done for blocked/mock states. Destination-specific wording is templated until a provider is chosen |
 | 5. Limits and stop behavior | Done (section 7) |
