@@ -1,9 +1,233 @@
 {
   "formatVersion": 1,
   "observedCoverage": {
-    "status": "pending",
-    "blockedBy": 3,
-    "reason": "No observed supported SDU variants; do not infer vacuous coverage."
+    "status": "covered",
+    "comparedAgainst": {
+      "issue": 3,
+      "report": "_docs/compatibility/sdu-moodle.md",
+      "inspectionDate": "2026-11-01",
+      "language": "en",
+      "theme": "alpha"
+    },
+    "observedVariants": [
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Course list | `/my/courses.php` card list, grouping \"All\"",
+        "fixtures": [
+          "observed-course-list"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Course list | Enrolled-courses AJAX, `inprogress` / `all`",
+        "fixtures": [
+          "observed-enrolled-courses-inprogress"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Course list | `past` / `future` groupings",
+        "fixtures": [
+          "observed-enrolled-courses-past-empty"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Course page | `format-topics` course with activity list",
+        "fixtures": [
+          "observed-course-page"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Assignment | Submitted for grading, not graded",
+        "fixtures": [
+          "observed-assign-submitted"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Assignment | Not submitted, time remaining",
+        "fixtures": [
+          "observed-assign-not-submitted"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Quiz | Finished attempt, no attempts remaining",
+        "fixtures": [
+          "observed-quiz-finished"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Calendar | Upcoming view, assignment due events",
+        "fixtures": [
+          "observed-calendar-upcoming"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Material | File resource (PDF) via `mod/resource` redirect",
+        "fixtures": [
+          "observed-resource-redirect",
+          "observed-course-page"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Material | URL and page modules",
+        "fixtures": [
+          "observed-course-page"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Folder | Empty folder, separate-page display (`mod/folder` card on the course page and the folder page), not-enrolled guest-viewable course",
+        "fixtures": [
+          "observed-folder-empty",
+          "observed-course-page-guest-folder"
+        ]
+      },
+      {
+        "table": "navigation-and-access",
+        "matrixRow": "Pagination: course list",
+        "fixtures": [
+          "observed-course-list",
+          "observed-enrolled-courses-inprogress"
+        ]
+      },
+      {
+        "table": "navigation-and-access",
+        "matrixRow": "Dynamic navigation",
+        "fixtures": [
+          "observed-enrolled-courses-inprogress"
+        ]
+      },
+      {
+        "table": "navigation-and-access",
+        "matrixRow": "Permission failure: not enrolled",
+        "fixtures": [
+          "observed-course-page-guest-folder"
+        ]
+      },
+      {
+        "table": "navigation-and-access",
+        "matrixRow": "Permission failure: non-existent id",
+        "fixtures": [
+          "observed-not-found"
+        ]
+      },
+      {
+        "table": "navigation-and-access",
+        "matrixRow": "Login redirect: page",
+        "fixtures": [
+          "observed-login-redirect-course"
+        ]
+      },
+      {
+        "table": "navigation-and-access",
+        "matrixRow": "Login redirect: file download",
+        "fixtures": [
+          "observed-login-redirect-resource"
+        ]
+      }
+    ],
+    "unverifiedVariants": [
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Assignment | Draft submission",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": [
+          "assignment"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Assignment | Reopened submission",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": [
+          "reopened"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Assignment | Cut-off date, extension, individual override",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": [
+          "assignment"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Quiz | Open / in-progress attempt, multiple attempts, individual override",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": [
+          "quiz"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Calendar | Day/month views, other event types (quiz, course, user)",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": [
+          "calendar"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Material | Video, restricted resource",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": []
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Folder | Folder with files, nested subfolders, inline display on the course page, \"Download folder\" button",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": [
+          "folder"
+        ]
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Restricted activity | `.availabilityinfo` present",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": []
+      },
+      {
+        "table": "page-variant-matrix",
+        "matrixRow": "Any page | Russian (RU) or Kazakh (KK) interface",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": [
+          "unknown",
+          "calendar",
+          "denied"
+        ]
+      },
+      {
+        "table": "navigation-and-access",
+        "matrixRow": "Pagination: calendar ranges, resource lists",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": []
+      },
+      {
+        "table": "navigation-and-access",
+        "matrixRow": "Permission failure: restricted activity / folder",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": [
+          "denied"
+        ]
+      },
+      {
+        "table": "navigation-and-access",
+        "matrixRow": "Session expiry mid-collection",
+        "coverage": "synthetic-only",
+        "syntheticFixtures": [
+          "login"
+        ]
+      }
+    ],
+    "note": "Unverified variants are not observed-structure fixtures; any listed synthetic fixtures are invented inputs and claim no SDU support."
   },
   "expectationKind": "Raw fixture facts, not Snapshot wire objects or working collector output.",
   "fixtures": [
@@ -352,6 +576,1155 @@
         "schemaGapOwners": [],
         "duplicateRelationships": []
       }
+    },
+    {
+      "id": "observed-course-list",
+      "path": "observed/course-list.html",
+      "sourceVariant": "sdu-en-alpha/course-list-cards",
+      "pageClass": "course_list",
+      "language": "en",
+      "purpose": "Course card list on /my/courses.php with RaiseUI cards and paging regions.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "pagination"
+      ],
+      "expected": {
+        "fields": {
+          "course_id": "9001",
+          "course_name": "Fictional Course Alpha",
+          "course_link": "/course/view.php?id=9001",
+          "paging_region": "paging-bar"
+        },
+        "checks": [
+          {
+            "selector": "div.rui-course-card[data-region=\"course-content\"][data-course-id]",
+            "attr": "data-course-id",
+            "values": [
+              "9001",
+              "9002",
+              "9003"
+            ]
+          },
+          {
+            "selector": "div.rui-course-card a[data-href*=\"/course/view.php?id=\"]",
+            "attr": "data-href",
+            "values": [
+              "/course/view.php?id=9001",
+              "/course/view.php?id=9002",
+              "/course/view.php?id=9003"
+            ]
+          },
+          {
+            "selector": "div.rui-course-card .multiline",
+            "text": [
+              "Fictional Course Alpha",
+              "Fictional Course Beta",
+              "Fictional Course Gamma"
+            ]
+          },
+          {
+            "selector": "div.rui-course-card .sr-only",
+            "text": [
+              "Fictional Course Alpha",
+              "Fictional Course Beta",
+              "Fictional Course Gamma"
+            ]
+          },
+          {
+            "selector": "[data-region=\"paging-control-container\"] [data-region=\"paging-bar\"]",
+            "attr": "data-region",
+            "values": [
+              "paging-bar"
+            ]
+          }
+        ],
+        "derived": {
+          "enrolment": "not established by rendered cards; use the enrolled-courses endpoint",
+          "grouping": "All"
+        },
+        "absentFields": [],
+        "redactedFields": [],
+        "unrecordedFields": [
+          "grouping dropdown markup",
+          "course image and summary markup"
+        ],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-enrolled-courses-inprogress",
+      "path": "observed/enrolled-courses-inprogress.json",
+      "sourceVariant": "sdu-en-alpha/enrolled-courses-ajax-inprogress",
+      "pageClass": "course_list",
+      "language": "en",
+      "purpose": "core_course_get_enrolled_courses_by_timeline_classification response for inprogress, including the nextoffset quirk.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "pagination",
+        "nextoffset_quirk",
+        "personal_shortname_segment"
+      ],
+      "expected": {
+        "fields": {
+          "course_id": 9001,
+          "fullname": "Fictional Course Alpha",
+          "shortname": "DEMO101-1-redacted-2028-1",
+          "coursecategory": "Fictional Term 2028 (2027-2028)",
+          "viewurl": "https://moodle.example.invalid/course/view.php?id=9001",
+          "nextoffset": 3
+        },
+        "checks": [
+          {
+            "path": "0/error",
+            "equals": false
+          },
+          {
+            "path": "0/data/courses",
+            "length": 3
+          },
+          {
+            "path": "0/data/nextoffset",
+            "equals": 3
+          },
+          {
+            "path": "0/data/courses/0/id",
+            "equals": 9001
+          },
+          {
+            "path": "0/data/courses/0/fullname",
+            "equals": "Fictional Course Alpha"
+          },
+          {
+            "path": "0/data/courses/0/shortname",
+            "equals": "DEMO101-1-redacted-2028-1"
+          },
+          {
+            "path": "0/data/courses/0/idnumber",
+            "equals": ""
+          },
+          {
+            "path": "0/data/courses/0/coursecategory",
+            "equals": "Fictional Term 2028 (2027-2028)"
+          },
+          {
+            "path": "0/data/courses/0/viewurl",
+            "equals": "https://moodle.example.invalid/course/view.php?id=9001"
+          },
+          {
+            "path": "0/data/courses/0/startdate",
+            "equals": 1831489200
+          },
+          {
+            "path": "0/data/courses/0/enddate",
+            "equals": 1843326000
+          }
+        ],
+        "derived": {
+          "request": {
+            "classification": "inprogress",
+            "offset": 0,
+            "limit": 24
+          },
+          "returnedCount": 3,
+          "moreAvailable": false,
+          "paginationRule": "nextoffset equals the returned count even when the list is exhausted; stop when the returned count is less than the limit",
+          "course_code": "DEMO101",
+          "current": true,
+          "shortnamePattern": "<code>-<n>-<login, replaced by 'redacted'>-<year>-<term>"
+        },
+        "absentFields": [],
+        "redactedFields": [
+          "shortname login segment",
+          "instructor name in fullname parentheses"
+        ],
+        "unrecordedFields": [
+          "request limit (24 is invented)",
+          "AJAX envelope (standard Moodle [{error, data}] assumed)",
+          "course fields beyond those listed in #3"
+        ],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-enrolled-courses-past-empty",
+      "path": "observed/enrolled-courses-past-empty.json",
+      "sourceVariant": "sdu-en-alpha/enrolled-courses-ajax-past-empty",
+      "pageClass": "course_list",
+      "language": "en",
+      "purpose": "Empty past/future grouping response; the populated past/future shape stays UNVERIFIED.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "empty_grouping"
+      ],
+      "expected": {
+        "fields": {},
+        "checks": [
+          {
+            "path": "0/error",
+            "equals": false
+          },
+          {
+            "path": "0/data/courses",
+            "length": 0
+          },
+          {
+            "path": "0/data/nextoffset",
+            "absent": true
+          }
+        ],
+        "derived": {
+          "request": {
+            "classification": "past",
+            "offset": 0,
+            "limit": 24
+          },
+          "returnedCount": 0,
+          "moreAvailable": false
+        },
+        "absentFields": [],
+        "redactedFields": [],
+        "unrecordedFields": [
+          "nextoffset (value for an empty grouping was not recorded, so it is omitted)",
+          "request limit (24 is invented)"
+        ],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-course-page",
+      "path": "observed/course-page.html",
+      "sourceVariant": "sdu-en-alpha/course-page-format-topics",
+      "pageClass": "course_page",
+      "language": "en",
+      "purpose": "format-topics course page with assign, quiz, resource (PDF/PPTX), url, page and forum cards and activity dates.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "materials",
+        "activity_dates"
+      ],
+      "expected": {
+        "fields": {
+          "cmid": "module-990104",
+          "activity_name": "Fictional Reading Pack",
+          "type_label": "File",
+          "file_badge": "PDF",
+          "section_id": "70002",
+          "due_text": "Due: Tuesday, 7 March 2028, 2:30 PM"
+        },
+        "checks": [
+          {
+            "selector": "body.format-topics",
+            "count": 1
+          },
+          {
+            "selector": "li.section",
+            "attr": "data-sectionid",
+            "values": [
+              "70001",
+              "70002"
+            ]
+          },
+          {
+            "selector": "li.activity",
+            "attr": "id",
+            "values": [
+              "module-990108",
+              "module-990101",
+              "module-990102",
+              "module-990103",
+              "module-990104",
+              "module-990105",
+              "module-990106",
+              "module-990107"
+            ]
+          },
+          {
+            "selector": "li.activity.modtype_assign",
+            "count": 2
+          },
+          {
+            "selector": "li.activity.modtype_quiz",
+            "count": 1
+          },
+          {
+            "selector": "li.activity.modtype_resource",
+            "count": 2
+          },
+          {
+            "selector": "li.activity.modtype_url",
+            "count": 1
+          },
+          {
+            "selector": "li.activity.modtype_page",
+            "count": 1
+          },
+          {
+            "selector": "li.activity.modtype_forum",
+            "count": 1
+          },
+          {
+            "selector": "li.activity a[data-href*=\"/mod/\"]",
+            "attr": "data-href",
+            "values": [
+              "/mod/forum/view.php?id=990108",
+              "/mod/assign/view.php?id=990101",
+              "/mod/assign/view.php?id=990102",
+              "/mod/quiz/view.php?id=990103",
+              "/mod/resource/view.php?id=990104",
+              "/mod/resource/view.php?id=990105",
+              "/mod/url/view.php?id=990106",
+              "/mod/page/view.php?id=990107"
+            ]
+          },
+          {
+            "selector": "li.activity .instancename",
+            "text": [
+              "Fictional Announcements Forum",
+              "Fictional Essay Outline Assignment",
+              "Fictional Lab Report Assignment",
+              "Fictional Warm-up Quiz Quiz",
+              "Fictional Reading Pack File",
+              "Fictional Lecture Slides File",
+              "Fictional Reference Link URL",
+              "Fictional Course Notes Page"
+            ]
+          },
+          {
+            "selector": "li.activity .instancename .accesshide",
+            "text": [
+              "Forum",
+              "Assignment",
+              "Assignment",
+              "Quiz",
+              "File",
+              "File",
+              "URL",
+              "Page"
+            ]
+          },
+          {
+            "selector": "li.activity.modtype_resource .activitybadge",
+            "text": [
+              "PDF",
+              "PPTX"
+            ]
+          },
+          {
+            "selector": "li.modtype_assign [data-region=\"activity-dates\"] > div",
+            "text": [
+              "Opened: Wednesday, 1 March 2028, 12:00 AM",
+              "Due: Wednesday, 8 March 2028, 11:59 PM",
+              "Opened: Wednesday, 1 March 2028, 9:00 AM",
+              "Due: Tuesday, 7 March 2028, 2:30 PM"
+            ]
+          },
+          {
+            "selector": "li.modtype_quiz [data-region=\"activity-dates\"] > div",
+            "text": [
+              "Opened: Thursday, 2 March 2028, 9:00 AM",
+              "Closed: Saturday, 4 March 2028, 9:00 AM"
+            ]
+          },
+          {
+            "selector": ".availabilityinfo",
+            "count": 0
+          }
+        ],
+        "derived": {
+          "activityNameExcludesAccesshide": true,
+          "timezone": "Asia/Almaty (UTC+5), not shown",
+          "dueInstant": "2028-03-07T14:30:00+05:00",
+          "fileTypes": {
+            "990104": "pdf",
+            "990105": "pptx",
+            "990106": "link"
+          }
+        },
+        "absentFields": [
+          "availabilityinfo"
+        ],
+        "redactedFields": [],
+        "unrecordedFields": [
+          "section names",
+          "resource icon path (/theme/image.php/alpha/core/<rev>/f/pdf omitted: img has no src)",
+          "url and page targets"
+        ],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-assign-submitted",
+      "path": "observed/assign-submitted.html",
+      "sourceVariant": "sdu-en-alpha/assign-submitted-for-grading",
+      "pageClass": "assignment",
+      "language": "en",
+      "purpose": "Assignment submitted for grading, not graded, submitted early.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "submitted",
+        "activity_dates"
+      ],
+      "expected": {
+        "fields": {
+          "body_class": "cmid-990101",
+          "submission_status_text": "Submitted for grading",
+          "grading_status_text": "Not graded",
+          "due_text": "Due: Wednesday, 8 March 2028, 11:59 PM",
+          "early_text": "Assignment was submitted 5 days 13 hours early"
+        },
+        "checks": [
+          {
+            "selector": "body#page-mod-assign-view",
+            "attr": "class",
+            "values": [
+              "lang-en cmid-990101 course-9001"
+            ]
+          },
+          {
+            "selector": "[data-region=\"activity-dates\"] > div",
+            "text": [
+              "Opened: Wednesday, 1 March 2028, 12:00 AM",
+              "Due: Wednesday, 8 March 2028, 11:59 PM"
+            ]
+          },
+          {
+            "selector": ".submissionstatustable h3",
+            "text": [
+              "Submission status"
+            ]
+          },
+          {
+            "selector": ".submissionstatustable th",
+            "text": [
+              "Submission status",
+              "Grading status",
+              "Time remaining",
+              "Last modified",
+              "File submissions",
+              "Submission comments"
+            ]
+          },
+          {
+            "selector": ".submissionstatustable td.submissionstatussubmitted",
+            "text": [
+              "Submitted for grading"
+            ]
+          },
+          {
+            "selector": ".submissionstatustable td.submissionnotgraded",
+            "text": [
+              "Not graded"
+            ]
+          },
+          {
+            "selector": ".submissionstatustable td.earlysubmission",
+            "text": [
+              "Assignment was submitted 5 days 13 hours early"
+            ]
+          }
+        ],
+        "derived": {
+          "submission_status": "submitted",
+          "dueInstant": "2028-03-08T23:59:00+05:00",
+          "personalCompletion": "not inferred"
+        },
+        "absentFields": [
+          "cutoff",
+          "extension",
+          "individual_override",
+          "grade"
+        ],
+        "redactedFields": [
+          "file submissions (student file names)"
+        ],
+        "unrecordedFields": [],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-assign-not-submitted",
+      "path": "observed/assign-not-submitted.html",
+      "sourceVariant": "sdu-en-alpha/assign-not-submitted",
+      "pageClass": "assignment",
+      "language": "en",
+      "purpose": "Assignment with no submission; status row has no status class and time remaining.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "not_submitted",
+        "activity_dates"
+      ],
+      "expected": {
+        "fields": {
+          "body_class": "cmid-990102",
+          "submission_status_text": "No submissions have been made yet",
+          "time_remaining_text": "1 day 17 hours remaining",
+          "due_text": "Due: Tuesday, 7 March 2028, 2:30 PM"
+        },
+        "checks": [
+          {
+            "selector": "body#page-mod-assign-view",
+            "attr": "class",
+            "values": [
+              "lang-en cmid-990102 course-9001"
+            ]
+          },
+          {
+            "selector": "[data-region=\"activity-dates\"] > div",
+            "text": [
+              "Opened: Wednesday, 1 March 2028, 9:00 AM",
+              "Due: Tuesday, 7 March 2028, 2:30 PM"
+            ]
+          },
+          {
+            "selector": ".submissionstatustable td",
+            "text": [
+              "No submissions have been made yet",
+              "1 day 17 hours remaining",
+              "-",
+              "Comments (0)"
+            ]
+          },
+          {
+            "selector": ".submissionstatustable td[class*=\"submissionstatus\"]",
+            "count": 0
+          },
+          {
+            "selector": ".submissionstatustable td.timeremaining",
+            "text": [
+              "1 day 17 hours remaining"
+            ]
+          }
+        ],
+        "derived": {
+          "submission_status": "not_submitted",
+          "matchBy": "text, not class",
+          "dueInstant": "2028-03-07T14:30:00+05:00"
+        },
+        "absentFields": [
+          "cutoff",
+          "extension",
+          "individual_override",
+          "grade"
+        ],
+        "redactedFields": [],
+        "unrecordedFields": [],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-quiz-finished",
+      "path": "observed/quiz-finished.html",
+      "sourceVariant": "sdu-en-alpha/quiz-finished-no-attempts-left",
+      "pageClass": "quiz",
+      "language": "en",
+      "purpose": "Finished quiz with RaiseUI rui-attempts-list in place of table.quizattemptsummary.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "quiz_attempts",
+        "activity_dates"
+      ],
+      "expected": {
+        "fields": {
+          "attempts_allowed_text": "Attempts allowed: 1",
+          "time_limit_text": "Time limit: 10 mins",
+          "attempt_title": "Attempt 1",
+          "attempt_status": "Finished",
+          "attempts_exhausted_text": "No more attempts are allowed",
+          "close_text": "Closed: Saturday, 4 March 2028, 9:00 AM"
+        },
+        "checks": [
+          {
+            "selector": "body#page-mod-quiz-view",
+            "count": 1
+          },
+          {
+            "selector": "[data-region=\"activity-dates\"] > div",
+            "text": [
+              "Opened: Thursday, 2 March 2028, 9:00 AM",
+              "Closed: Saturday, 4 March 2028, 9:00 AM"
+            ]
+          },
+          {
+            "selector": ".quizinfo p",
+            "text": [
+              "Attempts allowed: 1",
+              "Time limit: 10 mins",
+              "To attempt this quiz you need to know the quiz password"
+            ]
+          },
+          {
+            "selector": "table.quizattemptsummary",
+            "count": 0
+          },
+          {
+            "selector": "div.rui-attempts-list h4.card-title",
+            "text": [
+              "Attempt 1"
+            ]
+          },
+          {
+            "selector": "div.rui-attempts-list .rui-infobox h5.rui-infobox-title",
+            "text": [
+              "Status",
+              "Started",
+              "Completed",
+              "Duration",
+              "Marks",
+              "Grade"
+            ]
+          },
+          {
+            "selector": "div.rui-attempts-list .rui-infobox .rui-infobox-content--small",
+            "text": [
+              "Finished",
+              "Friday, 3 March 2028, 10:05 AM",
+              "Friday, 3 March 2028, 10:13 AM",
+              "8 mins",
+              "[not retained]",
+              "[not retained]"
+            ]
+          },
+          {
+            "selector": ".box.quizattempt",
+            "text": [
+              "No more attempts are allowed"
+            ]
+          }
+        ],
+        "derived": {
+          "attempts_allowed": 1,
+          "attempts_used": 1,
+          "attempts_remaining": 0,
+          "attempt_state": "finished",
+          "closeInstant": "2028-03-04T09:00:00+05:00"
+        },
+        "absentFields": [],
+        "redactedFields": [
+          "marks",
+          "grade",
+          "final grade"
+        ],
+        "unrecordedFields": [],
+        "schemaGapOwners": [
+          "14"
+        ]
+      }
+    },
+    {
+      "id": "observed-calendar-upcoming",
+      "path": "observed/calendar-upcoming.html",
+      "sourceVariant": "sdu-en-alpha/calendar-upcoming-assign-due",
+      "pageClass": "calendar",
+      "language": "en",
+      "purpose": "Upcoming view with two assignment due events and their data-event-* attributes.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "exact_date"
+      ],
+      "expected": {
+        "fields": {
+          "event_id": "880001",
+          "course_id": "9001",
+          "component": "mod_assign",
+          "eventtype": "due",
+          "title_attr": "Fictional Lab Report is due",
+          "day_link": "/calendar/view.php?view=day&time=1836034200",
+          "action_link": "/mod/assign/view.php?id=990102&action=editsubmission"
+        },
+        "checks": [
+          {
+            "selector": "div.calendar-event-box[data-type=\"event\"]",
+            "count": 2
+          },
+          {
+            "selector": "div.calendar-event-box",
+            "attr": "data-event-id",
+            "values": [
+              "880001",
+              "880002"
+            ]
+          },
+          {
+            "selector": "div.calendar-event-box",
+            "attr": "data-course-id",
+            "values": [
+              "9001",
+              "9002"
+            ]
+          },
+          {
+            "selector": "div.calendar-event-box",
+            "attr": "data-event-component",
+            "values": [
+              "mod_assign",
+              "mod_assign"
+            ]
+          },
+          {
+            "selector": "div.calendar-event-box",
+            "attr": "data-event-eventtype",
+            "values": [
+              "due",
+              "due"
+            ]
+          },
+          {
+            "selector": "div.calendar-event-box",
+            "attr": "data-event-title",
+            "values": [
+              "Fictional Lab Report is due",
+              "Fictional Problem Set is due"
+            ]
+          },
+          {
+            "selector": "div.calendar-event-box a[data-href^=\"/calendar/view.php?view=day\"]",
+            "attr": "data-href",
+            "values": [
+              "/calendar/view.php?view=day&time=1836034200",
+              "/calendar/view.php?view=day&time=1836639000"
+            ]
+          },
+          {
+            "selector": "div.calendar-event-box a[data-href*=\"action=editsubmission\"]",
+            "attr": "data-href",
+            "values": [
+              "/mod/assign/view.php?id=990102&action=editsubmission",
+              "/mod/assign/view.php?id=990201&action=editsubmission"
+            ]
+          },
+          {
+            "selector": "div.calendar-event-box a[data-href*=\"action=editsubmission\"]",
+            "text": [
+              "Add submission",
+              "Add submission"
+            ]
+          },
+          {
+            "selector": "div.calendar-event-box > div",
+            "text": [
+              "Tuesday, 7 March, 2:30 PM",
+              "Add submission",
+              "Tuesday, 14 March, 2:30 PM",
+              "Add submission"
+            ]
+          }
+        ],
+        "derived": {
+          "events": [
+            {
+              "eventId": "880001",
+              "cmid": "990102",
+              "title": "Fictional Lab Report",
+              "epoch": 1836034200,
+              "displayedTime": "2:30 PM"
+            },
+            {
+              "eventId": "880002",
+              "cmid": "990201",
+              "title": "Fictional Problem Set",
+              "epoch": 1836639000,
+              "displayedTime": "2:30 PM"
+            }
+          ],
+          "timezone": "Asia/Almaty (UTC+5)",
+          "actionLink": "never followed or clicked"
+        },
+        "absentFields": [],
+        "redactedFields": [],
+        "unrecordedFields": [],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-course-page-guest-folder",
+      "path": "observed/course-page-guest-folder.html",
+      "sourceVariant": "sdu-en-alpha/course-page-not-enrolled-guest-folder-card",
+      "pageClass": "course_page",
+      "language": "en",
+      "purpose": "Not-enrolled, guest-viewable course page (HTTP 200) with a separate-page folder card.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "not_enrolled_access",
+        "materials"
+      ],
+      "expected": {
+        "fields": {
+          "folder_cmid": "module-991001",
+          "type_label": "Folder",
+          "folder_name": "Fictional Shared Folder"
+        },
+        "checks": [
+          {
+            "selector": "li.activity.modtype_folder.folder",
+            "attr": "id",
+            "values": [
+              "module-991001"
+            ]
+          },
+          {
+            "selector": "li.modtype_folder .instancename",
+            "text": [
+              "Fictional Shared Folder Folder"
+            ]
+          },
+          {
+            "selector": "li.modtype_folder .instancename .accesshide",
+            "text": [
+              "Folder"
+            ]
+          },
+          {
+            "selector": "li.modtype_folder a[data-href*=\"/mod/folder/view.php?id=\"]",
+            "attr": "data-href",
+            "values": [
+              "/mod/folder/view.php?id=991001"
+            ]
+          },
+          {
+            "selector": ".foldertree",
+            "count": 0
+          }
+        ],
+        "derived": {
+          "httpStatus": 200,
+          "enrolment": "not established; course page reachability does not prove enrolment",
+          "folderDisplay": "separate page"
+        },
+        "absentFields": [],
+        "redactedFields": [],
+        "unrecordedFields": [],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-folder-empty",
+      "path": "observed/folder-empty.html",
+      "sourceVariant": "sdu-en-alpha/folder-empty-separate-page",
+      "pageClass": "folder",
+      "language": "en",
+      "purpose": "Empty folder page: foldertree/filemanager markup with only the root folder node.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "empty_folder"
+      ],
+      "expected": {
+        "fields": {
+          "folder_name": "Fictional Shared Folder",
+          "tree_id": "folder_tree0"
+        },
+        "checks": [
+          {
+            "selector": "body#page-mod-folder-view",
+            "count": 1
+          },
+          {
+            "selector": "div.box.generalbox.foldertree > div.filemanager",
+            "attr": "id",
+            "values": [
+              "folder_tree0"
+            ]
+          },
+          {
+            "selector": "div#folder_tree0.filemanager > ul > li",
+            "count": 1
+          },
+          {
+            "selector": "div.filemanager > ul > li > div.fp-filename-icon > span.fp-icon > img.icon",
+            "count": 1
+          },
+          {
+            "selector": "div.fp-filename-icon > span.fp-filename",
+            "text": [
+              "Fictional Shared Folder"
+            ]
+          },
+          {
+            "selector": "div.filemanager ul ul",
+            "count": 0
+          },
+          {
+            "selector": "[data-href*=\"pluginfile.php\"]",
+            "count": 0
+          }
+        ],
+        "derived": {
+          "childFiles": 0,
+          "nestedFolders": 0,
+          "rootNodeIsFolder": true,
+          "fpFilenamePlacement": "span.fp-filename follows span.fp-icon inside div.fp-filename-icon"
+        },
+        "absentFields": [
+          "child_files",
+          "nested_folders",
+          "download_folder_button"
+        ],
+        "redactedFields": [],
+        "unrecordedFields": [
+          "/course/jumpto.php navigation form (omitted: forms are rejected)"
+        ],
+        "schemaGapOwners": [
+          "17"
+        ]
+      }
+    },
+    {
+      "id": "observed-not-found",
+      "path": "observed/not-found.html",
+      "sourceVariant": "sdu-en-alpha/error-nonexistent-id",
+      "pageClass": "access",
+      "language": "en",
+      "purpose": "HTTP 404 error page for non-existent course and module ids.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "missing_record"
+      ],
+      "expected": {
+        "fields": {
+          "message": "Can't find data record in database"
+        },
+        "checks": [
+          {
+            "selector": "body#page-site-index",
+            "count": 1
+          },
+          {
+            "selector": "body#page-site-index p",
+            "text": [
+              "Can't find data record in database."
+            ]
+          }
+        ],
+        "derived": {
+          "httpStatus": 404,
+          "outcome": "missing_source",
+          "requests": [
+            "/course/view.php?id=999999",
+            "/mod/assign/view.php?id=999998"
+          ]
+        },
+        "absentFields": [],
+        "redactedFields": [],
+        "unrecordedFields": [
+          "message text after 'in database'"
+        ],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-login-redirect-course",
+      "path": "observed/login-redirect-course.json",
+      "sourceVariant": "sdu-en-alpha/login-redirect-course-page",
+      "pageClass": "access",
+      "language": "en",
+      "purpose": "Unauthenticated course page request ends on /login/index.php with HTTP 200.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "login_redirect"
+      ],
+      "expected": {
+        "fields": {
+          "request_path": "/course/view.php?id=9001",
+          "final_path": "/login/index.php",
+          "status": 200
+        },
+        "checks": [
+          {
+            "path": "request/path",
+            "equals": "/course/view.php?id=9001"
+          },
+          {
+            "path": "response/status",
+            "equals": 200
+          },
+          {
+            "path": "response/finalPath",
+            "equals": "/login/index.php"
+          },
+          {
+            "path": "response/contentType",
+            "equals": null
+          }
+        ],
+        "derived": {
+          "outcome": "session_failure",
+          "rule": "HTTP 200 does not prove success; check the final path"
+        },
+        "absentFields": [],
+        "redactedFields": [],
+        "unrecordedFields": [
+          "contentType (not recorded for this request in #3, so null)",
+          "body"
+        ],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-login-redirect-resource",
+      "path": "observed/login-redirect-resource.json",
+      "sourceVariant": "sdu-en-alpha/login-redirect-file-download",
+      "pageClass": "access",
+      "language": "en",
+      "purpose": "Unauthenticated resource/pluginfile download ends on /login/index.php, HTTP 200, text/html.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "login_redirect"
+      ],
+      "expected": {
+        "fields": {
+          "request_path": "/mod/resource/view.php?id=990104",
+          "final_path": "/login/index.php",
+          "status": 200,
+          "content_type": "text/html"
+        },
+        "checks": [
+          {
+            "path": "request/path",
+            "equals": "/mod/resource/view.php?id=990104"
+          },
+          {
+            "path": "request/authenticatedTarget",
+            "equals": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf"
+          },
+          {
+            "path": "response/status",
+            "equals": 200
+          },
+          {
+            "path": "response/finalPath",
+            "equals": "/login/index.php"
+          },
+          {
+            "path": "response/contentType",
+            "equals": "text/html"
+          }
+        ],
+        "derived": {
+          "outcome": "session_failure",
+          "accessible": false,
+          "rule": "check final path and content type, or the login page is saved as the PDF"
+        },
+        "absentFields": [],
+        "redactedFields": [],
+        "unrecordedFields": [
+          "body"
+        ],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-resource-redirect",
+      "path": "observed/resource-redirect.json",
+      "sourceVariant": "sdu-en-alpha/resource-pdf-redirect",
+      "pageClass": "material",
+      "language": "en",
+      "purpose": "Authenticated mod/resource request redirects to pluginfile.php serving an inline PDF.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "materials"
+      ],
+      "expected": {
+        "fields": {
+          "request_path": "/mod/resource/view.php?id=990104",
+          "location_path": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf",
+          "content_type": "application/pdf",
+          "content_disposition": "inline"
+        },
+        "checks": [
+          {
+            "path": "request/path",
+            "equals": "/mod/resource/view.php?id=990104"
+          },
+          {
+            "path": "redirect/statusOneOf",
+            "equals": [
+              303,
+              302
+            ]
+          },
+          {
+            "path": "redirect/locationPath",
+            "equals": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf"
+          },
+          {
+            "path": "final/contentType",
+            "equals": "application/pdf"
+          },
+          {
+            "path": "final/contentDisposition",
+            "equals": "inline"
+          }
+        ],
+        "derived": {
+          "fileType": "pdf",
+          "accessible": true
+        },
+        "absentFields": [],
+        "redactedFields": [
+          "real file name (fixture-document.pdf is invented)"
+        ],
+        "unrecordedFields": [
+          "body",
+          "exact redirect status (303 or 302)"
+        ],
+        "schemaGapOwners": []
+      }
     }
-  ]
+  ],
+  "hrefRepresentation": "Observed-structure HTML keeps link targets as relative paths in inert data-href attributes on <a> elements without href."
 }
