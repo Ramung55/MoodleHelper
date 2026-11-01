@@ -35,6 +35,9 @@ All rows were inspected on 2026-11-01 with the English interface.
 | 12 | `/course/view.php?id=N` for 2 courses the student is not enrolled in | GET | Access behaviour only (no content kept) |
 | 13 | `/course/view.php?id=N` for 11 not-enrolled, guest-viewable courses (same-origin, 1.2 s apart; not the student's own courses) | GET | Structure only: searched for `li.activity.modtype_folder` (all HTTP 200; no content kept) |
 | 14 | `/mod/folder/view.php?id=<cmid>` for one folder in a not-enrolled course (not the student's own course) | GET | Structure only: page id, language, folder-tree markup (no names or files kept) |
+| 15 | `/lib/ajax/service.php?info=core_course_get_enrolled_courses_by_timeline_classification` (classification `all`), then `/course/view.php?id=N` for the 8 enrolled courses (same-origin, 1.2 s apart) | POST, GET | Addendum 5: course count and `li.activity.modtype_assign` cmids only |
+| 16 | `/mod/assign/view.php?id=<cmid>` for all 19 assignments in the enrolled courses (same-origin, 1.2 s apart) | GET | Addendum 5: `.submissionstatustable` rows "Submission status", "Grading status", "Time remaining" (cell classes and text with digits replaced by `N`), row headers, activity-date labels. No grades, comments, file names or ids kept |
+| 17 | `/my/` with credentials omitted; `/lib/ajax/service.php?info=core_session_time_remaining` with and without credentials | GET, POST | Addendum 5: signed-in versus signed-out signals (response keys and error code only; the user id value was not recorded) |
 
 The pages also made these requests themselves; Claude did not call them: `core_calendar_get_action_events_by_timesort`, `core_get_user_dates`, `block_recentlyaccesseditems_get_recent_items`, `media_videojs_get_language`.
 
@@ -109,8 +112,9 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 | Individual override | Unavailable | None observed; no DOM marker is known |
 | Status: submitted | Observed | `.submissionstatustable` "Submission status" → `td.submissionstatussubmitted` "Submitted for grading" |
 | Status: not submitted | Observed | Same row has **no status class**; text "No submissions have been made yet". Collectors must match this by text and must not expect a class. |
-| Status: draft | Unavailable | Not present in this account |
-| Status: reopened | Unavailable | Not present in this account |
+| Overdue / late (Time remaining row) | Observed (2026-11-01, Addendum 5) | `td.overdue` "Assignment is overdue by: N days N hours" (also "N hours N mins"); `td.latesubmission` "Assignment was submitted N days N hours late"; `td.earlysubmission` also seen as "… N mins N secs early". Two of 19 assignments had no "Time remaining" row and no activity dates. |
+| Status: draft | Unavailable | Not present in this account (0 of 19 assignments, Addendum 5) |
+| Status: reopened | Unavailable | Not present in this account (0 of 19 assignments, Addendum 5) |
 | Grading status | Observed | `td.submissionnotgraded` "Not graded" (no grade values recorded) |
 | Time remaining | Observed | `td.timeremaining` "1 day 17 hours remaining"; `td.earlysubmission` "Assignment was submitted … early" |
 | Last modified, submission comments | Observed (row presence) | Rows present in `.submissionstatustable` |
@@ -183,6 +187,8 @@ Evidence: rows 13 and 14, one empty folder in a not-enrolled, guest-viewable cou
 | Login redirect: page | Observed | An unauthenticated `/course/view.php?id=N` redirects to final path `/login/index.php` with **HTTP 200**. The content type was not recorded for this request. A 200 status therefore does not prove success; check the final path. | #10 |
 | Login redirect: file download | Observed | An unauthenticated `/mod/resource/view.php?id=<cmid>` also ends at `/login/index.php`, HTTP 200, `text/html`. **Downloaders must check the final path and content type, or they will save the login page as the PDF.** | #17 |
 | Session expiry mid-collection | UNVERIFIED as a timed event | Expected to look the same as the unauthenticated redirect above, but this was not observed | #10 |
+
+> **Addendum 5 (2026-11-01): assignment-status survey and session signals.** In a new session the student again granted read-only access and signed in themselves. Every assignment in the 8 enrolled courses was read once (rows 15 and 16). Of 19 assignments, "Submission status" was `td.submissionstatussubmitted` "Submitted for grading" on 5 and the class-less "No submissions have been made yet" on 14. "Grading status" was `td.submissionnotgraded` "Not graded" on all 19. No draft, reopened, "new attempt" or other submission status appeared, and no "Attempt number" row appeared, so draft and reopened stay **Unavailable / UNVERIFIED**. Session signals (row 17): with credentials omitted, `/my/` redirects (HTTP 200 after redirect) to `/login/index.php` with `body#page-login-index`, classes `path-login`, `pagelayout-login`, `rui-login-page` and **`lang-ru`** (the login page defaults to Russian, so text matching must not be used there). `core_session_time_remaining` returns `{userid, timeremaining}` with `error: false` when signed in and `error: true`, `errorcode: "servicerequireslogin"` when not. RaiseUI has no `#user-menu-toggle` on the dashboard, so that selector is not a signed-in signal.
 
 ## UNVERIFIED and unavailable variants
 
