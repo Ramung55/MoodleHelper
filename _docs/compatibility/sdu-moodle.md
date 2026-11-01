@@ -87,6 +87,7 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 
 | Field | Status | Sanitized evidence |
 | --- | --- | --- |
+| Page / course id | Observed (2026-11-01, Addendum 3) | `body#page-course-view-topics`; body classes include `format-topics`, `path-course-view`, `pagelayout-course`, `course-<courseid>`, `context-<n>`. There is no `cmid-` class on the course page. |
 | Activity node / cmid | Observed | `li.activity.modtype_<mod>#module-<cmid>` |
 | Activity link | Observed | `a[href*="/mod/<mod>/view.php?id=<cmid>"]` |
 | Activity name | Observed | `.instancename`; type label in nested `.accesshide` (e.g. "File", "URL"), which must be removed from the name |
@@ -119,14 +120,16 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 
 | Field | Status | Sanitized evidence |
 | --- | --- | --- |
-| Page | Observed | `body#page-mod-quiz-view` |
+| Page / ids | Observed (2026-11-01, Addendum 3) | `body#page-mod-quiz-view`; body classes include `lang-en`, `pagelayout-incourse`, `course-<courseid>`, `context-<n>`, `cmid-<cmid>`, `theme`, `theme-dark`, `rui-course--showactivitydates` |
 | Open / close dates | Observed | "Opened: …" / "Closed: …" |
 | Attempts allowed, time limit | Observed | `.quizinfo p`: "Attempts allowed: 1", "Time limit: 10 mins", password notice |
-| Attempt list | Observed (theme-specific) | The standard `table.quizattemptsummary` is **replaced** by `div.rui-attempts-list`. Each attempt has `h4.card-title` "Attempt 1" and `.rui-infobox` pairs (`h5.rui-infobox-title` / `.rui-infobox-content--small`): Status "Finished", Started, Completed, Duration, Marks, Grade. Marks and grade values were not recorded. |
+| Attempt list | Observed (theme-specific) | The standard `table.quizattemptsummary` is **replaced** by `div.rui-attempts-list`. The observed chain is `div.rui-attempts-list > div.w-100 > div.rounded.border.p-3 > h4.card-title.mb-3` "Attempt 1", followed by the `.rui-summary-table.quizreviewsummary` / `.rui-infobox` blocks. There is **no** `.card` element inside `.rui-attempts-list` (Addendum 3). The attempt has `.rui-infobox` pairs (`h5.rui-infobox-title` / `.rui-infobox-content--small`): Status "Finished", Started, Completed, Duration, Marks, Grade. Marks and grade values were not recorded. |
 | Attempts exhausted | Observed | `.box.quizattempt` "No more attempts are allowed" |
 | Final grade | Observed (heading only) | Value not recorded; out of scope for collection |
 | In-progress / multiple attempts | UNVERIFIED | Not inspected |
 | Individual override | Unavailable | None observed |
+
+> **Note (2026-11-01, Addendum 3):** a read-only re-check of the same quiz view page and course page by the orchestrator, in the same session, recorded the body classes and the attempts-block chain above. The earlier wording "each attempt has `h4.card-title`" was read by the #4 fixture and the first #14 parser as a `.card` wrapper; the live page has no `.card` there, so collectors must not require one. Only `.rui-attempts-list`, `h4.card-title` and the `.rui-infobox` pairs are relied on; the exact placement of the `.rui-infobox` blocks inside the attempt box was not recorded.
 
 ### Calendar (`/calendar/view.php?view=upcoming`)
 

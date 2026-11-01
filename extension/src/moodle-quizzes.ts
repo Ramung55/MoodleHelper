@@ -4,16 +4,19 @@
  * (RaiseUI). Two page sources are supported:
  *
  * - the quiz view page `/mod/quiz/view.php?id=<cmid>` with a finished attempt
- *   (`body#page-mod-quiz-view`, body classes `cmid-<cmid>` / `course-<id>`,
+ *   (`body#page-mod-quiz-view`, body classes `cmid-<cmid>` / `course-<id>` (Addendum 3),
  *   `[data-region="activity-dates"] > div` "Opened: ..." / "Closed: ...",
  *   `.quizinfo p` "Attempts allowed: N" / "Time limit: ...", one
- *   `div.rui-attempts-list` card with `.rui-infobox` Status/Started/Completed,
+ *   `div.rui-attempts-list` with one `h4.card-title` attempt and `.rui-infobox`
+ *   Status/Started/Completed (no `.card` wrapper is required: none exists live),
  *   `.box.quizattempt` "No more attempts are allowed");
  * - the course page quiz card `li.activity.modtype_quiz#module-<cmid>` with its
- *   `.instancename` and activity dates.
+ *   `.instancename` and activity dates (body classes `format-topics` /
+ *   `course-<id>`, Addendum 3).
  *
  * Evidence: _docs/compatibility/sdu-moodle.md (matrix rows 4 and 7, quiz field
- * table, navigation/access table) and the #4 observed-structure fixtures. The
+ * table, navigation/access table, and the 2026-11-01 Addendum 3 re-check of body
+ * classes and the attempts block) and the #4 observed-structure fixtures. The
  * raw-model decisions follow _docs/quiz-collection-contract.md: opening and
  * closing stay separate raw observations with source wording; closing means quiz
  * close, never exam start; no closing row means open-ended; attempt facts keep
@@ -209,14 +212,16 @@ function attemptInformation(doc: Document): QuizAttemptInformation {
   const lists = doc.querySelectorAll("div.rui-attempts-list");
   if (lists.length > 1) fail("malformed_structure");
   if (lists.length) {
-    const cards = lists[0]!.querySelectorAll(":scope > .card");
+    // Only the observed parts are required: the list, one `h4.card-title` per attempt and the
+    // `.rui-infobox` pairs. The live wrappers between them (Addendum 3: `div.w-100 >
+    // div.rounded.border.p-3`, and NO `.card` element) are deliberately not required.
+    const list = lists[0]!, titles = list.querySelectorAll("h4.card-title");
     // #3 observed exactly one finished attempt; multiple attempts are UNVERIFIED.
-    if (cards.length !== 1) fail(cards.length ? "unsupported_attempt_layout" : "malformed_structure");
-    const card = cards[0]!, titles = card.querySelectorAll("h4.card-title");
-    const attempt = titles.length === 1 ? normalize(titles[0]!.textContent) : "";
+    if (titles.length !== 1) fail(titles.length ? "unsupported_attempt_layout" : "malformed_structure");
+    const attempt = normalize(titles[0]!.textContent);
     if (!attempt) fail("malformed_structure");
     const seen = new Set<string>();
-    for (const box of card.querySelectorAll(".rui-infobox")) {
+    for (const box of list.querySelectorAll(".rui-infobox")) {
       const label = normalize(box.querySelector("h5.rui-infobox-title")?.textContent);
       const content = box.querySelectorAll(".rui-infobox-content--small");
       if (!label || content.length !== 1) fail("malformed_structure");
@@ -258,7 +263,12 @@ function checkVariant(doc: Document, page: QuizPageKind): QuizVariant {
       if (m) themes.add(m[1]!);
     }
   }
-  // The standard attempt table is replaced by rui-attempts-list in theme alpha.
+  // Theme: #3 records `alpha` as the theme of the SDU site for every inspected page (report header),
+  // and `trusted()` pins the host to moodle.sdu.edu.kz, so a page from that host is taken as alpha
+  // unless it shows positive evidence of another theme: a `/theme/<script>.php/<name>/` asset with
+  // another name, or the standard `table.quizattemptsummary` that alpha replaces. A page with no
+  // theme asset URL is not evidence of another theme (the course page records an alpha asset only
+  // on resource icons, and the quiz page records none).
   if ([...themes].some(t => t !== "alpha") || doc.querySelector("table.quizattemptsummary")) fail("unsupported_theme");
   const variant = supportedQuizVariant(page, "en", "alpha");
   if (!variant) fail("unsupported_page");
@@ -292,11 +302,17 @@ function parseCoursePage(doc: Document, courseId: string, observedAt: string, pa
       const cmid = m![1]!;
       if (seen.has(cmid)) fail("malformed_structure");
       seen.add(cmid);
-      const links = Array.from(card.querySelectorAll("a")).filter(a => linkTarget(a) !== null);
-      if (links.length !== 1) fail("missing_structure");
-      const linked = linkedQuizId(linkTarget(links[0]!));
-      if (!linked) fail("unsafe_url");
-      if (linked !== cmid) fail("identity_mismatch");
+      // #3 records the activity link `a[href*="/mod/<mod>/view.php?id=<cmid>"]` but not how many
+      // anchors a card holds, so other anchors are ignored. Every anchor that targets the quiz view
+      // route must be the canonical same-origin link for this card's cmid, and at least one must exist.
+      const quizLinks = Array.from(card.querySelectorAll("a"))
+        .map(linkTarget).filter((t): t is string => t !== null && t.includes("/mod/quiz/view.php"));
+      if (!quizLinks.length) fail("missing_structure");
+      for (const target of quizLinks) {
+        const linked = linkedQuizId(target);
+        if (!linked) fail("unsafe_url");
+        if (linked !== cmid) fail("identity_mismatch");
+      }
       const names = card.querySelectorAll(".instancename");
       if (names.length !== 1) fail("missing_structure");
       const name = names[0]!.cloneNode(true) as Element;

@@ -48,7 +48,7 @@ const variantOf = (from: string, to: string, html = observedQuiz) => {
 };
 const closedRow = "<div>Closed: Saturday, 4 March 2028, 9:00 AM</div>";
 const quizInfo = /<div class="box quizinfo">[\s\S]*?<\/div>\n/;
-const attemptsList = /<div class="rui-attempts-list">[\s\S]*?<\/div>\n<\/div>\n/;
+const attemptsList = /<div class="rui-attempts-list">[\s\S]*?<\/div>\n<\/div>\n<\/div>\n<\/div>\n/;
 const exhausted = '<div class="box quizattempt">No more attempts are allowed</div>\n';
 
 describe("#14 verified-support registry", () => {
@@ -244,6 +244,101 @@ describe("#14 observed course page quiz card (observed/course-page.html)", () =>
   });
 });
 
+describe("#14 attempts block follows the live markup (QA FAIL on #14, Addendum 3)", () => {
+  const facts = (html: string) => {
+    const info = only(parseMoodleQuizPage(input(html), observedAt)).attemptInformation;
+    expect(info.kind).toBe("known");
+    return info.kind === "known" ? info.facts.filter((f) => f.attempt) : [];
+  };
+  const expected = [
+    { label: "Status", rawText: "Finished", attempt: "Attempt 1" },
+    { label: "Started", rawText: "Friday, 3 March 2028, 10:05 AM", attempt: "Attempt 1" },
+    { label: "Completed", rawText: "Friday, 3 March 2028, 10:13 AM", attempt: "Attempt 1" },
+  ];
+  it("the observed fixture uses the live wrapper chain and has no .card element", () => {
+    const doc = new DOMParser().parseFromString(observedQuiz, "text/html");
+    expect(doc.querySelector(".rui-attempts-list .card")).toBeNull();
+    expect(
+      doc.querySelectorAll(
+        "div.rui-attempts-list > div.w-100 > div.rounded.border.p-3 > h4.card-title.mb-3",
+      ),
+    ).toHaveLength(1);
+  });
+  it("REGRESSION: parses the attempt without any .card wrapper", () => {
+    expect(observedQuiz).not.toMatch(/class="card[ "]/);
+    expect(facts(observedQuiz)).toEqual(expected.map((f) => expect.objectContaining(f)));
+  });
+  it("REGRESSION: does not depend on the wrappers between the list and the title", () => {
+    const bare = observedQuiz
+      .replace(/<div class="w-100">\r?\n<div class="rounded border p-3">\r?\n/, "")
+      .replace(
+        /<\/div>\r?\n<\/div>\r?\n<\/div>\r?\n<div class="box quizattempt">/,
+        '</div>\n<div class="box quizattempt">',
+      );
+    expect(bare).not.toMatch(/w-100|rounded border/);
+    expect(facts(bare)).toEqual(expected.map((f) => expect.objectContaining(f)));
+  });
+  it("SYNTHETIC: a .card wrapper is neither required nor rejected", () => {
+    const carded = variantOf(
+      '<div class="rounded border p-3">',
+      '<div class="card rounded border p-3">',
+    );
+    expect(facts(carded)).toEqual(expected.map((f) => expect.objectContaining(f)));
+  });
+});
+
+describe("#14 course card links (only quiz view links are identity evidence)", () => {
+  const quizLink = '<a data-href="/mod/quiz/view.php?id=990103">';
+  it("SYNTHETIC: an extra non-quiz anchor in the card is ignored", () => {
+    const html = variantOf(
+      quizLink,
+      `<a data-href="/course/view.php?id=9001">x</a>${quizLink}`,
+      observedCourse,
+    );
+    expect(only(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe(
+      "990103",
+    );
+  });
+  it("SYNTHETIC: a second, agreeing quiz link is accepted", () => {
+    const html = variantOf(quizLink, `${quizLink}icon</a>${quizLink}`, observedCourse);
+    expect(only(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe(
+      "990103",
+    );
+  });
+  it("SYNTHETIC: a conflicting second quiz link is an identity mismatch", () => {
+    const html = variantOf(
+      quizLink,
+      `<a data-href="/mod/quiz/view.php?id=990104">x</a>${quizLink}`,
+      observedCourse,
+    );
+    expect(parseMoodleQuizPage(course(html), observedAt)).toMatchObject({
+      status: "incomplete",
+      diagnostics: [{ reason: "identity_mismatch", index: 0 }],
+    });
+  });
+  it("SYNTHETIC: a card with no quiz link is missing structure", () => {
+    const html = variantOf(quizLink, '<a data-href="/course/view.php?id=9001">', observedCourse);
+    expect(parseMoodleQuizPage(course(html), observedAt)).toMatchObject({
+      status: "incomplete",
+      diagnostics: [{ reason: "missing_structure", index: 0 }],
+    });
+  });
+});
+
+describe("#14 theme evidence", () => {
+  it("SYNTHETIC: an alpha theme asset is accepted; another theme's asset is unsupported", () => {
+    const alpha = variantOf("<h2>", '<img src="/theme/image.php/alpha/core/1/f/pdf"><h2>');
+    expect(only(parseMoodleQuizPage(input(alpha), observedAt)).variant).toBe(
+      "sdu-en-alpha/quiz-finished-no-attempts-left",
+    );
+    const boost = variantOf("<h2>", '<img src="/theme/image.php/boost/core/1/f/pdf"><h2>');
+    expect(parseMoodleQuizPage(input(boost), observedAt)).toMatchObject({
+      status: "unsupported",
+      diagnostics: [{ reason: "unsupported_theme" }],
+    });
+  });
+});
+
 describe("#14 SYNTHETIC variants of the observed structure", () => {
   it("no closing date: stays open-ended and the opening is never used as a deadline", () => {
     const quiz = only(parseMoodleQuizPage(input(variantOf(closedRow, "")), observedAt));
@@ -371,7 +466,7 @@ describe("#14 SYNTHETIC variants of the observed structure", () => {
     ],
     [
       "attempt card without a title",
-      () => variantOf('<h4 class="card-title">Attempt 1</h4>', ""),
+      () => variantOf('<h4 class="card-title mb-3">Attempt 1</h4>', ""),
       "malformed_structure",
     ],
     [
@@ -419,8 +514,8 @@ describe("#14 SYNTHETIC variants of the observed structure", () => {
       "multiple attempts",
       () =>
         variantOf(
-          '<div class="card">',
-          '<div class="card"><h4 class="card-title">Attempt 2</h4></div>\n<div class="card">',
+          '<div class="w-100">',
+          '<div class="w-100"><div class="rounded border p-3"><h4 class="card-title mb-3">Attempt 2</h4></div></div>\n<div class="w-100">',
         ),
       "unsupported_attempt_layout",
     ],

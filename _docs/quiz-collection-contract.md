@@ -42,7 +42,10 @@ means open-ended; opening never supplies a closing deadline. Preserve #13 valida
 minute/second/1..3-fraction exact strings with explicit ISO offset and known IANA
 timezone, and real calendar date-only precision without midnight/timezone invention.
 observedAt is a validated explicitly zoned instant preserved as supplied. Access
-gate #10 runs first; invalid observations fail safely without output. Reuse #13
+is classified first, before any page structure is read; invalid observations fail
+safely without output. (Originally "Access gate #10 runs first"; superseded for
+the verified variant by the Access bullet under "Implementation for the verified
+variant" below.) Reuse #13
 validation through a small regression-tested extraction if justified, rather than
 duplicating permissive date parsing; no mandatory refactor is prescribed now.
 
@@ -97,24 +100,37 @@ card). #4 supplies observed-structure fixtures for it. The collector is
   source variants. Other languages, other theme assets, the standard
   `table.quizattemptsummary`, in-progress or multiple attempts, attempt
   controls other than "No more attempts are allowed", and date labels other
-  than "Opened:" / "Closed:" give an explicit `unsupported` result.
+  than "Opened:" / "Closed:" give an explicit `unsupported` result. Theme
+  `alpha` is the site theme #3 recorded for every inspected SDU page and the
+  host is pinned to `moodle.sdu.edu.kz`; a page is rejected as another theme
+  only on positive evidence (a non-`alpha` `/theme/<script>.php/<name>/` asset
+  or `table.quizattemptsummary`), because #3 recorded no alpha asset URL on the
+  quiz view page.
 - **Dates.** Each row keeps its full wording, label, `meaning`
   (`quiz_open` / `quiz_close`) and location. The #3 display format is read as
   an exact time at the observed UTC+5 offset, zone `Asia/Almaty`. No "Closed:"
   row gives `close: "open_ended"` and no closing observation.
 - **Attempts.** "Attempts allowed", "Time limit", the `rui-attempts-list`
+  (one `h4.card-title` attempt; no `.card` wrapper is required, since the live
+  chain is `div.w-100 > div.rounded.border.p-3` with no `.card`, Addendum 3)
   Status / Started / Completed and "No more attempts are allowed" are kept as
   wording with the wire field vocabulary (state, allowed, used, remaining,
   other). Counts are never derived. Marks, grade, duration and the password
   notice are not kept. No attempt markup gives explicit unknown.
-- **Identity.** Course id and cmid come from the observed body classes or the
-  `#module-<cmid>` card and its link; the source link is rebuilt from the cmid.
+- **Identity.** Course id and cmid come from the body classes `course-<id>` /
+  `cmid-<cmid>` (quiz view) or `course-<id>` (course page), observed in the
+  2026-11-01 Addendum 3 re-check, or from the `#module-<cmid>` card and its quiz
+  view link(s); the source link is rebuilt from the cmid. Other anchors in a
+  card are ignored, because #3 did not record how many a card holds; every
+  quiz view link in a card must be canonical and agree on the cmid.
   The quiz instance id is not observable on this variant, so
   `sourceActivityId` is explicit unknown. The view-page title element was not
   recorded by #3, so that title stays unknown; the course card title comes
   from `.instancename`.
-- **Access.** The #10 gate's synthetic vocabulary does not match the observed
-  pages, so the collector classifies the observed envelope itself: final path
+- **Access.** The collector's own access classification replaces the #10 gate
+  for this variant and runs first, before any structure is read. The #10 gate's
+  synthetic vocabulary (`nav[aria-label="Account"]`, `main[data-region]`) does
+  not match the observed pages, so the collector classifies the observed envelope itself: final path
   `/login/index.php` (HTTP 200) or 401 is `signed_out`, 403 is `denied`, the
   observed 404 is `missing_source`, and missing or contradictory structure is
   `incomplete`.

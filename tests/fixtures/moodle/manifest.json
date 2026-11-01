@@ -926,6 +926,16 @@
             "asserts": "body.format-topics: count"
           },
           {
+            "selector": "body.format-topics",
+            "attr": "class",
+            "values": [
+              "format-topics lang-en course-9001"
+            ],
+            "basis": "observed",
+            "asserts": "body.format-topics: attr",
+            "note": "Addendum 3 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes recorded the course page body classes format-topics and course-<id> (no cmid- class)."
+          },
+          {
             "selector": "li.section",
             "attr": "data-sectionid",
             "values": [
@@ -1385,6 +1395,16 @@
             "asserts": "body#page-mod-quiz-view: count"
           },
           {
+            "selector": "body#page-mod-quiz-view",
+            "attr": "class",
+            "values": [
+              "lang-en cmid-990103 course-9001"
+            ],
+            "basis": "observed",
+            "asserts": "body#page-mod-quiz-view: attr",
+            "note": "Addendum 3 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes recorded the quiz view body classes cmid-<id> and course-<id> (alongside lang-en and others not reproduced here)."
+          },
+          {
             "selector": "[data-region=\"activity-dates\"] > div",
             "text": [
               "Opened: Thursday, 2 March 2028, 9:00 AM",
@@ -1426,6 +1446,28 @@
             ],
             "basis": "observed",
             "asserts": "div.rui-attempts-list h4.card-title: text"
+          },
+          {
+            "selector": "div.rui-attempts-list > div.w-100 > div.rounded.border.p-3 > h4.card-title.mb-3",
+            "text": [
+              "Attempt 1"
+            ],
+            "basis": "observed",
+            "asserts": "div.rui-attempts-list > div.w-100 > div.rounded.border.p-3 > h4.card-title.mb-3: text",
+            "note": "Addendum 3 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes recorded this wrapper chain for the attempts block."
+          },
+          {
+            "selector": ".rui-attempts-list .card",
+            "count": 0,
+            "basis": "observed",
+            "asserts": ".rui-attempts-list .card: count",
+            "note": "Addendum 3 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes: querySelector('.card') inside .rui-attempts-list returned null on the live page."
+          },
+          {
+            "selector": "div.rounded.border.p-3 > .rui-infobox",
+            "count": 6,
+            "basis": "assumed",
+            "asserts": "placement of the .rui-infobox blocks inside the attempt box (direct children after the h4 assumed; Addendum 3 records only that .rui-summary-table.quizreviewsummary / .rui-infobox blocks follow h4.card-title.mb-3)"
           },
           {
             "selector": "div.rui-attempts-list .rui-infobox h5.rui-infobox-title",
@@ -1480,7 +1522,8 @@
           "final grade"
         ],
         "unrecordedFields": [
-          "quiz password notice wording (\"To attempt this quiz you need to know the quiz password\" assumed; #3 recorded only that a password notice exists)"
+          "quiz password notice wording (\"To attempt this quiz you need to know the quiz password\" assumed; #3 recorded only that a password notice exists)",
+          "placement of the .rui-infobox blocks inside the attempt box (direct children after the h4 assumed; Addendum 3 records only that .rui-summary-table.quizreviewsummary / .rui-infobox blocks follow h4.card-title.mb-3)"
         ],
         "schemaGapOwners": [
           "14"

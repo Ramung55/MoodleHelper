@@ -693,3 +693,26 @@ def test_path_guard_rejects_escape_and_unmanifested_fixture(tmp_path):
     (tmp_path / "observed" / "stray.json").write_text("{}", encoding="utf-8")
     with pytest.raises(AssertionError):
         declared_paths([], tmp_path)
+
+
+def test_quiz_body_classes_and_attempt_chain_follow_addendum_3():
+    """QA FAIL on #14: the 2026-11-01 Addendum 3 re-check observed the body classes and the live
+    attempts chain, and found no `.card` element inside `.rui-attempts-list`."""
+    by_id = {entry["id"]: entry["expected"] for entry in OBSERVED}
+    quiz, course = by_id["observed-quiz-finished"], by_id["observed-course-page"]
+
+    def observed(expected, selector, kind):
+        return [c for c in expected["checks"]
+                if c.get("selector") == selector and kind in c and c["basis"] == "observed"
+                and "Addendum 3" in c.get("note", "")]
+
+    [body] = observed(quiz, "body#page-mod-quiz-view", "attr")
+    assert {"cmid-990103", "course-9001"} <= set(body["values"][0].split())
+    [course_body] = observed(course, "body.format-topics", "attr")
+    assert "course-9001" in course_body["values"][0].split()
+    assert not any(c.startswith("cmid-") for c in course_body["values"][0].split())
+    [no_card] = observed(quiz, ".rui-attempts-list .card", "count")
+    assert no_card["count"] == 0
+    assert observed(quiz, "div.rui-attempts-list > div.w-100 > div.rounded.border.p-3 > h4.card-title.mb-3", "text")
+    root = parse_observed((ROOT / "observed/quiz-finished.html").read_text(encoding="utf-8"))
+    assert not [node for node in root.walk() if "card" in getattr(node, "classes", ())]
