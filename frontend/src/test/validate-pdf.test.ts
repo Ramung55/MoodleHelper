@@ -8,7 +8,7 @@ vi.mock("pdfjs-dist", () => ({ getDocument, GlobalWorkerOptions: {}, VerbosityLe
 import { validatePdf } from "@/services/validate-pdf";
 const fixture = readFileSync("src/test/fixtures/local-valid.pdf");
 const copy = () => Uint8Array.from(fixture);
-const validate = (bytes: Uint8Array) => validatePdf(bytes.buffer, new AbortController().signal);
+const validate = (bytes: Uint8Array<ArrayBuffer>) => validatePdf(bytes.buffer, new AbortController().signal);
 beforeEach(() => { getDocument.mockReset(); getDocument.mockReturnValue({ promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue({ getOperatorList: vi.fn(), cleanup: vi.fn() }) }), destroy: vi.fn() }); });
 afterEach(() => vi.unstubAllGlobals());
 describe("PDF structural gate", () => {
@@ -53,7 +53,7 @@ describe("PDF structural gate", () => {
       await expect(validate(Uint8Array.from(Buffer.from(invalid,'latin1')))).rejects.toThrow(/corrupt/);
     }
     const supplemental=text.indexOf('5 0 obj'), dataStart=text.indexOf('stream\n',supplemental)+7;
-    const damaged=Uint8Array.from(source); damaged[dataStart+3]^=1;
+    const damaged=Uint8Array.from(source); damaged[dataStart+3]!^=1;
     await expect(validate(damaged)).rejects.toThrow(/corrupt/);
     const conflict=text.replace('2 4\n','1 1\n0000000000 00000 f \n2 4\n');
     await expect(validate(Uint8Array.from(Buffer.from(conflict,'latin1')))).rejects.toThrow(/corrupt/);
@@ -75,7 +75,7 @@ describe("PDF structural gate", () => {
     await expect(validate(bytes)).resolves.toBeUndefined();
     getDocument.mockClear();
     const position = Buffer.from(bytes).indexOf(Buffer.from('stream\n')) + 7;
-    bytes[position + 3] ^= 1;
+    bytes[position + 3]! ^= 1;
     await expect(validate(bytes)).rejects.toThrow(/corrupt/);
     expect(getDocument).not.toHaveBeenCalled();
   });
@@ -86,7 +86,7 @@ describe("PDF structural gate", () => {
     getDocument.mockClear();
     const text = Buffer.from(bytes).toString('latin1');
     const objectData = text.indexOf('stream\n') + 7;
-    const broken = Uint8Array.from(bytes); broken[objectData + 3] ^= 1;
+    const broken = Uint8Array.from(bytes); broken[objectData + 3]! ^= 1;
     await expect(validate(broken)).rejects.toThrow(/corrupt/);
     for (const modified of [text.replace('/N 1', '/N 2'), text.replace('/First 4', '/First 9')]) {
       await expect(validate(Uint8Array.from(Buffer.from(modified, 'latin1')))).rejects.toThrow(/corrupt/);

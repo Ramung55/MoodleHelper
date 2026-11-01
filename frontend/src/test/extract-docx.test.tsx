@@ -26,12 +26,12 @@ describe("native DOCX extraction", () => {
     expect(mentions.every(mention => !parseTeachingWeek(mention, calendar).mapping.resolved)).toBe(true);
     const explicit = { ...calendar, weekOverrides: [{ week: 6, startDate: "2027-01-11", endDate: "2027-01-16" }] };
     const sources = mentions.map(mention => ({ id: mention.id, courseId: "c-csc", title: mention.title, type: mention.type, personal: false, sources: [{ source: "syllabus" as const, date: parseTeachingWeek(mention, explicit).value, excerpt: mention.rawScheduleText, location: JSON.stringify(mention.location), observedAt: "2027-01-01T00:00:00Z" }], firstObservedAt: "2027-01-01T00:00:00Z", lastObservedAt: "2027-01-01T00:00:00Z" }));
-    for (const source of sources) expect(source.sources[0].date).toEqual({ kind: "week", week: 6 });
+    for (const source of sources) expect(source.sources[0]!.date).toEqual({ kind: "week", week: 6 });
     const result = weeklyLoad(sources.map(source => viewAssessment(source, undefined, { ...settings, teachingCalendar: explicit })), { ...settings, teachingCalendar: explicit });
     expect(result.weeks.find(week => week.week === 6)).toMatchObject({ total: 2, outstanding: 2, weighted: 6 });
     expect(result.weeks.find(week => week.week === 6)!.items.every(item => item.teachingMapping.resolved && item.teachingMapping.start === "2027-01-11" && item.teachingMapping.end === "2027-01-16")).toBe(true);
     expect(mentions).toEqual(original);
-    const changed = { ...explicit, weekOverrides: [{ ...explicit.weekOverrides[0], endDate: "2027-01-15" }] };
+    const changed = { ...explicit, weekOverrides: [{ ...explicit.weekOverrides[0]!, endDate: "2027-01-15" }] };
     expect(mentions.map(mention => parseTeachingWeek(mention, changed).mapping)).toEqual([expect.objectContaining({ start: "2027-01-11", end: "2027-01-15" }), expect.objectContaining({ start: "2027-01-11", end: "2027-01-15" })]);
     expect(mentions.map(mention => mention.rawScheduleText)).toEqual(["Exam Week 6", "Экзамен неделя 6"]);
   });
@@ -80,7 +80,7 @@ describe("native DOCX extraction", () => {
   it("distinguishes corrupt, known encrypted and unsupported containers", async () => {
     const bytes = Uint8Array.from(readFileSync("src/test/fixtures/extraction-bilingual.docx"));
     await expect(extractDocx(new NodeBlob([bytes.slice(0, -10)]) as unknown as Blob, new AbortController().signal, vi.fn())).rejects.toThrow(/corrupt/);
-    const encrypted = bytes.slice(); const central = encrypted.findIndex((_, i) => encrypted[i] === 0x50 && encrypted[i+1] === 0x4b && encrypted[i+2] === 1 && encrypted[i+3] === 2); encrypted[central + 8] |= 1;
+    const encrypted = bytes.slice(); const central = encrypted.findIndex((_, i) => encrypted[i] === 0x50 && encrypted[i+1] === 0x4b && encrypted[i+2] === 1 && encrypted[i+3] === 2); encrypted[central + 8]! |= 1;
     await expect(extractDocx(new NodeBlob([encrypted]) as unknown as Blob, new AbortController().signal, vi.fn())).rejects.toThrow(/password-protected or encrypted/);
     await expect(extractDocx(new NodeBlob(["not DOCX"]) as unknown as Blob, new AbortController().signal, vi.fn())).rejects.toThrow(/not a supported DOCX/);
     const compound = new Uint8Array(160); compound.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
