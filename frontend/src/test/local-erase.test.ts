@@ -43,10 +43,10 @@ function fakeIndexedDb() {
 beforeEach(() => {
   stores = Object.fromEntries(Object.keys(keyPaths).map((k) => [k, new Map()]));
   for (const id of [A, B]) {
-    stores.blobs!.set(JSON.stringify([id, "d1"]), { datasetId: id, digest: "d1", file: new Blob(["x"]) });
-    stores.associations!.set(JSON.stringify([id, "c", "d1"]), { datasetId: id, courseId: "c", digest: "d1" });
-    stores.jobs!.set(JSON.stringify([id, "o", "j"]), { datasetId: id, owner: "o", id: "j" });
-    stores.evidence!.set(JSON.stringify([id, "c", "d1", "m", 1]), { datasetId: id });
+    stores["blobs"]!.set(JSON.stringify([id, "d1"]), { datasetId: id, digest: "d1", file: new Blob(["x"]) });
+    stores["associations"]!.set(JSON.stringify([id, "c", "d1"]), { datasetId: id, courseId: "c", digest: "d1" });
+    stores["jobs"]!.set(JSON.stringify([id, "o", "j"]), { datasetId: id, owner: "o", id: "j" });
+    stores["evidence"]!.set(JSON.stringify([id, "c", "d1", "m", 1]), { datasetId: id });
   }
   vi.stubGlobal("indexedDB", fakeIndexedDb());
   vi.stubGlobal("IDBKeyRange", { bound: (lower: unknown[], upper: unknown[]) => ({ lower, upper }) });
@@ -54,20 +54,20 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const count = (id: string) => ["blobs", "associations", "jobs", "evidence"].reduce((n, s) => n + [...stores[s]!.values()].filter((r) => r.datasetId === id).length, 0);
+const count = (id: string) => ["blobs", "associations", "jobs", "evidence"].reduce((n, s) => n + [...stores[s]!.values()].filter((r) => r["datasetId"] === id).length, 0);
 
 describe("#56 browser-local erase", () => {
   it("clears only this dataset's key ranges and keeps a minimal tombstone", async () => {
     await clearLocalDataset({ datasetId: A, epoch: 2, eraseId: "e".repeat(32) });
     expect(count(A)).toBe(0);
     expect(count(B)).toBe(4);
-    expect([...stores.lifecycle!.values()]).toEqual([{ datasetId: A, epoch: 2, eraseId: "e".repeat(32) }]);
+    expect([...stores["lifecycle"]!.values()]).toEqual([{ datasetId: A, epoch: 2, eraseId: "e".repeat(32) }]);
   });
 
   it("never lowers a newer tombstone and rolls back on a failed transaction", async () => {
     await clearLocalDataset({ datasetId: A, epoch: 5, eraseId: "a".repeat(32) });
     await clearLocalDataset({ datasetId: A, epoch: 3, eraseId: "b".repeat(32) });
-    expect(stores.lifecycle!.get(JSON.stringify(A))).toMatchObject({ epoch: 5 });
+    expect(stores["lifecycle"]!.get(JSON.stringify(A))).toMatchObject({ epoch: 5 });
     failNextClear = true;
     await expect(clearLocalDataset({ datasetId: B, epoch: 1, eraseId: "c".repeat(32) })).rejects.toThrow(/Retry cleanup/);
     expect(count(B)).toBe(4);
