@@ -9,7 +9,9 @@
  *   `.quizinfo p` "Attempts allowed: N" / "Time limit: ...", one
  *   `div.rui-attempts-list` with one `h4.card-title` attempt and `.rui-infobox`
  *   Status/Started/Completed (no `.card` wrapper is required: none exists live),
- *   `.box.quizattempt` "No more attempts are allowed");
+ *   `.box.quizattempt > p.text-start` "No more attempts are allowed", next to the
+ *   observed `div.continuebutton` "Back to the course" (Addendum 4); the dates
+ *   region may start with a decorative text-less `svg` (Addendum 4));
  * - the course page quiz card `li.activity.modtype_quiz#module-<cmid>` with its
  *   `.instancename` and activity dates (body classes `format-topics` /
  *   `course-<id>`, Addendum 3).
@@ -71,7 +73,12 @@ export interface QuizDateObservation {
   /** closing is the quiz close time; it is never an exam start or appointment. */
   meaning: "quiz_open" | "quiz_close";
   location: `quiz.${QuizDateField}`;
+  /** Observed SDU quirk (Addendum 4, 2026-11-01): the shown weekday disagrees with its own
+   *  day/month/year. The numeric date and time are authoritative; the mismatch is flagged,
+   *  never hidden. Absent when the weekday agrees. */
+  weekdayMismatch?: WeekdayMismatch;
 }
+export interface WeekdayMismatch { shown: string; computed: string }
 export type QuizAttemptField = "state" | "allowed" | "used" | "remaining" | "other";
 export interface QuizAttemptFact {
   field: QuizAttemptField;
@@ -165,20 +172,34 @@ function classId(node: Element, prefix: string): string | null {
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-/** #3 format: "<Weekday>, <d> <Month> <yyyy>, <h:mm> <AM|PM>" in UTC+5. */
-export function parseObservedQuizDate(text: string): DateValue | null {
+/**
+ * #3 format: "<Weekday>, <d> <Month> <yyyy>, <h:mm> <AM|PM>" in UTC+5.
+ *
+ * The weekday must be one of the seven English names, but it is not required to agree with the
+ * date: Addendum 4 (2026-11-01) observed SDU showing "Closed: Wednesday, 15 September 2026,
+ * 11:00 PM" for a Tuesday, consistent with the "Opened:" line on the same day. The numeric
+ * day/month/year/time are authoritative and a disagreeing weekday is returned as
+ * `weekdayMismatch`. Numerically invalid dates (e.g. 30 February) and invalid times stay null.
+ */
+export function parseObservedQuizDateDetail(text: string): { value: DateValue; weekdayMismatch?: WeekdayMismatch } | null {
   const m = /^([A-Z][a-z]+day), ([1-9][0-9]?) ([A-Z][a-z]+) ([0-9]{4}), ([1-9][0-9]?):([0-5][0-9]) (AM|PM)$/.exec(text);
   if (!m) return null;
   const [, weekday, d, monthName, y, h, minute, half] = m as unknown as [string, string, string, string, string, string, string, string];
   const month = months.indexOf(monthName), day = +d, year = +y, hour12 = +h;
-  if (month < 0 || hour12 > 12) return null;
+  if (month < 0 || hour12 > 12 || !weekdays.includes(weekday)) return null;
   const check = new Date(Date.UTC(year, month, day));
-  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month || check.getUTCDate() !== day ||
-      weekdays[check.getUTCDay()] !== weekday) return null;
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month || check.getUTCDate() !== day) return null;
   const hour = (hour12 % 12) + (half === "PM" ? 12 : 0);
   const pad = (n: number) => String(n).padStart(2, "0");
   const iso = `${y}-${pad(month + 1)}-${pad(day)}T${pad(hour)}:${minute}:00${observedOffset}`;
-  return exact(iso) ? { kind: "exact", iso, tz: observedZone } : null;
+  if (!exact(iso)) return null;
+  const computed = weekdays[check.getUTCDay()]!;
+  const value: DateValue = { kind: "exact", iso, tz: observedZone };
+  return computed === weekday ? { value } : { value, weekdayMismatch: { shown: weekday, computed } };
+}
+/** The DateValue of `parseObservedQuizDateDetail`; a weekday mismatch alone does not reject the date. */
+export function parseObservedQuizDate(text: string): DateValue | null {
+  return parseObservedQuizDateDetail(text)?.value ?? null;
 }
 
 const dateLabels = { "Opened:": ["opening", "quiz_open"], "Closed:": ["closing", "quiz_close"] } as const;
@@ -188,13 +209,18 @@ function parseDates(scope: Element): Pick<QuizObservation, "opening" | "closing"
   const out: Pick<QuizObservation, "opening" | "closing"> = {};
   for (const row of regions.length ? Array.from(regions[0]!.children) : []) {
     const rawText = normalize(row.textContent);
+    // Addendum 4: the quiz view page's dates region starts with a decorative, text-less
+    // `<svg class="d-none d-md-flex mr-2">`. Only a text-less svg is skipped; any other
+    // child must be an "Opened:"/"Closed:" row.
+    if (!rawText && row.localName === "svg") continue;
     const label = Object.keys(dateLabels).find(l => rawText.startsWith(l + " ")) as keyof typeof dateLabels | undefined;
     if (!label) fail(rawText ? "unsupported_date_label" : "malformed_structure");
     const [field, meaning] = dateLabels[label!];
     if (out[field]) fail("duplicate_date");
-    const value = parseObservedQuizDate(rawText.slice(label!.length + 1));
-    if (!value) fail("invalid_date");
-    out[field] = { value: value!, rawText, label: label!, meaning, location: `quiz.${field}` };
+    const parsed = parseObservedQuizDateDetail(rawText.slice(label!.length + 1));
+    if (!parsed) fail("invalid_date");
+    out[field] = { value: parsed!.value, rawText, label: label!, meaning, location: `quiz.${field}`,
+      ...(parsed!.weekdayMismatch ? { weekdayMismatch: parsed!.weekdayMismatch } : {}) };
   }
   return { ...out, close: out.closing ? "quiz_close" : "open_ended" };
 }
@@ -240,7 +266,14 @@ function attemptInformation(doc: Document): QuizAttemptInformation {
   const boxes = doc.querySelectorAll(".box.quizattempt");
   if (boxes.length > 1) fail("malformed_structure");
   if (boxes.length) {
-    const text = normalize(boxes[0]!.textContent);
+    // Addendum 4: the box holds `p.text-start` (the status sentence) and `div.continuebutton`
+    // ("Back to the course"). Only the sentence is attempt information; any other child (for
+    // example start/continue-attempt controls, UNVERIFIED) is not the observed layout.
+    const children = Array.from(boxes[0]!.children);
+    const sentences = children.filter(c => c.localName === "p" && c.classList.contains("text-start"));
+    if (sentences.length !== 1 || children.some(c => c !== sentences[0] &&
+        !(c.localName === "div" && c.classList.contains("continuebutton")))) fail("unsupported_attempt_layout");
+    const text = normalize(sentences[0]!.textContent);
     // Only this wording was observed; start/continue-attempt controls are UNVERIFIED.
     if (text !== "No more attempts are allowed") fail("unsupported_attempt_layout");
     fact("remaining", "Attempt summary", text);

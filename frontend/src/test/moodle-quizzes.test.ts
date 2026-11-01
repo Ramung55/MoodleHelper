@@ -5,6 +5,7 @@ import type { MoodleAccessInput } from "../../../extension/src/moodle-access";
 import {
   parseMoodleQuizPage,
   parseObservedQuizDate,
+  parseObservedQuizDateDetail,
   SUPPORTED_QUIZ_VARIANTS,
   supportedQuizVariant,
   type QuizObservation,
@@ -36,6 +37,12 @@ function input(html: string, overrides: Partial<MoodleAccessInput> = {}): Moodle
 }
 const course = (html = observedCourse, overrides: Partial<MoodleAccessInput> = {}) =>
   input(html, { requestedUrl: courseUrl, finalUrl: courseUrl, ...overrides });
+/** The observed course page has two quiz cards: 990103 and the weekday-quirk card 990109. */
+function card(result: QuizParseResult, cmid = "990103"): QuizObservation {
+  expect(result).toMatchObject({ status: "complete", diagnostics: [] });
+  expect(result.observations.map((o) => o.sourceCourseModuleId)).toEqual(["990103", "990109"]);
+  return result.observations.find((o) => o.sourceCourseModuleId === cmid)!;
+}
 function only(result: QuizParseResult): QuizObservation {
   expect(result).toMatchObject({ status: "complete", diagnostics: [] });
   expect(result.observations).toHaveLength(1);
@@ -49,7 +56,8 @@ const variantOf = (from: string, to: string, html = observedQuiz) => {
 const closedRow = "<div>Closed: Saturday, 4 March 2028, 9:00 AM</div>";
 const quizInfo = /<div class="box quizinfo">[\s\S]*?<\/div>\n/;
 const attemptsList = /<div class="rui-attempts-list">[\s\S]*?<\/div>\n<\/div>\n<\/div>\n<\/div>\n/;
-const exhausted = '<div class="box quizattempt">No more attempts are allowed</div>\n';
+const exhausted =
+  '<div class="box quizattempt"><p class="text-start">No more attempts are allowed</p>\n<div class="continuebutton">Back to the course</div></div>\n';
 
 describe("#14 verified-support registry", () => {
   it("lists only the #3-observed English/alpha variants", () => {
@@ -188,13 +196,13 @@ describe("#14 observed quiz view page (observed/quiz-finished.html)", () => {
 });
 
 describe("#14 observed course page quiz card (observed/course-page.html)", () => {
-  it("collects only the quiz card, with dates, identity and source link", () => {
+  it("collects only the quiz cards, with dates, identity and source link", () => {
     const result = parseMoodleQuizPage(course(), observedAt);
     expect(result).toMatchObject({
       page: "course_quiz_card",
       variant: "sdu-en-alpha/course-page-format-topics",
     });
-    const quiz = only(result);
+    const quiz = card(result);
     expect(quiz).toMatchObject({
       sourceCourseId: "9001",
       sourceCourseModuleId: "990103",
@@ -218,11 +226,12 @@ describe("#14 observed course page quiz card (observed/course-page.html)", () =>
       '<a data-href="/mod/quiz/view.php?id=990199">',
       observedCourse,
     );
-    expect(parseMoodleQuizPage(course(html), observedAt)).toMatchObject({
+    const result = parseMoodleQuizPage(course(html), observedAt);
+    expect(result).toMatchObject({
       status: "incomplete",
-      observations: [],
       diagnostics: [{ reason: "identity_mismatch", index: 0 }],
     });
+    expect(result.observations.map((o) => o.sourceCourseModuleId)).toEqual(["990109"]);
   });
   it("SYNTHETIC: an off-origin quiz link is unsafe", () => {
     const html = variantOf(
@@ -237,8 +246,8 @@ describe("#14 observed course page quiz card (observed/course-page.html)", () =>
   });
   it("SYNTHETIC: a card without a Closed: row stays open-ended", () => {
     const html = variantOf(closedRow, "", observedCourse);
-    expect(html).not.toContain("Closed:");
-    const quiz = only(parseMoodleQuizPage(course(html), observedAt));
+    expect(html).not.toContain("Closed: Saturday");
+    const quiz = card(parseMoodleQuizPage(course(html), observedAt));
     expect(quiz.close).toBe("open_ended");
     expect(quiz).not.toHaveProperty("closing");
   });
@@ -295,13 +304,13 @@ describe("#14 course card links (only quiz view links are identity evidence)", (
       `<a data-href="/course/view.php?id=9001">x</a>${quizLink}`,
       observedCourse,
     );
-    expect(only(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe(
+    expect(card(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe(
       "990103",
     );
   });
   it("SYNTHETIC: a second, agreeing quiz link is accepted", () => {
     const html = variantOf(quizLink, `${quizLink}icon</a>${quizLink}`, observedCourse);
-    expect(only(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe(
+    expect(card(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe(
       "990103",
     );
   });
@@ -451,9 +460,19 @@ describe("#14 SYNTHETIC variants of the observed structure", () => {
       "invalid_date",
     ],
     [
-      "weekday contradicts the date",
-      () => variantOf("Saturday, 4 March", "Monday, 4 March"),
+      "numerically invalid Closed: date (31 February)",
+      () => variantOf("Saturday, 4 March 2028", "Thursday, 31 February 2028"),
       "invalid_date",
+    ],
+    [
+      "unknown weekday name",
+      () => variantOf("Saturday, 4 March", "Funday, 4 March"),
+      "invalid_date",
+    ],
+    [
+      "empty non-svg child in the dates region",
+      () => variantOf('<svg class="d-none d-md-flex mr-2"></svg>', "<div></div>"),
+      "malformed_structure",
     ],
     [
       "attempt card without a status",
@@ -593,6 +612,16 @@ describe("#14 SYNTHETIC variants of the observed structure", () => {
       expect(JSON.stringify(result)).not.toContain("private-sentinel");
     },
   );
+  it("a dates-region div with text other than Opened:/Closed: is still unsupported", () => {
+    const html = variantOf(
+      '<svg class="d-none d-md-flex mr-2"></svg>',
+      '<svg class="d-none d-md-flex mr-2"></svg><div>Reminder: bring a pen</div>',
+    );
+    expect(parseMoodleQuizPage(input(html), observedAt)).toMatchObject({
+      status: "unsupported",
+      diagnostics: [{ reason: "unsupported_date_label" }],
+    });
+  });
   it("rejects a malformed runtime envelope", () => {
     expect(parseMoodleQuizPage(null as never, observedAt)).toMatchObject({
       status: "error",
@@ -611,9 +640,141 @@ describe("#14 observed date format", () => {
   );
   it.each([
     "Thursday, 30 February 2028, 9:00 AM",
+    "Thursday, 31 February 2028, 9:00 AM",
+    "Funday, 2 March 2028, 9:00 AM",
     "Thursday, 2 March 2028, 13:00 PM",
     "Thursday, 2 March 2028, 9:00",
     "2 March 2028",
     "Четверг, 2 марта 2028, 9:00",
   ])("rejects %s", (text) => expect(parseObservedQuizDate(text)).toBeNull());
+});
+
+describe("#14 live SDU markup (Addendum 4 live run, 2026-11-01)", () => {
+  it("REGRESSION: the observed quiz view has a decorative svg first in the dates region", () => {
+    const doc = new DOMParser().parseFromString(observedQuiz, "text/html");
+    const region = doc.querySelector('[data-region="activity-dates"]')!;
+    expect(Array.from(region.children).map((c) => c.localName)).toEqual(["svg", "div", "div"]);
+    const quiz = only(parseMoodleQuizPage(input(observedQuiz), observedAt));
+    expect(quiz.opening?.rawText).toBe("Opened: Thursday, 2 March 2028, 9:00 AM");
+    expect(quiz.closing?.rawText).toBe("Closed: Saturday, 4 March 2028, 9:00 AM");
+    expect(quiz.opening).not.toHaveProperty("weekdayMismatch");
+    expect(quiz.closing).not.toHaveProperty("weekdayMismatch");
+  });
+  it("SYNTHETIC: an svg with text is not decorative and is not skipped", () => {
+    const html = variantOf(
+      '<svg class="d-none d-md-flex mr-2"></svg>',
+      '<svg class="d-none d-md-flex mr-2"><text>Icon</text></svg>',
+    );
+    expect(parseMoodleQuizPage(input(html), observedAt)).toMatchObject({
+      status: "unsupported",
+      diagnostics: [{ reason: "unsupported_date_label" }],
+    });
+  });
+  it("REGRESSION: the attempt sentence is read from p.text-start, not the continue button", () => {
+    expect(observedQuiz).toContain('<div class="continuebutton">Back to the course</div>');
+    const info = only(parseMoodleQuizPage(input(observedQuiz), observedAt)).attemptInformation;
+    expect(info.kind === "known" && info.facts.find((f) => f.field === "remaining")).toEqual({
+      field: "remaining",
+      label: "Attempt summary",
+      rawText: "No more attempts are allowed",
+      location: "quiz.attemptInformation.remaining",
+    });
+    expect(JSON.stringify(info)).not.toContain("Back to the course");
+  });
+  it("SYNTHETIC: the sentence without the continue button is still accepted", () => {
+    const html = variantOf('\n<div class="continuebutton">Back to the course</div>', "");
+    expect(only(parseMoodleQuizPage(input(html), observedAt)).attemptInformation.kind).toBe("known");
+  });
+  it.each([
+    [
+      "no p.text-start",
+      () =>
+        variantOf(
+          '<p class="text-start">No more attempts are allowed</p>',
+          "No more attempts are allowed",
+        ),
+    ],
+    [
+      "an extra control in the box",
+      () =>
+        variantOf(
+          '<div class="continuebutton">',
+          '<div class="singlebutton">Attempt quiz now</div><div class="continuebutton">',
+        ),
+    ],
+  ])("SYNTHETIC: attempt box with %s is unsupported", (_name, html) => {
+    expect(parseMoodleQuizPage(input(html()), observedAt)).toMatchObject({
+      status: "unsupported",
+      diagnostics: [{ reason: "unsupported_attempt_layout" }],
+    });
+  });
+  it("REGRESSION: an SDU weekday mismatch is flagged, kept with its wording, and not dropped", () => {
+    const quiz = card(parseMoodleQuizPage(course(), observedAt), "990109");
+    expect(quiz).toMatchObject({
+      title: { kind: "known", value: "Fictional Recap Quiz" },
+      close: "quiz_close",
+    });
+    expect(quiz.opening).toEqual({
+      value: { kind: "exact", iso: "2028-03-14T09:00:00+05:00", tz: "Asia/Almaty" },
+      rawText: "Opened: Tuesday, 14 March 2028, 9:00 AM",
+      label: "Opened:",
+      meaning: "quiz_open",
+      location: "quiz.opening",
+    });
+    expect(quiz.closing).toEqual({
+      value: { kind: "exact", iso: "2028-03-14T23:00:00+05:00", tz: "Asia/Almaty" },
+      rawText: "Closed: Wednesday, 14 March 2028, 11:00 PM",
+      label: "Closed:",
+      meaning: "quiz_close",
+      location: "quiz.closing",
+      weekdayMismatch: { shown: "Wednesday", computed: "Tuesday" },
+    });
+  });
+  it("SYNTHETIC: a weekday mismatch on the quiz view page is flagged, not invalid", () => {
+    const quiz = only(
+      parseMoodleQuizPage(input(variantOf("Saturday, 4 March", "Monday, 4 March")), observedAt),
+    );
+    expect(quiz.closing).toMatchObject({
+      rawText: "Closed: Monday, 4 March 2028, 9:00 AM",
+      value: { kind: "exact", iso: "2028-03-04T09:00:00+05:00" },
+      weekdayMismatch: { shown: "Monday", computed: "Saturday" },
+    });
+  });
+  it("parseObservedQuizDateDetail flags the mismatch; parseObservedQuizDate keeps the numeric date", () => {
+    const text = "Wednesday, 15 September 2026, 11:00 PM";
+    expect(parseObservedQuizDateDetail(text)).toEqual({
+      value: { kind: "exact", iso: "2026-09-15T23:00:00+05:00", tz: "Asia/Almaty" },
+      weekdayMismatch: { shown: "Wednesday", computed: "Tuesday" },
+    });
+    expect(parseObservedQuizDate(text)).toEqual({
+      kind: "exact",
+      iso: "2026-09-15T23:00:00+05:00",
+      tz: "Asia/Almaty",
+    });
+    expect(parseObservedQuizDateDetail("Tuesday, 15 September 2026, 9:00 AM")).toEqual({
+      value: { kind: "exact", iso: "2026-09-15T09:00:00+05:00", tz: "Asia/Almaty" },
+    });
+  });
+  it.each([
+    "Wednesday, 31 February 2028, 9:00 AM",
+    "Tuesday, 29 February 2027, 9:00 AM",
+    "Tuesday, 31 April 2028, 9:00 AM",
+    "Tuesday, 14 March 2028, 0:00 AM",
+    "Tuesday, 14 March 2028, 13:00 PM",
+    "Tuesday, 14 Smarch 2028, 9:00 AM",
+  ])("genuinely invalid dates are still rejected: %s", (text) => {
+    expect(parseObservedQuizDateDetail(text)).toBeNull();
+    expect(parseObservedQuizDate(text)).toBeNull();
+    const html = variantOf(
+      "Closed: Wednesday, 14 March 2028, 11:00 PM",
+      `Closed: ${text}`,
+      observedCourse,
+    );
+    const result = parseMoodleQuizPage(course(html), observedAt);
+    expect(result).toMatchObject({
+      status: "incomplete",
+      diagnostics: [{ reason: "invalid_date", index: 1 }],
+    });
+    expect(result.observations.map((o) => o.sourceCourseModuleId)).toEqual(["990103"]);
+  });
 });

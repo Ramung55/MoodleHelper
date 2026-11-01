@@ -93,7 +93,7 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 | Activity name | Observed | `.instancename`; type label in nested `.accesshide` (e.g. "File", "URL"), which must be removed from the name |
 | Module type | Observed | Seen across 8 enrolled courses: `assign`, `quiz`, `forum`, `url`, `resource`, `page`. No `folder` in enrolled courses; `folder` was observed only in a not-enrolled, guest-viewable course (rows 13, 14). |
 | Section | Observed | `li.section` / `data-sectionid`; 17 section nodes on the sample course (`format-topics`) |
-| Inline dates | Observed | `[data-region="activity-dates"]` children: "Opened: <weekday>, <d> <Month> <yyyy>, <h:mm AM/PM>", "Due: …", "Closed: …" |
+| Inline dates | Observed | `[data-region="activity-dates"]` children: "Opened: <weekday>, <d> <Month> <yyyy>, <h:mm AM/PM>", "Due: …", "Closed: …". The shown weekday can disagree with its own date (observed quirk, 2026-11-01, Addendum 4; see the note under Quiz). |
 | Resource file type | Observed | `.activitybadge` / details text "PDF", "PPTX"; icon path `/theme/image.php/alpha/core/<rev>/f/pdf` |
 | Restriction info | Unavailable | No `.availabilityinfo` in any enrolled course |
 
@@ -121,15 +121,17 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 | Field | Status | Sanitized evidence |
 | --- | --- | --- |
 | Page / ids | Observed (2026-11-01, Addendum 3) | `body#page-mod-quiz-view`; body classes include `lang-en`, `pagelayout-incourse`, `course-<courseid>`, `context-<n>`, `cmid-<cmid>`, `theme`, `theme-dark`, `rui-course--showactivitydates` |
-| Open / close dates | Observed | "Opened: …" / "Closed: …" |
+| Open / close dates | Observed | "Opened: …" / "Closed: …". On the quiz view page the `[data-region="activity-dates"]` region starts with a decorative, text-less `<svg class="d-none d-md-flex mr-2">` before the two `div` rows (2026-11-01, Addendum 4); course-page cards have only the two `div`s. |
 | Attempts allowed, time limit | Observed | `.quizinfo p`: "Attempts allowed: 1", "Time limit: 10 mins", password notice |
 | Attempt list | Observed (theme-specific) | The standard `table.quizattemptsummary` is **replaced** by `div.rui-attempts-list`. The observed chain is `div.rui-attempts-list > div.w-100 > div.rounded.border.p-3 > h4.card-title.mb-3` "Attempt 1", followed by the `.rui-summary-table.quizreviewsummary` / `.rui-infobox` blocks. There is **no** `.card` element inside `.rui-attempts-list` (Addendum 3). The attempt has `.rui-infobox` pairs (`h5.rui-infobox-title` / `.rui-infobox-content--small`): Status "Finished", Started, Completed, Duration, Marks, Grade. Marks and grade values were not recorded. |
-| Attempts exhausted | Observed | `.box.quizattempt` "No more attempts are allowed" |
+| Attempts exhausted | Observed (2026-11-01, Addendum 4) | `.box.quizattempt > p.text-start` "No more attempts are allowed"; the same box also holds `div.continuebutton` "Back to the course", so the box's full text is "No more attempts are allowed Back to the course". The status sentence is the `p.text-start` text. |
 | Final grade | Observed (heading only) | Value not recorded; out of scope for collection |
 | In-progress / multiple attempts | UNVERIFIED | Not inspected |
 | Individual override | Unavailable | None observed |
 
 > **Note (2026-11-01, Addendum 3):** a read-only re-check of the same quiz view page and course page by the orchestrator, in the same session, recorded the body classes and the attempts-block chain above. The earlier wording "each attempt has `h4.card-title`" was read by the #4 fixture and the first #14 parser as a `.card` wrapper; the live page has no `.card` there, so collectors must not require one. Only `.rui-attempts-list`, `h4.card-title` and the `.rui-infobox` pairs are relied on; the exact placement of the `.rui-infobox` blocks inside the attempt box was not recorded.
+
+> **Observed quirk (2026-11-01, Addendum 4): inconsistent weekday.** A live run of the #14 parser against the student's own pages found a quiz whose course card and quiz view page both show "Opened: Tuesday, 15 September 2026, 9:00 AM" and "Closed: Wednesday, 15 September 2026, 11:00 PM". 15 September 2026 is a Tuesday, so the weekday on the "Closed:" line disagrees with its own day, month and year. Moodle probably computes the weekday in a different time zone from the day-of-month and time; that cause is not confirmed. Collectors treat the numeric day/month/year/time as authoritative (they agree with the "Opened:" line), keep the full row text, and flag the disagreement explicitly (`weekdayMismatch: { shown, computed }` in the #14 quiz collector). They do not drop the quiz. A numerically invalid date (for example 31 February) is still rejected. The same live run also recorded the dates-region `svg` and the `.box.quizattempt` children in the table above.
 
 ### Calendar (`/calendar/view.php?view=upcoming`)
 

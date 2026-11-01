@@ -908,7 +908,8 @@
           "type_label": "File",
           "file_badge": "PDF",
           "section_id": "70002",
-          "due_text": "Due: Tuesday, 7 March 2028, 2:30 PM"
+          "due_text": "Due: Tuesday, 7 March 2028, 2:30 PM",
+          "quiz_weekday_quirk_close_text": "Closed: Wednesday, 14 March 2028, 11:00 PM"
         },
         "observedFields": [
           "cmid",
@@ -916,7 +917,8 @@
           "type_label",
           "file_badge",
           "section_id",
-          "due_text"
+          "due_text",
+          "quiz_weekday_quirk_close_text"
         ],
         "checks": [
           {
@@ -953,6 +955,7 @@
               "module-990101",
               "module-990102",
               "module-990103",
+              "module-990109",
               "module-990104",
               "module-990105",
               "module-990106",
@@ -969,7 +972,7 @@
           },
           {
             "selector": "li.activity.modtype_quiz",
-            "count": 1,
+            "count": 2,
             "basis": "observed",
             "asserts": "li.activity.modtype_quiz: count"
           },
@@ -1005,6 +1008,7 @@
               "/mod/assign/view.php?id=990101",
               "/mod/assign/view.php?id=990102",
               "/mod/quiz/view.php?id=990103",
+              "/mod/quiz/view.php?id=990109",
               "/mod/resource/view.php?id=990104",
               "/mod/resource/view.php?id=990105",
               "/mod/url/view.php?id=990106",
@@ -1054,6 +1058,7 @@
               "Fictional Essay Outline Assignment",
               "Fictional Lab Report Assignment",
               "Fictional Warm-up Quiz Quiz",
+              "Fictional Recap Quiz Quiz",
               "Fictional Reading Pack File",
               "Fictional Lecture Slides File",
               "Fictional Reference Link URL",
@@ -1068,6 +1073,7 @@
               "Forum",
               "Assignment",
               "Assignment",
+              "Quiz",
               "Quiz",
               "File",
               "File",
@@ -1101,10 +1107,13 @@
             "selector": "li.modtype_quiz [data-region=\"activity-dates\"] > div",
             "text": [
               "Opened: Thursday, 2 March 2028, 9:00 AM",
-              "Closed: Saturday, 4 March 2028, 9:00 AM"
+              "Closed: Saturday, 4 March 2028, 9:00 AM",
+              "Opened: Tuesday, 14 March 2028, 9:00 AM",
+              "Closed: Wednesday, 14 March 2028, 11:00 PM"
             ],
             "basis": "observed",
-            "asserts": "li.modtype_quiz [data-region=\"activity-dates\"] > div: text"
+            "asserts": "li.modtype_quiz [data-region=\"activity-dates\"] > div: text",
+            "note": "Addendum 4 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes: SDU showed a quiz card whose \"Closed:\" weekday disagrees with its own day/month/year (\"Opened: Tuesday, <d> <Month> <yyyy>, 9:00 AM\" and \"Closed: Wednesday, <same date>, 11:00 PM\" for a Tuesday). Module 990109 keeps that pattern with invented values: 14 March 2028 is a Tuesday, shown as Wednesday on the Closed line."
           },
           {
             "selector": ".availabilityinfo",
@@ -1121,6 +1130,13 @@
             "990104": "pdf",
             "990105": "pptx",
             "990106": "link"
+          },
+          "quizWeekdayQuirk": {
+            "cmid": "990109",
+            "shownWeekday": "Wednesday",
+            "computedWeekday": "Tuesday",
+            "openInstant": "2028-03-14T09:00:00+05:00",
+            "closeInstant": "2028-03-14T23:00:00+05:00"
           }
         },
         "absentFields": [
@@ -1414,6 +1430,17 @@
             "asserts": "[data-region=\"activity-dates\"] > div: text"
           },
           {
+            "selector": "[data-region=\"activity-dates\"] > svg",
+            "count": 1,
+            "attr": "class",
+            "values": [
+              "d-none d-md-flex mr-2"
+            ],
+            "basis": "observed",
+            "asserts": "[data-region=\"activity-dates\"] > svg: count, attr",
+            "note": "Addendum 4 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes: on the quiz VIEW page the dates region starts with a decorative, text-less <svg class=\"d-none d-md-flex mr-2\">, followed by the \"Opened:\" and \"Closed:\" divs. Course-page cards have only the two divs."
+          },
+          {
             "selector": ".quizinfo p",
             "count": 3,
             "contains": [
@@ -1502,10 +1529,29 @@
           {
             "selector": ".box.quizattempt",
             "text": [
+              "No more attempts are allowed Back to the course"
+            ],
+            "basis": "observed",
+            "asserts": ".box.quizattempt: text",
+            "note": "Addendum 4 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes: the box's full text is \"No more attempts are allowed Back to the course\"."
+          },
+          {
+            "selector": ".box.quizattempt > p.text-start",
+            "text": [
               "No more attempts are allowed"
             ],
             "basis": "observed",
-            "asserts": ".box.quizattempt: text"
+            "asserts": ".box.quizattempt > p.text-start: text",
+            "note": "Addendum 4 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes: the status sentence is the p.text-start text."
+          },
+          {
+            "selector": ".box.quizattempt > div.continuebutton",
+            "text": [
+              "Back to the course"
+            ],
+            "basis": "observed",
+            "asserts": ".box.quizattempt > div.continuebutton: text",
+            "note": "Addendum 4 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes: div.continuebutton \"Back to the course\" sits in the same box."
           }
         ],
         "derived": {
@@ -1523,7 +1569,8 @@
         ],
         "unrecordedFields": [
           "quiz password notice wording (\"To attempt this quiz you need to know the quiz password\" assumed; #3 recorded only that a password notice exists)",
-          "placement of the .rui-infobox blocks inside the attempt box (direct children after the h4 assumed; Addendum 3 records only that .rui-summary-table.quizreviewsummary / .rui-infobox blocks follow h4.card-title.mb-3)"
+          "placement of the .rui-infobox blocks inside the attempt box (direct children after the h4 assumed; Addendum 3 records only that .rui-summary-table.quizreviewsummary / .rui-infobox blocks follow h4.card-title.mb-3)",
+          "inner markup of div.continuebutton (plain text assumed; Addendum 4 records only the element and its text \"Back to the course\")"
         ],
         "schemaGapOwners": [
           "14"

@@ -107,8 +107,10 @@ class ObservedInertHTML(HTMLParser):
     no src. Scripts, styles, handlers, forms, frames, refresh and any URL-valued attribute are rejected.
     """
 
+    # svg: the decorative, text-less icon in the quiz view dates region (Addendum 4); attributes stay
+    # limited to class/id/data-*, so it cannot carry a reference or script.
     TAGS = {"html", "head", "meta", "title", "body", "div", "span", "nav", "ul", "li", "a", "img", "p",
-            "h1", "h2", "h3", "h4", "h5", "table", "tbody", "tr", "th", "td"}
+            "h1", "h2", "h3", "h4", "h5", "table", "tbody", "tr", "th", "td", "svg"}
     VOID = {"meta", "img"}
     TOKEN = re.compile(r"[A-Za-z0-9_-]+( [A-Za-z0-9_-]+)*")
 
@@ -716,3 +718,36 @@ def test_quiz_body_classes_and_attempt_chain_follow_addendum_3():
     assert observed(quiz, "div.rui-attempts-list > div.w-100 > div.rounded.border.p-3 > h4.card-title.mb-3", "text")
     root = parse_observed((ROOT / "observed/quiz-finished.html").read_text(encoding="utf-8"))
     assert not [node for node in root.walk() if "card" in getattr(node, "classes", ())]
+
+
+def test_quiz_live_markup_and_weekday_quirk_follow_addendum_4():
+    """Live run of the #14 parser (Addendum 4, 2026-11-01): decorative svg in the quiz view dates
+    region, p.text-start + div.continuebutton in .box.quizattempt, and the SDU weekday quirk."""
+    by_id = {entry["id"]: entry["expected"] for entry in OBSERVED}
+    quiz, course = by_id["observed-quiz-finished"], by_id["observed-course-page"]
+
+    def observed(expected, selector):
+        return [c for c in expected["checks"] if c.get("selector") == selector and c["basis"] == "observed"
+                and "Addendum 4" in c.get("note", "")]
+
+    assert observed(quiz, '[data-region="activity-dates"] > svg')
+    assert observed(quiz, ".box.quizattempt > p.text-start")[0]["text"] == ["No more attempts are allowed"]
+    assert observed(quiz, ".box.quizattempt > div.continuebutton")[0]["text"] == ["Back to the course"]
+    root = parse_observed((ROOT / "observed/quiz-finished.html").read_text(encoding="utf-8"))
+    [region] = select(root, '[data-region="activity-dates"]')
+    assert region.children[0].tag == "svg" and region.children[0].text() == ""
+    assert [child.tag for child in region.children] == ["svg", "div", "div"]
+
+    [dates] = observed(course, 'li.modtype_quiz [data-region="activity-dates"] > div')
+    quirk = course["derived"]["quizWeekdayQuirk"]
+    page = parse_observed((ROOT / "observed/course-page.html").read_text(encoding="utf-8"))
+    opened, closed = (n.text() for n in select(page, f'li#module-{quirk["cmid"]} [data-region="activity-dates"] > div'))
+    assert closed in dates["text"] and closed == course["fields"]["quiz_weekday_quirk_close_text"]
+    open_at = dt.datetime.fromisoformat(quirk["openInstant"])
+    close_at = dt.datetime.fromisoformat(quirk["closeInstant"])
+    # Opened is internally consistent; Closed shows a weekday that is wrong for its own numeric date.
+    assert opened == f"Opened: {open_at:%A}, {open_at.day} {open_at:%B %Y}, {open_at:%I:%M %p}".replace(" 0", " ")
+    assert close_at.date() == open_at.date() and f"{close_at:%A}" == quirk["computedWeekday"]
+    assert quirk["shownWeekday"] != quirk["computedWeekday"]
+    assert closed == (f"Closed: {quirk['shownWeekday']}, {close_at.day} {close_at:%B %Y}, "
+                      f"{close_at:%I:%M %p}").replace(" 0", " ")

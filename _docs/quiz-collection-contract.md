@@ -109,11 +109,29 @@ card). #4 supplies observed-structure fixtures for it. The collector is
 - **Dates.** Each row keeps its full wording, label, `meaning`
   (`quiz_open` / `quiz_close`) and location. The #3 display format is read as
   an exact time at the observed UTC+5 offset, zone `Asia/Almaty`. No "Closed:"
-  row gives `close: "open_ended"` and no closing observation.
+  row gives `close: "open_ended"` and no closing observation. A text-less
+  decorative `svg` child of `[data-region="activity-dates"]` (observed first on
+  the quiz view page, 2026-11-01, Addendum 4) is skipped; any other child must be
+  an "Opened:" / "Closed:" row, so a `div` with other text is
+  `unsupported_date_label` and an empty non-`svg` child is malformed.
+- **Weekday quirk (observed 2026-11-01, Addendum 4).** SDU showed
+  "Closed: Wednesday, 15 September 2026, 11:00 PM" for a Tuesday, on both the
+  course card and the quiz view page, next to a consistent
+  "Opened: Tuesday, 15 September 2026, 9:00 AM". The numeric day, month, year
+  and time are authoritative. The full `rawText` is kept, the observation gets
+  `weekdayMismatch: { shown, computed }` (here `Wednesday` / `Tuesday`), and the
+  quiz is not dropped. The weekday must still be one of the seven English
+  names, and a numerically invalid date (for example 31 February) or time is
+  still `invalid_date`. `parseObservedQuizDateDetail` returns the flag;
+  `parseObservedQuizDate` returns the date value only. Both are local to the
+  quiz collector; no other parser shares this function or changed.
 - **Attempts.** "Attempts allowed", "Time limit", the `rui-attempts-list`
   (one `h4.card-title` attempt; no `.card` wrapper is required, since the live
   chain is `div.w-100 > div.rounded.border.p-3` with no `.card`, Addendum 3)
-  Status / Started / Completed and "No more attempts are allowed" are kept as
+  Status / Started / Completed and "No more attempts are allowed" (read from
+  `.box.quizattempt > p.text-start`; the observed sibling `div.continuebutton`
+  "Back to the course" is not attempt information, and any other child of the
+  box is `unsupported_attempt_layout`, Addendum 4) are kept as
   wording with the wire field vocabulary (state, allowed, used, remaining,
   other). Counts are never derived. Marks, grade, duration and the password
   notice are not kept. No attempt markup gives explicit unknown.
