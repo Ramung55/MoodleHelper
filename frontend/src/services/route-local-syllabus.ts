@@ -19,10 +19,12 @@ export async function routeLocalProposals(association: LocalAssociation, extract
   const prepared = await prepareLocalEvidence(extraction, mentions, parsed, calendar, sourceAvailable, signal);
   // Reuse immutable originals/policy even after backend review or calendar changes.
   for (let index = 0; index < prepared.length; index++) {
-    const { record: previous } = await readLocalEvidence(prepared[index], signal);
+    // index < prepared.length, so prepared[index] is defined.
+    const { record: previous } = await readLocalEvidence(prepared[index]!, signal);
     if (!previous) continue;
     const immutable = (record: typeof previous) => ({ original: record.original, proposal: { ...record.proposal, facts: undefined }, format: record.format });
-    if (stableJson(immutable(previous)) !== stableJson(immutable(prepared[index]))) throw new Error("Original proposal changed. Review a revision explicitly; prior evidence and decisions were retained.");
+    // index < prepared.length and nothing shortens prepared inside the loop, so prepared[index] is defined.
+    if (stableJson(immutable(previous)) !== stableJson(immutable(prepared[index]!))) throw new Error("Original proposal changed. Review a revision explicitly; prior evidence and decisions were retained.");
     prepared[index] = previous;
   }
   const stored = await retainLocalEvidence(prepared, signal);

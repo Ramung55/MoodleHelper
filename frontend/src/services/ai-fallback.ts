@@ -26,7 +26,7 @@ export type AvailableAi = Extract<AiAvailabilityInfo, { available: true }>;
 /** Unreachable, malformed or unavailable all mean the same thing: local-only, no Send. */
 export async function loadAiAvailability(baseUrl = "", fetcher: typeof fetch = (...a) => globalThis.fetch(...a), signal?: AbortSignal): Promise<AiAvailabilityInfo> {
   try {
-    const response = await fetcher(`${baseUrl.replace(/\/$/, "")}/api/ai/availability`, { credentials: "omit", cache: "no-store", signal });
+    const response = await fetcher(`${baseUrl.replace(/\/$/, "")}/api/ai/availability`, { credentials: "omit", cache: "no-store", ...(signal ? { signal } : {}) });
     if (!response.ok) return { available: false, reason: UNAVAILABLE_COPY };
     const parsed = AiAvailabilityInfo.safeParse(await response.json());
     return parsed.success ? parsed.data : { available: false, reason: UNAVAILABLE_COPY };
@@ -38,13 +38,14 @@ export const utf8Bytes = (text: string) => new TextEncoder().encode(text).length
 export function selectionProblem(mention: AssessmentMention): string | undefined {
   if (!mention.excerpt.trim()) return "No original excerpt text is available.";
   if (utf8Bytes(mention.excerpt) > AI_MAX_EXCERPT_BYTES) return `Excerpt is ${utf8Bytes(mention.excerpt)} bytes; the limit is ${AI_MAX_EXCERPT_BYTES}. It cannot be sent.`;
+  return undefined;
 }
 
 export type FrozenPreview = {
   requestId: string; datasetId: string; association: Pick<LocalAssociation, "datasetId" | "courseId" | "digest" | "name">;
   policy: Pick<AvailableAi, "provider" | "retention" | "policyVersion" | "destination" | "mode"> & { limits: AvailableAi["limits"] };
   mentions: AssessmentMention[]; excerpts: (AiExcerptValue & { mentionId: string; label: string })[];
-  context?: AiContextValue; payloadDigest: string; request: AiExtractRequestValue; bodyBytes: number;
+  context?: AiContextValue | undefined; payloadDigest: string; request: AiExtractRequestValue; bodyBytes: number;
 };
 
 export function policyKey(info: AvailableAi): string {
@@ -118,7 +119,7 @@ export async function sendFrozen(preview: FrozenPreview, signal: AbortSignal, de
 
 export type ValidatedAi = { records: LocalEvidenceRecord[]; rejected: { index: number; reason: string }[] };
 
-function aiDate(proposal: AiExtractResponseValue["proposals"][number]): { date: LocalSyllabusProposal["date"]; note?: string } {
+function aiDate(proposal: AiExtractResponseValue["proposals"][number]): { date: LocalSyllabusProposal["date"]; note?: string | undefined } {
   const value = proposal.date.value;
   if (proposal.date.precision === "date" && value && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const parsed = LocalSyllabusProposal.shape.date.safeParse({ kind: "date", date: value });
@@ -142,7 +143,8 @@ export async function validateAiResponse(preview: FrozenPreview, response: AiExt
     const { date, note } = aiDate(proposal);
     const reasons = [`AI-proposed (${preview.policy.provider}); not verified.`, ...(note ? [note] : []), ...(proposal.uncertain ? [`AI marked uncertain: ${proposal.uncertaintyReason ?? "other"}.`] : [])];
     const mentionId = `ai-${(await localHash({ requestId: preview.requestId, index, digest: preview.payloadDigest })).slice(0, 40)}`;
-    const locationId = spans[0].excerpt!.locationId;
+    // The response schema requires at least one evidence span, so spans[0] is defined.
+    const locationId = spans[0]!.excerpt!.locationId;
     const proposalValue = LocalSyllabusProposal.parse({ mentionId, locationId, title: proposal.title.trim() || mention.title, type: proposal.type === "other" ? mention.type : proposal.type, date,
       facts: { complete: true, evidenceRetained: true, traceable: true, sourceAvailable: true, contextVerified: true, singleAssociation: mentionIds.length === 1,
         explicitDate: false, inferredYear: proposal.uncertaintyReason === "missing_year", localeAmbiguous: proposal.uncertaintyReason === "ambiguous_order", contradictory: false, policyOrHeading: false, conflictingMatch: false,
@@ -160,7 +162,8 @@ export async function routeAiRecords(preview: FrozenPreview, records: LocalEvide
   const check = async () => { signal.throwIfAborted(); if (await dataset() !== preview.datasetId) throw new Error("The dataset changed. AI results were not routed."); };
   await check();
   const stored = await retainLocalEvidence(records, signal); await check();
-  const result = await client.routeLocalSyllabus({ datasetId: preview.datasetId, courseId: preview.association.courseId, digest: preview.association.digest, format: records[0].format, pipelineVersion: LOCAL_PIPELINE_VERSION, proposals: stored.map(r => r.proposal) }, signal);
+  // The only caller (AiFallback) returns early when records is empty; an empty list still throws a TypeError here, as before.
+  const result = await client.routeLocalSyllabus({ datasetId: preview.datasetId, courseId: preview.association.courseId, digest: preview.association.digest, format: records[0]!.format, pipelineVersion: LOCAL_PIPELINE_VERSION, proposals: stored.map(r => r.proposal) }, signal);
   await check(); await markLocalRoutes(stored, result.routes, signal);
   return result;
 }

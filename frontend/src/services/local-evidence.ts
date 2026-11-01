@@ -56,7 +56,8 @@ async function check(datasetId: string, signal?: AbortSignal) {
 /** Atomic original+policy retention; never replace immutable originals after correction/replay. */
 export async function retainLocalEvidence(records: LocalEvidenceRecord[], signal: AbortSignal): Promise<LocalEvidenceRecord[]> {
   if (!records.length) return [];
-  const scope = records[0];
+  // The empty case returned above, so records[0] is defined.
+  const scope = records[0]!;
   if (records.length > 1000 || records.some(row => row.datasetId !== scope.datasetId || row.courseId !== scope.courseId || row.digest !== scope.digest)) throw new Error("Local evidence must use one bounded document/course/dataset scope.");
   const fence = await captureLocalFence(scope.datasetId);
   await check(scope.datasetId, signal); const db = await database();
@@ -108,8 +109,10 @@ export async function readLocalEvidence(ref: LocalEvidenceRef, signal?: AbortSig
 /** Mutable receipt/audit only; original title/date/text/geometry is never overwritten. */
 export async function markLocalRoutes(records: LocalEvidenceRecord[], routes: LocalSyllabusRoute[], signal: AbortSignal): Promise<void> {
   if (!records.length) return;
-  const fence = await captureLocalFence(records[0].datasetId);
-  await check(records[0].datasetId, signal); const db = await database();
+  // The empty case returned above, so records[0] is defined.
+  const fence = await captureLocalFence(records[0]!.datasetId);
+  // The empty case returned above, so records[0] is defined.
+  await check(records[0]!.datasetId, signal); const db = await database();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(["evidence", "lifecycle"], "readwrite"), store = tx.objectStore("evidence");
@@ -129,7 +132,8 @@ export async function markLocalRoutes(records: LocalEvidenceRecord[], routes: Lo
       tx.oncomplete = () => { signal.removeEventListener("abort", abort); resolve(); };
       tx.onabort = () => { signal.removeEventListener("abort", abort); reject(new Error("Routing outcome is not locally reconciled. Retry the same stored proposal; no new identity was assigned.")); };
     });
-    await check(records[0].datasetId, signal);
+    // The empty case returned at the top, so records[0] is defined.
+    await check(records[0]!.datasetId, signal);
   } finally { db.close(); }
 }
 

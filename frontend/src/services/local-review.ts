@@ -8,7 +8,7 @@ type Receipt = NonNullable<Snapshot["localSyllabusReceipts"]>[number];
 /** Validated lookup result for one registered local candidate (#32). */
 export type LocalReviewEvidence =
   | { mode: "original-available" | "stored-evidence-only"; record: LocalEvidenceRecord; receipt: Receipt; reviewAudit: LocalReviewAuditEntry[] }
-  | { mode: "unavailable"; reason: string; receipt?: Receipt; auditOnly?: LocalAuditOnlyRecord; reviewAudit: LocalReviewAuditEntry[] };
+  | { mode: "unavailable"; reason: string; receipt?: Receipt | undefined; auditOnly?: LocalAuditOnlyRecord | undefined; reviewAudit: LocalReviewAuditEntry[] };
 
 const sameRef = (a: object, b: object) => stableJson(a) === stableJson(b);
 const reviewEntries = (audit: readonly unknown[]): LocalReviewAuditEntry[] => audit.filter((row): row is LocalReviewAuditEntry => String((row as { kind?: string }).kind).startsWith("review-"));
