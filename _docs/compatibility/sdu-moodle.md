@@ -160,7 +160,7 @@ Evidence: rows 13 and 14, one empty folder in a not-enrolled, guest-viewable cou
 | Course-page card | Observed | `li.activity.modtype_folder.folder`; the nested `.instancename .accesshide` type label reads "Folder" and must be removed from the name |
 | Display mode | Observed (separate page) | The tree is not rendered inline on the course page; the folder opens on its own page. Inline display is UNVERIFIED. |
 | Page | Observed | `body#page-mod-folder-view`, `<html lang="en">`, HTTP 200 |
-| Folder tree | Observed | `div.box.generalbox.foldertree > div#folder_tree<N>.filemanager > ul > li > div.fp-filename-icon > span.fp-icon > img.icon + span.fp-filename`. The single root `li` is the folder itself. |
+| Folder tree | Observed | `div.box.generalbox.foldertree > div#folder_tree<N>.filemanager > ul > li > div.fp-filename-icon > (span.fp-icon > img.icon) + span.fp-filename`. `span.fp-filename` is a sibling of `span.fp-icon`; both are children of `div.fp-filename-icon`. The single root `li` is the folder itself. (Corrected 2026-11-01: an earlier version wrongly placed `span.fp-filename` inside `span.fp-icon`, a transcription error.) |
 | Child files | UNVERIFIED | The inspected folder was empty: 0 `pluginfile.php` links |
 | Nested subfolders | UNVERIFIED | 0 nested `ul` under the root `li` |
 | "Download folder" button | UNVERIFIED | No download-folder form was present; the only form on the page was the `/course/jumpto.php` navigation |
