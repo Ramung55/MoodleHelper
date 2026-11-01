@@ -31,7 +31,7 @@ export function closed(v: unknown, required: string[], optional: string[] = []):
 /** JSON-schema subset used by the authoritative inventory. Every object is closed recursively. */
 export function check(schema: any, value: any): boolean {
   if (schema.$ref) return check(schemas[schema.$ref.split("/").at(-1)], value);
-  if (schema === schemas.TeachingCalendar && teachingCalendarError(value)) return false;
+  if (schema === schemas["TeachingCalendar"] && teachingCalendarError(value)) return false;
   if (schema.oneOf) return schema.oneOf.filter((s: any) => check(s, value)).length === 1;
   if (schema.anyOf) return schema.anyOf.some((s: any) => check(s, value));
   if (Array.isArray(schema.type)) return schema.type.some((type: string) => check({...schema, type}, value));
