@@ -19,8 +19,9 @@ OBSERVED = [entry for entry in ENTRIES if entry["sourceKind"] == "observed-struc
 OBSERVED_HTML = [entry for entry in OBSERVED if entry["path"].endswith(".html")]
 OBSERVED_JSON = [entry for entry in OBSERVED if entry["path"].endswith(".json")]
 OBSERVED_PROVENANCE = (
-    "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, "
-    "label wording); all content, ids and dates invented. Not a capture."
+    "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and "
+    "label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks "
+    "that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture."
 )
 
 # Moodle-relative paths that observed-structure fixtures may name as inert text.
@@ -344,6 +345,29 @@ def check_observed_metadata(entry):
     assert expected["checks"]
     for key in ("absentFields", "redactedFields", "unrecordedFields", "schemaGapOwners"):
         assert isinstance(expected[key], list)
+    check_basis_labels(expected)
+
+
+def check_basis_labels(expected):
+    """Every check is labelled observed or assumed; an assumed check names its unrecordedFields entry.
+
+    Every field must be listed in observedFields, and only observed checks may back a field (see
+    check_fields_observed), so an unrecorded detail cannot pass silently as an observed one.
+    """
+    assert list(expected["fields"]) == expected["observedFields"]
+    for check in expected["checks"]:
+        assert check.get("basis") in {"observed", "assumed"}, check
+        if check["basis"] == "assumed":
+            assert check.get("unrecorded") in expected["unrecordedFields"], check
+        else:
+            assert "unrecorded" not in check, check
+
+
+def check_fields_observed(expected, verified):
+    for name in expected["observedFields"]:
+        value = expected["fields"][name]
+        assert any(value == seen or (isinstance(seen, str) and isinstance(value, str) and value in seen)
+                   for seen in verified), (name, value)
 
 
 @pytest.mark.parametrize("entry", OBSERVED_HTML, ids=lambda entry: entry["id"])
@@ -357,18 +381,24 @@ def test_observed_html_is_inert_and_matches_manifest(entry):
     verified = []
     for check in entry["expected"]["checks"]:
         found = select(root, check["selector"])
+        seen = []
         if "count" in check:
             assert len(found) == check["count"], check
         if "attr" in check:
             values = [node.attrs[check["attr"]] for node in found]
             assert values == check["values"], check
-            verified += values
+            seen += values
         if "text" in check:
             texts = [node.text() for node in found]
             assert texts == check["text"], check
-            verified += texts
-    for name, value in entry["expected"]["fields"].items():
-        assert any(value in seen for seen in verified), (name, value)
+            seen += texts
+        if "contains" in check:
+            texts = [node.text() for node in found]
+            assert all(text in texts for text in check["contains"]), check
+            seen += check["contains"]
+        if check["basis"] == "observed":
+            verified += seen
+    check_fields_observed(entry["expected"], verified)
 
 
 @pytest.mark.parametrize("entry", OBSERVED_JSON, ids=lambda entry: entry["id"])
@@ -386,9 +416,9 @@ def test_observed_json_records_match_manifest(entry):
             assert len(value) == check["length"], check
         if "equals" in check:
             assert value == check["equals"] and type(value) is type(check["equals"]), check
-            verified.append(value)
-    for name, value in entry["expected"]["fields"].items():
-        assert value in verified, (name, value)
+            if check["basis"] == "observed":
+                verified.append(value)
+    check_fields_observed(entry["expected"], verified)
 
     def strings(node):
         if isinstance(node, dict):
@@ -440,7 +470,8 @@ def test_observed_semantics_follow_the_matrix():
         assert action.attrs["data-href"] == f"/mod/assign/view.php?id={event['cmid']}&action=editsubmission"
         local = dt.datetime.fromtimestamp(event["epoch"], almaty)
         assert local.strftime("%I:%M %p").lstrip("0") == event["displayedTime"]
-        assert box.text().startswith(f"{local:%A}, {local.day} {local:%B}, {event['displayedTime']}")
+        # #3 recorded only the displayed time; the surrounding date text format is assumed.
+        assert event["displayedTime"] in box.text()
 
     page = parse_observed((ROOT / "observed/course-page.html").read_text(encoding="utf-8"))
     due = select(page, "li#module-990102 [data-region=\"activity-dates\"] > div")[1].text()
@@ -454,6 +485,68 @@ def test_observed_semantics_follow_the_matrix():
     assert course_redirect["response"]["contentType"] is None  # not recorded in #3
     assert file_redirect["response"]["contentType"] == "text/html"
     assert by_id["observed-not-found"]["derived"]["httpStatus"] == 404
+
+
+# QA on #4: details #3 never recorded stay labelled as assumed and are never asserted as observed.
+UNRECORDED_DETAILS = {
+    "observed-course-page": ['"Assignment"', '"Quiz"', '"Forum"', '"Page"'],
+    "observed-quiz-finished": ["To attempt this quiz you need to know the quiz password"],
+    "observed-assign-submitted": ["h3", "table.generaltable"],
+    "observed-assign-not-submitted": ["h3", "table.generaltable"],
+    "observed-course-list": ["paging-bar inside paging-control-container", "ul.pagination", "a.coursename"],
+    "observed-calendar-upcoming": ["Tuesday, 7 March, 2:30 PM"],
+}
+UNRECORDED_TEXT = {"Assignment", "Quiz", "Forum", "Page", "To attempt this quiz you need to know the quiz password"}
+
+
+def test_unrecorded_details_are_labelled_assumed():
+    by_id = {entry["id"]: entry["expected"] for entry in OBSERVED}
+    for fixture, details in UNRECORDED_DETAILS.items():
+        expected = by_id[fixture]
+        for detail in details:
+            assert any(detail in reason for reason in expected["unrecordedFields"]), (fixture, detail)
+        for check in expected["checks"]:
+            if check["basis"] != "observed":
+                continue
+            selector = check.get("selector", "")
+            assert not UNRECORDED_TEXT & set(check.get("text", []) + check.get("contains", [])), check
+            assert " h3" not in selector and "generaltable" not in selector, check
+            assert "pagination" not in selector and "coursename" not in selector, check
+            assert not re.search(r"paging-control-container.*paging-bar", selector), check
+            assert not any(re.match(r"[A-Z][a-z]+day, ", text) for text in check.get("text", [])
+                           if not text.startswith(("Opened", "Due", "Closed"))) \
+                or "rui-infobox" in selector, check
+    folder = by_id["observed-folder-empty"]
+    assert "fpFilenamePlacement" not in folder["derived"]
+    sibling = [c for c in folder["checks"] if c.get("selector") == "div.fp-filename-icon > span.fp-filename"]
+    assert sibling and sibling[0]["basis"] == "observed" and "correction" in sibling[0]["note"]
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda e: e["checks"][0].pop("basis"),
+    lambda e: e["checks"][0].update(basis="guessed"),
+    lambda e: e["checks"][0].update(basis="assumed"),
+    lambda e: e["checks"][0].update(basis="assumed", unrecorded="not listed"),
+    lambda e: e["checks"][0].update(unrecorded="markup"),
+    lambda e: e["observedFields"].pop(),
+], ids=["no-basis", "unknown-basis", "assumed-without-reason", "assumed-unlisted", "observed-with-reason",
+        "field-not-listed"])
+def test_basis_guard_rejects_unlabelled_or_unlisted_checks(mutate):
+    expected = {
+        "fields": {"name": "x"}, "observedFields": ["name"], "unrecordedFields": ["markup"],
+        "checks": [{"selector": "p", "text": ["x"], "basis": "observed"}],
+    }
+    check_basis_labels(expected)
+    mutate(expected)
+    with pytest.raises(AssertionError):
+        check_basis_labels(expected)
+
+
+def test_field_guard_ignores_values_seen_only_by_assumed_checks():
+    expected = {"fields": {"label": "Quiz"}, "observedFields": ["label"]}
+    with pytest.raises(AssertionError):
+        check_fields_observed(expected, [])
+    check_fields_observed(expected, ["Fictional Warm-up Quiz Quiz"])
 
 
 PERSONAL_PATTERNS = [

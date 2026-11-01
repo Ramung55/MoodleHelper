@@ -586,7 +586,7 @@
       "purpose": "Course card list on /my/courses.php with RaiseUI cards and paging regions.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -599,6 +599,12 @@
           "course_link": "/course/view.php?id=9001",
           "paging_region": "paging-bar"
         },
+        "observedFields": [
+          "course_id",
+          "course_name",
+          "course_link",
+          "paging_region"
+        ],
         "checks": [
           {
             "selector": "div.rui-course-card[data-region=\"course-content\"][data-course-id]",
@@ -607,7 +613,8 @@
               "9001",
               "9002",
               "9003"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.rui-course-card a[data-href*=\"/course/view.php?id=\"]",
@@ -616,7 +623,8 @@
               "/course/view.php?id=9001",
               "/course/view.php?id=9002",
               "/course/view.php?id=9003"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.rui-course-card .multiline",
@@ -624,7 +632,8 @@
               "Fictional Course Alpha",
               "Fictional Course Beta",
               "Fictional Course Gamma"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.rui-course-card .sr-only",
@@ -632,14 +641,42 @@
               "Fictional Course Alpha",
               "Fictional Course Beta",
               "Fictional Course Gamma"
-            ]
+            ],
+            "basis": "observed"
+          },
+          {
+            "selector": "[data-region=\"paging-bar\"]",
+            "attr": "data-region",
+            "values": [
+              "paging-bar"
+            ],
+            "basis": "observed"
+          },
+          {
+            "selector": "[data-region=\"paging-control-container\"]",
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "[data-region=\"paging-control-container\"] [data-region=\"paging-bar\"]",
             "attr": "data-region",
             "values": [
               "paging-bar"
-            ]
+            ],
+            "basis": "assumed",
+            "unrecorded": "paging region nesting (paging-bar inside paging-control-container assumed; #3 recorded only that both regions exist)"
+          },
+          {
+            "selector": "ul.pagination > li.page-item > a.page-link",
+            "count": 1,
+            "basis": "assumed",
+            "unrecorded": "pagination and course-link markup (nav, ul.pagination, li.page-item, a.page-link and a.coursename assumed from Moodle defaults; #3 recorded only a[href*=\"/course/view.php?id=\"])"
+          },
+          {
+            "selector": "div.rui-course-card a.coursename",
+            "count": 3,
+            "basis": "assumed",
+            "unrecorded": "pagination and course-link markup (nav, ul.pagination, li.page-item, a.page-link and a.coursename assumed from Moodle defaults; #3 recorded only a[href*=\"/course/view.php?id=\"])"
           }
         ],
         "derived": {
@@ -650,7 +687,9 @@
         "redactedFields": [],
         "unrecordedFields": [
           "grouping dropdown markup",
-          "course image and summary markup"
+          "course image and summary markup",
+          "paging region nesting (paging-bar inside paging-control-container assumed; #3 recorded only that both regions exist)",
+          "pagination and course-link markup (nav, ul.pagination, li.page-item, a.page-link and a.coursename assumed from Moodle defaults; #3 recorded only a[href*=\"/course/view.php?id=\"])"
         ],
         "schemaGapOwners": []
       }
@@ -664,7 +703,7 @@
       "purpose": "core_course_get_enrolled_courses_by_timeline_classification response for inprogress, including the nextoffset quirk.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -681,50 +720,70 @@
           "viewurl": "https://moodle.example.invalid/course/view.php?id=9001",
           "nextoffset": 3
         },
+        "observedFields": [
+          "course_id",
+          "fullname",
+          "shortname",
+          "coursecategory",
+          "viewurl",
+          "nextoffset"
+        ],
         "checks": [
           {
             "path": "0/error",
-            "equals": false
+            "equals": false,
+            "basis": "assumed",
+            "unrecorded": "AJAX envelope (standard Moodle [{error, data}] assumed)"
           },
           {
             "path": "0/data/courses",
-            "length": 3
+            "length": 3,
+            "basis": "observed"
           },
           {
             "path": "0/data/nextoffset",
-            "equals": 3
+            "equals": 3,
+            "basis": "observed"
           },
           {
             "path": "0/data/courses/0/id",
-            "equals": 9001
+            "equals": 9001,
+            "basis": "observed"
           },
           {
             "path": "0/data/courses/0/fullname",
-            "equals": "Fictional Course Alpha"
+            "equals": "Fictional Course Alpha",
+            "basis": "observed"
           },
           {
             "path": "0/data/courses/0/shortname",
-            "equals": "DEMO101-1-redacted-2028-1"
+            "equals": "DEMO101-1-redacted-2028-1",
+            "basis": "observed"
           },
           {
             "path": "0/data/courses/0/idnumber",
-            "equals": ""
+            "equals": "",
+            "basis": "observed"
           },
           {
             "path": "0/data/courses/0/coursecategory",
-            "equals": "Fictional Term 2028 (2027-2028)"
+            "equals": "Fictional Term 2028 (2027-2028)",
+            "basis": "observed"
           },
           {
             "path": "0/data/courses/0/viewurl",
-            "equals": "https://moodle.example.invalid/course/view.php?id=9001"
+            "equals": "https://moodle.example.invalid/course/view.php?id=9001",
+            "basis": "observed"
           },
           {
             "path": "0/data/courses/0/startdate",
-            "equals": 1831489200
+            "equals": 1831489200,
+            "basis": "observed"
           },
           {
             "path": "0/data/courses/0/enddate",
-            "equals": 1843326000
+            "equals": 1843326000,
+            "basis": "observed"
           }
         ],
         "derived": {
@@ -762,7 +821,7 @@
       "purpose": "Empty past/future grouping response; the populated past/future shape stays UNVERIFIED.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -770,18 +829,24 @@
       ],
       "expected": {
         "fields": {},
+        "observedFields": [],
         "checks": [
           {
             "path": "0/error",
-            "equals": false
+            "equals": false,
+            "basis": "assumed",
+            "unrecorded": "AJAX envelope (standard Moodle [{error, data}] assumed)"
           },
           {
             "path": "0/data/courses",
-            "length": 0
+            "length": 0,
+            "basis": "observed"
           },
           {
             "path": "0/data/nextoffset",
-            "absent": true
+            "absent": true,
+            "basis": "assumed",
+            "unrecorded": "nextoffset (value for an empty grouping was not recorded, so it is omitted)"
           }
         ],
         "derived": {
@@ -797,7 +862,8 @@
         "redactedFields": [],
         "unrecordedFields": [
           "nextoffset (value for an empty grouping was not recorded, so it is omitted)",
-          "request limit (24 is invented)"
+          "request limit (24 is invented)",
+          "AJAX envelope (standard Moodle [{error, data}] assumed)"
         ],
         "schemaGapOwners": []
       }
@@ -811,7 +877,7 @@
       "purpose": "format-topics course page with assign, quiz, resource (PDF/PPTX), url, page and forum cards and activity dates.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -827,10 +893,19 @@
           "section_id": "70002",
           "due_text": "Due: Tuesday, 7 March 2028, 2:30 PM"
         },
+        "observedFields": [
+          "cmid",
+          "activity_name",
+          "type_label",
+          "file_badge",
+          "section_id",
+          "due_text"
+        ],
         "checks": [
           {
             "selector": "body.format-topics",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "li.section",
@@ -838,7 +913,8 @@
             "values": [
               "70001",
               "70002"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "li.activity",
@@ -852,31 +928,38 @@
               "module-990105",
               "module-990106",
               "module-990107"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "li.activity.modtype_assign",
-            "count": 2
+            "count": 2,
+            "basis": "observed"
           },
           {
             "selector": "li.activity.modtype_quiz",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "li.activity.modtype_resource",
-            "count": 2
+            "count": 2,
+            "basis": "observed"
           },
           {
             "selector": "li.activity.modtype_url",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "li.activity.modtype_page",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "li.activity.modtype_forum",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "li.activity a[data-href*=\"/mod/\"]",
@@ -890,7 +973,38 @@
               "/mod/resource/view.php?id=990105",
               "/mod/url/view.php?id=990106",
               "/mod/page/view.php?id=990107"
-            ]
+            ],
+            "basis": "observed"
+          },
+          {
+            "selector": "li.activity.modtype_resource .instancename",
+            "text": [
+              "Fictional Reading Pack File",
+              "Fictional Lecture Slides File"
+            ],
+            "basis": "observed"
+          },
+          {
+            "selector": "li.activity.modtype_resource .instancename .accesshide",
+            "text": [
+              "File",
+              "File"
+            ],
+            "basis": "observed"
+          },
+          {
+            "selector": "li.activity.modtype_url .instancename",
+            "text": [
+              "Fictional Reference Link URL"
+            ],
+            "basis": "observed"
+          },
+          {
+            "selector": "li.activity.modtype_url .instancename .accesshide",
+            "text": [
+              "URL"
+            ],
+            "basis": "observed"
           },
           {
             "selector": "li.activity .instancename",
@@ -903,7 +1017,9 @@
               "Fictional Lecture Slides File",
               "Fictional Reference Link URL",
               "Fictional Course Notes Page"
-            ]
+            ],
+            "basis": "assumed",
+            "unrecorded": "accesshide type labels for assign, quiz, forum and page (\"Assignment\", \"Quiz\", \"Forum\", \"Page\" assumed from Moodle defaults; #3 recorded only \"File\", \"URL\" and \"Folder\")"
           },
           {
             "selector": "li.activity .instancename .accesshide",
@@ -916,14 +1032,17 @@
               "File",
               "URL",
               "Page"
-            ]
+            ],
+            "basis": "assumed",
+            "unrecorded": "accesshide type labels for assign, quiz, forum and page (\"Assignment\", \"Quiz\", \"Forum\", \"Page\" assumed from Moodle defaults; #3 recorded only \"File\", \"URL\" and \"Folder\")"
           },
           {
             "selector": "li.activity.modtype_resource .activitybadge",
             "text": [
               "PDF",
               "PPTX"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "li.modtype_assign [data-region=\"activity-dates\"] > div",
@@ -932,18 +1051,21 @@
               "Due: Wednesday, 8 March 2028, 11:59 PM",
               "Opened: Wednesday, 1 March 2028, 9:00 AM",
               "Due: Tuesday, 7 March 2028, 2:30 PM"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "li.modtype_quiz [data-region=\"activity-dates\"] > div",
             "text": [
               "Opened: Thursday, 2 March 2028, 9:00 AM",
               "Closed: Saturday, 4 March 2028, 9:00 AM"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": ".availabilityinfo",
-            "count": 0
+            "count": 0,
+            "basis": "observed"
           }
         ],
         "derived": {
@@ -963,7 +1085,8 @@
         "unrecordedFields": [
           "section names",
           "resource icon path (/theme/image.php/alpha/core/<rev>/f/pdf omitted: img has no src)",
-          "url and page targets"
+          "url and page targets",
+          "accesshide type labels for assign, quiz, forum and page (\"Assignment\", \"Quiz\", \"Forum\", \"Page\" assumed from Moodle defaults; #3 recorded only \"File\", \"URL\" and \"Folder\")"
         ],
         "schemaGapOwners": []
       }
@@ -977,7 +1100,7 @@
       "purpose": "Assignment submitted for grading, not graded, submitted early.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -992,26 +1115,37 @@
           "due_text": "Due: Wednesday, 8 March 2028, 11:59 PM",
           "early_text": "Assignment was submitted 5 days 13 hours early"
         },
+        "observedFields": [
+          "body_class",
+          "submission_status_text",
+          "grading_status_text",
+          "due_text",
+          "early_text"
+        ],
         "checks": [
           {
             "selector": "body#page-mod-assign-view",
             "attr": "class",
             "values": [
               "lang-en cmid-990101 course-9001"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "[data-region=\"activity-dates\"] > div",
             "text": [
               "Opened: Wednesday, 1 March 2028, 12:00 AM",
               "Due: Wednesday, 8 March 2028, 11:59 PM"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": ".submissionstatustable h3",
             "text": [
               "Submission status"
-            ]
+            ],
+            "basis": "assumed",
+            "unrecorded": "submission status table heading and wrapper (h3 \"Submission status\" and div.submissionstatustable > table.generaltable assumed; #3 recorded only the th -> td rows)"
           },
           {
             "selector": ".submissionstatustable th",
@@ -1022,25 +1156,29 @@
               "Last modified",
               "File submissions",
               "Submission comments"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": ".submissionstatustable td.submissionstatussubmitted",
             "text": [
               "Submitted for grading"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": ".submissionstatustable td.submissionnotgraded",
             "text": [
               "Not graded"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": ".submissionstatustable td.earlysubmission",
             "text": [
               "Assignment was submitted 5 days 13 hours early"
-            ]
+            ],
+            "basis": "observed"
           }
         ],
         "derived": {
@@ -1057,7 +1195,9 @@
         "redactedFields": [
           "file submissions (student file names)"
         ],
-        "unrecordedFields": [],
+        "unrecordedFields": [
+          "submission status table heading and wrapper (h3 \"Submission status\" and div.submissionstatustable > table.generaltable assumed; #3 recorded only the th -> td rows)"
+        ],
         "schemaGapOwners": []
       }
     },
@@ -1070,7 +1210,7 @@
       "purpose": "Assignment with no submission; status row has no status class and time remaining.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -1084,20 +1224,36 @@
           "time_remaining_text": "1 day 17 hours remaining",
           "due_text": "Due: Tuesday, 7 March 2028, 2:30 PM"
         },
+        "observedFields": [
+          "body_class",
+          "submission_status_text",
+          "time_remaining_text",
+          "due_text"
+        ],
         "checks": [
           {
             "selector": "body#page-mod-assign-view",
             "attr": "class",
             "values": [
               "lang-en cmid-990102 course-9001"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "[data-region=\"activity-dates\"] > div",
             "text": [
               "Opened: Wednesday, 1 March 2028, 9:00 AM",
               "Due: Tuesday, 7 March 2028, 2:30 PM"
-            ]
+            ],
+            "basis": "observed"
+          },
+          {
+            "selector": ".submissionstatustable td",
+            "contains": [
+              "No submissions have been made yet",
+              "1 day 17 hours remaining"
+            ],
+            "basis": "observed"
           },
           {
             "selector": ".submissionstatustable td",
@@ -1106,17 +1262,21 @@
               "1 day 17 hours remaining",
               "-",
               "Comments (0)"
-            ]
+            ],
+            "basis": "assumed",
+            "unrecorded": "Last modified and Submission comments cell text (\"-\" and \"Comments (0)\" assumed; #3 recorded only the row names)"
           },
           {
             "selector": ".submissionstatustable td[class*=\"submissionstatus\"]",
-            "count": 0
+            "count": 0,
+            "basis": "observed"
           },
           {
             "selector": ".submissionstatustable td.timeremaining",
             "text": [
               "1 day 17 hours remaining"
-            ]
+            ],
+            "basis": "observed"
           }
         ],
         "derived": {
@@ -1131,7 +1291,10 @@
           "grade"
         ],
         "redactedFields": [],
-        "unrecordedFields": [],
+        "unrecordedFields": [
+          "submission status table heading and wrapper (h3 \"Submission status\" and div.submissionstatustable > table.generaltable assumed; #3 recorded only the th -> td rows)",
+          "Last modified and Submission comments cell text (\"-\" and \"Comments (0)\" assumed; #3 recorded only the row names)"
+        ],
         "schemaGapOwners": []
       }
     },
@@ -1144,7 +1307,7 @@
       "purpose": "Finished quiz with RaiseUI rui-attempts-list in place of table.quizattemptsummary.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -1160,17 +1323,36 @@
           "attempts_exhausted_text": "No more attempts are allowed",
           "close_text": "Closed: Saturday, 4 March 2028, 9:00 AM"
         },
+        "observedFields": [
+          "attempts_allowed_text",
+          "time_limit_text",
+          "attempt_title",
+          "attempt_status",
+          "attempts_exhausted_text",
+          "close_text"
+        ],
         "checks": [
           {
             "selector": "body#page-mod-quiz-view",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "[data-region=\"activity-dates\"] > div",
             "text": [
               "Opened: Thursday, 2 March 2028, 9:00 AM",
               "Closed: Saturday, 4 March 2028, 9:00 AM"
-            ]
+            ],
+            "basis": "observed"
+          },
+          {
+            "selector": ".quizinfo p",
+            "count": 3,
+            "contains": [
+              "Attempts allowed: 1",
+              "Time limit: 10 mins"
+            ],
+            "basis": "observed"
           },
           {
             "selector": ".quizinfo p",
@@ -1178,17 +1360,21 @@
               "Attempts allowed: 1",
               "Time limit: 10 mins",
               "To attempt this quiz you need to know the quiz password"
-            ]
+            ],
+            "basis": "assumed",
+            "unrecorded": "quiz password notice wording (\"To attempt this quiz you need to know the quiz password\" assumed; #3 recorded only that a password notice exists)"
           },
           {
             "selector": "table.quizattemptsummary",
-            "count": 0
+            "count": 0,
+            "basis": "observed"
           },
           {
             "selector": "div.rui-attempts-list h4.card-title",
             "text": [
               "Attempt 1"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.rui-attempts-list .rui-infobox h5.rui-infobox-title",
@@ -1199,7 +1385,8 @@
               "Duration",
               "Marks",
               "Grade"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.rui-attempts-list .rui-infobox .rui-infobox-content--small",
@@ -1210,13 +1397,15 @@
               "8 mins",
               "[not retained]",
               "[not retained]"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": ".box.quizattempt",
             "text": [
               "No more attempts are allowed"
-            ]
+            ],
+            "basis": "observed"
           }
         ],
         "derived": {
@@ -1232,7 +1421,9 @@
           "grade",
           "final grade"
         ],
-        "unrecordedFields": [],
+        "unrecordedFields": [
+          "quiz password notice wording (\"To attempt this quiz you need to know the quiz password\" assumed; #3 recorded only that a password notice exists)"
+        ],
         "schemaGapOwners": [
           "14"
         ]
@@ -1247,7 +1438,7 @@
       "purpose": "Upcoming view with two assignment due events and their data-event-* attributes.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -1263,10 +1454,20 @@
           "day_link": "/calendar/view.php?view=day&time=1836034200",
           "action_link": "/mod/assign/view.php?id=990102&action=editsubmission"
         },
+        "observedFields": [
+          "event_id",
+          "course_id",
+          "component",
+          "eventtype",
+          "title_attr",
+          "day_link",
+          "action_link"
+        ],
         "checks": [
           {
             "selector": "div.calendar-event-box[data-type=\"event\"]",
-            "count": 2
+            "count": 2,
+            "basis": "observed"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1274,7 +1475,8 @@
             "values": [
               "880001",
               "880002"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1282,7 +1484,8 @@
             "values": [
               "9001",
               "9002"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1290,7 +1493,8 @@
             "values": [
               "mod_assign",
               "mod_assign"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1298,7 +1502,8 @@
             "values": [
               "due",
               "due"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.calendar-event-box",
@@ -1306,7 +1511,8 @@
             "values": [
               "Fictional Lab Report is due",
               "Fictional Problem Set is due"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.calendar-event-box a[data-href^=\"/calendar/view.php?view=day\"]",
@@ -1314,7 +1520,8 @@
             "values": [
               "/calendar/view.php?view=day&time=1836034200",
               "/calendar/view.php?view=day&time=1836639000"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.calendar-event-box a[data-href*=\"action=editsubmission\"]",
@@ -1322,14 +1529,16 @@
             "values": [
               "/mod/assign/view.php?id=990102&action=editsubmission",
               "/mod/assign/view.php?id=990201&action=editsubmission"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.calendar-event-box a[data-href*=\"action=editsubmission\"]",
             "text": [
               "Add submission",
               "Add submission"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div.calendar-event-box > div",
@@ -1338,7 +1547,9 @@
               "Add submission",
               "Tuesday, 14 March, 2:30 PM",
               "Add submission"
-            ]
+            ],
+            "basis": "assumed",
+            "unrecorded": "calendar event date text format (\"Tuesday, 7 March, 2:30 PM\" and its div wrapper assumed; #3 recorded only the displayed time, e.g. 2:30 PM)"
           }
         ],
         "derived": {
@@ -1363,7 +1574,9 @@
         },
         "absentFields": [],
         "redactedFields": [],
-        "unrecordedFields": [],
+        "unrecordedFields": [
+          "calendar event date text format (\"Tuesday, 7 March, 2:30 PM\" and its div wrapper assumed; #3 recorded only the displayed time, e.g. 2:30 PM)"
+        ],
         "schemaGapOwners": []
       }
     },
@@ -1376,7 +1589,7 @@
       "purpose": "Not-enrolled, guest-viewable course page (HTTP 200) with a separate-page folder card.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -1389,36 +1602,46 @@
           "type_label": "Folder",
           "folder_name": "Fictional Shared Folder"
         },
+        "observedFields": [
+          "folder_cmid",
+          "type_label",
+          "folder_name"
+        ],
         "checks": [
           {
             "selector": "li.activity.modtype_folder.folder",
             "attr": "id",
             "values": [
               "module-991001"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "li.modtype_folder .instancename",
             "text": [
               "Fictional Shared Folder Folder"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "li.modtype_folder .instancename .accesshide",
             "text": [
               "Folder"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "li.modtype_folder a[data-href*=\"/mod/folder/view.php?id=\"]",
             "attr": "data-href",
             "values": [
               "/mod/folder/view.php?id=991001"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": ".foldertree",
-            "count": 0
+            "count": 0,
+            "basis": "observed"
           }
         ],
         "derived": {
@@ -1441,7 +1664,7 @@
       "purpose": "Empty folder page: foldertree/filemanager markup with only the root folder node.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -1452,46 +1675,63 @@
           "folder_name": "Fictional Shared Folder",
           "tree_id": "folder_tree0"
         },
+        "observedFields": [
+          "folder_name",
+          "tree_id"
+        ],
         "checks": [
           {
             "selector": "body#page-mod-folder-view",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "div.box.generalbox.foldertree > div.filemanager",
             "attr": "id",
             "values": [
               "folder_tree0"
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "selector": "div#folder_tree0.filemanager > ul > li",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "div.filemanager > ul > li > div.fp-filename-icon > span.fp-icon > img.icon",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "div.fp-filename-icon > span.fp-filename",
             "text": [
               "Fictional Shared Folder"
-            ]
+            ],
+            "basis": "observed",
+            "note": "Observed: span.fp-filename is a sibling of span.fp-icon, both children of div.fp-filename-icon, per the orchestrator's 2026-11-01 correction to the #3 notes (folder tree nesting). The one-line chain 'span.fp-icon > img.icon + span.fp-filename' in #3 was a transcription error."
+          },
+          {
+            "selector": "span.fp-icon span.fp-filename",
+            "count": 0,
+            "basis": "observed",
+            "note": "Observed: span.fp-filename is a sibling of span.fp-icon, both children of div.fp-filename-icon, per the orchestrator's 2026-11-01 correction to the #3 notes (folder tree nesting). The one-line chain 'span.fp-icon > img.icon + span.fp-filename' in #3 was a transcription error."
           },
           {
             "selector": "div.filemanager ul ul",
-            "count": 0
+            "count": 0,
+            "basis": "observed"
           },
           {
             "selector": "[data-href*=\"pluginfile.php\"]",
-            "count": 0
+            "count": 0,
+            "basis": "observed"
           }
         ],
         "derived": {
           "childFiles": 0,
           "nestedFolders": 0,
-          "rootNodeIsFolder": true,
-          "fpFilenamePlacement": "span.fp-filename follows span.fp-icon inside div.fp-filename-icon"
+          "rootNodeIsFolder": true
         },
         "absentFields": [
           "child_files",
@@ -1516,7 +1756,7 @@
       "purpose": "HTTP 404 error page for non-existent course and module ids.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -1526,16 +1766,21 @@
         "fields": {
           "message": "Can't find data record in database"
         },
+        "observedFields": [
+          "message"
+        ],
         "checks": [
           {
             "selector": "body#page-site-index",
-            "count": 1
+            "count": 1,
+            "basis": "observed"
           },
           {
             "selector": "body#page-site-index p",
             "text": [
               "Can't find data record in database."
-            ]
+            ],
+            "basis": "observed"
           }
         ],
         "derived": {
@@ -1563,7 +1808,7 @@
       "purpose": "Unauthenticated course page request ends on /login/index.php with HTTP 200.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -1575,22 +1820,32 @@
           "final_path": "/login/index.php",
           "status": 200
         },
+        "observedFields": [
+          "request_path",
+          "final_path",
+          "status"
+        ],
         "checks": [
           {
             "path": "request/path",
-            "equals": "/course/view.php?id=9001"
+            "equals": "/course/view.php?id=9001",
+            "basis": "observed"
           },
           {
             "path": "response/status",
-            "equals": 200
+            "equals": 200,
+            "basis": "observed"
           },
           {
             "path": "response/finalPath",
-            "equals": "/login/index.php"
+            "equals": "/login/index.php",
+            "basis": "observed"
           },
           {
             "path": "response/contentType",
-            "equals": null
+            "equals": null,
+            "basis": "assumed",
+            "unrecorded": "contentType (not recorded for this request in #3, so null)"
           }
         ],
         "derived": {
@@ -1615,7 +1870,7 @@
       "purpose": "Unauthenticated resource/pluginfile download ends on /login/index.php, HTTP 200, text/html.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -1628,26 +1883,37 @@
           "status": 200,
           "content_type": "text/html"
         },
+        "observedFields": [
+          "request_path",
+          "final_path",
+          "status",
+          "content_type"
+        ],
         "checks": [
           {
             "path": "request/path",
-            "equals": "/mod/resource/view.php?id=990104"
+            "equals": "/mod/resource/view.php?id=990104",
+            "basis": "observed"
           },
           {
             "path": "request/authenticatedTarget",
-            "equals": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf"
+            "equals": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf",
+            "basis": "observed"
           },
           {
             "path": "response/status",
-            "equals": 200
+            "equals": 200,
+            "basis": "observed"
           },
           {
             "path": "response/finalPath",
-            "equals": "/login/index.php"
+            "equals": "/login/index.php",
+            "basis": "observed"
           },
           {
             "path": "response/contentType",
-            "equals": "text/html"
+            "equals": "text/html",
+            "basis": "observed"
           }
         ],
         "derived": {
@@ -1672,7 +1938,7 @@
       "purpose": "Authenticated mod/resource request redirects to pluginfile.php serving an inline PDF.",
       "synthetic": false,
       "sourceKind": "observed-structure",
-      "provenance": "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, label wording); all content, ids and dates invented. Not a capture.",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
       "inspectionDate": "2026-11-01",
       "theme": "alpha",
       "edgeCases": [
@@ -1685,29 +1951,40 @@
           "content_type": "application/pdf",
           "content_disposition": "inline"
         },
+        "observedFields": [
+          "request_path",
+          "location_path",
+          "content_type",
+          "content_disposition"
+        ],
         "checks": [
           {
             "path": "request/path",
-            "equals": "/mod/resource/view.php?id=990104"
+            "equals": "/mod/resource/view.php?id=990104",
+            "basis": "observed"
           },
           {
             "path": "redirect/statusOneOf",
             "equals": [
               303,
               302
-            ]
+            ],
+            "basis": "observed"
           },
           {
             "path": "redirect/locationPath",
-            "equals": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf"
+            "equals": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf",
+            "basis": "observed"
           },
           {
             "path": "final/contentType",
-            "equals": "application/pdf"
+            "equals": "application/pdf",
+            "basis": "observed"
           },
           {
             "path": "final/contentDisposition",
-            "equals": "inline"
+            "equals": "inline",
+            "basis": "observed"
           }
         ],
         "derived": {
