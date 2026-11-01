@@ -98,7 +98,7 @@ it("rejects overlapping/reversed/outside draft ranges without writes and retains
   mount(); await screen.findByLabelText("Override 1 start");
   const previous = structuredClone(saved.settings.teachingCalendar);
   for (const [start, end] of [["2027-01-17", "2027-01-20"], ["2027-01-16", "2027-01-11"], ["2027-01-11", "2027-03-01"]]) {
-    edit("Override 1 start", start); edit("Override 1 end", end);
+    edit("Override 1 start", start!); edit("Override 1 end", end!);
     fireEvent.click(screen.getByText("Save teaching calendar"));
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(state.adapter.updateSettings).not.toHaveBeenCalled(); expect(saved.settings.teachingCalendar).toEqual(previous);

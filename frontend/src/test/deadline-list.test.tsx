@@ -45,7 +45,7 @@ describe("safe source links (#35)", () => {
   it("renders unsafe primary and history links as unavailable without echoing them", () => {
     const { snap } = setup((s) => {
       const a = s.assessments.find((x) => !x.personal)!;
-      a.sources = [{ ...a.sources[0], url: "https://moodle.sdu.edu.kz/mod/assign/view.php?id=9&token=SECRET1" }];
+      a.sources = [{ ...a.sources[0]!, url: "https://moodle.sdu.edu.kz/mod/assign/view.php?id=9&token=SECRET1" }];
       s.changes.push({ id: "ch", assessmentId: a.id, from: { kind: "week", week: 1 }, to: { kind: "week", week: 2 }, detectedAt: "2026-09-02T00:00:00Z", sourceUrl: "javascript:SECRET2" });
     });
     const a = snap.assessments.find((x) => !x.personal)!;
@@ -56,7 +56,7 @@ describe("safe source links (#35)", () => {
   });
 
   it("keeps safe links clickable with noopener/noreferrer", () => {
-    const { snap } = setup((s) => { const a = s.assessments.find((x) => !x.personal)!; a.sources = [{ ...a.sources[0], url: "https://moodle.sdu.edu.kz/mod/assign/view.php?id=9" }]; });
+    const { snap } = setup((s) => { const a = s.assessments.find((x) => !x.personal)!; a.sources = [{ ...a.sources[0]!, url: "https://moodle.sdu.edu.kz/mod/assign/view.php?id=9" }]; });
     render(<AssessmentSheet id={snap.assessments.find((x) => !x.personal)!.id} onClose={vi.fn()} />);
     const link = screen.getByRole("link", { name: "Open source in Moodle" });
     expect(link).toHaveAttribute("rel", "noreferrer noopener");

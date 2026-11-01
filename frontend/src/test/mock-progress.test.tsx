@@ -4,7 +4,7 @@ import { buildDemoSnapshot } from '@/services/fixtures';
 import { MockProgress } from '@/components/mh/MockProgress';
 import { installPopup } from '../../../extension/src/popup';
 import { createMockProgress, type ProgressState } from '../../../shared/src/mock-progress';
-import { fullSyncFreshness } from '../../../shared/src/full-sync';
+import { fullSyncFreshness, type FullSyncAttestation } from '../../../shared/src/full-sync';
 import { Overview } from '@/routes/index';
 
 const mock = vi.hoisted(()=>({ current:vi.fn(), start:vi.fn(), cancel:vi.fn(), connect:vi.fn(), useApp:vi.fn() }));
@@ -30,7 +30,7 @@ it('validates example attestations strictly and scopes exact selected IDs',()=>{
     [['a','b'],{...good,courseIds:['a',' ']}], [['a','b'],{...good,completedAt:'2024-02-30T12:00:00Z'}],
     [['a','b'],{...good,completedAt:'2024-01-01T12:00:00'}], [['a','b'],{...good,completedAt:'2024-01-01T12:00:00+25:00'}],
     [['a','b'],{...good,completedAt:'2024-01-01T12:00:00-00:00'}],
-  ] as const) expect(fullSyncFreshness([...selection],evidence)).toBe('No successful full sync yet.');
+  ] satisfies [string[],FullSyncAttestation][]) expect(fullSyncFreshness([...selection],evidence)).toBe('No successful full sync yet.');
   expect(fullSyncFreshness(['a'])).toBe('No successful full sync yet.');
 });
 

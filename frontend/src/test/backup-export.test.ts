@@ -30,7 +30,7 @@ describe("backup export (#45)", () => {
     const snap = demo();
     const p = buildBackup(snap, ID);
     const before = p.json;
-    snap.courses.push({ ...snap.courses[0], id: "late" });
+    snap.courses.push({ ...snap.courses[0]!, id: "late" });
     expect(p.json).toBe(before);
     expect(p.backup.data.courses.some((c) => c.id === "late")).toBe(false);
   });
@@ -57,7 +57,7 @@ describe("backup export (#45)", () => {
     const signed = "https://bucket.s3.amazonaws.com/f.pdf?X-Amz-Signature=SECRETSIG123&X-Amz-Credential=c";
     const snap = demo();
     snap.materials[0] = { ...snap.materials[0], url: signed } as typeof snap.materials[0];
-    snap.courses[0] = { ...snap.courses[0], name: "Notes sk-ant-abcdefghijklmnopqrstuv" };
+    snap.courses[0] = { ...snap.courses[0]!, name: "Notes sk-ant-abcdefghijklmnopqrstuv" };
     let err: unknown;
     try { buildBackup(snap, ID); } catch (e) { err = e; }
     expect(err).toBeInstanceOf(BackupSanitizeError);

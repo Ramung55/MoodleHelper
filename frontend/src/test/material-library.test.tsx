@@ -22,7 +22,7 @@ function obs(p: Partial<RawMaterialObservation> & { cm: string }): RawMaterialOb
     title: { kind: "unknown" }, section: { kind: "unknown" }, fileType: { kind: "unknown" }, mimeType: { kind: "unknown" }, references: [], ...rest,
   };
 }
-const known = (value: string) => ({ kind: "known" as const, value });
+const known = <V extends string>(value: V) => ({ kind: "known" as const, value });
 function rec(id: string, ...observations: RawMaterialObservation[]): NormalizedMaterialRecord {
   return RecordSchema.parse({ id, courseId: "c-csc", kind: "material", firstObservedAt: T, lastObservedAt: T, observations });
 }
