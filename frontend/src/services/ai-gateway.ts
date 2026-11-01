@@ -71,10 +71,10 @@ export async function requestAiExtract(baseUrl: string, input: AiExtractRequestV
   if (body.excerpts.some(e => new TextEncoder().encode(e.text).length > AI_MAX_EXCERPT_BYTES)) throw new Error("An excerpt exceeds 2000 bytes. Select a shorter passage.");
   const encoded = JSON.stringify(body);
   if (new TextEncoder().encode(encoded).length > AI_MAX_BODY_BYTES) throw new Error("The AI request exceeds the 16 KiB limit. Select fewer excerpts.");
-  const context = await fetcher(`${base}/api/bridge-context`, { credentials: "omit", cache: "no-store", signal });
+  const context = await fetcher(`${base}/api/bridge-context`, { credentials: "omit", cache: "no-store", ...(signal ? { signal } : {}) });
   if (!context.ok) throw new Error("Could not verify the local process. Reconnect before sending.");
   const binding = z.object({ version: z.literal("1"), binding: z.string().min(1) }).strict().parse(await context.json());
-  const response = await fetcher(`${base}/api/ai/extract`, { method: "POST", credentials: "omit", cache: "no-store", signal,
+  const response = await fetcher(`${base}/api/ai/extract`, { method: "POST", credentials: "omit", cache: "no-store", ...(signal ? { signal } : {}),
     headers: { Accept: "application/json", "Content-Type": "application/json", "X-Moodle-Helper-Bridge-Binding": binding.binding }, body: encoded });
   const result: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {

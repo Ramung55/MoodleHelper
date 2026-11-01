@@ -130,11 +130,11 @@ export class HttpAdapter implements MoodleHelperAdapter {
     const body = LocalSyllabusInput.parse(input), base = this.baseUrl.replace(/\/$/, "");
     const encoded = JSON.stringify(body);
     if (new TextEncoder().encode(encoded).length > 1024 * 1024) throw new Error("Local routing metadata exceeds the 1 MiB request limit. Route fewer proposals.");
-    const context = await this.fetcher(`${base}/api/bridge-context`, { credentials: "omit", cache: "no-store", signal });
+    const context = await this.fetcher(`${base}/api/bridge-context`, { credentials: "omit", cache: "no-store", ...(signal ? { signal } : {}) });
     if (!context.ok) throw new Error("Could not verify the local process. Reconnect before routing.");
     const binding = z.object({ version: z.literal("1"), binding: z.string().min(1) }).strict().parse(await context.json());
     signal?.throwIfAborted();
-    const response = await this.fetcher(`${base}/api/local-syllabus/route`, { method: "POST", credentials: "omit", cache: "no-store", signal, headers: { Accept: "application/json", "Content-Type": "application/json", "X-Moodle-Helper-Bridge-Binding": binding.binding, ...this.epochHeader() }, body: encoded });
+    const response = await this.fetcher(`${base}/api/local-syllabus/route`, { method: "POST", credentials: "omit", cache: "no-store", ...(signal ? { signal } : {}), headers: { Accept: "application/json", "Content-Type": "application/json", "X-Moodle-Helper-Bridge-Binding": binding.binding, ...this.epochHeader() }, body: encoded });
     const result: unknown = await response.json();
     if (!response.ok) throw new Error(z.object({ message: z.string() }).safeParse(result).data?.message ?? "Local routing failed. Retry the same stored proposal to reconcile its outcome.");
     return LocalSyllabusResult.parse(result);
