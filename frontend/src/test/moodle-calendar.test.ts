@@ -53,14 +53,14 @@ describe("calendar raw facts and independent selection (AC1)", () => {
   });
   it("preserves date-only without fabricated time or absent optional link", () => {
     const r = collect(page(event({ dates: date("date", "2026-10-25", "") })));
-    expect(r.observations[0].date?.value).toEqual({ kind: "date", date: "2026-10-25" });
+    expect(r.observations[0]!.date?.value).toEqual({ kind: "date", date: "2026-10-25" });
     expect(r.observations[0]).not.toHaveProperty("start");
     expect(r.observations[0]).not.toHaveProperty("activity");
   });
   it("preserves independent date-only interval ends without exclusive-midnight conversion", () => {
     const c = collect(
       page(event({ dates: date("start", "2026-10-25", "") + date("end", "2026-10-26", "") })),
-    ).observations[0];
+    ).observations[0]!;
     expect(c.start?.value).toEqual({ kind: "date", date: "2026-10-25" });
     expect(c.end?.value).toEqual({ kind: "date", date: "2026-10-26" });
   });
@@ -69,7 +69,7 @@ describe("calendar raw facts and independent selection (AC1)", () => {
       'href="/calendar/view.php?event=501"',
       `href="${origin}:443/calendar/view.php?event=501"`,
     );
-    expect(collect('<base href="https://evil.invalid">' + html).observations[0].sourceUrl).toBe(
+    expect(collect('<base href="https://evil.invalid">' + html).observations[0]!.sourceUrl).toBe(
       `${origin}/calendar/view.php?event=501`,
     );
   });
@@ -86,7 +86,7 @@ describe("fixed exclusions and review association (AC2/3)", () => {
   });
   it("uses source selection without title guessing", () => {
     const r = collect(page(event({ course: "999", title: "101 selected course" })));
-    expect(r.exclusions[0].reason).toBe("unselected_course");
+    expect(r.exclusions[0]!.reason).toBe("unselected_course");
     expect(r.observations).toHaveLength(0);
   });
   it.each([undefined, "opaque-course-id", "0", "01", "+1", 1, null])(
@@ -95,7 +95,7 @@ describe("fixed exclusions and review association (AC2/3)", () => {
       const r = collectMoodleCalendar([input()], [id] as string[], observed);
       expect(r.error).toBe("invalid_batch_arguments");
       expect(r.observations).toEqual([]);
-      expect(r.pages[0].access.status).toBe("accessible");
+      expect(r.pages[0]!.access.status).toBe("accessible");
     },
   );
   it("empty selection never automatically chooses observed course", () => {
@@ -103,9 +103,9 @@ describe("fixed exclusions and review association (AC2/3)", () => {
   });
   it("missing course retains facts in review without assigning sole selected course", () => {
     const r = collect(page(event({ course: null })));
-    expect(r.review[0].reasons).toEqual(["missing_course"]);
-    expect(r.review[0].candidate).not.toHaveProperty("sourceCourseId");
-    expect(r.review[0].candidate.start?.value.kind).toBe("exact");
+    expect(r.review[0]!.reasons).toEqual(["missing_course"]);
+    expect(r.review[0]!.candidate).not.toHaveProperty("sourceCourseId");
+    expect(r.review[0]!.candidate.start?.value.kind).toBe("exact");
     expect(r.coverage).toBe("partial");
   });
   it.each([
@@ -113,12 +113,12 @@ describe("fixed exclusions and review association (AC2/3)", () => {
     ['<a data-role="course-link" href="/course/view.php?id=101">Course</a>', ""],
   ])("reviews unreliable association", (from, to) => {
     const r = collect(page(event()).replace(from, to));
-    expect(r.review[0].reasons).toContain("unreliable_course");
-    expect(r.review[0].candidate).not.toHaveProperty("sourceCourseId");
+    expect(r.review[0]!.reasons).toContain("unreliable_course");
+    expect(r.review[0]!.candidate).not.toHaveProperty("sourceCourseId");
   });
   it("unknown kind is explicit review regardless of title", () => {
     const r = collect(page(event({ kind: "exam" })));
-    expect(r.review[0].reasons).toContain("unknown_kind");
+    expect(r.review[0]!.reasons).toContain("unknown_kind");
     expect(r.observations).toEqual([]);
   });
   it("unknown date retains evidence while missing date is separate", () => {
@@ -130,7 +130,7 @@ describe("fixed exclusions and review association (AC2/3)", () => {
       ),
     );
     expect(r.review.map((x) => x.reasons)).toEqual([["unknown_date"], ["missing_dates"]]);
-    expect(r.review[0].candidate.start).toEqual({
+    expect(r.review[0]!.candidate.start).toEqual({
       value: { kind: "unknown" },
       rawText: "Pending instructor",
       location: "calendar.start",
@@ -145,7 +145,7 @@ describe("canonical identity dedup and conflict safety (AC4)", () => {
       observed,
     );
     expect(r.observations).toHaveLength(1);
-    expect(r.observations[0].start?.value).toMatchObject({ iso: "2026-10-25T18:30:00+05:00" });
+    expect(r.observations[0]!.start?.value).toMatchObject({ iso: "2026-10-25T18:30:00+05:00" });
     expect(r.coverage).toBe("complete");
   });
   it("keeps distinct event IDs and recurring occurrences despite equal titles and times", () => {
@@ -186,7 +186,7 @@ describe("canonical identity dedup and conflict safety (AC4)", () => {
     const html = page(event({ course: null, dates: "" }));
     const r = collectMoodleCalendar([input(html), input(html)], ["101"], observed);
     expect(r.review).toHaveLength(1);
-    expect(r.review[0].reasons).toEqual(["missing_course", "missing_dates"]);
+    expect(r.review[0]!.reasons).toEqual(["missing_course", "missing_dates"]);
   });
 });
 describe("bounded supplied coverage and actual access gate (AC5)", () => {
@@ -207,7 +207,7 @@ describe("bounded supplied coverage and actual access gate (AC5)", () => {
     "signals pending without following controls",
     (control) => {
       const r = collect(page(event(), `<nav data-region="calendar-pagination">${control}</nav>`));
-      expect(r.pages[0].paginationPending).toBe(true);
+      expect(r.pages[0]!.paginationPending).toBe(true);
       expect(r.coverage).toBe("partial");
     },
   );
@@ -215,7 +215,7 @@ describe("bounded supplied coverage and actual access gate (AC5)", () => {
     expect(collect(page("", '<p data-role="calendar-empty">None</p>')).coverage).toBe("complete");
     expect(collect(page("")).coverage).toBe("partial");
     expect(
-      collect(page("", '<p data-role="calendar-empty">None</p>').replace(account, "")).pages[0]
+      collect(page("", '<p data-role="calendar-empty">None</p>').replace(account, "")).pages[0]!
         .access.status,
     ).toBe("unknown");
     expect(collect(page(event(), '<p data-role="calendar-empty">None</p>')).coverage).toBe(
@@ -232,7 +232,7 @@ describe("bounded supplied coverage and actual access gate (AC5)", () => {
   it("mixed inaccessible and valid pages retain partial coverage", () => {
     const r = collectMoodleCalendar([input(), input(login)], ["101"], observed);
     expect(r.coverage).toBe("partial");
-    expect(r.pages[1].access.status).toBe("signed_out");
+    expect(r.pages[1]!.access.status).toBe("signed_out");
     expect(r.observations).toHaveLength(1);
   });
   it.each([
@@ -243,7 +243,7 @@ describe("bounded supplied coverage and actual access gate (AC5)", () => {
   ])("preserves real #10 outcomes on invalid batch args", (i) => {
     const r = collectMoodleCalendar([i], ["bad"], "bad");
     expect(r.observations).toEqual([]);
-    expect(r.pages[0].access.status).not.toBe("accessible");
+    expect(r.pages[0]!.access.status).not.toBe("accessible");
     expect(r.error).toBe("invalid_batch_arguments");
   });
   it("empty batch has no coverage", () => {
@@ -281,7 +281,7 @@ describe("malformed input, dates and privacy", () => {
     "2026-10-25T18:30:00.1234Z",
     "2026-10-25T18:30:00",
   ])("rejects invalid event clock %s", (v) => {
-    expect(collect(page(event({ dates: date("start", v) }))).diagnostics[0].reason).toBe(
+    expect(collect(page(event({ dates: date("start", v) }))).diagnostics[0]!.reason).toBe(
       "malformed_record",
     );
   });
@@ -304,7 +304,7 @@ describe("malformed input, dates and privacy", () => {
     date("unsupported"),
     date("start", undefined, ""),
   ])("rejects malformed date structures", (dates) => {
-    expect(collect(page(event({ dates }))).diagnostics[0].reason).toBe("malformed_record");
+    expect(collect(page(event({ dates }))).diagnostics[0]!.reason).toBe("malformed_record");
   });
   it.each([
     "https://evil.invalid/calendar/view.php?event=501",
@@ -378,10 +378,10 @@ describe("malformed input, dates and privacy", () => {
     const storage = vi.spyOn(Storage.prototype, "setItem");
     try {
       const r = collectMoodleCalendar(Object.freeze([i]), selection, observed);
-      r.observations[0].title = "changed";
-      r.observations[0].start!.value = { kind: "unknown" };
+      r.observations[0]!.title = "changed";
+      r.observations[0]!.start!.value = { kind: "unknown" };
       expect(i.document.documentElement.outerHTML).toBe(before);
-      expect(collectMoodleCalendar([i], selection, observed).observations[0].title).toBe(
+      expect(collectMoodleCalendar([i], selection, observed).observations[0]!.title).toBe(
         "Fictional assessment",
       );
       expect(fetch).not.toHaveBeenCalled();
@@ -408,12 +408,12 @@ describe("conflict precedence preserves exclusion privacy", () => {
       const r = collectMoodleCalendar([input(), input(page(excluded))], ["101"], observed);
       expect(r.observations).toEqual([]);
       expect(r.review).toHaveLength(1);
-      expect(r.review[0].candidate.title).toBe("Fictional assessment");
-      expect(r.review[0].reasons).toContain("event_conflict");
+      expect(r.review[0]!.candidate.title).toBe("Fictional assessment");
+      expect(r.review[0]!.reasons).toContain("event_conflict");
       expect(r.pages.map((p) => p.coverage)).toEqual(["partial", "partial"]);
       expect(JSON.stringify(r)).not.toContain("EXCLUDED PRIVATE TITLE");
       expect(JSON.stringify(r)).not.toContain("20:22:11");
-      expect(r.exclusions[0].reason).toBe(
+      expect(r.exclusions[0]!.reason).toBe(
         kind === "assessment"
           ? "unselected_course"
           : kind === "other"
@@ -448,7 +448,7 @@ describe("conflict precedence preserves exclusion privacy", () => {
       ["101"],
       observed,
     );
-    expect(r.review[0].reasons).toEqual(["missing_course", "event_conflict"]);
+    expect(r.review[0]!.reasons).toEqual(["missing_course", "event_conflict"]);
     expect(JSON.stringify(r)).not.toContain("EXCLUDED");
   });
 });
