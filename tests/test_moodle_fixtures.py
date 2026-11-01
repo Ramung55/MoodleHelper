@@ -1,5 +1,6 @@
-"""Offline synthetic fixture hygiene; deliberately not a Moodle collector."""
+"""Offline Moodle fixture hygiene; deliberately not a Moodle collector."""
 
+import datetime as dt
 import json
 import re
 from html.parser import HTMLParser
@@ -10,20 +11,45 @@ import pytest
 
 
 ROOT = Path(__file__).parent / "fixtures" / "moodle"
+REPORT = Path(__file__).parents[1] / "_docs" / "compatibility" / "sdu-moodle.md"
 MANIFEST = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
 ENTRIES = MANIFEST["fixtures"]
+SYNTHETIC = [entry for entry in ENTRIES if entry["sourceKind"] == "synthetic"]
+OBSERVED = [entry for entry in ENTRIES if entry["sourceKind"] == "observed-structure"]
+OBSERVED_HTML = [entry for entry in OBSERVED if entry["path"].endswith(".html")]
+OBSERVED_JSON = [entry for entry in OBSERVED if entry["path"].endswith(".json")]
+OBSERVED_PROVENANCE = (
+    "Observed structure from the #3 live SDU inspection (selectors, classes, data attributes, "
+    "label wording); all content, ids and dates invented. Not a capture."
+)
+
+# Moodle-relative paths that observed-structure fixtures may name as inert text.
+SAFE_QUERY = re.compile(r"(id=\d+(&action=editsubmission)?|view=day&time=\d+)")
+SAFE_RELATIVE = re.compile(
+    r"/(my/courses\.php|course/view\.php|mod/[a-z]+/view\.php|calendar/view\.php|login/index\.php"
+    r"|pluginfile\.php/\d+/mod_resource/content/\d+/fixture-[a-z-]+\.pdf)"
+)
 
 
-def safe_url(value):
+def safe_url(value, allow_ids=False):
     parts = urlsplit(value)
     assert parts.scheme == "https"
     assert parts.hostname and parts.hostname.endswith(".example.invalid")
     assert parts.username is None and parts.password is None
-    assert not parts.query and not parts.fragment
+    assert not parts.fragment
     assert parts.port is None
+    assert not parts.query or (allow_ids and SAFE_QUERY.fullmatch(parts.query))
+
+
+def safe_relative(value):
+    path, _, query = value.partition("?")
+    assert SAFE_RELATIVE.fullmatch(path), value
+    assert not query or SAFE_QUERY.fullmatch(query), value
 
 
 class InertHTML(HTMLParser):
+    """Strict allowlist for synthetic data-fact fixtures."""
+
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.facts = {}
@@ -51,28 +77,211 @@ class InertHTML(HTMLParser):
             self.facts[self.active_fact] += data
 
 
+class Node:
+    def __init__(self, tag, attrs, parent):
+        self.tag, self.attrs, self.parent = tag, attrs, parent
+        self.children, self.parts = [], []
+
+    @property
+    def classes(self):
+        return self.attrs.get("class", "").split()
+
+    def text(self):
+        return " ".join("".join(self._chunks()).split())
+
+    def _chunks(self):
+        for part in self.parts:
+            yield from (part._chunks() if isinstance(part, Node) else [part])
+
+    def walk(self):
+        for child in self.children:
+            yield child
+            yield from child.walk()
+
+
+class ObservedInertHTML(HTMLParser):
+    """Allowlist for observed-structure fixtures: Moodle classes/ids/data-* but nothing active.
+
+    Links keep their target only as a relative path in data-href on an <a> without href; <img> carries
+    no src. Scripts, styles, handlers, forms, frames, refresh and any URL-valued attribute are rejected.
+    """
+
+    TAGS = {"html", "head", "meta", "title", "body", "div", "span", "nav", "ul", "li", "a", "img", "p",
+            "h1", "h2", "h3", "h4", "h5", "table", "tbody", "tr", "th", "td"}
+    VOID = {"meta", "img"}
+    TOKEN = re.compile(r"[A-Za-z0-9_-]+( [A-Za-z0-9_-]+)*")
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = Node("#root", {}, None)
+        self.current = self.root
+
+    def handle_starttag(self, tag, attrs):
+        assert tag in self.TAGS, tag
+        assert len(dict(attrs)) == len(attrs)
+        for key, value in attrs:
+            allowed = (key in {"class", "id"} or re.fullmatch(r"data-[a-z]+(-[a-z]+)*", key)
+                       or (tag, key) in {("html", "lang"), ("meta", "charset"), ("img", "alt")})
+            assert allowed, (tag, key)
+            assert value is not None
+            lowered = value.lower()
+            assert "://" not in value and not value.startswith("//"), value
+            assert not re.match(r"\s*(javascript|data|vbscript):", lowered), value
+            if key in {"class", "id"}:
+                assert self.TOKEN.fullmatch(value), value
+            if key == "data-href":
+                assert tag == "a"
+                safe_relative(value)
+            if tag == "meta":
+                assert value == "utf-8"
+        node = Node(tag, dict(attrs), self.current)
+        self.current.children.append(node)
+        self.current.parts.append(node)
+        if tag not in self.VOID:
+            self.current = node
+
+    def handle_startendtag(self, tag, attrs):
+        assert tag in self.VOID, tag
+        self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        assert tag not in self.VOID
+        assert self.current.tag == tag, (self.current.tag, tag)
+        self.current = self.current.parent
+
+    def handle_data(self, data):
+        self.current.parts.append(data)
+
+    def handle_comment(self, data):
+        raise AssertionError("comments are not allowed")
+
+    def handle_pi(self, data):
+        raise AssertionError("processing instructions are not allowed")
+
+    def close(self):
+        super().close()
+        assert self.current is self.root, "unclosed element"
+
+
+COMPOUND = re.compile(r'([a-z][a-z0-9]*)?((?:[#.][A-Za-z0-9_-]+|\[[a-z-]+(?:[*^]?="[^"]*")?\])*)')
+PIECE = re.compile(r'([#.])([A-Za-z0-9_-]+)|\[([a-z-]+)(?:([*^]?=)"([^"]*)")?\]')
+
+
+def parse_selector(selector):
+    steps, combinator = [], " "
+    for token in selector.split():
+        if token == ">":
+            combinator = ">"
+            continue
+        match = COMPOUND.fullmatch(token)
+        assert match, token
+        steps.append((combinator, match.group(1), PIECE.findall(match.group(2))))
+        combinator = " "
+    return steps
+
+
+def matches_compound(node, tag, pieces):
+    if node.tag.startswith("#") or (tag and node.tag != tag):
+        return False
+    for kind, name, attr, op, value in pieces:
+        if kind == "#" and node.attrs.get("id") != name:
+            return False
+        if kind == "." and name not in node.classes:
+            return False
+        if attr:
+            actual = node.attrs.get(attr)
+            if actual is None or (op == "=" and actual != value) or (op == "*=" and value not in actual) \
+                    or (op == "^=" and not actual.startswith(value)):
+                return False
+    return True
+
+
+def matches(node, steps):
+    combinator, tag, pieces = steps[-1]
+    if not matches_compound(node, tag, pieces):
+        return False
+    if len(steps) == 1:
+        return True
+    parent = node.parent
+    if combinator == ">":
+        return parent is not None and matches(parent, steps[:-1])
+    while parent is not None:
+        if matches(parent, steps[:-1]):
+            return True
+        parent = parent.parent
+    return False
+
+
+def select(root, selector):
+    steps = parse_selector(selector)
+    return [node for node in root.walk() if matches(node, steps)]
+
+
+def parse_observed(text):
+    parser = ObservedInertHTML()
+    parser.feed(text)
+    parser.close()
+    return parser.root
+
+
+def json_at(data, path):
+    for part in path.split("/"):
+        if isinstance(data, list):
+            data = data[int(part)]
+        else:
+            if part not in data:
+                return KeyError
+            data = data[part]
+    return data
+
+
 def declared_paths(entries, root):
     paths = []
     for entry in entries:
         path = Path(entry["path"])
-        assert not path.is_absolute() and path.suffix == ".html"
+        assert not path.is_absolute() and path.suffix in {".html", ".json"}
         assert ".." not in path.parts
         target = (root / path).resolve()
         assert target.is_relative_to(root.resolve())
         paths.append(target)
     assert len(paths) == len(set(paths))
-    assert set(paths) == {p.resolve() for p in root.rglob("*.html")}
+    fixtures = [p for p in root.rglob("*") if p.suffix in {".html", ".json"} and p.name != "manifest.json"]
+    assert set(paths) == {p.resolve() for p in fixtures}
 
 
-def test_manifest_discovery_and_blocked_observed_coverage():
+def matrix_rows():
+    """Return {(table, row): status} for the #3 page-variant and navigation tables."""
+    rows, table = {}, None
+    for line in REPORT.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            table = {"## Page variant matrix": "page-variant-matrix",
+                     "## Navigation and access behaviour collectors must handle": "navigation-and-access"}.get(line)
+            continue
+        if table and line.startswith("| ") and not line.startswith("| ---"):
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if cells[0] in {"Page family", "Behaviour"}:
+                continue
+            if table == "page-variant-matrix":
+                rows[(table, f"{cells[0]} | {cells[1]}")] = cells[2]
+            else:
+                rows[(table, cells[0])] = cells[1]
+    return rows
+
+
+def test_manifest_discovery_and_observed_coverage():
     declared_paths(ENTRIES, ROOT)
     assert len({entry["id"] for entry in ENTRIES}) == len(ENTRIES)
-    assert MANIFEST["observedCoverage"]["status"] == "pending"
-    assert MANIFEST["observedCoverage"]["blockedBy"] == 3
+    assert {entry["sourceKind"] for entry in ENTRIES} == {"synthetic", "observed-structure"}
+    coverage = MANIFEST["observedCoverage"]
+    assert coverage["status"] == "covered"
+    assert coverage["comparedAgainst"] == {
+        "issue": 3, "report": "_docs/compatibility/sdu-moodle.md", "inspectionDate": "2026-11-01",
+        "language": "en", "theme": "alpha",
+    }
     assert {entry["pageClass"] for entry in ENTRIES} >= {
         "course_list", "assignment", "quiz", "calendar", "material", "folder"
     }
-    assert {entry["language"] for entry in ENTRIES} == {"en", "ru"}
+    assert {entry["language"] for entry in SYNTHETIC} == {"en", "ru"}
     assert {case for entry in ENTRIES for case in entry["edgeCases"]} >= {
         "absent_dates", "draft", "reopened", "unknown_status", "login_redirect",
         "denied_access", "duplicates", "malformed_markup", "incomplete_markup",
@@ -80,7 +289,26 @@ def test_manifest_discovery_and_blocked_observed_coverage():
     }
 
 
-@pytest.mark.parametrize("entry", ENTRIES, ids=lambda entry: entry["id"])
+def test_every_observed_matrix_variant_has_an_observed_fixture():
+    rows = matrix_rows()
+    observed = {key for key, status in rows.items() if status.startswith("Observed")}
+    unverified = set(rows) - observed
+    assert len(observed) == 17 and len(unverified) == 12
+    coverage = MANIFEST["observedCoverage"]
+    mapped = {(item["table"], item["matrixRow"]): item["fixtures"] for item in coverage["observedVariants"]}
+    assert set(mapped) == observed
+    by_id = {entry["id"]: entry for entry in ENTRIES}
+    for fixtures in mapped.values():
+        assert fixtures and all(by_id[f]["sourceKind"] == "observed-structure" for f in fixtures)
+    assert {f for fixtures in mapped.values() for f in fixtures} == {entry["id"] for entry in OBSERVED}
+    stated = {(item["table"], item["matrixRow"]): item for item in coverage["unverifiedVariants"]}
+    assert set(stated) == unverified
+    for item in stated.values():
+        assert item["coverage"] == "synthetic-only"
+        assert all(by_id[f]["sourceKind"] == "synthetic" for f in item["syntheticFixtures"])
+
+
+@pytest.mark.parametrize("entry", SYNTHETIC, ids=lambda entry: entry["id"])
 def test_manifest_facts_match_visible_inert_input(entry):
     assert entry["synthetic"] is True and entry["sourceKind"] == "synthetic"
     for key in ("sourceVariant", "language", "purpose", "provenance"):
@@ -103,42 +331,192 @@ def test_manifest_facts_match_visible_inert_input(entry):
             safe_url(value)
 
 
-def test_raw_semantics_preserve_schema_gaps():
-    entries = {entry["id"]: entry["expected"] for entry in ENTRIES}
-    assignment = entries["assignment"]["rawFacts"]
-    assert len({assignment[key] for key in ("base_due", "base_cutoff", "effective_due")}) == 3
-    assert assignment["activity_id"] != assignment["course_module_id"]
-    assert entries["assignment"]["schemaGapOwners"] == ["13"]
-    quiz = entries["quiz"]["rawFacts"]
-    assert int(quiz["attempts_allowed"]) - int(quiz["attempts_used"]) == int(quiz["attempts_remaining"])
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", quiz["close_date"])
-    assert entries["quiz"]["schemaGapOwners"] == ["14"]
-    folder = entries["folder"]["rawFacts"]
-    assert folder["child_folder_parent_id"] == folder["folder_id"]
-    assert folder["file_parent_id"] == folder["child_folder_id"]
-    assert entries["folder"]["schemaGapOwners"] == ["17"]
+def check_observed_metadata(entry):
+    assert entry["synthetic"] is False
+    assert entry["provenance"] == OBSERVED_PROVENANCE
+    assert entry["language"] == "en" and entry["inspectionDate"] == "2026-11-01" and entry["theme"] == "alpha"
+    assert entry["sourceVariant"].startswith("sdu-en-alpha/")
+    assert entry["path"].startswith("observed/")
+    for key in ("purpose", "pageClass"):
+        assert isinstance(entry[key], str) and entry[key]
+    assert entry["edgeCases"]
+    expected = entry["expected"]
+    assert expected["checks"]
+    for key in ("absentFields", "redactedFields", "unrecordedFields", "schemaGapOwners"):
+        assert isinstance(expected[key], list)
+
+
+@pytest.mark.parametrize("entry", OBSERVED_HTML, ids=lambda entry: entry["id"])
+def test_observed_html_is_inert_and_matches_manifest(entry):
+    check_observed_metadata(entry)
+    text = (ROOT / entry["path"]).read_text(encoding="utf-8")
+    assert text.startswith('<!doctype html>\n<html lang="en">')
+    root = parse_observed(text)
+    assert "(invented content)" in select(root, "title")[0].text()
+    assert "lang-en" in select(root, "body")[0].classes
+    verified = []
+    for check in entry["expected"]["checks"]:
+        found = select(root, check["selector"])
+        if "count" in check:
+            assert len(found) == check["count"], check
+        if "attr" in check:
+            values = [node.attrs[check["attr"]] for node in found]
+            assert values == check["values"], check
+            verified += values
+        if "text" in check:
+            texts = [node.text() for node in found]
+            assert texts == check["text"], check
+            verified += texts
+    for name, value in entry["expected"]["fields"].items():
+        assert any(value in seen for seen in verified), (name, value)
+
+
+@pytest.mark.parametrize("entry", OBSERVED_JSON, ids=lambda entry: entry["id"])
+def test_observed_json_records_match_manifest(entry):
+    check_observed_metadata(entry)
+    data = json.loads((ROOT / entry["path"]).read_text(encoding="utf-8"))
+    verified = []
+    for check in entry["expected"]["checks"]:
+        value = json_at(data, check["path"])
+        if check.get("absent"):
+            assert value is KeyError, check
+            continue
+        assert value is not KeyError, check
+        if "length" in check:
+            assert len(value) == check["length"], check
+        if "equals" in check:
+            assert value == check["equals"] and type(value) is type(check["equals"]), check
+            verified.append(value)
+    for name, value in entry["expected"]["fields"].items():
+        assert value in verified, (name, value)
+
+    def strings(node):
+        if isinstance(node, dict):
+            for item in node.values():
+                yield from strings(item)
+        elif isinstance(node, list):
+            for item in node:
+                yield from strings(item)
+        elif isinstance(node, str):
+            yield node
+
+    for value in strings(data):
+        assert "<" not in value and not re.match(r"(?i)\s*(javascript|data):", value)
+        if value.startswith("https:"):
+            safe_url(value, allow_ids=True)
+        elif value.startswith("/"):
+            safe_relative(value)
+
+
+def test_observed_semantics_follow_the_matrix():
+    by_id = {entry["id"]: entry["expected"] for entry in OBSERVED}
+    ajax = by_id["observed-enrolled-courses-inprogress"]
+    data = json.loads((ROOT / "observed/enrolled-courses-inprogress.json").read_text(encoding="utf-8"))
+    payload = data[0]["data"]
+    derived = ajax["derived"]
+    # The nextoffset quirk: it equals the returned count even though the list is exhausted.
+    assert payload["nextoffset"] == len(payload["courses"]) == derived["returnedCount"]
+    assert derived["returnedCount"] < derived["request"]["limit"] and derived["moreAvailable"] is False
+    for course in payload["courses"]:
+        code, _, login, year, term = course["shortname"].split("-")
+        assert login == "redacted" and year.isdigit() and term.isdigit()
+        assert "(" not in course["fullname"]
+        assert course["viewurl"].endswith(f"/course/view.php?id={course['id']}")
+    assert derived["course_code"] == payload["courses"][0]["shortname"].split("-")[0]
+
+    assert by_id["observed-assign-submitted"]["derived"]["submission_status"] == "submitted"
+    assert by_id["observed-assign-not-submitted"]["derived"]["submission_status"] == "not_submitted"
+    quiz = by_id["observed-quiz-finished"]["derived"]
+    assert quiz["attempts_allowed"] - quiz["attempts_used"] == quiz["attempts_remaining"] == 0
+    assert by_id["observed-quiz-finished"]["schemaGapOwners"] == ["14"]
+
+    almaty = dt.timezone(dt.timedelta(hours=5))
+    root = parse_observed((ROOT / "observed/calendar-upcoming.html").read_text(encoding="utf-8"))
+    boxes = select(root, "div.calendar-event-box")
+    for box, event in zip(boxes, by_id["observed-calendar-upcoming"]["derived"]["events"], strict=True):
+        assert box.attrs["data-event-title"] == f"{event['title']} is due"
+        day, action = select(box, "a")
+        assert day.attrs["data-href"].endswith(f"time={event['epoch']}")
+        assert action.attrs["data-href"] == f"/mod/assign/view.php?id={event['cmid']}&action=editsubmission"
+        local = dt.datetime.fromtimestamp(event["epoch"], almaty)
+        assert local.strftime("%I:%M %p").lstrip("0") == event["displayedTime"]
+        assert box.text().startswith(f"{local:%A}, {local.day} {local:%B}, {event['displayedTime']}")
+
+    page = parse_observed((ROOT / "observed/course-page.html").read_text(encoding="utf-8"))
+    due = select(page, "li#module-990102 [data-region=\"activity-dates\"] > div")[1].text()
+    instant = dt.datetime.fromisoformat(by_id["observed-course-page"]["derived"]["dueInstant"])
+    assert due == f"Due: {instant:%A}, {instant.day} {instant:%B %Y}, {instant:%I:%M %p}".replace(" 0", " ")
+
+    course_redirect = json.loads((ROOT / "observed/login-redirect-course.json").read_text(encoding="utf-8"))
+    file_redirect = json.loads((ROOT / "observed/login-redirect-resource.json").read_text(encoding="utf-8"))
+    for record in (course_redirect, file_redirect):
+        assert record["response"]["status"] == 200 and record["response"]["finalPath"] == "/login/index.php"
+    assert course_redirect["response"]["contentType"] is None  # not recorded in #3
+    assert file_redirect["response"]["contentType"] == "text/html"
+    assert by_id["observed-not-found"]["derived"]["httpStatus"] == 404
+
+
+PERSONAL_PATTERNS = [
+    r"\d+[.,]\d+\s*/\s*\d+",  # grade value such as 7.50/10
+    r"(?i)\bout of \d",
+    r"(?i)\bgrade:\s*\d",
+    r"(?i)sesskey",
+    r"(?i)moodlesession",
+    r"(?i)(password|authorization|cookie|access_token|session_token|wstoken)\s*[=:]",
+    r"(?i)sdu\.edu\.kz",
+    r"@[a-z0-9-]+\.[a-z]{2,}",  # e-mail addresses
+    r"\b[A-Z]{2,}\s?\d{2,4}-\d+-(?!redacted-)[^-\s\"]+-\d{4}-\d\b",  # real instructor-login shortname style
+]
 
 
 def test_fixture_text_and_metadata_safety_review_guard():
     for path in ROOT.rglob("*"):
         if path.is_file():
             text = path.read_text(encoding="utf-8")
-            assert not re.search(r"(?i)(sesskey|password|authorization|cookie|access_token|session_token)\s*[=:]", text)
+            for pattern in PERSONAL_PATTERNS:
+                assert not re.search(pattern, text), (path.name, pattern)
             for value in re.findall(r'https://[^\s<>"`]+', text):
                 # Documentation issue links are references, never HTML assets.
                 if path.suffix == ".md" and value.startswith("https://github.com/Ramung55/MoodleHelper/issues/"):
                     continue
-                safe_url(value)
+                safe_url(value, allow_ids=path.parent.name == "observed" or path.name == "manifest.json")
 
 
-@pytest.mark.parametrize("html", [
+def test_personal_data_guard_rejects_real_shapes():
+    samples = ["Marks 7.50/10.00", "sesskey abc", "MoodleSession=x", "ABC 101-1-jdoe-2026-1",
+               "CS101-2-a.smith-2026-1", "https://moodle.sdu.edu.kz/course/view.php?id=1"]
+    for sample in samples:
+        assert any(re.search(pattern, sample) for pattern in PERSONAL_PATTERNS), sample
+    assert not any(re.search(p, "DEMO101-1-redacted-2028-1") for p in PERSONAL_PATTERNS)
+
+
+ACTIVE = [
     '<script>alert(1)</script>', '<dd onclick="run()">x</dd>',
     '<img src="https://example.invalid/pixel">', '<meta http-equiv="refresh" content="0">',
     '<form action="https://example.invalid"></form>', '<style>body{}</style>',
-])
+]
+
+
+@pytest.mark.parametrize("html", ACTIVE)
 def test_safety_guard_rejects_active_content(html):
     with pytest.raises((AssertionError, KeyError)):
         InertHTML().feed(html)
+
+
+@pytest.mark.parametrize("html", ACTIVE + [
+    '<a href="/course/view.php?id=1">x</a>', '<a data-href="https://moodle.example.invalid/x">x</a>',
+    '<a data-href="javascript:alert(1)">x</a>', '<a data-href="/course/view.php?id=1&sesskey=x">x</a>',
+    '<a data-href="/admin/tool.php">x</a>', '<span data-href="/course/view.php?id=1">x</span>',
+    '<img class="icon" src="/theme/image.php/alpha/core/1/f/pdf">', '<img srcset="/x.png 1x">',
+    '<div style="background:url(x)">x</div>', '<div data-src="//cdn.example.invalid/x.js">x</div>',
+    '<div class="a" class="b">x</div>', '<div class="x" onmouseover="run()">x</div>',
+    '<svg onload="run()"></svg>', '<iframe srcdoc="x"></iframe>', '<link rel="stylesheet" href="x.css">',
+    '<!-- comment -->', '<input type="hidden" name="sesskey" value="x">', '<button>Submit</button>',
+    '<div><span>unclosed</div>',
+])
+def test_observed_guard_rejects_active_or_navigating_content(html):
+    with pytest.raises((AssertionError, KeyError)):
+        parse_observed(html)
 
 
 @pytest.mark.parametrize("url", [
@@ -148,11 +526,18 @@ def test_safety_guard_rejects_active_content(html):
 def test_url_guard_rejects_unsafe_references(url):
     with pytest.raises(AssertionError):
         safe_url(url)
+    with pytest.raises(AssertionError):
+        safe_url(url, allow_ids=True)
 
 
 def test_path_guard_rejects_escape_and_unmanifested_fixture(tmp_path):
     with pytest.raises(AssertionError):
         declared_paths([{"path": "../escape.html"}], tmp_path)
     (tmp_path / "unmanifested.html").write_text("invented", encoding="utf-8")
+    with pytest.raises(AssertionError):
+        declared_paths([], tmp_path)
+    (tmp_path / "unmanifested.html").unlink()
+    (tmp_path / "observed").mkdir()
+    (tmp_path / "observed" / "stray.json").write_text("{}", encoding="utf-8")
     with pytest.raises(AssertionError):
         declared_paths([], tmp_path)
