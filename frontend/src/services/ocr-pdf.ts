@@ -5,7 +5,7 @@ export type OcrLimits = { maxPages: number; dpi: number; millisecondsPerPage: nu
 export const DEFAULT_OCR_LIMITS: OcrLimits = { maxPages: 20, dpi: 120, millisecondsPerPage: 60_000, maxPixels: 8_000_000, maxCharacters: 100_000 };
 export type OcrPage = { page: number; width: number; height: number; text: string; confidence: number; regions: { text: string; confidence: number; bounds: number[] }[]; status: "recognized" | "review_needed" | "failed"; error?: string };
 export type OcrJob = { selectedPages: number[]; pages: OcrPage[]; complete: boolean; status: "complete" | "incomplete" | "cancelled"; language: "eng" | "rus" | "eng+rus"; dpi: number; engine: "tesseract.js-7.0.0" };
-export type OcrProgress = { completed: number; failed: number; remaining: number; total: number; currentPage?: number; currentProgress: number; pages: OcrPage[] };
+export type OcrProgress = { completed: number; failed: number; remaining: number; total: number; currentPage?: number | undefined; currentProgress: number; pages: OcrPage[] };
 export interface OcrPdf { pageCount: number; render(page: number, limits: OcrLimits, signal: AbortSignal): Promise<{ bytes: Uint8Array; width: number; height: number }>; close(): Promise<void> }
 export type OcrDependencies = { open: (file: Blob, signal: AbortSignal) => Promise<OcrPdf>; engine: (language: OcrJob["language"], signal: AbortSignal, progress: (value: number) => void, dpi: number) => LocalOcrEngine };
 const abortError = () => new DOMException("OCR cancelled", "AbortError");
@@ -21,7 +21,7 @@ export async function openOcrPdf(file: Blob, signal: AbortSignal): Promise<OcrPd
   const bytes = await guarded(file.arrayBuffer(), signal);
   const { getDocument, GlobalWorkerOptions, VerbosityLevel } = await guarded(import("pdfjs-dist"), signal);
   GlobalWorkerOptions.workerSrc = workerUrl;
-  const task = getDocument({ data: new Uint8Array(bytes), stopAtErrors: true, verbosity: VerbosityLevel.ERRORS, useWorkerFetch: false, useSystemFonts: false, useWasm: false, isEvalSupported: false, disableFontFace: true, disableAutoFetch: true, disableStream: true, disableRange: true });
+  const task = getDocument({ data: new Uint8Array(bytes), stopAtErrors: true, verbosity: VerbosityLevel.ERRORS, useWorkerFetch: false, useSystemFonts: false, useWasm: false, disableFontFace: true, disableAutoFetch: true, disableStream: true, disableRange: true });
   const abort = () => { void task.destroy(); }; signal.addEventListener("abort", abort, { once: true });
   try {
     const pdf = await guarded(task.promise, signal);

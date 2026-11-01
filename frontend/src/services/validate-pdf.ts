@@ -96,7 +96,7 @@ export async function validatePdf(buffer: ArrayBuffer, signal: AbortSignal, maxi
   catch { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); return bad(); }
   check(); GlobalWorkerOptions.workerSrc = workerUrl;
   const task = getDocument({ data: bytes, stopAtErrors: true, verbosity: VerbosityLevel.ERRORS,
-    useWorkerFetch: false, useSystemFonts: false, useWasm: false, isEvalSupported: false, disableFontFace: true,
+    useWorkerFetch: false, useSystemFonts: false, useWasm: false, disableFontFace: true,
     disableAutoFetch: true, disableStream: true, disableRange: true });
   const abort = () => { void task.destroy(); };
   signal.addEventListener("abort", abort, { once: true });

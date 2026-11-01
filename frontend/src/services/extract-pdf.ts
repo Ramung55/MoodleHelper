@@ -26,7 +26,7 @@ export async function extractPdf(blob: Blob, signal: AbortSignal, progress: (pag
   await validatePdf(bytes.slice(0), signal, PDF_EXTRACTION_LIMITS.pages); check();
   GlobalWorkerOptions.workerSrc = workerUrl;
   const task = getDocument({ data: new Uint8Array(bytes.slice(0)), stopAtErrors: true, verbosity: VerbosityLevel.ERRORS,
-    useWorkerFetch: false, useSystemFonts: false, useWasm: false, isEvalSupported: false,
+    useWorkerFetch: false, useSystemFonts: false, useWasm: false,
     disableFontFace: true, disableAutoFetch: true, disableStream: true, disableRange: true });
   const abort = () => { void task.destroy(); };
   signal.addEventListener("abort", abort, { once: true });
