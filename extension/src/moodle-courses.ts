@@ -99,8 +99,10 @@ export function collectMoodleCourses(inputs: readonly MoodleAccessInput[]): Cour
         report("unsupported_list_route"); return;
       }
       const mains = input.document.querySelectorAll('main[data-region="courses"]');
-      if (mains.length !== 1 || !mains[0].querySelector("h1")) { report("malformed_list"); return; }
-      const main = mains[0];
+      // mains.length is checked to be 1 before indexing, so index 0 is defined.
+      if (mains.length !== 1 || !mains[0]!.querySelector("h1")) { report("malformed_list"); return; }
+      // The check above returned unless mains has exactly one element.
+      const main = mains[0]!;
       const cards = [...main.querySelectorAll("article")];
       page.candidateCount = cards.length;
       const start = diagnostics.length;
@@ -120,12 +122,14 @@ export function collectMoodleCourses(inputs: readonly MoodleAccessInput[]): Cour
         if (!decimalId(id)) { report("missing_identity", recordIndex); return; }
         const links = card.querySelectorAll('a[data-role="course-link"]');
         if (links.length !== 1) { report("unsafe_url", recordIndex); return; }
-        const url = courseUrl(links[0].getAttribute("href"), input.finalUrl);
+        // links.length is checked to be 1 above, so index 0 is defined.
+        const url = courseUrl(links[0]!.getAttribute("href"), input.finalUrl);
         if (!url) { report("unsafe_url", recordIndex); return; }
         if (url.searchParams.get("id") !== id) { report("identity_mismatch", recordIndex); return; }
         const titles = card.querySelectorAll('[data-role="course-title"]');
         const terms = [...new Set([...card.querySelectorAll('[data-role="course-term"]')].map(text).filter(Boolean))].sort();
-        const title = titles.length === 1 ? text(titles[0]) : "";
+        // The ternary only indexes when titles.length is 1.
+        const title = titles.length === 1 ? text(titles[0]!) : "";
         if (titles.length > 1) report("malformed_card", recordIndex);
         const next: RawCourseObservation = {
           sourceCourseId: id,

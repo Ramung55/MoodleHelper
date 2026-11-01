@@ -45,16 +45,20 @@ export function parseMoodleAssignment(input: MoodleAccessInput, observedAt: stri
     if (moduleId !== requestedId) return fail("identity_mismatch");
     const mains = input.document.querySelectorAll('main[data-region="activity"]');
     const articles = input.document.querySelectorAll('article[data-region="assignment"]');
-    if (mains.length !== 1 || articles.length !== 1 || !mains[0].contains(articles[0])) return fail("malformed_assignment");
-    const main = mains[0], article = articles[0];
+    // Both lengths are checked to be 1 before indexing, so index 0 is defined.
+    if (mains.length !== 1 || articles.length !== 1 || !mains[0]!.contains(articles[0]!)) return fail("malformed_assignment");
+    // The check above returned unless both lists have exactly one element.
+    const main = mains[0]!, article = articles[0]!;
     if ([main, article].some(node => node.hasAttribute("data-incomplete") || node.hasAttribute("data-truncated"))) return fail("incomplete_assignment");
     const courseId = article.getAttribute("data-course-id"), activityId = article.getAttribute("data-assignment-id"), articleModuleId = article.getAttribute("data-course-module-id");
     if (!idValid(courseId) || !idValid(activityId) || !idValid(articleModuleId)) return fail("malformed_assignment");
     const headings = article.querySelectorAll("h1"), assignmentLinks = article.querySelectorAll('a[data-role="assignment-link"]'), courseLinks = article.querySelectorAll('a[data-role="course-link"]');
     if (headings.length !== 1 || assignmentLinks.length !== 1 || courseLinks.length !== 1) return fail("malformed_assignment");
-    const title = normalize(headings[0].textContent ?? "");
+    // headings.length is checked to be 1 above, so index 0 is defined.
+    const title = normalize(headings[0]!.textContent ?? "");
     if (!title) return fail("malformed_assignment");
-    const linkedModule = linkId(assignmentLinks[0].getAttribute("href"), "/mod/assign/view.php"), linkedCourse = linkId(courseLinks[0].getAttribute("href"), "/course/view.php");
+    // Both link lists are checked to have exactly one element above.
+    const linkedModule = linkId(assignmentLinks[0]!.getAttribute("href"), "/mod/assign/view.php"), linkedCourse = linkId(courseLinks[0]!.getAttribute("href"), "/course/view.php");
     if (!linkedModule || !linkedCourse) return fail("unsafe_url");
     if (linkedModule !== moduleId || articleModuleId !== moduleId || linkedCourse !== courseId) return fail("identity_mismatch");
     const baseDates: AssignmentDates = {}, extensions: AssignmentDates = {};
