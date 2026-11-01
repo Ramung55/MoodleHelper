@@ -31,7 +31,7 @@ export function importedDateError(date: DateValue | undefined): string | null {
 }
 
 /** Only fields changed from the saved overlay are sent, so unrelated saves never recapture the date baseline. */
-export function dirtyOverlayPatch(saved: { titleOverride?: string; dateOverride?: DateValue } | undefined, title: string, date: DateValue | undefined): OverlayPatch {
+export function dirtyOverlayPatch(saved: { titleOverride?: string | undefined; dateOverride?: DateValue | undefined } | undefined, title: string, date: DateValue | undefined): OverlayPatch {
   const patch: OverlayPatch = {};
   const nextTitle = title.trim() || undefined;
   if (nextTitle !== (saved?.titleOverride || undefined)) patch.titleOverride = nextTitle ?? null;
@@ -215,26 +215,26 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 )}
                 <div className="space-y-1">
                   <Label htmlFor="ttl">Display title</Label>
-                  <Input id="ttl" disabled={pending} aria-invalid={!!errors.title} aria-describedby="personal-title-error" placeholder={v.a.title} value={title} onChange={(e) => setTitle(e.target.value)} />
+                  <Input id="ttl" disabled={pending} aria-invalid={!!errors["title"]} aria-describedby="personal-title-error" placeholder={v.a.title} value={title} onChange={(e) => setTitle(e.target.value)} />
                   {!v.a.personal && <p className="text-xs text-muted-foreground">Saved: {saved?.titleOverride ? `“${saved.titleOverride}”` : "source title"}</p>}
-                  {errors.title && <p id="personal-title-error" role="alert" className="text-sm text-destructive">{errors.title}</p>}
+                  {errors["title"] && <p id="personal-title-error" role="alert" className="text-sm text-destructive">{errors["title"]}</p>}
                 </div>
                 <div className="space-y-1">
                   <Label>Your date</Label>
                   <fieldset disabled={pending}><DateInput value={date} onChange={setDate} allowEmpty={!v.a.personal} allowUnknown={!v.a.personal} personalTimezone={v.a.personal ? tz : date?.kind === "exact" ? date.tz : tz} errorId="personal-date-error" /></fieldset>
                   {!v.a.personal && <p className="text-xs text-muted-foreground">Saved: {saved?.dateOverride ? saved.dateOverride.kind === "unknown" ? "No date (your choice)" : formatDate(saved.dateOverride, tz) : "source date"}</p>}
-                  {errors.date && <p id="personal-date-error" role="alert" className="text-sm text-destructive">{errors.date}</p>}
+                  {errors["date"] && <p id="personal-date-error" role="alert" className="text-sm text-destructive">{errors["date"]}</p>}
                 </div>
-                {errors.save && <p role="alert" className="text-sm text-destructive">{errors.save}</p>}
+                {errors["save"] && <p role="alert" className="text-sm text-destructive">{errors["save"]}</p>}
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" disabled={pending} onClick={async () => {
                     if (busy.current) return;
                     const invalid: Record<string, string> = {};
                     if (v.a.personal) {
-                      if (!title.trim()) invalid.title = "Enter a title.";
-                      const error = personalDateError(date); if (error) invalid.date = error;
+                      if (!title.trim()) invalid["title"] = "Enter a title.";
+                      const error = personalDateError(date); if (error) invalid["date"] = error;
                     } else {
-                      const error = importedDateError(date); if (error) invalid.date = error;
+                      const error = importedDateError(date); if (error) invalid["date"] = error;
                     }
                     setErrors(invalid); if (Object.keys(invalid).length) return;
                     const patch: OverlayPatch = v.a.personal ? { titleOverride: title.trim() || undefined, dateOverride: date } : dirtyOverlayPatch(saved, title, date);

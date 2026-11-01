@@ -66,14 +66,14 @@ function PairCard({ pair, s, left, right }: { pair: Pair; s: Snapshot; left: Sou
       </select>
     </label>)}
     {submissionConflict && <label className="block text-sm">Choose submission observation:
-      <select aria-label="Choose submission observation" className="ml-2 rounded border bg-card p-1" value={choices.submission ?? ""} onChange={(e) => setChoices({ ...choices, submission: e.target.value })}>
+      <select aria-label="Choose submission observation" className="ml-2 rounded border bg-card p-1" value={choices["submission"] ?? ""} onChange={(e) => setChoices({ ...choices, submission: e.target.value })}>
         <option value="">Choose an observation</option>
         <option value={left.id}>{left.kind}: {firstSubmission.status} · {firstSubmission.observedAt}</option>
         <option value={right.id}>{right.kind}: {secondSubmission.status} · {secondSubmission.observedAt}</option>
       </select>
     </label>}
     <div className="flex gap-2">
-      <Button size="sm" disabled={conflicts.some((field) => !choices[field]) || !!submissionConflict && !choices.submission} onClick={() => void run((a) => a.decideReconciliation(pair.id, pair.fingerprint, pair.reviewRevision, "confirm", choices))}>Confirm match</Button>
+      <Button size="sm" disabled={conflicts.some((field) => !choices[field]) || !!submissionConflict && !choices["submission"]} onClick={() => void run((a) => a.decideReconciliation(pair.id, pair.fingerprint, pair.reviewRevision, "confirm", choices))}>Confirm match</Button>
       <Button size="sm" variant="outline" onClick={() => void run((a) => a.decideReconciliation(pair.id, pair.fingerprint, pair.reviewRevision, "reject", {}))}>Reject match</Button>
     </div>
   </article>;
