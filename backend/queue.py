@@ -113,23 +113,25 @@ class QueueService:
     def read(self, run_id, cursor=None, limit=100): return self.tx(lambda c:self._run(c, run_id, cursor, limit))
 
     def cancel(self, run_id):
-        def action(c):
-            run = self._run(c, run_id, None, 100)
-            if run['status'] == 'completed' or run['cancelled']: return run
-            self.execute(c, 'UPDATE queue_runs SET cancelled=1 WHERE namespace=? AND id=?', self.ns, run_id)
-            self.execute(c, """UPDATE queue_jobs SET state='cancelled', generation=generation+1, token=NULL, expires=NULL
-                WHERE namespace=? AND state IN ('pending','running') AND id IN
-                (SELECT job_id FROM queue_links WHERE namespace=? AND run_id=?) AND NOT EXISTS
-                (SELECT 1 FROM queue_links l JOIN queue_runs r ON r.namespace=l.namespace AND r.id=l.run_id
-                 WHERE l.namespace=queue_jobs.namespace AND l.job_id=queue_jobs.id AND r.cancelled=0)""", self.ns, self.ns, run_id)
-            return self._run(c, run_id, None, 100)
-        return self.tx(action)
+        return self.tx(lambda c: self._cancel(c, run_id))
+
+    def _cancel(self, c, run_id):
+        run = self._run(c, run_id, None, 100)
+        if run['status'] == 'completed' or run['cancelled']: return run
+        self.execute(c, 'UPDATE queue_runs SET cancelled=1 WHERE namespace=? AND id=?', self.ns, run_id)
+        self.execute(c, """UPDATE queue_jobs SET state='cancelled', generation=generation+1, token=NULL, expires=NULL
+            WHERE namespace=? AND state IN ('pending','running') AND id IN
+            (SELECT job_id FROM queue_links WHERE namespace=? AND run_id=?) AND NOT EXISTS
+            (SELECT 1 FROM queue_links l JOIN queue_runs r ON r.namespace=l.namespace AND r.id=l.run_id
+             WHERE l.namespace=queue_jobs.namespace AND l.job_id=queue_jobs.id AND r.cancelled=0)""", self.ns, self.ns, run_id)
+        return self._run(c, run_id, None, 100)
 
     def claim(self):
         def action(c):
             now=int(self.clock())
             # Expiration is a reclaim, never a successful completion.
             self.execute(c, "UPDATE queue_jobs SET state='pending',token=NULL,expires=NULL WHERE namespace=? AND kind=? AND state='running' AND expires<=?", self.ns, self.kind, now)
+            self._before_claim(c, now)
             active=self.execute(c, "SELECT count(*) FROM queue_jobs WHERE namespace=? AND kind=? AND state='running' AND expires>?", self.ns, self.kind, now).scalar_one()
             unfinished=bool(self.execute(c, "SELECT 1 FROM queue_jobs WHERE namespace=? AND kind=? AND state IN ('pending','running') LIMIT 1", self.ns, self.kind).first())
             if active>=self.concurrency: return {'unfinished':unfinished}
@@ -145,6 +147,9 @@ class QueueService:
             self._enrich_claim(c, row, claim)
             return {'unfinished':True,'claim':claim}
         return self.tx(action)
+
+    def _before_claim(self, c, now):
+        pass
 
     def _enrich_claim(self, c, row, claim):
         pass

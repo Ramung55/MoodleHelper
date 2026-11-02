@@ -15,7 +15,10 @@ from backend.sqlite_store import SQLiteStore
 from pathlib import Path
 
 
-@pytest.mark.parametrize('injected', [False, True])
+# #20: the trusted real namespace without an injected provider now runs the live scan
+# (tests/test_live_scan.py). A non-demo dataset whose scan context is not the verified
+# startup context (here the injected synthetic harness) still fails closed with 503.
+@pytest.mark.parametrize('injected', [True])
 def test_non_demo_sync_unavailable_without_mutating_snapshot_or_queue(tmp_path, injected):
     namespace = namespace_key('moodle', origin='https://moodle.sdu.edu.kz', profile_label='test', stable_user_id='synthetic')
     store = SQLiteStore(URL.create('sqlite', database=str(tmp_path / 'sync.sqlite3')), namespace)

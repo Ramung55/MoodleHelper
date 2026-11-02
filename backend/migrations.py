@@ -2,7 +2,7 @@
 from sqlalchemy import Connection
 from uuid import uuid4
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 class MigrationError(RuntimeError):
@@ -112,7 +112,16 @@ def version_eleven_to_twelve(connection: Connection) -> None:
         PRIMARY KEY(namespace,idem))""")
 
 
-MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight, 8: version_eight_to_nine, 9: version_nine_to_ten, 10: version_ten_to_eleven, 11: version_eleven_to_twelve}
+def version_twelve_to_thirteen(connection: Connection) -> None:
+    # #20 live request authority: the gate remembers which worker instance holds it
+    # and for which request key; per-request retryable failure counts survive restart.
+    connection.exec_driver_sql("ALTER TABLE scan_request_gate ADD COLUMN owner_instance TEXT")
+    connection.exec_driver_sql("ALTER TABLE scan_request_gate ADD COLUMN owner_request_key TEXT")
+    connection.exec_driver_sql("""CREATE TABLE scan_request_failures (
+        request_key TEXT PRIMARY KEY, failures INTEGER NOT NULL CHECK(failures BETWEEN 1 AND 3))""")
+
+
+MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_to_four, 4: version_four_to_five, 5: version_five_to_six, 6: version_six_to_seven, 7: version_seven_to_eight, 8: version_eight_to_nine, 9: version_nine_to_ten, 10: version_ten_to_eleven, 11: version_eleven_to_twelve, 12: version_twelve_to_thirteen}
 
 
 def upgrade(connection: Connection) -> None:

@@ -91,6 +91,21 @@ class CollectionService:
         return (isinstance(self.store, SQLiteStore) and isinstance(self.provider, SyntheticCollectionContext)
                 and self.provider.enabled and self.provider.namespace == self.store.namespace)
 
+    def _mode(self):
+        """synthetic: injected harness; verified: the trusted startup real namespace.
+
+        The real (non-demo) namespace is chosen only at trusted startup, never by a
+        request. Live scan evidence is labelled verified and never mixed with the
+        synthetic harness, which keeps its injected provider.
+        """
+        from backend.identity import namespace_key
+        from backend.sqlite_store import SQLiteStore
+        if self._enabled():
+            return 'synthetic'
+        if self.provider is None and isinstance(self.store, SQLiteStore) and self.store.namespace != namespace_key():
+            return 'verified'
+        return 'disabled'
+
     def _context(self, snapshot):
         mapping = []
         all_sources=[c.get('discovery',{}).get('sourceCourseId') for c in snapshot['courses']]
@@ -102,8 +117,9 @@ class CollectionService:
                 if any(c['sourceCourseId']==source for c in mapping): reject()
                 mapping.append(dict(courseId=course['id'],sourceCourseId=source))
         revision = sha256(canonical([self.epoch,id(self.provider),snapshot['settings']['trackedCourseIds'],mapping]).encode()).hexdigest()
-        return dict(version='1',binding=self.binding,mode='synthetic' if self._enabled() else 'disabled',selectionRevision=revision,courses=mapping,
-                    **({} if self._enabled() else {'reason':'collection_disabled'}))
+        mode = self._mode()
+        return dict(version='1',binding=self.binding,mode=mode,selectionRevision=revision,courses=mapping,
+                    **({} if mode != 'disabled' else {'reason':'collection_disabled'}))
 
     def context(self):
         with self.lock:
@@ -113,7 +129,7 @@ class CollectionService:
         with self.lock:
             snapshot=self.store.read()
             context = self._context(snapshot)
-            if context['mode']=='disabled' or body['selectionRevision']!=context['selectionRevision'] or not context['courses']: reject()
+            if context['mode']!='synthetic' or body['selectionRevision']!=context['selectionRevision'] or not context['courses']: reject()
             for field in ['documentKey','visitId']:
                 if not re.fullmatch(r'[A-Za-z0-9:._-]{1,256}',body[field]): reject()
             kind, page_id = route(body['pageUrl'])
@@ -264,7 +280,8 @@ class CollectionService:
         collector=body['collector']; result=body['result']
         page=entry['body']['pageUrl']
         current=self._context(snapshot)
-        if current['selectionRevision']!=entry['revision'] or not self._enabled(): reject()
+        mode=self._mode()
+        if current['selectionRevision']!=entry['revision'] or mode=='disabled': reject()
         mapping={c['sourceCourseId']:c['courseId'] for c in current['courses']}
         from datetime import date
         for page_facts in result.get('pages',[]):
@@ -321,7 +338,7 @@ class CollectionService:
             if candidate: r['candidate']=deepcopy(candidate)
             layer['reviews'].append(r)
         outcome='unavailable' if result['kind']=='unavailable' else 'failed' if result['kind']=='failed' else 'ok' if result['coverage']=='complete' else 'partial'
-        receipt=dict(visitId=entry['body']['visitId'],pageUrl=page,observedAt=body['observedAt'],collector=collector,sourceCourseIds=sorted(courseids),outcome=outcome,coverage=result.get('coverage','none'),scope=result.get('scope','visited_activity_only'),reasons=result.get('reasons',[d['reason'] for d in result.get('diagnostics',[])]),evidenceMode='synthetic',pages=result.get('pages',[]))
+        receipt=dict(visitId=entry['body']['visitId'],pageUrl=page,observedAt=body['observedAt'],collector=collector,sourceCourseIds=sorted(courseids),outcome=outcome,coverage=result.get('coverage','none'),scope=result.get('scope','visited_activity_only'),reasons=result.get('reasons',[d['reason'] for d in result.get('diagnostics',[])]),evidenceMode=mode,pages=result.get('pages',[]))
         if activity: receipt['sourceActivityId']=activity
         if cm: receipt['sourceCourseModuleId']=cm
         layer['refreshes'].append(receipt)

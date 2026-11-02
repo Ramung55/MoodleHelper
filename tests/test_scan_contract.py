@@ -31,4 +31,5 @@ def test_scan_contract_operation_surface():
     paths = {path for path in document['paths'] if path.startswith('/api/scan/')}
     assert paths == {'/api/scan/runs', '/api/scan/runs/{runId}',
                      '/api/scan/runs/{runId}/cancel', '/api/scan/claim',
-                     '/api/scan/renew', '/api/scan/finish', '/api/scan/jobs/{jobId}/pages'}
+                     '/api/scan/renew', '/api/scan/finish', '/api/scan/jobs/{jobId}/pages',
+                     '/api/scan/gate/acquire', '/api/scan/gate/release'}

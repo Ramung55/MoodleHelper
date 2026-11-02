@@ -25,6 +25,8 @@ def source_date(sources: list[dict]) -> dict:
 
 
 SYNC_UNAVAILABLE = 'Live course sync is unavailable until Moodle access is verified.'
+LIVE_SYNC = ('Real dataset. Sync all scans the selected courses read-only through the Moodle Helper '
+             'Chrome extension; sign in to SDU Moodle in Chrome first.')
 
 
 class SyncUnavailable(RuntimeError):
@@ -37,6 +39,9 @@ class BackendService:
 
     def connection(self) -> dict:
         if self.store.namespace != namespace_key():
+            from backend.sqlite_store import SQLiteStore
+            if isinstance(self.store, SQLiteStore):
+                return {'state': 'disconnected', 'extensionDetected': False, 'message': LIVE_SYNC}
             return {'state': 'disconnected', 'extensionDetected': False, 'message': SYNC_UNAVAILABLE}
         return {"state": "demo", "extensionDetected": False,
                 "message": "Local fictional demo data. Chrome extension not connected; nothing is collected from Moodle."}
@@ -201,9 +206,13 @@ class BackendService:
             s["overlays"] = [o for o in s["overlays"] if o["assessmentId"] != id]
         return self.store.mutate(apply)
 
-    def sync_all(self) -> dict:
+    def sync_all(self, scan=None) -> dict:
         if self.store.namespace != namespace_key():
-            raise SyncUnavailable(SYNC_UNAVAILABLE)
+            # Real namespace: queue a read-only scan of the selected courses (#20).
+            from backend.sqlite_store import SQLiteStore
+            if scan is None or not isinstance(self.store, SQLiteStore) or scan.collection._mode() != 'verified':
+                raise SyncUnavailable(SYNC_UNAVAILABLE)
+            return scan.sync()
         def apply(s):
             for state in s["sync"]:
                 if state["courseId"] not in s["settings"]["trackedCourseIds"]:

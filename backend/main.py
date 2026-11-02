@@ -22,7 +22,7 @@ from backend.storage import SnapshotStore
 from backend.database_config import DatabaseConfig
 from backend.sqlite_store import SQLiteStore, StorageError
 from backend.collection import CollectionService, CollectionRejected
-from backend.scan_queue import ScanQueueService
+from backend.scan_queue import ScanQueueService, SyncConflict
 from backend.backup_restore import RestoreService, MAX_BACKUP_BYTES
 from backend.local_erase import EraseService
 from backend.storage import EpochConflict, expected_epoch
@@ -241,6 +241,10 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     @app.exception_handler(ReconciliationConflict)
     async def reconciliation_error(request: Request, error: ReconciliationConflict):
         return JSONResponse(status_code=409, content={'message': str(error)})
+
+    @app.exception_handler(SyncConflict)
+    async def sync_conflict(request: Request, error: SyncConflict):
+        return JSONResponse(status_code=409, content={'message': error.message})
 
     @app.exception_handler(SyncUnavailable)
     async def sync_unavailable(request: Request, error: SyncUnavailable):

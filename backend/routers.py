@@ -168,9 +168,9 @@ def delete_personal_event(id: str, api: Service):
     return api.delete_personal_event(id)
 
 
-@router.post("/sync", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="syncAll", tags=["Sync"], responses={503:{'model':s.SyncUnavailableError}})
-def sync(api: Service):
-    return api.sync_all()
+@router.post("/sync", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="syncAll", tags=["Sync"], responses={409:{'model':s.SyncConflictError}, 503:{'model':s.SyncUnavailableError}})
+def sync(api: Service, request: Request):
+    return api.sync_all(getattr(request.app.state, 'scan', None))
 
 
 @router.post("/documents/import", response_model=s.ImportDocumentResponse, response_model_exclude_none=True, operation_id="importDocument", tags=["Documents"])
@@ -280,6 +280,12 @@ def renew_scan(body:s.QueueClaimToken, request:Request): return scan(request).re
 
 @scan_router.post('/finish', response_model=s.ScanJob, response_model_exclude_none=True, operation_id='finishScanClaim', tags=['Scan'], dependencies=[Depends(queue_binding)])
 def finish_scan(body:s.ScanFinish, request:Request): return scan(request).finish(wire(body))
+
+@scan_router.post('/gate/acquire', response_model=s.ScanGateReservation, response_model_exclude_none=True, operation_id='acquireScanGate', tags=['Scan'], dependencies=[Depends(queue_binding)])
+def acquire_scan_gate(body:s.ScanGateAcquire, request:Request): return scan(request).gate_acquire(body.nowMs, body.instance, body.requestKey)
+
+@scan_router.post('/gate/release', response_model=s.ScanGateReleaseResult, operation_id='releaseScanGate', tags=['Scan'], dependencies=[Depends(queue_binding)])
+def release_scan_gate(body:s.ScanGateRelease, request:Request): return scan(request).gate_release(body.token, body.notBeforeMs, body.requestKey, body.retryFailure)
 
 @scan_router.get('/jobs/{jobId}/pages', response_model=s.ScanPageList, response_model_exclude_none=True, operation_id='readScanJobPages', tags=['Scan'])
 def read_scan_pages(jobId:s.QueueId, request:Request, cursor:s.QueueId=None, limit:Annotated[int, __import__('fastapi').Query(ge=1,le=100)]=100): return scan(request).pages(jobId,cursor,limit)
