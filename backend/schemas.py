@@ -1276,6 +1276,8 @@ class QueueRenewResponse(QueueModel):
 ScanReason = Literal['undiscovered','unsupported_page','collector_unavailable','access_error','signed_out','forbidden','request_failed','limit_reached','invalid_context']
 ScanCollector = Literal['assignment','calendar','material','quiz','submission']
 ScanError = Literal['signed_out','request_failed','invalid_context']
+# claim_limit is server-assigned only (scan job claim cap); workers cannot submit it.
+ScanJobError = Literal['signed_out','request_failed','invalid_context','claim_limit']
 ScanRevision = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
 
 def scan_page_schema(record=False, result_refs=None):
@@ -1318,7 +1320,7 @@ class ScanJob(QueueModel):
     state: QueueState
     attempts: QueueCount
     generation: QueueCount
-    errorCode: ScanError = None
+    errorCode: ScanJobError = Field(default=None, description="claim_limit is set only by the server when a scan job reached its claim cap of 3 without finishing; workers cannot submit it.")
 
 class ScanRun(QueueModel):
     id: QueueId
@@ -1415,6 +1417,38 @@ class ScanPageList(QueueModel):
 
 class SyncUnavailableError(QueueModel):
     message: Literal['Live course sync is unavailable until Moodle access is verified.']
+
+SYNC_NO_COURSES = 'Select at least one course to sync.'
+SYNC_UNLINKED_COURSE = 'A selected course is not linked to a Moodle course.'
+SYNC_ALREADY_RUNNING = 'A sync is already running for one of the selected courses. Try again when it finishes.'
+
+class SyncConflictError(QueueModel):
+    message: Literal['Select at least one course to sync.', 'A selected course is not linked to a Moodle course.',
+                     'A sync is already running for one of the selected courses. Try again when it finishes.',
+                     'Backend context changed. Reconnect.']
+
+# Durable pacing for the extension's live Moodle request authority (#20).
+GateTime = Annotated[int, Field(ge=0, le=9007199254740991)]
+GateRequestKey = Annotated[str, Field(min_length=1, max_length=8192)]
+
+class ScanGateAcquire(QueueModel):
+    nowMs: GateTime
+    instance: QueueId
+    requestKey: GateRequestKey = None
+
+class ScanGateReservation(QueueModel):
+    state: Literal['reserved', 'busy', 'exhausted']
+    token: QueueId = None
+    failures: Annotated[int, Field(ge=0, le=2)] = None
+
+class ScanGateRelease(QueueModel):
+    token: QueueId
+    notBeforeMs: GateTime
+    requestKey: GateRequestKey = None
+    retryFailure: bool = None
+
+class ScanGateReleaseResult(QueueModel):
+    released: bool
 
 
 

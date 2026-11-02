@@ -458,19 +458,32 @@ paths:
       operationId: syncAll
       tags:
       - Sync
-      summary: Run the explicitly labeled demo sync
-      description: No request body. The startup-selected demo dataset returns a final
-        Snapshot with fictional simulated results; it does not contact Moodle. A non-demo
-        dataset returns HTTP 503 with the fixed message "Live course sync is unavailable
-        until Moodle access is verified." and changes no data or queue state. Clients
-        cannot select the dataset in this request. Real Moodle sync is unavailable
-        pending verified identity, site evidence and safe request authority.
+      summary: Sync all selected courses (demo simulation or live read-only scan)
+      description: 'No request body. Clients cannot select the dataset in this request.
+        The startup-selected demo dataset keeps its labelled simulation: it returns
+        a final Snapshot with fictional results and does not contact Moodle. The startup-selected
+        real (non-demo) dataset on file-backed SQLite starts a read-only scan run of
+        the currently selected courses with a server-generated idempotency key, in
+        one transaction with setting each selected course''s Snapshot sync entry to
+        status syncing and progress 0, and returns HTTP 200 with that Snapshot. The
+        Chrome extension service worker then claims one scan job per selected course
+        through /api/scan/claim; jobs already pending or running for a selected course
+        are shared, so a second Sync all creates no second job for the same course.
+        HTTP 409 with a fixed message and nothing written: "Select at least one course
+        to sync." (no course selected); "A selected course is not linked to a Moodle
+        course." (a selected course has no unique Moodle mapping); "A sync is already
+        running for one of the selected courses. Try again when it finishes." (an
+        active job of another kind for a selected course). A real dataset on any other
+        store returns HTTP 503 with the fixed message "Live course sync is unavailable
+        until Moodle access is verified." and changes no data or queue state.'
       security: []
       x-frontend-method: MoodleHelperAdapter.syncAll
       x-http-mapping: proposed
       responses:
         '200':
-          description: Final adapter return value (proposed HTTP success status).
+          description: Demo; the final simulated Snapshot. Real dataset; the Snapshot
+            with the selected courses' sync entries set to syncing (the scan is queued,
+            not finished).
           content:
             application/json:
               schema:
@@ -478,7 +491,13 @@ paths:
         default:
           $ref: '#/components/responses/ProposedHttpFailure'
         '409':
-          $ref: '#/components/responses/BridgeContextChanged'
+          description: A fixed sync conflict message, or a stale process binding ("Backend
+            context changed. Reconnect."). No run, job, link or Snapshot change was
+            written.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncConflictError'
         '503':
           description: Moodle sync is unavailable; no work was scheduled and no data
             changed.
@@ -1445,6 +1464,10 @@ paths:
             schema:
               $ref: '#/components/schemas/QueueClaimInput'
       description: Claim scan-kind jobs only. A claim is not a request authority.
+        Each scan job is claimed at most 3 times (claim cap). A pending scan job that
+        already used 3 claims without finishing, for example after repeated worker
+        crashes or lease expiry, is failed with errorCode claim_limit and its course's
+        Snapshot sync entry becomes failed, instead of being claimed again.
   /api/scan/renew:
     post:
       operationId: renewScanClaim
@@ -1561,7 +1584,129 @@ paths:
             schema:
               $ref: '#/components/schemas/ScanFinish'
       description: Complete only a valid scan claim with the atomic merge and coverage
-        transaction.
+        transaction. The same transaction writes the course's Snapshot sync entry
+        (completed with complete coverage gives ok/full; completed with any incomplete
+        page type gives partial/partial; failed gives failed with a fixed error text;
+        lastSuccessAt only for a completed job). A failed job with errorCode signed_out
+        also fails every other still-pending job of its runs as signed_out without
+        a Moodle request, with the fixed sign-in guidance as their sync error, so no
+        further Moodle request is made until a new Sync all. Retry failure counts
+        of the job's gate request keys are removed.
+  /api/scan/gate/acquire:
+    post:
+      operationId: acquireScanGate
+      tags:
+      - Scan
+      security: []
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        description: Required current backend process binding. A stale or absent binding
+          returns 409 before processing.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanGateReservation'
+        '409':
+          description: Stale process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable or not file-backed SQLite
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanGateAcquire'
+      description: Durable pacing behind the extension's in-memory single-flight Moodle
+        request authority. Reserves the one scan_request_gate row when it is free and
+        nowMs is at least max(notBefore, lastStart + 1000); the reservation records
+        lastStart=nowMs and the caller's worker instance. A gate still held by a different
+        worker instance (a previous service worker) is reclaimed only once nowMs is
+        at least lastStart + 30000, the hard per-request time limit. With a requestKey,
+        a key with 3 recorded retryable failures returns exhausted and reserves nothing.
+        Busy returns no token. Deadlines are never shortened.
+  /api/scan/gate/release:
+    post:
+      operationId: releaseScanGate
+      tags:
+      - Scan
+      security: []
+      parameters:
+      - name: X-Moodle-Helper-Bridge-Binding
+        in: header
+        required: true
+        description: Required current backend process binding. A stale or absent binding
+          returns 409 before processing.
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanGateReleaseResult'
+        '409':
+          description: Stale process binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '422':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        '503':
+          description: Storage unavailable or not file-backed SQLite
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+        default:
+          description: Safe error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedHttpError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanGateRelease'
+      description: Called only after the Moodle fetch settled (body read, or the abort
+        or error observed). Releases a matching reservation and raises notBefore to
+        notBeforeMs (never lowers it). retryFailure true increments the requestKey
+        failure count; false clears it. A token or requestKey that does not match the
+        current owner releases nothing.
   /api/scan/jobs/{jobId}/pages:
     get:
       operationId: readScanJobPages
@@ -6055,12 +6200,15 @@ components:
         generation:
           type: integer
           minimum: 0
-        errorCode: &id043
+        errorCode:
           type: string
           enum:
           - signed_out
           - request_failed
           - invalid_context
+          - claim_limit
+          description: claim_limit is set only by the server when a scan job reached
+            its claim cap of 3 without finishing; workers cannot submit it.
       required:
       - id
       - courseId
@@ -6592,7 +6740,12 @@ components:
             $ref: '#/components/schemas/ScanPageInput'
           maxItems: 100
         incompleteReasons: *id042
-        errorCode: *id043
+        errorCode:
+          type: string
+          enum:
+          - signed_out
+          - request_failed
+          - invalid_context
       required:
       - jobId
       - generation
@@ -6601,7 +6754,7 @@ components:
       - outcome
       - pages
       - incompleteReasons
-      description: Atomically validate claim, live demand, synthetic context, selection
+      description: Atomically validate claim, live demand, synthetic or verified context, selection
         and unique mapping; merge accepted source observations, store page coverage
         and finish. Stale or cancelled claims commit nothing. A completed job does
         not assert complete course coverage.
@@ -6677,6 +6830,93 @@ components:
           const: Live course sync is unavailable until Moodle access is verified.
       required:
       - message
+    SyncConflictError:
+      type: object
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          enum:
+          - Select at least one course to sync.
+          - A selected course is not linked to a Moodle course.
+          - A sync is already running for one of the selected courses. Try again when
+            it finishes.
+          - Backend context changed. Reconnect.
+      required:
+      - message
+    ScanGateAcquire:
+      type: object
+      additionalProperties: false
+      properties:
+        nowMs:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        instance:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+        requestKey:
+          type: string
+          minLength: 1
+          maxLength: 8192
+      required:
+      - nowMs
+      - instance
+    ScanGateReservation:
+      type: object
+      additionalProperties: false
+      properties:
+        state:
+          type: string
+          enum:
+          - reserved
+          - busy
+          - exhausted
+        token:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+        failures:
+          type: integer
+          minimum: 0
+          maximum: 2
+      required:
+      - state
+      description: reserved carries token, and failures when a requestKey was given;
+        busy and exhausted carry neither.
+    ScanGateRelease:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._~-]+$
+        notBeforeMs:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        requestKey:
+          type: string
+          minLength: 1
+          maxLength: 8192
+        retryFailure:
+          type: boolean
+      required:
+      - token
+      - notBeforeMs
+    ScanGateReleaseResult:
+      type: object
+      additionalProperties: false
+      properties:
+        released:
+          type: boolean
+      required:
+      - released
     AlertChange:
       properties:
         changeId:
