@@ -91,14 +91,17 @@ describe("#14 verified-support registry", () => {
       });
     }
   });
-  it("is not dispatched by the production page-refresh registries", () => {
+  it("is dispatched only by the #20 live scan registry, never by visited-page refresh", () => {
     const sources = readdirSync(resolve(__dirname, "../../../extension/src")).filter(
       (f) => f.endsWith(".ts") && f !== "moodle-quizzes.ts",
     );
-    for (const file of sources)
-      expect(
-        readFileSync(resolve(__dirname, "../../../extension/src", file), "utf8"),
-      ).not.toContain("moodle-quizzes");
+    const importers = sources.filter((file) =>
+      readFileSync(resolve(__dirname, "../../../extension/src", file), "utf8").includes("moodle-quizzes"));
+    // page-refresh.ts holds the live registry adapter; moodle-page-analysis.ts reads course-page titles.
+    expect(importers.sort()).toEqual(["moodle-page-analysis.ts", "page-refresh.ts"]);
+    const content = readFileSync(resolve(__dirname, "../../../extension/src/content.ts"), "utf8");
+    expect(content).toContain("registry:disabledRegistry()");
+    expect(content).not.toContain("liveRegistry");
   });
 });
 

@@ -179,6 +179,18 @@ describe("HTTP outcomes", () => {
     expect(progress).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "Select at least one course to sync.",
+    "A selected course is not linked to a Moodle course.",
+    "A sync is already running for one of the selected courses. Try again when it finishes.",
+  ])("shows the fixed Sync all 409 %j once, without a retry or progress snapshot", async (message) => {
+    fetcher.mockResolvedValueOnce(response({ message }, 409));
+    const progress = vi.fn();
+    await expect(api.syncAll(progress)).rejects.toThrow(message);
+    expect(progress).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("rejects malformed successful payloads and never calls progress", async () => {
     fetcher.mockResolvedValueOnce(response({})).mockResolvedValueOnce(response(context)).mockResolvedValueOnce(new Response("<html>error</html>"));
     const progress = vi.fn();

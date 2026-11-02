@@ -116,8 +116,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const s = await enqueue(() => adapter.syncAll(setSnap));
       setSnap(s);
+      // #20: a real-dataset Sync all only queues the scan (sync entries say syncing);
+      // nothing has finished yet, so no success toast is shown.
+      const queued = s.sync.some((c) => c.status === "syncing" && s.settings.trackedCourseIds.includes(c.courseId));
       const failed = s.sync.filter((c) => c.status === "failed").length;
-      if (failed) toast.warning(`${failed} course(s) failed to sync. Earlier data was kept.`);
+      if (queued) { /* progress is shown by the sync entries themselves */ }
+      else if (failed) toast.warning(`${failed} course(s) failed to sync. Earlier data was kept.`);
       else toast.success("Demo sync finished");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Sync failed. Your saved data was not changed.");

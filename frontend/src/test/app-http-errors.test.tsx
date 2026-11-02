@@ -94,6 +94,30 @@ describe("HTTP-backed UI failures", () => {
     expect(screen.getByTestId("snapshot")).toHaveTextContent(String(data.settings.semesterWeeks));
   });
 
+  it("shows a fixed Sync all conflict message without a success toast", async () => {
+    mocks.adapter.syncAll.mockRejectedValueOnce(new Error("A sync is already running for one of the selected courses. Try again when it finishes."));
+    render(<AppProvider><Probe /></AppProvider>);
+    await screen.findByText("Tracked courses");
+    fireEvent.click(screen.getByText("Sync"));
+    await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith("A sync is already running for one of the selected courses. Try again when it finishes."));
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(screen.getByTestId("snapshot")).toHaveTextContent(String(data.settings.semesterWeeks));
+  });
+
+  it("shows no success toast while a live scan is only queued", async () => {
+    const queued = structuredClone(data);
+    for (const entry of queued.sync) if (queued.settings.trackedCourseIds.includes(entry.courseId)) Object.assign(entry, { status: "syncing", progress: 0 });
+    mocks.adapter.syncAll.mockResolvedValueOnce(queued);
+    render(<AppProvider><Probe /></AppProvider>);
+    await screen.findByText("Tracked courses");
+    fireEvent.click(screen.getByText("Sync"));
+    await waitFor(() => expect(screen.getByTestId("sync-state")).toHaveTextContent("idle"));
+    expect(mocks.adapter.syncAll).toHaveBeenCalledOnce();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(mocks.toast.warning).not.toHaveBeenCalled();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
   it("never shows reset success after the backend rejected it", async () => {
     mocks.adapter.resetDemo.mockRejectedValueOnce(new Error("Reset rejected"));
     render(<AppProvider><Probe /></AppProvider>);
