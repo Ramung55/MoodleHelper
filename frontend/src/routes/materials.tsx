@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CourseTag, EmptyState, PageHeader } from "@/components/mh/bits";
 import { useApp } from "@/lib/app-store";
-import { downloadable, isActive, supportsDownloads, transferLabel, type MaterialDownloads, type MaterialTransfer } from "@/domain/material-transfer";
+import { ALREADY_IN_PROGRESS, downloadable, isActive, supportsDownloads, transferLabel, type MaterialDownloads, type MaterialTransfer } from "@/domain/material-transfer";
 import { currentDataset } from "@/services/local-documents";
 import { LIBRARY_TYPES, TYPE_LABEL, attemptReasons, buildMaterialLibrary, filterLibrary, latestMaterialAttempts, type LibraryItem, type LibraryType } from "@/domain/material-library";
 
@@ -57,7 +57,7 @@ function useTransfers(api: MaterialDownloads | null) {
     try {
       const r = await api.startMaterialDownload(await currentDataset(), materialId, crypto.randomUUID());
       if (r.transfer) setByMaterial((m) => new Map(m).set(materialId, r.transfer!));
-      if (!r.supported) toast.info(r.message);
+      if (!r.supported || r.message === ALREADY_IN_PROGRESS) toast.info(r.message);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Download request failed.");
     } finally {

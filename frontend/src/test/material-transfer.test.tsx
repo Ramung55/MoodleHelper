@@ -26,10 +26,28 @@ describe("#41 transfer labels", () => {
     expect(l.text).toContain("may since have been moved or removed");
   });
   it("failure and cancel never claim offline availability; sign-in guidance", () => {
-    expect(transferLabel(base({ state: "failed", reason: "sign_in_required" })).text).toContain("Sign in to Moodle");
+    expect(transferLabel(base({ state: "failed", reason: "sign_in_required" })).text).toContain("Sign in to SDU Moodle in Chrome");
     expect(transferLabel(base({ state: "failed", reason: "sign_in_required" })).text).toContain("Nothing was saved");
     expect(transferLabel(base({ state: "cancelled", reason: "cancelled_by_user" })).text).toContain("Nothing is available offline");
     expect(transferLabel(base({ state: "interrupted", reason: "page_closed" })).canRetry).toBe(true);
+  });
+  it("#41 pilot texts: sign-in, not a file and busy; the old combined redirect text is gone", () => {
+    expect(transferLabel(base({ state: "failed", reason: "sign_in_required" })).text)
+      .toBe("Download failed. Moodle returned a login page instead of the file. Sign in to SDU Moodle in Chrome, then retry. Nothing was saved.");
+    expect(transferLabel(base({ state: "failed", reason: "not_a_file" })).text)
+      .toBe("Download failed. This resource opens as a Moodle page, not a file. Open it in Moodle.");
+    expect(transferLabel(base({ state: "failed", reason: "network" })).text)
+      .toBe("Download failed. Moodle is busy. Try again later. Nothing was saved.");
+    const reasons = ["sign_in_required", "forbidden", "not_found", "network", "unsupported_type", "too_large", "timeout", "not_a_file", "download_interrupted", "page_closed", "outcome_unknown"] as const;
+    for (const reason of reasons) {
+      for (const state of ["failed", "interrupted"] as const) {
+        const l = transferLabel(base({ state, reason }));
+        expect(l.text).not.toMatch(/unreachable or redirected|redirected the request|often an expired login/);
+        expect(l.text).not.toMatch(/available offline|Download record/);
+        expect(l.canRetry).toBe(true);
+      }
+    }
+    expect(transferLabel(base({ state: "failed", reason: "timeout" })).text).not.toContain("60 seconds");
   });
 });
 
@@ -75,6 +93,22 @@ describe("#41 explicit download control", () => {
     mount({ startMaterialDownload: vi.fn(), listMaterialDownloads: vi.fn(async () => ({ transfers: [base({ state: "complete", downloadId: 9, completedAt: "2026-10-30T10:01:00Z" })] })), cancelMaterialDownload: vi.fn() });
     expect((await screen.findByTestId("transfer-status")).textContent).toContain("Download record");
     expect(screen.getByRole("button", { name: "Download again" })).toBeEnabled();
+  });
+  it("a repeated click answered with the active transfer says it is already in progress", async () => {
+    const { toast } = await import("sonner");
+    const start = vi.fn(async () => ({ supported: true, message: "This download is already in progress.", transfer: base({ state: "validating" }) }));
+    mount({ startMaterialDownload: start, listMaterialDownloads: vi.fn(async () => ({ transfers: [] })), cancelMaterialDownload: vi.fn() });
+    fireEvent.click(await screen.findByRole("button", { name: "Download PDF" }));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("This download is already in progress."));
+    expect(await screen.findByRole("button", { name: "Downloading…" })).toBeDisabled();
+  });
+  it("shows the not-a-file, busy and sign-in outcomes in the materials view", async () => {
+    for (const [reason, text] of [["not_a_file", "opens as a Moodle page, not a file"], ["network", "Moodle is busy. Try again later."], ["sign_in_required", "Sign in to SDU Moodle in Chrome, then retry."]] as const) {
+      mount({ startMaterialDownload: vi.fn(), listMaterialDownloads: vi.fn(async () => ({ transfers: [base({ state: "failed", reason })] })), cancelMaterialDownload: vi.fn() });
+      expect((await screen.findByTestId("transfer-status")).textContent).toContain(text);
+      expect(screen.getByRole("button", { name: "Download again" })).toBeEnabled();
+      cleanup();
+    }
   });
   it("demo/HTTP adapters keep the legacy capability message path", () => {
     mount({});

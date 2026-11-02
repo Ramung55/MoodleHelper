@@ -182,3 +182,23 @@ describe("materials route (#40)", () => {
     expect(adapter.downloadMaterial).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("#41 pilot: a collected SDU PDF resource linked as view.php?id=<cmid>", () => {
+  it("offers Download PDF for that record only and starts exactly that material", async () => {
+    const DATASET = "0b8f6a52-3c1d-4e2f-9a7b-1c2d3e4f5a6b";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ datasetId: DATASET }), { headers: { "content-type": "application/json" } })));
+    try {
+      const viewPdf = rec("r-view", obs({ cm: "990104", title: known("Лекция 1"), section: known("Week 1"), fileType: known("pdf"), destinationUrl: `${O}/mod/resource/view.php?id=990104` }));
+      const start = vi.fn(async () => ({ supported: true, message: "Download queued.", transfer: { transferId: "t1", generation: 0, materialId: "r-view", state: "queued", cancelRequested: false, createdAt: T, updatedAt: T } }));
+      mount(snap([viewPdf, slides, external, folder], (s) => { s.materials = []; }),
+        { adapter: { downloadMaterial: vi.fn(), importDocument: vi.fn(), startMaterialDownload: start, listMaterialDownloads: vi.fn(async () => ({ transfers: [] })), cancelMaterialDownload: vi.fn() } });
+      const buttons = await screen.findAllByRole("button", { name: "Download PDF" });
+      expect(buttons).toHaveLength(1); // PPTX, link and folder are never offered
+      fireEvent.click(buttons[0]!);
+      await vi.waitFor(() => expect(start).toHaveBeenCalledWith(DATASET, "r-view", expect.any(String)));
+      expect(await screen.findByRole("button", { name: "Downloading…" })).toBeDisabled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

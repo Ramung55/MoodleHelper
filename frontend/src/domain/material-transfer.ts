@@ -4,7 +4,7 @@
  * a guarantee that the file still exists on disk.
  */
 export type TransferState = "queued" | "validating" | "saving" | "complete" | "failed" | "cancelled" | "interrupted";
-export type TransferReason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown";
+export type TransferReason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown" | "not_a_file";
 export interface MaterialTransfer {
   transferId: string; generation: number; materialId: string; state: TransferState; reason?: TransferReason;
   downloadId?: number; bytesReceived?: number; totalBytes?: number; cancelRequested: boolean;
@@ -27,18 +27,25 @@ export const supportsDownloads = (a: unknown): a is MaterialDownloads =>
 export const ACTIVE: TransferState[] = ["queued", "validating", "saving"];
 export const isActive = (t?: MaterialTransfer) => !!t && ACTIVE.includes(t.state);
 
+/** Texts the #41 pilot groomed (2026-11-02). */
+export const BUSY_TEXT = "Moodle is busy. Try again later. Nothing was saved.";
+export const NOT_A_FILE_TEXT = "This resource opens as a Moodle page, not a file. Open it in Moodle.";
+/** The backend's answer to a repeated click while a transfer of that material is active. */
+export const ALREADY_IN_PROGRESS = "This download is already in progress.";
 const REASON: Record<TransferReason, string> = {
-  sign_in_required: "Moodle returned a login page instead of the file. Sign in to Moodle in Chrome, then retry. Nothing was saved.",
+  sign_in_required: "Moodle returned a login page instead of the file. Sign in to SDU Moodle in Chrome, then retry. Nothing was saved.",
   forbidden: "Moodle refused access to this file. Nothing was saved.",
   not_found: "Moodle no longer has this file. Nothing was saved.",
-  network: "Moodle could not be reached or redirected the request (often an expired login). Sign in to Moodle in Chrome, then retry. Nothing was saved.",
+  // 429/503 and network errors share the reason `network`; neither is retried automatically.
+  network: BUSY_TEXT,
   unsupported_type: "Moodle did not return a valid PDF. Nothing was saved.",
   too_large: "The file is larger than the 20 MiB limit. Nothing was saved.",
-  timeout: "The download took longer than 60 seconds. Nothing was saved.",
+  timeout: "Moodle did not answer in time. Nothing was saved. Try again later.",
   cancelled_by_user: "Download cancelled. Nothing is available offline.",
   page_closed: "The transfer tab was closed before the download finished. Retry to download again.",
-  download_interrupted: "Chrome interrupted the download; the file may be incomplete. Retry to download again.",
+  download_interrupted: "The download was interrupted before it finished (by Chrome or an extension restart); any partial file is not a download record. Retry to download again.",
   outcome_unknown: "The download outcome is unknown. Check Chrome's downloads list, or retry.",
+  not_a_file: NOT_A_FILE_TEXT,
 };
 const fmtDate = (iso?: string) => {
   const t = iso ? new Date(iso) : null;

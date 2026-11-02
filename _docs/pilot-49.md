@@ -138,7 +138,14 @@ evidence. No credentials were requested or used.
 - #3, #4: no live SDU access or compatibility evidence; collectors are unverified.
 - #14 quiz dates, #16 submission status: open.
 - #20 Sync-all wiring and #21 progress/freshness display: open, so full sync is not trusted.
-- #41 optional material downloads: open.
+- #41 optional material downloads: on for PDFs in the real dataset (owner decision
+  2026-11-02). One explicit **Download PDF** click saves one PDF from
+  `https://moodle.sdu.edu.kz` with the student's own Chrome session, through the #20
+  request authority (one Moodle request at a time, 30 s per request). Demo, synthetic
+  and in-memory data still answer "not available yet". A login page, a resource that
+  opens as a Moodle page, EPUB/DOCX/PPTX and folder entries are never saved (#85 covers
+  other formats). The live Chrome check (issue #41, steps 1–6) is still to be run by the
+  owner; until #83 lands, the real dataset has no SDU PDF materials to download.
 - #42, #44: free-tier Gemini provider implemented but not yet run against the real API.
 - Reminder notification clicks still open the development dashboard
   (`APPROVED_ORIGINS[0]`, `http://127.0.0.1:5173`), not the Pages dashboard.
