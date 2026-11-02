@@ -8,6 +8,7 @@ import {
   type SubmissionStatusObservation,
   type SubmissionStatusResult,
 } from "../../../extension/src/moodle-submission-status";
+import { disabledRegistry, liveRegistry, syntheticFixtureRegistry } from "../../../extension/src/page-refresh";
 import { SubmissionStatus } from "../domain/types";
 
 const origin = "https://moodle.sdu.edu.kz";
@@ -189,12 +190,14 @@ describe("#16 evidence registry", () => {
       expect(cell.evidenceBasis).toBe("upstream-not-seen-on-sdu");
     }
   });
-  it("is not dispatched by any other extension module", () => {
+  it("is used only by the #81 pure adapter and not dispatched by any registry (#20)", () => {
     const dir = resolve(root, "extension/src");
     for (const file of readdirSync(dir).filter(
-      (f) => f.endsWith(".ts") && f !== "moodle-submission-status.ts",
+      (f) => f.endsWith(".ts") && f !== "moodle-submission-status.ts" && f !== "page-refresh.ts",
     ))
       expect(readFileSync(resolve(dir, file), "utf8")).not.toContain("moodle-submission-status");
+    for (const registry of [liveRegistry(), syntheticFixtureRegistry(), disabledRegistry()])
+      expect(registry.submission.availability).toBe("unavailable");
   });
 });
 
