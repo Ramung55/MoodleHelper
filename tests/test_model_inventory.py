@@ -231,3 +231,27 @@ def test_invalid_discovery_discriminators_rejected_by_all_three(patch, contract,
     with pytest.raises(SchemaError):
         contract_validator(contract["components"]["schemas"]["CourseDiscovery"], value)
 
+
+
+@pytest.mark.parametrize("value", [
+    {"status": "submitted", "observedAt": "2026-11-01T10:00:00Z"},
+    {"status": "not_submitted", "evidence": "No submissions have been made yet", "observedAt": "2026-11-01T10:00:00Z"},
+    # #81: optional action-required flag.
+    {"status": "reopened", "evidence": "Reopened", "observedAt": "2026-11-01T10:00:00Z", "actionRequired": True},
+    {"status": "submitted", "observedAt": "2026-11-01T10:00:00Z", "actionRequired": False},
+])
+def test_submission_observation_round_trips_with_optional_action_required(value, contract, contract_validator):
+    contract_validator(contract["components"]["schemas"]["SubmissionObservation"], value)
+    dumped = schemas.SubmissionObservation.model_validate(value).model_dump(exclude_unset=True)
+    assert json.dumps(dumped) == json.dumps(value)
+    parsed = zod("SubmissionObservation", value)
+    assert parsed["success"] and json.dumps(parsed["value"]) == json.dumps(value)
+
+
+def test_submission_observation_rejects_non_boolean_action_required(contract, contract_validator):
+    value = {"status": "reopened", "observedAt": "2026-11-01T10:00:00Z", "actionRequired": "yes"}
+    with pytest.raises(ValidationError):
+        schemas.SubmissionObservation.model_validate(value)
+    assert not zod("SubmissionObservation", value)["success"]
+    with pytest.raises(SchemaError):
+        contract_validator(contract["components"]["schemas"]["SubmissionObservation"], value)

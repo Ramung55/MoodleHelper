@@ -89,6 +89,7 @@ export const SubmissionObservation = z.object({
   status: SubmissionStatus,
   evidence: z.string().optional(),
   observedAt: z.string(),
+  actionRequired: z.boolean().optional(),
 });
 export type SubmissionObservation = z.infer<typeof SubmissionObservation>;
 

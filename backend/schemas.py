@@ -271,6 +271,7 @@ class SubmissionObservation(WireModel):
     status: SubmissionStatus
     evidence: str = None
     observedAt: str
+    actionRequired: bool = None
 
 
 class Assessment(WireModel):

@@ -4100,6 +4100,8 @@ components:
           type: string
         observedAt:
           type: string
+        actionRequired:
+          type: boolean
       required:
       - status
       - observedAt
