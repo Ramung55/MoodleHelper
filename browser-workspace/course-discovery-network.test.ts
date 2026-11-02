@@ -18,6 +18,8 @@ import {afterAll, afterEach, beforeAll, expect, it, vi} from 'vitest';
 import {installExtension} from '../extension/src/index';
 import {installOffscreen} from '../extension/src/offscreen';
 import {startDiscoveryRequest, createMoodlePageSource, ENROLLED_METHOD} from '../extension/src/moodle-page-source';
+import {leaseRequester, runTransfer, type DownloadDelta, type LeaseClientPort} from '../extension/src/material-transfer';
+import type {LeasePort} from '../extension/src/moodle-request-authority';
 
 const root = path.resolve(import.meta.dirname, '..');
 const python = path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
@@ -439,3 +441,126 @@ it('demo dataset: the fixed demo message, no Moodle request and no backend write
   for (const key of ['courses', 'settings', 'assessments', 'overlays']) expect(after[key]).toEqual(before[key]);
   app.worker.dispose();
 }, 60000);
+
+/**
+ * #41 repo check "one request at a time": a #20 scan (Sync all), this #82 discovery and
+ * one explicit material download run at the same time. The download's transfer page
+ * (runTransfer) takes its lease from the installed worker over a fake
+ * chrome.runtime.connect port and uses the same injected Moodle fetch, so the trace
+ * covers every Moodle request of the worker and the page. It lives in this file so its
+ * backend starts after the others here, not in parallel with other suites.
+ */
+it('#41: a download, a #20 scan and a #82 discovery at the same time: at most 1 in-flight Moodle request, starts >= 1000 ms apart', async () => {
+  const backend = new Backend('download'); await backend.start();
+  const CMID = '990104', VIEW = `${ORIGIN}/mod/resource/view.php?id=${CMID}`;
+  const FILE = `${ORIGIN}/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf`;
+  const call = async (route: string, method = 'GET', body?: unknown) => {
+    const r = await backend.write(method, route, body);
+    if (!r.ok) throw Error(`${method} ${route} ${r.status} ${await r.text()}`);
+    return r.json();
+  };
+  // Fixture setup: two tracked courses, and one collected PDF resource linked as its exact view.php?id=<cmid>.
+  const seeded = await call('/api/courses/discovery', 'POST', {observations: ['9001', '9002'].map(id => ({sourceCourseId: id, sourceUrl: `${ORIGIN}/course/view.php?id=${id}`,
+    title: {kind: 'known', value: `Fictional course ${id}`}, termIndicators: {kind: 'unknown'}}))});
+  const ids = seeded.courses.filter((c: any) => c.discovery).map((c: any) => c.id);
+  expect((await backend.write('PUT', '/api/tracked-courses', ids)).status).toBe(200);
+  const ctx = await backend.get('/api/backups/restore-context');
+  const data = await backend.get('/api/snapshot');
+  const at = '2028-03-01T10:00:00Z';
+  data.collection = {reviews: [], refreshes: [], records: [{id: 'r-pdf', courseId: ids[0], kind: 'material', firstObservedAt: at, lastObservedAt: at, observations: [{
+    sourcePageUrl: `${ORIGIN}/course/view.php?id=9001`, sourceUrl: VIEW, destinationUrl: VIEW, observedAt: at, location: 'course.material',
+    sourceCourseId: '9001', sourceCourseModuleId: CMID, sourceModuleType: 'resource', resourceKey: JSON.stringify([ORIGIN, '9001', 'resource', 'module', CMID]),
+    kind: 'file', title: {kind: 'known', value: 'Lecture 1'}, section: {kind: 'unknown'}, fileType: {kind: 'known', value: 'pdf'}, mimeType: {kind: 'unknown'}, references: []}]}]};
+  await call('/api/backups/restore', 'POST', {idempotencyKey: 'seed-material-1', expectedDatasetId: ctx.datasetId, expectedEpoch: ctx.epoch, expectedRevision: ctx.revision,
+    backup: {app: 'moodle-helper', version: 1, exportedAt: at, note: '', datasetId: ctx.datasetId, data}});
+  expect((await backend.get('/api/collection-context')).mode).toBe('verified');
+  const datasetId = (await backend.get('/api/backups/restore-context')).datasetId;
+
+  const coursePage = await readFile(path.join(fixtures, 'observed/course-page.html'), 'utf8');
+  const clock = fresh();
+  const discovery = site();
+  const site_ = moodle(clock, (method, url, attempt, body) => {
+    const course = /course\/view\.php\?id=(\d+)$/.exec(url)?.[1];
+    if (course) return ok(coursePage.replaceAll('course-9001', `course-${course}`).replace(/<li class="activity[\s\S]*?<\/li>/g, ''));
+    if (method === 'GET' && url === VIEW) return {status: 200, body: '%PDF-1.7\n1 0 obj\n%%EOF', finalUrl: FILE, contentType: 'application/pdf',
+      headers: {'content-disposition': 'inline; filename="fixture-document.pdf"'}};
+    return discovery(method, url, attempt, body);
+  });
+  // The installed extension as in install(), plus tabs and runtime.onConnect, the two Chrome APIs the download path adds.
+  const connects: ((port: LeasePort) => void)[] = [], tabs: any[] = [];
+  const messages: any[] = [], offscreen: any[] = [];
+  const runtime: any = {id: 'discovery-test', getURL: (p: string) => `chrome-extension://discovery-test/${p}`,
+    onMessage: {addListener: (f: any) => messages.push(f)}, onStartup: {addListener: () => {}}, onInstalled: {addListener: () => {}},
+    onConnect: {addListener: (f: any) => connects.push(f)},
+    sendMessage: (message: unknown, callback: (reply: unknown) => void) => { for (const listener of offscreen) listener(message, {id: 'discovery-test'}, callback); }};
+  const chrome: any = {runtime, alarms: {create: () => {}, clear: () => {}, onAlarm: {addListener: () => {}}},
+    tabs: {create: (o: any, cb?: (tab: {id: number}) => void) => { tabs.push(o); cb?.({id: 41}); }},
+    permissions: {contains: (_: unknown, cb: (allowed: boolean) => void) => cb(true)},
+    offscreen: {createDocument: async () => { installOffscreen({id: 'discovery-test', onMessage: {addListener: (f: any) => offscreen.push(f)}}); }}};
+  const fetcher = ((input: RequestInfo | URL, init?: RequestInit) => fetch(String(input).replace('http://127.0.0.1:8000', backend.base), init)) as typeof fetch;
+  const worker = installExtension(chrome, {base: backend.base, fetcher,
+    liveScan: {moodleFetch: site_.fetcher, now: () => clock.now, wait: async (ms: number) => { clock.now += ms; await pause(0); }}});
+  let request = 0;
+  const bridge = async (tab: number, operation: string, payload: unknown = {}) => {
+    const sender = {id: 'discovery-test', frameId: 0, tab: {id: tab}, documentId: `document-${tab}`, url: 'http://127.0.0.1:5173/'};
+    const send = (message: any) => new Promise<any>(resolve => { messages[0](message, sender, resolve); });
+    const common = {source: 'moodle-helper-web', type: 'request', version: '1', clientId: `tab-${tab}`};
+    const hello = await send({...common, requestId: `r-${tab}-${++request}`, operation: 'hello', payload: {}});
+    return send({...common, requestId: `r-${tab}-${++request}`, operation, sessionId: hello.result.sessionId, payload});
+  };
+
+  // Sync all starts the scan; while its first request runs, the student clicks Find my courses and Download PDF.
+  expect((await bridge(1, 'syncAll')).ok).toBe(true);
+  for (let i = 0; i < 400 && !site_.starts().length; i++) await pause(10);
+  const found = bridge(2, 'discoverCourses');
+  const started = await bridge(3, 'startMaterialDownload', {datasetId, materialId: 'r-pdf', idempotencyKey: 'click-1'});
+  expect(started.result).toMatchObject({supported: true, transfer: {state: 'queued'}});
+  const transferId = started.result.transfer.transferId as string;
+  expect(tabs).toEqual([{url: `chrome-extension://discovery-test/transfer.html#${transferId}`, active: true}]);
+
+  // The transfer page opened for that transfer: its lease port carries that tab's sender.
+  const sender = {id: 'discovery-test', url: `chrome-extension://discovery-test/transfer.html#${transferId}`, frameId: 0, tab: {id: 41}};
+  const connect = (): LeaseClientPort => {
+    const toPage = {msg: [] as ((m: any) => void)[], disc: [] as (() => void)[]}, toWorker = {msg: [] as ((m: any) => void)[], disc: [] as (() => void)[]};
+    let open = true;
+    connects[0]!({name: 'moodle-transfer-lease', sender,
+      postMessage: m => { if (open) { const c = structuredClone(m); queueMicrotask(() => toPage.msg.forEach(f => f(c))); } },
+      disconnect: () => { if (open) { open = false; queueMicrotask(() => toPage.disc.forEach(f => f())); } },
+      onMessage: {addListener: f => toWorker.msg.push(f)}, onDisconnect: {addListener: f => toWorker.disc.push(f)}});
+    return {postMessage: m => { if (!open) throw Error('closed'); const c = structuredClone(m); queueMicrotask(() => toWorker.msg.forEach(f => f(c))); },
+      disconnect: () => { if (open) { open = false; queueMicrotask(() => toWorker.disc.forEach(f => f())); } },
+      onMessage: {addListener: f => toPage.msg.push(f)}, onDisconnect: {addListener: f => toPage.disc.push(f)}};
+  };
+  const listeners = new Set<(d: DownloadDelta) => void>();
+  const downloads: any[] = [];
+  const view = await runTransfer(transferId, {
+    api: {
+      descriptor: t => call(`/api/material-downloads/${t}/descriptor`, 'POST'),
+      read: t => call(`/api/material-downloads/${t}`),
+      report: (t, b) => call(`/api/material-downloads/${t}/status`, 'POST', b),
+    },
+    fetcher: site_.fetcher as any, lease: leaseRequester(connect),
+    parseHtml: html => new DOMParser().parseFromString(html, 'text/html'),
+    downloads: {
+      download: async (o: any) => { downloads.push(o); setTimeout(() => listeners.forEach(f => f({id: 5, state: {current: 'complete'}})), 5); return 5; },
+      cancel: async () => {}, search: async () => [],
+      onChanged: {addListener: (f: any) => listeners.add(f), removeListener: (f: any) => listeners.delete(f)},
+    },
+    blobs: {create: () => 'blob:transfer/1', revoke: () => {}},
+    render: () => {}, pollMs: 50, closed: new AbortController().signal,
+  });
+  expect((await found).result).toMatchObject({found: 3, coverage: 'complete'});
+  expect(view.phase).toBe('complete');
+  expect(downloads).toEqual([{url: 'blob:transfer/1', filename: 'fixture-document.pdf', conflictAction: 'uniquify', saveAs: false}]);
+  expect(await call(`/api/material-downloads/${transferId}`)).toMatchObject({state: 'complete', downloadId: 5});
+
+  const urls = site_.starts().map(e => e.url);
+  expect(urls.filter(u => u === VIEW)).toHaveLength(1);
+  expect(urls.filter(u => u === SHELL_URL || u === SERVICE_URL)).toEqual([SHELL_URL, SERVICE_URL]);
+  expect(urls.some(u => /course\/view\.php\?id=900[12]$/.test(u))).toBe(true);
+  // At most one in-flight Moodle request across the worker and the transfer page; starts >= 1 s apart.
+  expect(site_.maxActive()).toBe(1); spacing(site_.starts());
+  const events = site_.trace.map(e => e.event);
+  for (let i = 0; i < events.length; i += 2) expect(events.slice(i, i + 2)).toEqual(['start', 'end']);
+  worker.dispose();
+}, 90000);
