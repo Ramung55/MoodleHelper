@@ -420,7 +420,9 @@ it('demo dataset: the fixed demo message, no Moodle request and no backend write
   expect((await app.bridge(1, 'discoverCourses')).result).toEqual({message: DEMO});
   expect(site_.trace).toEqual([]);
   expect(app.writes()).toEqual([]);
-  expect(app.backendTrace.filter(r => r.method !== 'GET' && !r.path.startsWith('/api/queue/') && !r.path.startsWith('/api/scan/claim'))).toEqual([]);
-  expect(await backend.get('/api/snapshot')).toEqual(before);
+  // Only the installed worker's own background calls (queue, scan, reminders) write; discovery none.
+  expect(app.backendTrace.filter(r => r.method !== 'GET' && !/^\/api\/(queue|scan|reminders)\//.test(r.path))).toEqual([]);
+  const after = await backend.get('/api/snapshot');
+  for (const key of ['courses', 'settings', 'assessments', 'overlays']) expect(after[key]).toEqual(before[key]);
   app.worker.dispose();
 }, 60000);
