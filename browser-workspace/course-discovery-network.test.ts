@@ -174,6 +174,11 @@ function install(backend: Backend, clock: {now: number}, moodleFetch: typeof fet
   return {worker, bridge, replies, offscreenMessages, storageWrites, backendTrace, writes, alarm: () => alarms[0]!({name: 'moodle-helper-mock-queue'})};
 }
 const discovered = (snapshot: any) => snapshot.courses.filter((c: any) => c.discovery).map((c: any) => c.discovery.sourceCourseId).sort();
+const CODES = ['DEMO101', 'DEMO202', 'DEMO303'];
+/** [code, current, currentTermStatus] of the discovered courses in source-id order. */
+const statuses = (snapshot: any) => snapshot.courses.filter((c: any) => c.discovery)
+  .sort((a: any, b: any) => a.discovery.sourceCourseId.localeCompare(b.discovery.sourceCourseId))
+  .map((c: any) => [c.code, c.current, c.discovery.currentTermStatus]);
 function spacing(starts: {at: number}[]) {
   for (let i = 1; i < starts.length; i++) expect(starts[i]!.at - starts[i - 1]!.at).toBeGreaterThanOrEqual(1000);
 }
@@ -376,9 +381,12 @@ it('happy path: one GET, one POST and one ingest; three unticked courses; one ru
   expect(ingest!.method).toBe('POST');
   expect(ingest!.headers['X-Moodle-Helper-Bridge-Binding']).toBe(await backend.binding());
   expect(JSON.parse(ingest!.body!)).toEqual({observations: ['9001', '9002', '9003'].map((id, i) => ({sourceCourseId: id, sourceUrl: `${ORIGIN}/course/view.php?id=${id}`,
-    title: {kind: 'known', value: ['Fictional Course Alpha', 'Fictional Course Beta', 'Fictional Course Gamma'][i]}, termIndicators: {kind: 'known', value: ['In progress']}}))});
+    title: {kind: 'known', value: ['Fictional Course Alpha', 'Fictional Course Beta', 'Fictional Course Gamma'][i]}, termIndicators: {kind: 'known', value: ['In progress']},
+    code: {kind: 'known', value: CODES[i]}, classification: 'inprogress'}))});
   const snapshot = await backend.get('/api/snapshot');
   expect(discovered(snapshot)).toEqual(['9001', '9002', '9003']);
+  // #84: the code and a verified current status come from the shortname and the requested classification.
+  expect(statuses(snapshot)).toEqual(CODES.map(code => [code, true, 'current']));
   expect(snapshot.settings.trackedCourseIds).toEqual(before.settings.trackedCourseIds);
   expect(one.result.snapshot.settings.trackedCourseIds).toEqual(before.settings.trackedCourseIds);
   // The sesskey appears only in the POST URL.
@@ -387,12 +395,15 @@ it('happy path: one GET, one POST and one ingest; three unticked courses; one ru
   expect(app.offscreenMessages).toHaveLength(1);
   expect(app.offscreenMessages[0]).toMatchObject({type: 'access', request: {route: 'my-courses', envelope: {requestedUrl: SHELL_URL, finalUrl: SHELL_URL, httpStatus: 200}}});
   expect(site_.trace.filter(e => JSON.stringify([e.url, e.body]).includes(SESSKEY)).every(e => e.method === 'POST' && e.url === SERVICE_URL && !(e.body ?? '').includes(SESSKEY))).toBe(true);
-  // Data minimisation in the SQLite file and the snapshot.
+  // Data minimisation in the SQLite file and the snapshot. #84: DEMO101 is allowed only as the
+  // code; the rest of the shortname (the instructor-login segment) is nowhere.
   const bytes = await backend.bytes();
-  for (const value of [SESSKEY, 'DEMO101', 'redacted', 'Fictional Term 2028', 'moodle.example.invalid']) {
+  for (const value of [SESSKEY, 'redacted', 'DEMO101-1-redacted-2028-1', 'DEMO101-', 'Fictional Term 2028', 'moodle.example.invalid']) {
     expect(bytes).not.toContain(value);
     expect(JSON.stringify(snapshot)).not.toContain(value);
+    expect(everywhere).not.toContain(value);
   }
+  expect(JSON.stringify(snapshot).match(/DEMO101[^"]*/g)!.every(match => match === 'DEMO101')).toBe(true);
   app.worker.dispose();
 }, 60000);
 
@@ -421,7 +432,37 @@ it('re-discovery keeps every course, the selection and the existing records', as
     expect(discovered(after)).toEqual(['9001', '9002', '9003']);
     expect(after.settings.trackedCourseIds).toEqual([id('9002')]);
     for (const key of ['courses', 'assessments', 'overlays', 'candidates', 'settings']) expect(after[key]).toEqual(before[key]);
+    expect(statuses(after)).toEqual(CODES.map(code => [code, true, 'current']));
   }
+  // #84: a run that returns only 9001 keeps 9002 and 9003, their "current" status and the selection.
+  parsed[0].data.courses = parsed[0].data.courses.filter((c: any) => c.id === 9001);
+  response = JSON.stringify(parsed);
+  expect((await app.bridge(1, 'discoverCourses')).result).toMatchObject({found: 1, coverage: 'complete'});
+  const only = await backend.get('/api/snapshot');
+  expect(discovered(only)).toEqual(['9001', '9002', '9003']);
+  expect(statuses(only)).toEqual(CODES.map(code => [code, true, 'current']));
+  expect(only.settings.trackedCourseIds).toEqual([id('9002')]);
+  app.worker.dispose();
+}, 60000);
+
+it('#84: the recorded classification is the one the worker requested, never a value from the response body', async () => {
+  const backend = await realBackend();
+  const clock = fresh();
+  const parsed = JSON.parse(inprogress);
+  // Invented hostile response: classification/current/status fields on the envelope and the courses.
+  parsed[0].data.classification = 'past';
+  parsed[0].data.courses = parsed[0].data.courses.map((c: any) => ({...c, classification: 'past', current: false, currentTermStatus: 'past', code: 'FORGED'}));
+  const site_ = moodle(clock, site(() => json(JSON.stringify(parsed))));
+  const app = install(backend, clock, site_.fetcher);
+  expect((await app.bridge(1, 'discoverCourses')).result).toMatchObject({found: 3});
+  const body = JSON.parse(app.writes()[0]!.body!);
+  expect(JSON.parse(site_.starts()[1]!.body!)[0].args.classification).toBe('inprogress');
+  for (const observation of body.observations) {
+    expect(observation.classification).toBe('inprogress');
+    expect(Object.keys(observation).sort()).toEqual(['classification', 'code', 'sourceCourseId', 'sourceUrl', 'termIndicators', 'title']);
+  }
+  expect(JSON.stringify(body)).not.toMatch(/past|FORGED|redacted/);
+  expect(statuses(await backend.get('/api/snapshot'))).toEqual(CODES.map(code => [code, true, 'current']));
   app.worker.dispose();
 }, 60000);
 

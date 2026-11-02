@@ -182,6 +182,37 @@ describe("#82 Find my SDU courses", () => {
     expect(state.adapter.setTrackedCourses).not.toHaveBeenCalled();
   });
 
+  it("#84: shows the course code and \"Current course\" for in-progress courses, and the fallback otherwise", async () => {
+    real();
+    // Shapes as POST /api/courses/discovery saves them (tests/test_course_discovery.py).
+    const course = (id: string, code: string, status: "current" | "unknown", extra: Record<string, unknown>) => ({
+      id: `moodle-${id}`, code, name: `Fictional Course ${id}`, color: 1, current: status === "current",
+      discovery: { sourceCourseId: id, sourceUrl: `https://moodle.sdu.edu.kz/course/view.php?id=${id}`, title: { kind: "known", value: `Fictional Course ${id}` },
+        termIndicators: { kind: "known", value: ["In progress"] }, ...extra, currentTermStatus: status } }) as (typeof saved.courses)[number];
+    const next = structuredClone(saved);
+    next.courses.push(
+      course("9001", "DEMO101", "current", { code: { kind: "known", value: "DEMO101" }, classification: "inprogress" }),
+      course("9002", "DEMO202", "current", { code: { kind: "known", value: "DEMO202" }, classification: "inprogress" }),
+      course("9003", "DEMO303", "current", { code: { kind: "known", value: "DEMO303" }, classification: "inprogress" }),
+      course("9004", "Course 9004", "current", { code: { kind: "unknown" }, classification: "inprogress" }),
+      course("9005", "Course 9005", "unknown", {}));
+    state.extension.discover.mockResolvedValue({ snapshot: next, found: 5, coverage: "complete" });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Find my SDU courses" }));
+    await screen.findByText("Found 5 in-progress courses on SDU Moodle. Tick the ones to track.");
+    const row = (id: string) => screen.getByRole("checkbox", { name: `Track Fictional Course ${id}` }).closest("li")!;
+    for (const [id, code] of [["9001", "DEMO101"], ["9002", "DEMO202"], ["9003", "DEMO303"]] as const) {
+      expect(row(id)).toHaveTextContent(`${code} · Fictional Course ${id}`);
+      expect(row(id)).toHaveTextContent("Current course");
+      expect(row(id)).not.toHaveTextContent("Current term uncertain");
+    }
+    expect(row("9004")).toHaveTextContent("Course 9004 · Fictional Course 9004");
+    expect(row("9004")).toHaveTextContent("Current course");
+    expect(row("9005")).toHaveTextContent("Course 9005 · Fictional Course 9005");
+    expect(row("9005")).toHaveTextContent("Current term uncertain");
+    expect(document.body).not.toHaveTextContent("redacted");
+  });
+
   it.each([
     [{ found: 96, coverage: "partial" }, "Found 96 in-progress courses on SDU Moodle. The list may be incomplete."],
     [{ found: 0, coverage: "complete" }, "SDU Moodle lists no in-progress courses."],
