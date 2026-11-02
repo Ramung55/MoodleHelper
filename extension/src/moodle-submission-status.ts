@@ -26,6 +26,12 @@
  * envelopes) is `unknown` and carries that reason. The observed page structure
  * (`body#page-mod-assign-view`, `cmid-<id>` / `course-<id>`) is then required.
  *
+ * Identity (QA on #16, 2026-11-02): the caller supplies the course and course-module ids it
+ * requested. Every result carries both. A body class that shows either id must equal it, as must
+ * the requested and final URL ids; otherwise `identity_mismatch`. Inaccessible pages show no body
+ * class, so their result carries the caller's ids. A network failure without a final URL falls
+ * back to the requested URL for the access check and identity.
+ *
  * Only the `.submissionstatustable` row whose `th` is "Submission status" is read. Body, title,
  * headings, grade, grading-status, comments, file-submission and completion-control text is never
  * evidence, so a grade never implies `submitted` and a personal completion check never changes
@@ -89,13 +95,23 @@ export interface SubmissionStatusObservation {
   observedAt: string;
   /** Canonical `https://moodle.sdu.edu.kz/mod/assign/view.php?id=<cmid>`. */
   sourceUrl: string;
-  /** From body class `course-<id>`; null when the page shows none (e.g. an inaccessible page). */
-  sourceCourseId: string | null;
+  /** From body class `course-<id>`, which must equal the caller's expected id; the caller's
+   *  expected id when the page shows no class (e.g. an inaccessible page). */
+  sourceCourseId: string;
   sourceCourseModuleId: string;
   /** The #10 detector verdict, as fixed primitives. */
   access: { status: MoodleAccessStatus; reason: MoodleAccessReason };
   /** Present only for `unknown`. */
   unknownReason?: SubmissionUnknownReason;
+}
+/**
+ * The scan always knows which course and assignment it requested, so it supplies both ids.
+ * Page evidence never overrides them: a `course-<id>` / `cmid-<id>` body class, the requested
+ * URL id and the final URL id must all equal them, or the result is `identity_mismatch`.
+ */
+export interface SubmissionStatusInput extends MoodleAccessInput {
+  readonly expectedSourceCourseId: string;
+  readonly expectedSourceCourseModuleId: string;
 }
 export type SubmissionStatusResult =
   | { status: "observed"; observation: SubmissionStatusObservation }
@@ -163,48 +179,59 @@ function classifyPage(doc: Document): Classified {
   return classifyCell(cells[0]!);
 }
 
-export function parseMoodleSubmissionStatus(input: MoodleAccessInput, observedAt: string): SubmissionStatusResult {
-  // The #10 detector runs first; it never throws and returns fixed primitives.
-  const detected = detectMoodleAccess(input);
+const positiveId = (value: unknown): value is string => typeof value === "string" && /^[1-9][0-9]*$/.test(value);
+/** A network failure may come without a final URL; identity then falls back to the requested URL. */
+const noFinalUrl = (input: MoodleAccessInput) =>
+  input.networkFailure === true && (input.finalUrl === undefined || input.finalUrl === null || input.finalUrl === "");
+
+export function parseMoodleSubmissionStatus(input: SubmissionStatusInput, observedAt: string): SubmissionStatusResult {
+  // The #10 detector runs first; it never throws and returns fixed primitives. A network failure
+  // without a final URL is checked with the requested URL in its place, so it reports network_failure.
+  let envelope: MoodleAccessInput = input;
+  try { if (input && noFinalUrl(input)) envelope = { ...input, finalUrl: input.requestedUrl }; } catch { /* detector reports it */ }
+  const detected = detectMoodleAccess(envelope);
   const access = { status: detected.status, reason: detected.reason };
   const error = (code: SubmissionStatusError): SubmissionStatusResult => ({ status: "error", error: code });
+  let identity: { cmid: string; course: string } | undefined;
+  const result = (classified: Classified): SubmissionStatusResult => ({
+    status: "observed",
+    observation: {
+      ...classified, actionRequired: classified.state === "reopened", observedAt,
+      sourceUrl: `${origin}${assignPath}?id=${identity!.cmid}`,
+      sourceCourseId: identity!.course, sourceCourseModuleId: identity!.cmid, access,
+    },
+  });
   try {
     if (!validObservedAt(observedAt)) return error("invalid_observed_at");
     const cmid = assignId(input?.requestedUrl);
     if (!cmid) return error("unsafe_url");
-    const final = trustedUrl(input.finalUrl);
+    const final = trustedUrl(envelope.finalUrl);
     if (!final) return error("unsafe_url");
-    const base = {
-      actionRequired: false, observedAt, sourceUrl: `${origin}${assignPath}?id=${cmid}`,
-      sourceCourseId: null as string | null, sourceCourseModuleId: cmid, access,
-    };
-    const result = (classified: Classified, sourceCourseId: string | null = null): SubmissionStatusResult => ({
-      status: "observed",
-      observation: { ...base, ...classified, sourceCourseId, actionRequired: classified.state === "reopened" },
-    });
-    // Inaccessible pages (including the observed HTTP 200 redirect to /login/index.php) stay unknown.
+    const expectedCourse = input.expectedSourceCourseId, expectedCmid = input.expectedSourceCourseModuleId;
+    if (!positiveId(expectedCourse) || !positiveId(expectedCmid) || cmid !== expectedCmid) return error("identity_mismatch");
+    identity = { cmid, course: expectedCourse };
+    // Inaccessible pages (including the observed HTTP 200 redirect to /login/index.php) stay unknown
+    // and carry the caller's ids: such pages show no body classes.
     if (!readable.has(detected.reason) || input.httpStatus !== 200 || final.pathname === "/login/index.php") {
       return result(unknown("inaccessible"));
     }
-    const finalId = assignId(input.finalUrl);
+    const finalId = assignId(envelope.finalUrl);
     if (!finalId) return error("unsafe_url");
     if (finalId !== cmid) return error("identity_mismatch");
     const doc = input.document;
-    if (doc.body.id !== "page-mod-assign-view") return result(unknown("missing_structure"));
+    // Body classes are checked before any other structure, so a page that fails a later check
+    // still carries the course id its own `course-<id>` class shows (equal to the expected id).
     const bodyCm = classId(doc.body, "cmid-"), course = classId(doc.body, "course-");
-    if (bodyCm === "invalid" || course === "invalid" || (bodyCm && bodyCm !== cmid)) return error("identity_mismatch");
-    if (!bodyCm || !course) return result(unknown("missing_structure"));
+    if (bodyCm === "invalid" || course === "invalid" || (bodyCm && bodyCm !== cmid) ||
+        (course && course !== expectedCourse)) return error("identity_mismatch");
+    if (course) identity = { cmid, course };
+    if (doc.body.id !== "page-mod-assign-view" || !bodyCm || !course) return result(unknown("missing_structure"));
     const lang = doc.documentElement.getAttribute("lang");
     const bodyLangs = Array.from(doc.body.classList).filter(c => c.startsWith("lang-"));
-    if (lang !== "en" || bodyLangs.some(c => c !== "lang-en")) return result(unknown("unsupported_language"), course);
-    return result(classifyPage(doc), course);
+    if (lang !== "en" || bodyLangs.some(c => c !== "lang-en")) return result(unknown("unsupported_language"));
+    return result(classifyPage(doc));
   } catch {
-    // An unreadable runtime DOM is unknown only when the source identity is still safe.
-    const cmid = assignId(input?.requestedUrl);
-    if (!cmid) return error("unsafe_url");
-    return { status: "observed", observation: {
-      state: "unknown", unknownReason: "missing_structure", actionRequired: false, observedAt,
-      sourceUrl: `${origin}${assignPath}?id=${cmid}`, sourceCourseId: null, sourceCourseModuleId: cmid, access,
-    } };
+    // An unreadable runtime DOM is unknown only when the source identity was already established.
+    return identity ? result(unknown("missing_structure")) : error("unsafe_url");
   }
 }

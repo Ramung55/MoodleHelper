@@ -1,10 +1,10 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { MoodleAccessInput } from "../../../extension/src/moodle-access";
 import {
   parseMoodleSubmissionStatus,
   RECOGNISED_SUBMISSION_CELLS,
+  type SubmissionStatusInput,
   type SubmissionStatusObservation,
   type SubmissionStatusResult,
 } from "../../../extension/src/moodle-submission-status";
@@ -28,9 +28,14 @@ const loginRedirect = JSON.parse(read("observed/login-redirect-course.json")) as
 const urlFor = (cmid: string) => `${origin}/mod/assign/view.php?id=${cmid}`;
 const cmidOf = (html: string) => /cmid-(\d+)/.exec(html)![1]!;
 
-function input(html: string, overrides: Partial<MoodleAccessInput> = {}): MoodleAccessInput {
-  const url = urlFor(/cmid-(\d+)/.exec(html)?.[1] ?? "990101");
+type Overrides = Partial<SubmissionStatusInput>;
+/** The scan's request: the fixture's cmid (or 990101) in course 9001, unless overridden. */
+function input(html: string, overrides: Overrides = {}): SubmissionStatusInput {
+  const cmid = /cmid-(\d+)/.exec(html)?.[1] ?? "990101";
+  const url = urlFor(cmid);
   return {
+    expectedSourceCourseId: "9001",
+    expectedSourceCourseModuleId: cmid,
     document: new DOMParser().parseFromString(html, "text/html"),
     requestedUrl: url,
     finalUrl: url,
@@ -40,14 +45,13 @@ function input(html: string, overrides: Partial<MoodleAccessInput> = {}): Moodle
     ...overrides,
   };
 }
-const parse = (html: string, overrides: Partial<MoodleAccessInput> = {}, at = observedAt) =>
+const parse = (html: string, overrides: Overrides = {}, at = observedAt) =>
   parseMoodleSubmissionStatus(input(html, overrides), at);
 function observation(result: SubmissionStatusResult): SubmissionStatusObservation {
   expect(result.status).toBe("observed");
   return (result as Extract<SubmissionStatusResult, { status: "observed" }>).observation;
 }
-const observe = (html: string, overrides: Partial<MoodleAccessInput> = {}) =>
-  observation(parse(html, overrides));
+const observe = (html: string, overrides: Overrides = {}) => observation(parse(html, overrides));
 /** Derives a test input from a fixture by replacing one substring that must exist exactly once. */
 function variantOf(html: string, from: string, to: string): string {
   expect(html.split(from)).toHaveLength(2);
@@ -376,7 +380,7 @@ describe("AC4: inaccessible status pages stay unknown", () => {
   const url = urlFor("990101");
   const loginHtml =
     '<!doctype html><html lang="ru"><body id="page-login-index" class="lang-ru"><form></form></body></html>';
-  const cases: [string, MoodleAccessInput, string][] = [
+  const cases: [string, SubmissionStatusInput, string][] = [
     [
       "observed/login-redirect-course.json (login page, lang-ru)",
       input(loginHtml, {
@@ -415,7 +419,7 @@ describe("AC4: inaccessible status pages stay unknown", () => {
         actionRequired: false,
         observedAt,
         sourceUrl: url,
-        sourceCourseId: null,
+        sourceCourseId: "9001",
         sourceCourseModuleId: "990101",
         access: expect.objectContaining({ reason }),
       });
@@ -526,7 +530,9 @@ describe("AC5: observation time and source link", () => {
     });
   });
   it("a malformed runtime envelope is a fixed result, never an exception", () => {
-    expect(parseMoodleSubmissionStatus(null as unknown as MoodleAccessInput, observedAt)).toEqual({
+    expect(
+      parseMoodleSubmissionStatus(null as unknown as SubmissionStatusInput, observedAt),
+    ).toEqual({
       status: "error",
       error: "unsafe_url",
     });
@@ -535,6 +541,85 @@ describe("AC5: observation time and source link", () => {
       state: "unknown",
       sourceCourseModuleId: "990101",
     });
+  });
+  it("every result carries sourceCourseId: the body class when shown, else the caller's id", () => {
+    // Readable pages: from the body class, which equals the expected id.
+    for (const [, html] of states) expect(observe(html).sourceCourseId).toBe("9001");
+    // A readable page that fails the structure check keeps its body-class course id.
+    for (const html of [
+      variantOf(submitted, 'id="page-mod-assign-view"', 'id="x"'),
+      variantOf(submitted, "cmid-990101 ", ""),
+      variantOf(submitted, '<html lang="en">', '<html lang="ru">'),
+    ]) {
+      expect(observe(html)).toMatchObject({ state: "unknown", sourceCourseId: "9001" });
+    }
+    // A page with no course class (inaccessible or structure failure) carries the caller's id.
+    const noCourse = variantOf(submitted, " course-9001", "");
+    expect(observe(noCourse, { expectedSourceCourseId: "9002" })).toMatchObject({
+      state: "unknown",
+      unknownReason: "missing_structure",
+      sourceCourseId: "9002",
+    });
+    expect(observe(submitted, { httpStatus: 403, expectedSourceCourseId: "9002" })).toMatchObject({
+      state: "unknown",
+      unknownReason: "inaccessible",
+      sourceCourseId: "9002",
+    });
+    const broken = { ...input(submitted), document: {} as Document };
+    expect(observation(parseMoodleSubmissionStatus(broken, observedAt)).sourceCourseId).toBe(
+      "9001",
+    );
+  });
+  it("a body course class that differs from the caller's expected id is identity_mismatch", () => {
+    expect(parse(submitted, { expectedSourceCourseId: "9002" })).toEqual({
+      status: "error",
+      error: "identity_mismatch",
+    });
+    // Also when the page then fails a later structure check.
+    expect(
+      parse(variantOf(submitted, 'id="page-mod-assign-view"', 'id="x"'), {
+        expectedSourceCourseId: "9002",
+      }),
+    ).toEqual({ status: "error", error: "identity_mismatch" });
+  });
+  it.each([
+    ["expected cmid differs from the requested URL", { expectedSourceCourseModuleId: "990102" }],
+    ["expected cmid not a positive decimal", { expectedSourceCourseModuleId: "0990101" }],
+    ["expected course id missing", { expectedSourceCourseId: undefined as unknown as string }],
+    ["expected course id not a positive decimal", { expectedSourceCourseId: "course-9001" }],
+  ])("%s is identity_mismatch, even for an inaccessible page", (_name, overrides) => {
+    for (const extra of [{}, { httpStatus: 403 }, { networkFailure: true }])
+      expect(parse(submitted, { ...overrides, ...extra })).toEqual({
+        status: "error",
+        error: "identity_mismatch",
+      });
+  });
+  it.each([
+    ["empty", ""],
+    ["missing", undefined],
+  ])(
+    "a network failure with a %s finalUrl is unknown with the access reason, identity from the requested URL",
+    (_name, finalUrl) => {
+      const value = input("", {
+        networkFailure: true,
+        httpStatus: 0,
+        finalUrl: finalUrl as string,
+      });
+      expect(observation(parseMoodleSubmissionStatus(value, observedAt))).toEqual({
+        state: "unknown",
+        unknownReason: "inaccessible",
+        actionRequired: false,
+        observedAt,
+        sourceUrl: urlFor("990101"),
+        sourceCourseId: "9001",
+        sourceCourseModuleId: "990101",
+        access: { status: "unknown", reason: "network_failure" },
+      });
+      expect(value.finalUrl).toBe(finalUrl);
+    },
+  );
+  it("an empty finalUrl without a network failure is still unsafe_url", () => {
+    expect(parse(submitted, { finalUrl: "" })).toEqual({ status: "error", error: "unsafe_url" });
   });
   it("a sentinel in the body, comments and file submissions never appears in any result", () => {
     const sentinel = "SENTINEL-7f3a-private";
