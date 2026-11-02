@@ -589,6 +589,34 @@
       }
     },
     {
+      "id": "my-courses-shell",
+      "path": "my-courses-shell.html",
+      "sourceVariant": "invented-my-courses-shell",
+      "pageClass": "course_list",
+      "language": "en",
+      "purpose": "Synthetic /my/courses.php shell for #82 course discovery (the in-memory session key read and the shell access check); not observed SDU markup.",
+      "note": "M.cfg sesskey placement assumed from Moodle defaults; not recorded by #3",
+      "synthetic": true,
+      "sourceKind": "synthetic",
+      "provenance": "Invented; not captured or inspected.",
+      "edgeCases": [
+        "session_config"
+      ],
+      "expected": {
+        "rawFacts": {
+          "page_route": "/my/courses.php",
+          "session_config": "\"sesskey\":\"0InventedFixtureKey0\"",
+          "course_cards": "none; the cards are filled in by JavaScript"
+        },
+        "absentFields": [
+          "course_records"
+        ],
+        "unknownFields": [],
+        "schemaGapOwners": [],
+        "duplicateRelationships": []
+      }
+    },
+    {
       "id": "observed-course-list",
       "path": "observed/course-list.html",
       "sourceVariant": "sdu-en-alpha/course-list-cards",

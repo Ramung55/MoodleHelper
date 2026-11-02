@@ -715,10 +715,28 @@ PERSONAL_PATTERNS = [
 ]
 
 
+# #82: the synthetic /my/courses.php shell holds the one invented session value, and the
+# manifest and README describe it. Exactly these texts in exactly these top-level files are
+# exempt from the sesskey pattern; any other session value anywhere still fails.
+INVENTED_SESSKEY = '"sesskey":"0InventedFixtureKey0"'
+SESSKEY_NOTE = "M.cfg sesskey placement assumed from Moodle defaults; not recorded by #3"
+ALLOWED_SESSKEY_TEXT = {
+    "my-courses-shell.html": [INVENTED_SESSKEY],
+    "manifest.json": [json.dumps(INVENTED_SESSKEY)[1:-1], SESSKEY_NOTE],
+    "README.md": [INVENTED_SESSKEY, SESSKEY_NOTE],
+}
+
+
+def reviewed_text(path, text):
+    for allowed in ALLOWED_SESSKEY_TEXT.get(path.name, []) if path.parent == ROOT else []:
+        text = text.replace(allowed, "")
+    return text
+
+
 def test_fixture_text_and_metadata_safety_review_guard():
     for path in ROOT.rglob("*"):
         if path.is_file():
-            text = path.read_text(encoding="utf-8")
+            text = reviewed_text(path, path.read_text(encoding="utf-8"))
             for pattern in PERSONAL_PATTERNS:
                 assert not re.search(pattern, text), (path.name, pattern)
             for value in re.findall(r'https://[^\s<>"`]+', text):
@@ -726,6 +744,19 @@ def test_fixture_text_and_metadata_safety_review_guard():
                 if path.suffix == ".md" and value.startswith("https://github.com/Ramung55/MoodleHelper/issues/"):
                     continue
                 safe_url(value, allow_ids=path.parent.name == "observed" or path.name == "manifest.json")
+
+
+def test_sesskey_exemption_is_exactly_the_invented_shell_value():
+    shell = ROOT / "my-courses-shell.html"
+    text = shell.read_text(encoding="utf-8")
+    assert text.count(INVENTED_SESSKEY) == 1
+    for other in [text.replace("0InventedFixtureKey0", "a1b2c3d4e5"), text + "sesskey=x",
+                  text.replace(INVENTED_SESSKEY, INVENTED_SESSKEY + ' "sesskey":"Other0"')]:
+        assert re.search(r"(?i)sesskey", reviewed_text(shell, other))
+    # The same texts elsewhere (an observed fixture) are not exempt.
+    assert re.search(r"(?i)sesskey", reviewed_text(ROOT / "observed" / "my-courses-shell.html", text))
+    entry = next(e for e in SYNTHETIC if e["id"] == "my-courses-shell")
+    assert entry["note"] == SESSKEY_NOTE and entry["expected"]["rawFacts"]["session_config"] == INVENTED_SESSKEY
 
 
 def test_personal_data_guard_rejects_real_shapes():

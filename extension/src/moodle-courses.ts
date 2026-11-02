@@ -39,7 +39,7 @@ export type DiscoveryCoverage = "complete" | "partial" | "none";
 export type CourseDiagnosticReason = "unsupported_list_route" | "malformed_list" |
   "incomplete_list" | "pagination_pending" | "empty_unconfirmed" |
   "missing_identity" | "unsafe_url" | "identity_mismatch" | "malformed_card" |
-  "title_conflict" | "term_conflict";
+  "title_conflict" | "term_conflict" | "malformed_response" | "page_cap_reached";
 export interface CourseDiagnostic {
   pageIndex: number;
   recordIndex?: number;
@@ -166,4 +166,93 @@ export function collectMoodleCourses(inputs: readonly MoodleAccessInput[]): Cour
     ? "complete" : pages.some(page => page.coverage !== "none") ? "partial" : "none";
   return { observations, pages, diagnostics, coverage,
     paginationPending: pages.some(page => page.paginationPending), suppliedPageCount: inputs.length };
+}
+
+/**
+ * #82 enrolled-courses endpoint parser (`core_course_get_enrolled_courses_by_timeline_classification`,
+ * classification `inprogress`). Pure: input is the raw response text of each page, requested in
+ * order at offset `index * limit`. Only the four observation fields leave this function; every
+ * other course field (shortname, idnumber, category, dates, viewurl, visibility, favourite,
+ * progress) is dropped. The URL is rebuilt from the id; `viewurl` is ignored.
+ *
+ * Paging never uses `nextoffset` (observed to be 8 even when the list was exhausted): a page with
+ * fewer courses than `limit` ends the list, a full page asks for one more page at `offset + limit`,
+ * and at most ENROLLED_PAGE_CAP pages are requested. A full last page then gives `partial` with
+ * `page_cap_reached`. A page that is not JSON, is not `[{error: false, data: {courses: [...]}}]`,
+ * or has more courses than `limit` is `malformed_response`, and none of its courses are used.
+ */
+export const ENROLLED_PAGE_CAP = 4;
+export const ENROLLED_TERM = "In progress";
+export interface EnrolledCourseDiscovery {
+  observations: RawCourseObservation[];
+  coverage: DiscoveryCoverage;
+  diagnostics: CourseDiagnostic[];
+  /** Offset of the next page to request, or null when no further request is made. */
+  next: number | null;
+}
+
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", "#39": "'" };
+/** Fullname clean-up: decode the five entities, drop one trailing parenthesised group, normalise. */
+export function enrolledCourseTitle(fullname: unknown): Observed<string> {
+  if (typeof fullname !== "string" || /<\/?[a-z!]/i.test(fullname)) return unknown();
+  const decoded = fullname.replace(/&(amp|lt|gt|quot|#39);/g, (_match, name: string) => ENTITIES[name]!);
+  if (/<\/?[a-z!]/i.test(decoded)) return unknown();
+  const title = decoded.replace(/\s*\([^()]*\)\s*$/u, "").replace(/\s+/gu, " ").trim();
+  return title ? { kind: "known", value: title } : unknown();
+}
+
+function enrolledPage(body: unknown, limit: number): unknown[] | null {
+  let value: unknown;
+  try { value = typeof body === "string" ? JSON.parse(body) : undefined; } catch { return null; }
+  if (!Array.isArray(value) || value.length !== 1) return null;
+  const envelope = value[0] as { error?: unknown; data?: { courses?: unknown } } | null;
+  if (!envelope || typeof envelope !== "object" || envelope.error !== false || !envelope.data ||
+      typeof envelope.data !== "object" || !Array.isArray(envelope.data.courses)) return null;
+  return envelope.data.courses.length > limit ? null : envelope.data.courses;
+}
+
+export function parseEnrolledCourses(pages: readonly unknown[], options: { limit: number }): EnrolledCourseDiscovery {
+  const limit = options.limit;
+  if (!Number.isSafeInteger(limit) || limit < 1) throw RangeError("limit");
+  const observations: RawCourseObservation[] = [];
+  const diagnostics: CourseDiagnostic[] = [];
+  const byId = new Map<string, RawCourseObservation>();
+  const conflicted = new Set<string>();
+  let partial = false, usable = 0, next: number | null = 0;
+  pages.slice(0, ENROLLED_PAGE_CAP).forEach((body, pageIndex) => {
+    const courses = enrolledPage(body, limit);
+    if (!courses) { diagnostics.push({ pageIndex, reason: "malformed_response" }); partial = true; next = null; return; }
+    usable++;
+    courses.forEach((course, recordIndex) => {
+      const id = (course as { id?: unknown } | null)?.id;
+      if (!course || typeof course !== "object" || typeof id !== "number" || !Number.isSafeInteger(id) || id < 1) {
+        diagnostics.push({ pageIndex, recordIndex, reason: "missing_identity" }); partial = true; return;
+      }
+      const sourceCourseId = String(id);
+      const title = enrolledCourseTitle((course as { fullname?: unknown }).fullname);
+      const previous = byId.get(sourceCourseId);
+      if (!previous) {
+        const observation: RawCourseObservation = { sourceCourseId,
+          sourceUrl: `https://moodle.sdu.edu.kz/course/view.php?id=${sourceCourseId}`,
+          title, termIndicators: { kind: "known", value: [ENROLLED_TERM] } };
+        byId.set(sourceCourseId, observation); observations.push(observation); return;
+      }
+      if (conflicted.has(sourceCourseId) || title.kind === "unknown") return;
+      if (previous.title.kind === "unknown") { previous.title = title; return; }
+      if (previous.title.value !== title.value) {
+        previous.title = unknown(); conflicted.add(sourceCourseId);
+        diagnostics.push({ pageIndex, recordIndex, reason: "title_conflict" });
+      }
+    });
+    if (next === null) return;
+    if (courses.length < limit) { next = null; return; }
+    if (pageIndex + 1 >= ENROLLED_PAGE_CAP) {
+      diagnostics.push({ pageIndex, reason: "page_cap_reached" }); partial = true; next = null; return;
+    }
+    next = (pageIndex + 1) * limit;
+  });
+  // Fewer pages than the paging rule asks for cannot be complete.
+  if (next !== null) partial = true;
+  const coverage: DiscoveryCoverage = !usable ? "none" : partial ? "partial" : "complete";
+  return { observations, coverage, diagnostics, next };
 }
