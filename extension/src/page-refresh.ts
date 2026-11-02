@@ -4,10 +4,11 @@ import { parseMoodleAssignment } from './moodle-assignments';
 import { collectMoodleCalendar } from './moodle-calendar';
 import { collectMoodleMaterials } from './moodle-materials';
 import { parseMoodleQuizPage, type QuizReason } from './moodle-quizzes';
+import { parseMoodleSubmissionStatus, type SubmissionStatusInput } from './moodle-submission-status';
 import type { CollectionRepository } from './collection-repository';
 import { CollectionTransportError } from './collection-repository';
 import { validSchema, normalized } from '../../shared/src/bridge';
-import type { CollectorResult, CollectionContext, PageRefreshReceipt, RawQuizObservation } from '../../frontend/src/domain/types';
+import type { CollectorResult, CollectionContext, PageRefreshReceipt, RawQuizObservation, SubmissionSourceRecord } from '../../frontend/src/domain/types';
 
 export type Collector = 'assignment'|'calendar'|'material'|'quiz'|'submission';
 export interface PageSource { url:string;documentKey:object|string;input?:MoodleAccessInput;sourceCourseId?:string }
@@ -67,6 +68,27 @@ export function quizRefreshResult(input:MoodleAccessInput,observedAt:string,hint
   const observation:RawQuizObservation={sourceCourseId:o.sourceCourseId,sourceActivityId:o.sourceCourseModuleId,sourceCourseModuleId:o.sourceCourseModuleId,
     sourceUrl:o.sourceUrl,title,observedAt:o.observedAt,...(opening?{opening}:{}),...(closing?{closing}:{}),attemptInformation};
   return {kind:'quiz',observations:[observation],reviews:[],diagnostics:[],pages:[],coverage:'complete',scope:'visited_activity_only'};
+}
+/**
+ * #81 adapter from the #16 submission status mapper to the existing
+ * SubmissionRefreshResult wire shape. The SDU assignment view page shows only
+ * `course-<id>` and `cmid-<id>`, never the assignment instance id that retention
+ * keys on, so `hints.sourceActivityId` must come from a recorded source (a stored
+ * assignment or calendar observation for the same course and cmid). Unlike the
+ * quiz adapter, the cmid is never copied into `sourceActivityId`: without a
+ * decimal hint the result fails with missing_identity and nothing is stored.
+ * An inaccessible page maps to `unknown` (never `not_submitted`). The mapper's
+ * `access`, `evidenceBasis` and `unknownReason` are not stored.
+ */
+export function submissionRefreshResult(input:SubmissionStatusInput,observedAt:string,hints:{sourceActivityId?:string}={}):CollectorResult {
+  const parsed=parseMoodleSubmissionStatus(input,observedAt);
+  if(parsed.status==='error')return {kind:'failed',reasons:[parsed.error]};
+  const activity=hints.sourceActivityId;
+  if(typeof activity!=='string'||!/^[1-9][0-9]*$/.test(activity))return {kind:'failed',reasons:['missing_identity']};
+  const o=parsed.observation;
+  const observation:SubmissionSourceRecord={sourceCourseId:o.sourceCourseId,sourceActivityId:activity,sourceCourseModuleId:o.sourceCourseModuleId,sourceUrl:o.sourceUrl,
+    observation:{status:o.state,...(o.state!=='unknown'&&o.wording!==undefined?{evidence:o.wording}:{}),observedAt:o.observedAt,actionRequired:o.actionRequired}};
+  return {kind:'submission',observations:[observation],reviews:[],diagnostics:[],pages:[],coverage:'complete',scope:'visited_activity_only'};
 }
 /**
  * #20 live registry: only the #14 quiz collector matches the observed SDU pages.

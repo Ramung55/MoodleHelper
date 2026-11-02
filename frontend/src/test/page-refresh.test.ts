@@ -4,10 +4,13 @@ import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { beforeAll,afterAll,beforeEach,describe,it,expect,vi } from 'vitest';
-import { createPageRefresh, syntheticFixtureRegistry, installPageRefresh, type PageSource, type CollectorRegistry } from '../../../extension/src/page-refresh';
+import { createPageRefresh, syntheticFixtureRegistry, installPageRefresh, submissionRefreshResult, type PageSource, type CollectorRegistry } from '../../../extension/src/page-refresh';
+import type { SubmissionStatusInput } from '../../../extension/src/moodle-submission-status';
+import { validSchema } from '../../../shared/src/bridge';
+import { readFileSync } from 'node:fs';
 import { createCollectionWorker, runtimeCollectionRepository, type CollectionRepository, collectionSender } from '../../../extension/src/collection-repository';
 import type { Runtime, Sender } from '../../../extension/src/dashboard-bridge';
-import type { CollectorResult, Snapshot } from '@/domain/types';
+import { CollectorResult, type Snapshot } from '@/domain/types';
 import { makeBackup,previewRestore } from '@/domain/backup';
 import { emptySnapshot } from '@/services/demo-adapter';
 import { assignment,assignmentInput,dateNode } from './moodle-assignments-fixtures';
@@ -311,5 +314,42 @@ describe('internal worker sender/message bounds',()=>{
     const registry=syntheticFixtureRegistry();const result=await registry.assignment.collect(f.source.input!,['101'],time);const refresh={source:'moodle-helper-collection',version:'1',requestId:'refresh-once',operation:'ingestPageRefresh',binding:context.binding,payload:{visitToken:(a as any).result.visitToken,collector:'assignment',observedAt:time,result}};
     const [one,two]=await Promise.all([f.worker(refresh,f.sender()),f.worker(refresh,f.sender())]);expect(one).toEqual(two);expect(f.calls.filter(c=>c.url.endsWith('/refresh'))).toHaveLength(1);
     expect(await f.worker({...refresh,payload:{...refresh.payload,observedAt:'2026-10-28T12:00Z'}},f.sender())).toMatchObject({ok:false,reason:'duplicate_conflict'});expect((await json('/api/snapshot')).collection.refreshes).toHaveLength(1);f.coordinator.stop();
+  });
+});
+
+describe('#81 submission adapter',()=>{
+  const fixtures=path.resolve(repositoryRoot,'tests/fixtures/moodle');
+  const read=(file:string)=>readFileSync(path.join(fixtures,file),'utf8').replace(/\r\n/g,'\n');
+  const at='2026-11-02T10:15:00+05:00';
+  const assign=(cmid:string)=>`${origin}/mod/assign/view.php?id=${cmid}`;
+  const input=(html:string,cmid:string,overrides:Partial<SubmissionStatusInput>={}):SubmissionStatusInput=>({expectedSourceCourseId:'9001',expectedSourceCourseModuleId:cmid,
+    document:new DOMParser().parseFromString(html,'text/html'),requestedUrl:assign(cmid),finalUrl:assign(cmid),httpStatus:200,networkFailure:false,contentType:'text/html; charset=utf-8',...overrides});
+  const record=(r:CollectorResult)=>{expect(r.kind).toBe('submission');expect(CollectorResult.safeParse(r).success).toBe(true);expect(validSchema('CollectorResult',r)).toBe(true);return (r as Extract<CollectorResult,{kind:'submission'}>).observations;};
+  it('maps the observed submitted and not-submitted pages to the wire shape with the recorded instance id',()=>{
+    expect(record(submissionRefreshResult(input(read('observed/assign-submitted.html'),'990101'),at,{sourceActivityId:'5501'}))).toEqual([{sourceCourseId:'9001',sourceActivityId:'5501',sourceCourseModuleId:'990101',sourceUrl:assign('990101'),
+      observation:{status:'submitted',evidence:'Submitted for grading',observedAt:at,actionRequired:false}}]);
+    expect(record(submissionRefreshResult(input(read('observed/assign-not-submitted.html'),'990102'),at,{sourceActivityId:'5502'}))).toEqual([{sourceCourseId:'9001',sourceActivityId:'5502',sourceCourseModuleId:'990102',sourceUrl:assign('990102'),
+      observation:{status:'not_submitted',evidence:'No submissions have been made yet',observedAt:at,actionRequired:false}}]);
+  });
+  it('the upstream reopened page carries actionRequired; access, evidenceBasis and unknownReason are not stored',()=>{
+    const [r]=record(submissionRefreshResult(input(read('upstream/assign-reopened.html'),/cmid-(\d+)/.exec(read('upstream/assign-reopened.html'))![1]!),at,{sourceActivityId:'7'}));
+    expect(r!.observation).toEqual({status:'reopened',evidence:'Reopened',observedAt:at,actionRequired:true});
+    expect(Object.keys(r!).sort()).toEqual(['observation','sourceActivityId','sourceCourseId','sourceCourseModuleId','sourceUrl']);
+  });
+  it.each([['missing',{}],['empty',{sourceActivityId:''}],['zero',{sourceActivityId:'0'}],['non-decimal',{sourceActivityId:'12a'}]] as const)('a %s instance-id hint fails with missing_identity and never uses the cmid',(_name,hints)=>{
+    expect(submissionRefreshResult(input(read('observed/assign-submitted.html'),'990101'),at,hints)).toEqual({kind:'failed',reasons:['missing_identity']});
+  });
+  it('a mapper error becomes a failed result and stores nothing',()=>{
+    expect(submissionRefreshResult(input(read('observed/assign-submitted.html'),'990101',{expectedSourceCourseId:'9002'}),at,{sourceActivityId:'5501'})).toEqual({kind:'failed',reasons:['identity_mismatch']});
+    expect(submissionRefreshResult(input(read('observed/assign-submitted.html'),'990101'),'yesterday',{sourceActivityId:'5501'})).toEqual({kind:'failed',reasons:['invalid_observed_at']});
+  });
+  it.each([
+    ['signed out (observed login page)',()=>input(read('observed/login-page.html'),'990101',{finalUrl:origin+'/login/index.php'})],
+    ['signed out (synthetic login)',()=>input(read('login.html'),'990101',{finalUrl:origin+'/login/index.php'})],
+    ['denied',()=>input(read('denied.html'),'990101',{httpStatus:403})],
+    ['network failure',()=>input('','990101',{networkFailure:true,httpStatus:0})],
+  ])('%s gives unknown, never not_submitted',(_name,make)=>{
+    const [r]=record(submissionRefreshResult(make(),at,{sourceActivityId:'5501'}));
+    expect(r!.observation).toEqual({status:'unknown',observedAt:at,actionRequired:false});
   });
 });
