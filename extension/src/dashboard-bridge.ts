@@ -1,6 +1,7 @@
 import {
   approved,
   closed,
+  DISCOVERY_MESSAGES,
   fits,
   idValid,
   normalized,
@@ -11,6 +12,7 @@ import {
   SYNC_CONFLICTS,
   validReply,
   validResult,
+  type DiscoveryResult,
   type Request,
   type Reply,
 } from "../../shared/src/bridge";
@@ -77,6 +79,8 @@ export function createWorker(options: {
   timeout?: number;
   /** Called with validated backend results only; never selects a transport target. */
   onResult?: (operation: string, result: any) => void;
+  /** #82 worker-local course discovery; its reply never contains the sesskey. */
+  discoverCourses?: () => Promise<DiscoveryResult>;
 }) {
   const fetcher = options.fetcher || fetch;
   const now = options.now || Date.now;
@@ -224,6 +228,22 @@ export function createWorker(options: {
         session.clientId !== r.clientId
       )
         return rejection(r, "RECONNECT_REQUIRED");
+      if (r.operation === "discoverCourses") {
+        // Worker-local, like hello: no backend path of its own. The run itself
+        // reads Moodle and writes /api/courses/discovery; concurrent callers share it.
+        session.inFlight++;
+        session.lastUsed = now();
+        let outcome: unknown;
+        try {
+          outcome = options.discoverCourses ? await options.discoverCourses() : { message: DISCOVERY_MESSAGES.failed };
+        } finally {
+          session.inFlight--;
+          session.lastUsed = now();
+        }
+        if (!validResult(r.operation, outcome)) return rejection(r, "INVALID_RESPONSE");
+        const reply = success(r, outcome);
+        return fits(reply) ? reply : rejection(r, "TOO_LARGE");
+      }
       const target = route(r);
       session.inFlight++;
       session.lastUsed = now();
@@ -366,11 +386,12 @@ export function installWorker(chromeApi: {
       cb: (allowed: boolean) => void,
     ) => void;
   };
-}, options: { onSyncStarted?: () => void; fetcher?: typeof fetch } = {}) {
+}, options: { onSyncStarted?: () => void; fetcher?: typeof fetch; discoverCourses?: () => Promise<DiscoveryResult> } = {}) {
   const handler = createWorker({
     runtimeId: chromeApi.runtime.id,
     // In-process test seam only; the installed extension uses the global fetch.
     ...(options.fetcher ? { fetcher: options.fetcher } : {}),
+    ...(options.discoverCourses ? { discoverCourses: options.discoverCourses } : {}),
     grant: () =>
       new Promise((resolve) =>
         chromeApi.permissions.contains(

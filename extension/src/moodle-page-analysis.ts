@@ -26,6 +26,36 @@ export interface AnalysisResult {
   collected:Partial<Record<Collector,CollectorResult>>;
 }
 export type Analyzer=(request:AnalysisRequest)=>Promise<AnalysisResult>;
+/**
+ * #82 reduced access check. The worker sends only the envelope (URLs without any
+ * sesskey), the status, the content type and the `<body>` id and classes, never
+ * the page text: the `/my/courses.php` shell holds the session's sesskey.
+ */
+export interface AccessRequest {
+  envelope:Omit<ScanEnvelope,'document'>;
+  body:{id:string;classes:string[]};
+  route:'my-courses'|'service';
+}
+export type AccessChecker=(request:AccessRequest)=>Promise<MoodleAccessResult>;
+const TOKEN=/^[A-Za-z0-9_-]{1,128}$/;
+/** The `<body>` id and classes of an HTML text; nothing else of the page is kept. */
+export function reducedBody(html:string):AccessRequest['body'] {
+  const tag=/<body\b([^>]*)>/i.exec(html)?.[1]??'';
+  const attribute=(name:string)=>new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,'i').exec(tag);
+  const id=attribute('id'), classes=attribute('class');
+  const idValue=id?.[1]??id?.[2]??'';
+  return {id:TOKEN.test(idValue)?idValue:'',classes:(classes?.[1]??classes?.[2]??'').split(/\s+/).filter(c=>TOKEN.test(c)).slice(0,64)};
+}
+/** Runs where a DOM exists (the offscreen document): #20's observed check on a body-only document. */
+export function checkMoodleAccess(request:AccessRequest,options:{parse?:(html:string)=>Document}={}):MoodleAccessResult {
+  const parse=options.parse??((html:string)=>new DOMParser().parseFromString(html,'text/html'));
+  const document=parse('<!doctype html><html><head></head><body></body></html>');
+  const body=request?.body;
+  if(body&&typeof body.id==='string'&&TOKEN.test(body.id))document.body.id=body.id;
+  if(body&&Array.isArray(body.classes))for(const c of body.classes.slice(0,64))if(typeof c==='string'&&TOKEN.test(c))document.body.classList.add(c);
+  const route:ObservedRoute=request?.route==='my-courses'?{kind:'my-courses'}:{kind:'service'};
+  return detectObservedMoodleAccess({...request?.envelope,document} as MoodleAccessInput,route);
+}
 
 const ORIGIN='https://moodle.sdu.edu.kz';
 const decimal=(value:unknown):value is string=>typeof value==='string'&&/^[1-9][0-9]{0,18}$/.test(value);

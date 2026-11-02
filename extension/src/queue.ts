@@ -1,10 +1,11 @@
 /** Disposable MV3 mock queue. SQLite owns all durable state; execution can repeat. */
 import { BACKEND } from './dashboard-bridge';
 import {createScanWorker, type ScanWorkerOptions} from './synthetic-scan-worker';
-import {createMoodlePageSource, offscreenAnalyzer, type OffscreenChrome} from './moodle-page-source';
+import {createMoodlePageSource, createOffscreenClient, type OffscreenChrome} from './moodle-page-source';
 import {createMoodleRequestAuthority} from './moodle-request-authority';
 import {liveRegistry} from './page-refresh';
-import type {Analyzer} from './moodle-page-analysis';
+import type {AccessChecker, Analyzer} from './moodle-page-analysis';
+import {createCourseDiscovery} from './course-discovery';
 type Job = { id:string; courseId:string };
 type Claim = { job:Job; token:string; generation:number; expiresAt:number };
 type ClaimReply = { unfinished:boolean; claim?:Claim };
@@ -80,7 +81,7 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
 type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number;periodInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} } & {runtime:OffscreenChrome['runtime'];offscreen?:OffscreenChrome['offscreen']};
 type SyntheticOptions=Omit<ScanWorkerOptions, 'base'|'fetcher'|'schedule'>;
 /** In-process test seams for the live scan; the installed extension passes none. */
-export type LiveScanOptions={moodleFetch?:typeof fetch;now?:()=>number;wait?:(ms:number)=>Promise<void>;instance?:string;analyze?:Analyzer;requestLimitMs?:number};
+export type LiveScanOptions={moodleFetch?:typeof fetch;now?:()=>number;wait?:(ms:number)=>Promise<void>;instance?:string;analyze?:Analyzer;access?:AccessChecker;requestLimitMs?:number};
 export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Parameters<typeof createQueueService>[0], 'schedule'>> & {syntheticScan?:SyntheticOptions;liveScan?:LiveScanOptions}={}) {
   // One periodic alarm discovers runs created directly through the local API.
   // Register it and all listeners before any asynchronous worker activity.
@@ -94,14 +95,21 @@ export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Para
   // single-flight request authority and the live registry (#20). Only a run
   // created by Sync all (or the local scan API) gives it any Moodle work.
   const now=liveScan.now??Date.now, wait=liveScan.wait??((ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms)));
+  // One request authority per worker: the live scan and course discovery (#82) share it,
+  // so their Moodle requests interleave but never overlap. One offscreen client as well.
+  const offscreen=createOffscreenClient(chrome);
+  const authority=createMoodleRequestAuthority({base,fetcher,instance:liveScan.instance??(globalThis.crypto?.randomUUID?.()??String(Math.random()).slice(2))});
   const scan=syntheticScan ? createScanWorker({...syntheticScan,base,fetcher,schedule:()=>{}})
     : createScanWorker({base,fetcher,schedule:()=>{},now,wait,registry:liveRegistry(),
-        source:createMoodlePageSource({...(liveScan.moodleFetch?{fetcher:liveScan.moodleFetch}:{}),...(liveScan.requestLimitMs?{requestLimitMs:liveScan.requestLimitMs}:{}),analyze:liveScan.analyze??offscreenAnalyzer(chrome),now}),
-        authority:createMoodleRequestAuthority({base,fetcher,instance:liveScan.instance??(globalThis.crypto?.randomUUID?.()??String(Math.random()).slice(2))})});
+        source:createMoodlePageSource({...(liveScan.moodleFetch?{fetcher:liveScan.moodleFetch}:{}),...(liveScan.requestLimitMs?{requestLimitMs:liveScan.requestLimitMs}:{}),analyze:liveScan.analyze??offscreen.analyze,now}),
+        authority});
+  // #82: runs only when the bridge discoverCourses operation (an explicit click) asks.
+  const discovery=createCourseDiscovery({base,fetcher,authority,access:liveScan.access??offscreen.access,now,wait,
+    ...(liveScan.moodleFetch?{moodleFetch:liveScan.moodleFetch}:{}),...(liveScan.requestLimitMs?{requestLimitMs:liveScan.requestLimitMs}:{})});
   const wake=async()=>{await Promise.all([service.wake(),scan.wake()]);};
   chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name===ALARM_NAME) void wake();});
   chrome.runtime.onStartup.addListener(()=>{void wake();});
   chrome.runtime.onInstalled.addListener(()=>{void wake();});
   void wake();
-  return {...service,wake,wakeScan:()=>scan.wake(),dispose(){service.dispose();scan.dispose();}};
+  return {...service,wake,wakeScan:()=>scan.wake(),discoverCourses:()=>discovery.discover(),dispose(){service.dispose();scan.dispose();}};
 }

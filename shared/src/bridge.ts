@@ -62,7 +62,25 @@ export function check(schema: any, value: any): boolean {
     default: return true;
   }
 }
-export type Request = {source:"moodle-helper-web";type:"request";version:"1";clientId:string;requestId:string;operation:Operation|"hello";sessionId?:string;payload:any};
+/**
+ * #82 worker-local operation, declared like hello: no backend path and not in the
+ * OpenAPI-derived catalog. The worker reads the in-progress enrolled courses from
+ * SDU Moodle and ingests them through /api/courses/discovery itself. Its closed
+ * reply is {snapshot, found, coverage} or exactly one of the fixed messages.
+ */
+export const LOCAL_OPERATIONS = ["discoverCourses"] as const;
+export type LocalOperation = (typeof LOCAL_OPERATIONS)[number];
+export const DISCOVERY_MESSAGES = {
+  signedOut: "Sign in to SDU Moodle to continue.",
+  failed: "Could not read your SDU courses. Try again later.",
+  demo: "Course discovery is not available in the demo dataset.",
+} as const;
+export type DiscoveryMessage = (typeof DISCOVERY_MESSAGES)[keyof typeof DISCOVERY_MESSAGES];
+export type DiscoveryResult = {snapshot:any;found:number;coverage:"complete"|"partial"} | {message:DiscoveryMessage};
+/** At most 4 pages of 24 courses are read. */
+export const MAX_DISCOVERED = 96;
+const local = (op: unknown): op is LocalOperation => (LOCAL_OPERATIONS as readonly unknown[]).includes(op);
+export type Request = {source:"moodle-helper-web";type:"request";version:"1";clientId:string;requestId:string;operation:Operation|"hello"|LocalOperation;sessionId?:string;payload:any};
 export type Reply = {source:"moodle-helper-extension";type:"response";version:"1";clientId:string;requestId:string;ok:boolean;result?:any;error?:{code:ErrorCode;message:string}};
 export function rejection(r: Pick<Request,"clientId"|"requestId">, code: ErrorCode): Reply { return {source:"moodle-helper-extension",type:"response",version:"1",clientId:r.clientId,requestId:r.requestId,ok:false,error:{code,message:errors[code]}}; }
 export function success(r: Request, result: unknown): Reply { return {source:"moodle-helper-extension",type:"response",version:"1",clientId:r.clientId,requestId:r.requestId,ok:true,result}; }
@@ -70,10 +88,11 @@ export function requestError(r: unknown): ErrorCode | null {
   if (!fits(r)) return "TOO_LARGE";
   if (!object(r) || !idValid(r.clientId) || !idValid(r.requestId)) return "VALIDATION";
   if (r.version !== "1") return "UNSUPPORTED_VERSION";
-  if (typeof r.operation !== "string" || (r.operation !== "hello" && !Object.hasOwn(catalog,r.operation))) return "UNSUPPORTED_OPERATION";
+  if (typeof r.operation !== "string" || (r.operation !== "hello" && !local(r.operation) && !Object.hasOwn(catalog,r.operation))) return "UNSUPPORTED_OPERATION";
   if (!closed(r,["source","type","version","clientId","requestId","operation","payload"],r.operation === "hello" ? [] : ["sessionId"]) || r.source !== "moodle-helper-web" || r.type !== "request") return "VALIDATION";
   if (r.operation === "hello") return closed(r.payload,[]) ? null : "VALIDATION";
   if (!idValid(r.sessionId)) return "RECONNECT_REQUIRED";
+  if (local(r.operation)) return closed(r.payload,[]) ? null : "VALIDATION";
   const entry = catalog[r.operation as Operation];
   const hasId = entry.path.includes("{");
   if (hasId) {
@@ -82,7 +101,13 @@ export function requestError(r: unknown): ErrorCode | null {
   }
   return (entry.body ? check(entry.body,r.payload) : closed(r.payload,[])) ? null : "VALIDATION";
 }
-export function validResult(op: Operation | "hello", value: unknown): boolean {
+export function validResult(op: Operation | "hello" | LocalOperation, value: unknown): boolean {
+  if (op === "discoverCourses") {
+    const v: any = value;
+    if (object(v) && Object.hasOwn(v,"message")) return closed(v,["message"]) && (Object.values(DISCOVERY_MESSAGES) as unknown[]).includes(v.message);
+    return closed(v,["snapshot","found","coverage"]) && Number.isInteger(v.found) && v.found >= 0 && v.found <= MAX_DISCOVERED &&
+      ["complete","partial"].includes(v.coverage) && check({$ref:"#/components/schemas/Snapshot"},v.snapshot);
+  }
   if (op !== "hello") return check(catalog[op].result,value);
   return closed(value,["version","workerGeneration","sessionId","backend","localRepository","moodleCollection"]) && value.version === "1" && idValid(value.workerGeneration) && idValid(value.sessionId) && ["ready","unavailable"].includes(value.backend) && value.localRepository === value.backend && value.moodleCollection === "unavailable";
 }

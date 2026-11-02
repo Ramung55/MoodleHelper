@@ -166,9 +166,14 @@ export function detectMoodleAccess(input: MoodleAccessInput): MoodleAccessResult
  * - accessible: HTTP 200 HTML on the requested route with the expected body markers
  *   (`format-topics` and `course-<id>` on a course page; `page-mod-quiz-view`,
  *   `cmid-<cmid>` and `course-<id>` on a quiz view page).
+ * - #82 course discovery: the `/my/courses.php` shell is accessible only as HTTP 200
+ *   HTML whose final URL is exactly `/my/courses.php` (its body markers were not
+ *   recorded, so none are required). An HTML answer to the enrolled-courses service
+ *   call (`service`) is never accessible: it is only checked for the signed-out signals.
  * Anything else is an access error. Only the body id and classes are read.
  */
-export type ObservedRoute = { kind: "course"; courseId: string } | { kind: "quiz"; cmid: string; courseId: string };
+export type ObservedRoute = { kind: "course"; courseId: string } | { kind: "quiz"; cmid: string; courseId: string } |
+  { kind: "my-courses" } | { kind: "service" };
 export interface ObservedAccessInput {
   readonly document?: Document;
   readonly requestedUrl: string;
@@ -198,6 +203,8 @@ export function detectObservedMoodleAccess(input: ObservedAccessInput, route: Ob
     if (status !== 200 || (mime !== "text/html" && mime !== "application/xhtml+xml")) return observed("unsupported_response");
     if (final.href !== requested.href || !body) return observed("ambiguous_content");
     const classes = body.classList;
+    if (route.kind === "my-courses" || route.kind === "service")
+      return observed(route.kind === "my-courses" && final.pathname === "/my/courses.php" && !final.search ? "accessible" : "ambiguous_content");
     const accessible = route.kind === "course"
       ? final.pathname === "/course/view.php" && final.search === `?id=${route.courseId}` &&
         classes.contains("format-topics") && classes.contains(`course-${route.courseId}`)
