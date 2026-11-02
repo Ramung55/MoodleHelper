@@ -55,7 +55,7 @@ const variantOf = (from: string, to: string, html = observedQuiz) => {
 };
 const closedRow = "<div>Closed: Saturday, 4 March 2028, 9:00 AM</div>";
 const quizInfo = /<div class="box quizinfo">[\s\S]*?<\/div>\n/;
-const attemptsList = /<div class="rui-attempts-list">[\s\S]*?<\/div>\n<\/div>\n<\/div>\n<\/div>\n/;
+const attemptsList = /<div class="rui-attempts-list">[\s\S]*?<\/div>\n<\/div>\n<\/div>\n<\/div>\n<\/div>\n/;
 const exhausted =
   '<div class="box quizattempt"><p class="text-start">No more attempts are allowed</p>\n<div class="continuebutton">Back to the course</div></div>\n';
 
@@ -186,6 +186,13 @@ describe("#14 observed quiz view page (observed/quiz-finished.html)", () => {
   it("never retains marks, grade or the password notice", () => {
     const text = JSON.stringify(parseMoodleQuizPage(input(observedQuiz), observedAt));
     expect(text).not.toMatch(/Marks|Grade|not retained|password|Duration/);
+  });
+  it("accepts an attempt without a Marks infobox (Addendum 6 live variant)", () => {
+    const marks =
+      '<div class="rui-infobox pl-3"><h5 class="rui-infobox-title">Marks</h5><div class="rui-infobox-content--small">[not retained]</div></div>\n';
+    const o = only(parseMoodleQuizPage(input(variantOf(marks, "")), observedAt));
+    expect(o.attemptInformation).toMatchObject({ kind: "known", unknownFields: ["used"] });
+    expect(o.close).toBe("quiz_close");
   });
   it("does not mutate the input document", () => {
     const i = input(observedQuiz),
@@ -478,7 +485,7 @@ describe("#14 SYNTHETIC variants of the observed structure", () => {
       "attempt card without a status",
       () =>
         variantOf(
-          '<div class="rui-infobox"><h5 class="rui-infobox-title">Status</h5><div class="rui-infobox-content--small">Finished</div></div>',
+          '<div class="rui-infobox pl-3"><h5 class="rui-infobox-title">Status</h5><div class="rui-infobox-content--small">Finished</div></div>',
           "",
         ),
       "malformed_structure",

@@ -1457,8 +1457,9 @@
               "Time limit: 10 mins",
               "To attempt this quiz you need to know the quiz password"
             ],
-            "basis": "assumed",
-            "asserts": "quiz password notice wording (\"To attempt this quiz you need to know the quiz password\" assumed; #3 recorded only that a password notice exists)"
+            "basis": "observed",
+            "asserts": ".quizinfo p: text",
+            "note": "Addendum 6 (2026-11-02) of the compatibility report recorded the password notice wording \"To attempt this quiz you need to know the quiz password\" on two live quizzes."
           },
           {
             "selector": "table.quizattemptsummary",
@@ -1491,10 +1492,11 @@
             "note": "Addendum 3 (orchestrator, 2026-11-01) of the 2026-11-01 inspection notes: querySelector('.card') inside .rui-attempts-list returned null on the live page."
           },
           {
-            "selector": "div.rounded.border.p-3 > .rui-infobox",
+            "selector": "div.rounded.border.p-3 > div.rui-summary-table.quizreviewsummary.mb-0 > div.rui-info-container.rui-quizreviewsummary > div.rui-infobox.pl-3",
             "count": 6,
-            "basis": "assumed",
-            "asserts": "placement of the .rui-infobox blocks inside the attempt box (direct children after the h4 assumed; Addendum 3 records only that .rui-summary-table.quizreviewsummary / .rui-infobox blocks follow h4.card-title.mb-3)"
+            "basis": "observed",
+            "asserts": "div.rounded.border.p-3 > div.rui-summary-table.quizreviewsummary.mb-0 > div.rui-info-container.rui-quizreviewsummary > div.rui-infobox.pl-3: count",
+            "note": "Addendum 6 (2026-11-02) of the compatibility report recorded this chain from the attempt box to each .rui-infobox on all 3 live quizzes."
           },
           {
             "selector": "div.rui-attempts-list .rui-infobox h5.rui-infobox-title",
@@ -1568,8 +1570,6 @@
           "final grade"
         ],
         "unrecordedFields": [
-          "quiz password notice wording (\"To attempt this quiz you need to know the quiz password\" assumed; #3 recorded only that a password notice exists)",
-          "placement of the .rui-infobox blocks inside the attempt box (direct children after the h4 assumed; Addendum 3 records only that .rui-summary-table.quizreviewsummary / .rui-infobox blocks follow h4.card-title.mb-3)",
           "inner markup of div.continuebutton (plain text assumed; Addendum 4 records only the element and its text \"Back to the course\")"
         ],
         "schemaGapOwners": [

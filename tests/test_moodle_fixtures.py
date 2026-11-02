@@ -518,14 +518,14 @@ def test_observed_semantics_follow_the_matrix():
 # QA on #4: details #3 never recorded stay labelled as assumed and are never asserted as observed.
 UNRECORDED_DETAILS = {
     "observed-course-page": ['"Assignment"', '"Quiz"', '"Forum"', '"Page"'],
-    "observed-quiz-finished": ["To attempt this quiz you need to know the quiz password"],
     "observed-assign-submitted": ["h3", "table.generaltable"],
     "observed-assign-not-submitted": ["h3", "table.generaltable"],
     "observed-course-list": ["paging-bar inside paging-control-container", "ul.pagination", "a.coursename"],
     "observed-calendar-upcoming": ["Tuesday, 7 March, 2:30 PM"],
     "observed-not-found": ["p wrapper"],
 }
-UNRECORDED_TEXT = {"Assignment", "Quiz", "Forum", "Page", "To attempt this quiz you need to know the quiz password"}
+# The quiz password notice wording was recorded live in Addendum 6 (2026-11-02), so it is no longer assumed.
+UNRECORDED_TEXT = {"Assignment", "Quiz", "Forum", "Page"}
 
 
 def test_unrecorded_details_are_labelled_assumed():
