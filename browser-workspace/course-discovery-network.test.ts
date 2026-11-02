@@ -47,6 +47,7 @@ afterAll(async () => {
   for (const backend of running) await backend.stop();
   await rm(dir, {recursive: true, force: true});
 });
+// Each check stops its backend at once, so the parallel suites are not slowed by idle servers.
 afterEach(() => { vi.restoreAllMocks(); });
 
 class Backend {
@@ -174,55 +175,19 @@ const discovered = (snapshot: any) => snapshot.courses.filter((c: any) => c.disc
 function spacing(starts: {at: number}[]) {
   for (let i = 1; i < starts.length; i++) expect(starts[i]!.at - starts[i - 1]!.at).toBeGreaterThanOrEqual(1000);
 }
-const fresh = () => ({now: Date.parse('2028-03-05T10:00:00Z')});
-
-it('happy path: one GET, one POST and one ingest; three unticked courses; one run for two tabs; the sesskey only in the POST URL', async () => {
-  const backend = new Backend('happy'); await backend.start();
-  const clock = fresh();
-  const consoleCalls: unknown[] = [];
-  for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) vi.spyOn(console, level).mockImplementation((...args) => { consoleCalls.push(args); });
-  const site_ = moodle(clock, site());
-  const app = install(backend, clock, site_.fetcher);
-  const before = await backend.get('/api/snapshot');
-  // Two dashboard tabs click Find my SDU courses at once: one run, the same result.
-  const [one, two] = await Promise.all([app.bridge(1, 'discoverCourses'), app.bridge(2, 'discoverCourses')]);
-  for (const reply of [one, two]) expect(reply).toMatchObject({ok: true, result: {found: 3, coverage: 'complete'}});
-  expect(two.result).toEqual(one.result);
-  const starts = site_.starts();
-  expect(starts.map(e => [e.method, e.url])).toEqual([['GET', SHELL_URL], ['POST', SERVICE_URL]]);
-  expect(starts[0]!.init).toMatchObject({method: 'GET', credentials: 'include', redirect: 'follow', cache: 'no-store'});
-  expect(starts[0]!.init!.body).toBeUndefined();
-  expect(starts[1]!.init).toMatchObject({method: 'POST', credentials: 'include', redirect: 'follow', cache: 'no-store', headers: {'Content-Type': 'application/json'}});
-  expect(JSON.parse(starts[1]!.body!)).toEqual([{index: 0, methodname: ENROLLED_METHOD, args: {offset: 0, limit: 24, classification: 'inprogress', sort: 'fullname'}}]);
-  expect(site_.maxActive()).toBe(1); spacing(starts);
-  // Gate acquire and release around each Moodle request, then exactly one ingest with the binding.
-  // (A busy gate is asked again after a short wait, so repeated acquires collapse into one.)
-  const gate = app.backendTrace.filter(r => r.path.startsWith('/api/scan/gate/') || r.path === '/api/courses/discovery').map(r => r.path)
-    .filter((p, i, all) => p !== all[i - 1]);
-  expect(gate).toEqual(['/api/scan/gate/acquire', '/api/scan/gate/release', '/api/scan/gate/acquire', '/api/scan/gate/release', '/api/courses/discovery']);
-  const [ingest] = app.writes();
-  expect(ingest!.method).toBe('POST');
-  expect(ingest!.headers['X-Moodle-Helper-Bridge-Binding']).toBe(await backend.binding());
-  expect(JSON.parse(ingest!.body!)).toEqual({observations: ['9001', '9002', '9003'].map((id, i) => ({sourceCourseId: id, sourceUrl: `${ORIGIN}/course/view.php?id=${id}`,
-    title: {kind: 'known', value: ['Fictional Course Alpha', 'Fictional Course Beta', 'Fictional Course Gamma'][i]}, termIndicators: {kind: 'known', value: ['In progress']}}))});
-  const snapshot = await backend.get('/api/snapshot');
-  expect(discovered(snapshot)).toEqual(['9001', '9002', '9003']);
-  expect(snapshot.settings.trackedCourseIds).toEqual(before.settings.trackedCourseIds);
-  expect(one.result.snapshot.settings.trackedCourseIds).toEqual(before.settings.trackedCourseIds);
-  // The sesskey appears only in the POST URL.
-  const everywhere = JSON.stringify([app.backendTrace, app.replies, consoleCalls, app.storageWrites, app.offscreenMessages, snapshot]);
-  expect(everywhere).not.toContain(SESSKEY);
-  expect(app.offscreenMessages).toHaveLength(1);
-  expect(app.offscreenMessages[0]).toMatchObject({type: 'access', request: {route: 'my-courses', envelope: {requestedUrl: SHELL_URL, finalUrl: SHELL_URL, httpStatus: 200}}});
-  expect(site_.trace.filter(e => JSON.stringify([e.url, e.body]).includes(SESSKEY)).every(e => e.method === 'POST' && e.url === SERVICE_URL && !(e.body ?? '').includes(SESSKEY))).toBe(true);
-  // Data minimisation in the SQLite file and the snapshot.
-  const bytes = await backend.bytes();
-  for (const value of [SESSKEY, 'DEMO101', 'redacted', 'Fictional Term 2028', 'moodle.example.invalid']) {
-    expect(bytes).not.toContain(value);
-    expect(JSON.stringify(snapshot)).not.toContain(value);
-  }
-  app.worker.dispose();
-}, 60000);
+/**
+ * One real-namespace backend for the checks that need no seeded selection (they run in
+ * file order: nothing is written before the happy path), so few servers start beside the
+ * other parallel suites. One clock that only moves forward: the durable gate keeps the
+ * pacing of earlier checks.
+ */
+const shared = {now: Date.parse('2028-03-05T10:00:00Z')};
+const fresh = () => { shared.now += 300_000; return shared; };
+let sharedBackend: Backend | undefined;
+async function realBackend() {
+  if (!sharedBackend) { sharedBackend = new Backend('real'); await sharedBackend.start(); }
+  return sharedBackend;
+}
 
 it('shares the request authority with a running #20 scan: requests interleave but never overlap', async () => {
   const backend = new Backend('interleave'); await backend.start();
@@ -287,7 +252,7 @@ it('the page source refuses every other POST and every other route without calli
 });
 
 it('a shell without a sesskey fails with no POST; a signed-out GET asks to sign in, with no POST, write or further request', async () => {
-  const backend = new Backend('signed-out-get'); await backend.start();
+  const backend = await realBackend();
   const clock = fresh();
   const responses: Reply[] = [ok(shell.replace(`"sesskey":"${SESSKEY}"`, '"session":"none"')),
     {status: loginRedirect.response.status, body: loginPage, finalUrl: ORIGIN + loginRedirect.response.finalPath, contentType: loginRedirect.response.contentType}];
@@ -307,7 +272,7 @@ it('a shell without a sesskey fails with no POST; a signed-out GET asks to sign 
 }, 60000);
 
 it('signed out at a POST (login page or servicerequireslogin) asks to sign in and ingests nothing, not even earlier pages', async () => {
-  const backend = new Backend('signed-out-post'); await backend.start();
+  const backend = await realBackend();
   const clock = fresh();
   const answers: ((offset: number) => Reply)[] = [
     () => ({status: 200, body: loginPage, finalUrl: `${ORIGIN}/login/index.php`}),
@@ -328,7 +293,7 @@ it('signed out at a POST (login page or servicerequireslogin) asks to sign in an
 }, 60000);
 
 it('failures end with the fixed message and no backend write: invalidsesskey once, 503/429 retried twice, a stalled fetch aborted, oversize and non-JSON bodies', async () => {
-  const backend = new Backend('failures'); await backend.start();
+  const backend = await realBackend();
   // One clock for every case: the durable gate keeps the pacing of the earlier cases.
   const clock = fresh();
   const run = async (page: (offset: number, attempt: number) => Reply, extra: Record<string, unknown> = {}) => {
@@ -381,8 +346,56 @@ it('failures end with the fixed message and no backend write: invalidsesskey onc
   app.worker.dispose();
 }, 90000);
 
+it('happy path: one GET, one POST and one ingest; three unticked courses; one run for two tabs; the sesskey only in the POST URL', async () => {
+  const backend = await realBackend();
+  const clock = fresh();
+  const consoleCalls: unknown[] = [];
+  for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) vi.spyOn(console, level).mockImplementation((...args) => { consoleCalls.push(args); });
+  const site_ = moodle(clock, site());
+  const app = install(backend, clock, site_.fetcher);
+  const before = await backend.get('/api/snapshot');
+  // Two dashboard tabs click Find my SDU courses at once: one run, the same result.
+  const [one, two] = await Promise.all([app.bridge(1, 'discoverCourses'), app.bridge(2, 'discoverCourses')]);
+  for (const reply of [one, two]) expect(reply).toMatchObject({ok: true, result: {found: 3, coverage: 'complete'}});
+  expect(two.result).toEqual(one.result);
+  const starts = site_.starts();
+  expect(starts.map(e => [e.method, e.url])).toEqual([['GET', SHELL_URL], ['POST', SERVICE_URL]]);
+  expect(starts[0]!.init).toMatchObject({method: 'GET', credentials: 'include', redirect: 'follow', cache: 'no-store'});
+  expect(starts[0]!.init!.body).toBeUndefined();
+  expect(starts[1]!.init).toMatchObject({method: 'POST', credentials: 'include', redirect: 'follow', cache: 'no-store', headers: {'Content-Type': 'application/json'}});
+  expect(JSON.parse(starts[1]!.body!)).toEqual([{index: 0, methodname: ENROLLED_METHOD, args: {offset: 0, limit: 24, classification: 'inprogress', sort: 'fullname'}}]);
+  expect(site_.maxActive()).toBe(1); spacing(starts);
+  // Gate acquire and release around each Moodle request, then exactly one ingest with the binding.
+  // (A busy gate is asked again after a short wait, so repeated acquires collapse into one.)
+  const gate = app.backendTrace.filter(r => r.path.startsWith('/api/scan/gate/') || r.path === '/api/courses/discovery').map(r => r.path)
+    .filter((p, i, all) => p !== all[i - 1]);
+  expect(gate).toEqual(['/api/scan/gate/acquire', '/api/scan/gate/release', '/api/scan/gate/acquire', '/api/scan/gate/release', '/api/courses/discovery']);
+  const [ingest] = app.writes();
+  expect(ingest!.method).toBe('POST');
+  expect(ingest!.headers['X-Moodle-Helper-Bridge-Binding']).toBe(await backend.binding());
+  expect(JSON.parse(ingest!.body!)).toEqual({observations: ['9001', '9002', '9003'].map((id, i) => ({sourceCourseId: id, sourceUrl: `${ORIGIN}/course/view.php?id=${id}`,
+    title: {kind: 'known', value: ['Fictional Course Alpha', 'Fictional Course Beta', 'Fictional Course Gamma'][i]}, termIndicators: {kind: 'known', value: ['In progress']}}))});
+  const snapshot = await backend.get('/api/snapshot');
+  expect(discovered(snapshot)).toEqual(['9001', '9002', '9003']);
+  expect(snapshot.settings.trackedCourseIds).toEqual(before.settings.trackedCourseIds);
+  expect(one.result.snapshot.settings.trackedCourseIds).toEqual(before.settings.trackedCourseIds);
+  // The sesskey appears only in the POST URL.
+  const everywhere = JSON.stringify([app.backendTrace, app.replies, consoleCalls, app.storageWrites, app.offscreenMessages, snapshot]);
+  expect(everywhere).not.toContain(SESSKEY);
+  expect(app.offscreenMessages).toHaveLength(1);
+  expect(app.offscreenMessages[0]).toMatchObject({type: 'access', request: {route: 'my-courses', envelope: {requestedUrl: SHELL_URL, finalUrl: SHELL_URL, httpStatus: 200}}});
+  expect(site_.trace.filter(e => JSON.stringify([e.url, e.body]).includes(SESSKEY)).every(e => e.method === 'POST' && e.url === SERVICE_URL && !(e.body ?? '').includes(SESSKEY))).toBe(true);
+  // Data minimisation in the SQLite file and the snapshot.
+  const bytes = await backend.bytes();
+  for (const value of [SESSKEY, 'DEMO101', 'redacted', 'Fictional Term 2028', 'moodle.example.invalid']) {
+    expect(bytes).not.toContain(value);
+    expect(JSON.stringify(snapshot)).not.toContain(value);
+  }
+  app.worker.dispose();
+}, 60000);
+
 it('re-discovery keeps every course, the selection and the existing records', async () => {
-  const backend = new Backend('rediscovery'); await backend.start();
+  const backend = await realBackend();
   const clock = fresh();
   let response = inprogress;
   const site_ = moodle(clock, site(() => json(response)));
