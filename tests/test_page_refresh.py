@@ -207,6 +207,91 @@ def test_submission_reduction_unknown_keeps_confirmation_and_rejects_conflicting
     assert revision(store)==rev
 
 
+# #81: adapter-shaped submission attempts (extension/src/page-refresh.ts submissionRefreshResult).
+def submission(status,time,activity='202',action=False):
+    wording={'submitted':'Submitted for grading','not_submitted':'No submissions have been made yet','reopened':'Reopened','draft':'Draft (not submitted)'}
+    observation=dict(status=status,**({'evidence':wording[status]} if status!='unknown' else {}),observedAt=time,actionRequired=action)
+    record=dict(sourceCourseId='101',sourceActivityId=activity,sourceCourseModuleId='303',sourceUrl=PAGE,observation=observation)
+    if activity is None: del record['sourceActivityId']
+    return record
+
+
+def store_submissions(client,*attempts):
+    for index,attempt in enumerate(attempts):
+        token,h=begin(client,visit=f'submission-{index}')
+        response=refresh(client,token,h,result('submission',[attempt]),'submission')
+        assert response.status_code==200,response.text
+
+
+def latest_submission(store):
+    [record]=[r for r in store.read()['collection']['records'] if r['kind']=='submission']
+    return record['observations'][-1]
+
+
+def test_submission_newer_unknown_keeps_confirmed_as_stale(harness):
+    client,store,_=harness
+    store_submissions(client,submission('submitted','2026-10-25T12:00Z'),submission('unknown',TIME))
+    latest=latest_submission(store)
+    assert latest['confirmed']['observation']=={'status':'submitted','evidence':'Submitted for grading','observedAt':'2026-10-25T12:00Z','actionRequired':False}
+    assert latest['stale'] is True and latest['attempted']['observation']['status']=='unknown'
+
+
+def test_submission_older_attempt_never_replaces_newer_confirmed(harness):
+    client,store,_=harness
+    store_submissions(client,submission('submitted',TIME),submission('not_submitted','2026-10-25T12:00Z'))
+    latest=latest_submission(store)
+    assert latest['confirmed']['observation']['status']=='submitted' and latest['confirmed']['observation']['observedAt']==TIME
+    assert latest['stale'] is False and latest['attempted']['observation']['status']=='not_submitted'
+
+
+def test_submission_newer_readable_status_replaces_confirmed(harness):
+    client,store,_=harness
+    store_submissions(client,submission('submitted','2026-10-25T12:00Z'),submission('not_submitted',TIME))
+    latest=latest_submission(store)
+    assert latest['confirmed']['observation']['status']=='not_submitted' and latest['stale'] is False
+
+
+def test_submission_action_required_is_stored_with_the_confirmed_status(harness):
+    client,store,_=harness
+    store_submissions(client,submission('reopened',TIME,action=True))
+    latest=latest_submission(store)
+    assert latest['confirmed']['observation']['actionRequired'] is True and latest['attempted']['observation']['actionRequired'] is True
+
+
+def test_submission_storage_failure_rolls_back_with_earlier_confirmation(harness,monkeypatch):
+    client,store,_=harness
+    store_submissions(client,submission('submitted','2026-10-25T12:00Z'))
+    before=store.read();token,h=begin(client,visit='failing')
+    def fail(operation):
+        value=deepcopy(before);operation(value)
+        raise StorageError('Database unavailable. No save was confirmed.')
+    monkeypatch.setattr(store,'mutate',fail)
+    response=refresh(client,token,h,result('submission',[submission('unknown',TIME)]),'submission')
+    assert response.status_code==503 and store.read()==before
+    assert latest_submission(store)['confirmed']['observation']['status']=='submitted'
+
+
+@pytest.mark.parametrize('activity',[None,'','0','12a','-1',' 202'])
+def test_submission_without_recorded_decimal_instance_id_is_rejected(harness,activity):
+    client,store,_=harness
+    before=store.read();rev=revision(store);token,h=begin(client)
+    response=refresh(client,token,h,result('submission',[submission('submitted',TIME,activity=activity)]),'submission')
+    assert response.status_code in (409,422),response.text
+    assert revision(store)==rev and store.read()==before
+
+
+def test_submission_signed_out_scan_keeps_confirmed_submitted_as_stale(harness):
+    """The adapter maps a signed-out page to unknown with no evidence; never not_submitted."""
+    client,store,_=harness
+    store_submissions(client,submission('submitted','2026-10-25T12:00Z'))
+    signed_out=submission('unknown','2026-11-02T10:15:00+05:00')
+    assert signed_out['observation']=={'status':'unknown','observedAt':'2026-11-02T10:15:00+05:00','actionRequired':False}
+    token,h=begin(client,visit='signed-out')
+    assert refresh(client,token,h,result('submission',[signed_out]),'submission').status_code==200
+    latest=latest_submission(store)
+    assert latest['confirmed']['observation']['status']=='submitted' and latest['stale'] is True
+
+
 def material():
     reference=dict(sourcePageUrl=ORIGIN+'/course/view.php?id=101',sourceUrl=ORIGIN+'/mod/resource/view.php?id=201',destinationUrl=ORIGIN+'/pluginfile.php/700/mod_resource/content/1/lecture.pdf',observedAt=TIME,location='course.material')
     return dict(**reference,sourceCourseId='101',sourceCourseModuleId='201',sourceModuleType='resource',sourceContextId='700',resourceKey=json.dumps([ORIGIN,'101','resource','module','201'],separators=(',',':')),kind='file',title={'kind':'known','value':'Synthetic lecture'},section={'kind':'unknown'},fileType={'kind':'unknown'},mimeType={'kind':'unknown'},references=[deepcopy(reference)])
