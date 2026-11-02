@@ -8,7 +8,7 @@ type ChromeApi=Parameters<typeof installWorker>[0] & Parameters<typeof installQu
 export function installExtension(chrome:ChromeApi, options:Parameters<typeof installQueueWorker>[1]={}) {
   // Bound below, before any message can arrive: a 200 from Sync all wakes the scan worker at once.
   let wakeScan:()=>void=()=>{};
-  installWorker(chrome,{onSyncStarted:()=>wakeScan()});
+  installWorker(chrome,{onSyncStarted:()=>wakeScan(),...(options.fetcher?{fetcher:options.fetcher}:{})});
   installCollectionWorker(chrome);
   const queue=installQueueWorker(chrome,options);
   wakeScan=()=>{void queue.wakeScan();};

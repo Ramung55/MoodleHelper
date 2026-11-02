@@ -25,7 +25,7 @@ All fixtures are offline, inert inputs. They contain no captured student or cour
 | Folder: empty folder on a separate page (`li.activity.modtype_folder.folder`, `body#page-mod-folder-view`, `.foldertree` / `.filemanager`) | observed-folder-empty, observed-course-page-guest-folder |
 | Permission failure: not enrolled (HTTP 200, page rendered) | observed-course-page-guest-folder |
 | Permission failure: non-existent id (HTTP 404, `body#page-site-index`, "Can't find data record in database") | observed-not-found |
-| Login redirect: course page (final path `/login/index.php`, HTTP 200) | observed-login-redirect-course |
+| Login redirect: course page (final path `/login/index.php`, HTTP 200) | observed-login-redirect-course, observed-login-page |
 | Login redirect: file download (final path `/login/index.php`, HTTP 200, `text/html`) | observed-login-redirect-resource |
 
 The rows #3 marks UNVERIFIED or unavailable are listed in `observedCoverage.unverifiedVariants` as `synthetic-only`. These are: draft and reopened submissions, cut-off/extension/individual override, quiz in-progress or multiple attempts, other calendar views and event types, video and restricted resources, folders with files or subfolders, restricted activities, RU/KK interfaces, calendar and resource pagination, restricted folders and session expiry. Where a synthetic fixture exercises one of them, the manifest names it. That fixture claims no SDU support. The draft and reopened rows also name their `upstreamFixtures` (`upstream-assign-draft`, `upstream-assign-reopened`) with `seenOnSdu: false` and a note that says "upstream, not seen on SDU"; their coverage stays `synthetic-only` because SDU never showed them.

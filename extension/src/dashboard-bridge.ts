@@ -366,9 +366,11 @@ export function installWorker(chromeApi: {
       cb: (allowed: boolean) => void,
     ) => void;
   };
-}, options: { onSyncStarted?: () => void } = {}) {
+}, options: { onSyncStarted?: () => void; fetcher?: typeof fetch } = {}) {
   const handler = createWorker({
     runtimeId: chromeApi.runtime.id,
+    // In-process test seam only; the installed extension uses the global fetch.
+    ...(options.fetcher ? { fetcher: options.fetcher } : {}),
     grant: () =>
       new Promise((resolve) =>
         chromeApi.permissions.contains(

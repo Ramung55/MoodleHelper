@@ -49,13 +49,15 @@ async function readCapped(response:Response):Promise<{html:string;bytes:number;t
   return {html:new TextDecoder('utf-8').decode(all),bytes,truncated:false};
 }
 
-export function createMoodlePageSource(options:{fetcher?:typeof fetch;analyze:Analyzer;now:()=>number}):ScanSource {
+export function createMoodlePageSource(options:{fetcher?:typeof fetch;analyze:Analyzer;now:()=>number;requestLimitMs?:number}):ScanSource {
+  // A shorter limit is only a test seam; the hard limit is never exceeded.
+  const limit=Math.min(options.requestLimitMs??REQUEST_LIMIT_MS,REQUEST_LIMIT_MS);
   const fetcher:typeof fetch=(input,init)=>(options.fetcher??globalThis.fetch)(input,init);
   return {start(url:string,context?:StartContext):ScanRequest {
     if(!liveRouteAllowed(url)||!context)throw Error('Route not allowed');
     const controller=new AbortController();
     let external=false;
-    const timer=setTimeout(()=>controller.abort(),REQUEST_LIMIT_MS);
+    const timer=setTimeout(()=>controller.abort(),limit);
     let settle!:(value:boolean)=>void;
     const termination=new Promise<boolean>(resolve=>settle=resolve);
     const fetched=(async()=>{

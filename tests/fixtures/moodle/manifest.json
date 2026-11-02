@@ -122,7 +122,8 @@
         "table": "navigation-and-access",
         "matrixRow": "Login redirect: page",
         "fixtures": [
-          "observed-login-redirect-course"
+          "observed-login-redirect-course",
+          "observed-login-page"
         ]
       },
       {
@@ -2124,6 +2125,72 @@
         "redactedFields": [],
         "unrecordedFields": [
           "body"
+        ],
+        "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "observed-login-page",
+      "path": "observed/login-page.html",
+      "sourceVariant": "sdu-en-alpha/login-page-lang-ru",
+      "pageClass": "access",
+      "language": "ru",
+      "purpose": "The login page a signed-out request ends on (final path /login/index.php, HTTP 200). It defaults to Russian, so the signed-out signal is body#page-login-index, never text.",
+      "synthetic": false,
+      "sourceKind": "observed-structure",
+      "provenance": "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks that assert them are marked basis=assumed. All content, ids and dates are invented. Not a capture.",
+      "inspectionDate": "2026-11-01",
+      "theme": "alpha",
+      "edgeCases": [
+        "login_redirect"
+      ],
+      "expected": {
+        "fields": {
+          "body_id": "page-login-index",
+          "body_class": "path-login pagelayout-login rui-login-page lang-ru"
+        },
+        "observedFields": [
+          "body_id",
+          "body_class"
+        ],
+        "checks": [
+          {
+            "selector": "body#page-login-index",
+            "count": 1,
+            "basis": "observed",
+            "asserts": "body#page-login-index: count",
+            "note": "Addendum 5 (2026-11-01) session signals; seen again in Addendum 6 (2026-11-02) for a signed-out pluginfile.php request."
+          },
+          {
+            "selector": "body",
+            "attr": "id",
+            "values": [
+              "page-login-index"
+            ],
+            "basis": "observed",
+            "asserts": "body: attr"
+          },
+          {
+            "selector": "body#page-login-index",
+            "attr": "class",
+            "values": [
+              "path-login pagelayout-login rui-login-page lang-ru"
+            ],
+            "basis": "observed",
+            "asserts": "body#page-login-index: attr"
+          }
+        ],
+        "derived": {
+          "httpStatus": 200,
+          "finalPath": "/login/index.php",
+          "outcome": "signed_out",
+          "rule": "body#page-login-index or the final path /login/index.php means signed out; the page is lang-ru, so no text is matched"
+        },
+        "absentFields": [],
+        "redactedFields": [],
+        "unrecordedFields": [
+          "html lang attribute (only the body class lang-ru was recorded)",
+          "body content (the login form and its text are not kept; forms are rejected in fixtures)"
         ],
         "schemaGapOwners": []
       }

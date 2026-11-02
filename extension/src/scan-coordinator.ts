@@ -47,6 +47,8 @@ export interface ScanOptions {
    */
   registry?:CollectorRegistry;
 }
+/** Longest wait for the request authority before a page fails as request_failed. */
+export const ACQUIRE_LIMIT_MS=10*60*1000;
 const collectorsFor=(kind:string):Collector[]=>kind==='assign'?['assignment','submission']:kind==='quiz'?['quiz']:kind==='calendar'?['calendar']:['material'];
 const pageTypeFor=(kind:string)=>kind==='assign'?'assignment':kind==='resource'||kind==='url'||kind==='folder'?'material':kind;
 
@@ -72,7 +74,17 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
     const requestKey=options.retryScope?JSON.stringify([options.retryScope,next.url]):undefined;
     for(let attempt=1;attempt<=3;attempt++) {
       let reservation:string|{token:string;failures:number}|null=null;
-      while(!reservation && await check()){reservation=await options.authority.acquire(options.now(),requestKey);if(!reservation)await options.wait(100);}
+      const waitingSince=options.now();
+      let starved=false;
+      while(!reservation && await check()){
+        reservation=await options.authority.acquire(options.now(),requestKey);
+        if(reservation)break;
+        // Bounded: an authority that never frees (for example one kept occupied
+        // after a lost acknowledgement) cannot make this job poll forever.
+        if(!(options.now()-waitingSince<ACQUIRE_LIMIT_MS)){starved=true;break;}
+        await options.wait(100);
+      }
+      if(starved){failure(pageType,'request_failed','failed',next.url);stopped='request_failed';break;}
       if(!reservation){stopped='invalid_context';break;}
       if(reservation==='exhausted'){failure(pageType,'request_failed','failed',next.url);break;}
       const token=typeof reservation==='string'?reservation:reservation.token;

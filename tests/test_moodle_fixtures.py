@@ -361,7 +361,9 @@ def test_manifest_facts_match_visible_inert_input(entry):
 def check_observed_metadata(entry):
     assert entry["synthetic"] is False
     assert entry["provenance"] == OBSERVED_PROVENANCE
-    assert entry["language"] == "en" and entry["inspectionDate"] == "2026-11-01" and entry["theme"] == "alpha"
+    # The SDU site is English (en/alpha); only its login page defaults to Russian (Addendum 5; #20 fixture).
+    assert entry["language"] == ("ru" if entry["id"] == "observed-login-page" else "en")
+    assert entry["inspectionDate"] == "2026-11-01" and entry["theme"] == "alpha"
     assert entry["sourceVariant"].startswith("sdu-en-alpha/")
     assert entry["path"].startswith("observed/")
     for key in ("purpose", "pageClass"):
@@ -437,10 +439,11 @@ def check_fields_observed(expected, verified):
 def test_observed_html_is_inert_and_matches_manifest(entry):
     check_observed_metadata(entry)
     text = (ROOT / entry["path"]).read_text(encoding="utf-8")
-    assert text.startswith('<!doctype html>\n<html lang="en">')
+    language = entry["language"]
+    assert text.startswith(f'<!doctype html>\n<html lang="{language}">')
     root = parse_observed(text)
     assert "(invented content)" in select(root, "title")[0].text()
-    assert "lang-en" in select(root, "body")[0].classes
+    assert f"lang-{language}" in select(root, "body")[0].classes
     verified = []
     for check in entry["expected"]["checks"]:
         found = select(root, check["selector"])

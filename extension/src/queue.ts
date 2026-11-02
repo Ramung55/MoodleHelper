@@ -80,7 +80,7 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
 type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number;periodInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} } & {runtime:OffscreenChrome['runtime'];offscreen?:OffscreenChrome['offscreen']};
 type SyntheticOptions=Omit<ScanWorkerOptions, 'base'|'fetcher'|'schedule'>;
 /** In-process test seams for the live scan; the installed extension passes none. */
-export type LiveScanOptions={moodleFetch?:typeof fetch;now?:()=>number;wait?:(ms:number)=>Promise<void>;instance?:string;analyze?:Analyzer};
+export type LiveScanOptions={moodleFetch?:typeof fetch;now?:()=>number;wait?:(ms:number)=>Promise<void>;instance?:string;analyze?:Analyzer;requestLimitMs?:number};
 export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Parameters<typeof createQueueService>[0], 'schedule'>> & {syntheticScan?:SyntheticOptions;liveScan?:LiveScanOptions}={}) {
   // One periodic alarm discovers runs created directly through the local API.
   // Register it and all listeners before any asynchronous worker activity.
@@ -96,7 +96,7 @@ export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Para
   const now=liveScan.now??Date.now, wait=liveScan.wait??((ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms)));
   const scan=syntheticScan ? createScanWorker({...syntheticScan,base,fetcher,schedule:()=>{}})
     : createScanWorker({base,fetcher,schedule:()=>{},now,wait,registry:liveRegistry(),
-        source:createMoodlePageSource({...(liveScan.moodleFetch?{fetcher:liveScan.moodleFetch}:{}),analyze:liveScan.analyze??offscreenAnalyzer(chrome),now}),
+        source:createMoodlePageSource({...(liveScan.moodleFetch?{fetcher:liveScan.moodleFetch}:{}),...(liveScan.requestLimitMs?{requestLimitMs:liveScan.requestLimitMs}:{}),analyze:liveScan.analyze??offscreenAnalyzer(chrome),now}),
         authority:createMoodleRequestAuthority({base,fetcher,instance:liveScan.instance??(globalThis.crypto?.randomUUID?.()??String(Math.random()).slice(2))})});
   const wake=async()=>{await Promise.all([service.wake(),scan.wake()]);};
   chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name===ALARM_NAME) void wake();});
