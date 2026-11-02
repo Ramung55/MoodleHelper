@@ -25,8 +25,8 @@ def manifest(path):
 @pytest.mark.parametrize('path', ['extension/manifest.json', 'extension/dist/manifest.json'])
 def test_manifest_matches_reviewed_inventory(path):
     m = manifest(path)
-    assert m['manifest_version'] == 3 and m['minimum_chrome_version'] == '106'
-    assert sorted(m['permissions']) == ['alarms', 'downloads', 'notifications']
+    assert m['manifest_version'] == 3 and m['minimum_chrome_version'] == '109'  # #20 offscreen
+    assert sorted(m['permissions']) == ['alarms', 'downloads', 'notifications', 'offscreen']
     assert sorted(m['host_permissions']) == ['http://127.0.0.1:8000/*', 'https://moodle.sdu.edu.kz/*']
     assert [c['matches'] for c in m['content_scripts']] == [
         ['https://moodle.sdu.edu.kz/*'], ['http://127.0.0.1:5173/*', 'http://localhost:5173/*', 'https://ramung55.github.io/MoodleHelper/*']]

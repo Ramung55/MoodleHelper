@@ -44,6 +44,7 @@ const diagnostics = {
   transient_response: ["unknown", "The response is incomplete or temporary. Retry later."],
   conflicting_evidence: ["unknown", "Page evidence is contradictory. Retry later."],
   ambiguous_content: ["unknown", "Page access is not established. Retry later."],
+  not_found: ["unsupported", "This page could not be found."],
 } as const;
 
 export type MoodleAccessReason = keyof typeof diagnostics;
@@ -150,5 +151,60 @@ export function detectMoodleAccess(input: MoodleAccessInput): MoodleAccessResult
     return result("ambiguous_content");
   } catch {
     return result("invalid_envelope");
+  }
+}
+
+/**
+ * #20 observed-structure access check for the live scan (SDU compatibility report,
+ * navigation and access table, Addenda 5/6). It returns the existing #10 result
+ * states; the synthetic `detectMoodleAccess` vocabulary above is unchanged. In order:
+ * - signed out: final path `/login/index.php`, `body#page-login-index` (the login
+ *   page is `lang-ru`, so no text is matched) or HTTP 401;
+ * - forbidden: 403;
+ * - missing: 404 with `body#page-site-index` (unsupported, not retryable);
+ * - retryable: network failure, 408, 425, 429 and 5xx;
+ * - accessible: HTTP 200 HTML on the requested route with the expected body markers
+ *   (`format-topics` and `course-<id>` on a course page; `page-mod-quiz-view`,
+ *   `cmid-<cmid>` and `course-<id>` on a quiz view page).
+ * Anything else is an access error. Only the body id and classes are read.
+ */
+export type ObservedRoute = { kind: "course"; courseId: string } | { kind: "quiz"; cmid: string; courseId: string };
+export interface ObservedAccessInput {
+  readonly document?: Document;
+  readonly requestedUrl: string;
+  readonly finalUrl: string;
+  readonly httpStatus: number;
+  readonly networkFailure: boolean;
+  readonly contentType?: string;
+}
+function observed(reason: MoodleAccessReason, retryable = false): MoodleAccessResult {
+  return { ...result(reason), retryable };
+}
+export function detectObservedMoodleAccess(input: ObservedAccessInput, route: ObservedRoute): MoodleAccessResult {
+  try {
+    if (!input || typeof input.networkFailure !== "boolean" || !Number.isInteger(input.httpStatus) ||
+        input.httpStatus < 0 || input.httpStatus > 599) return observed("invalid_envelope");
+    const requested = parseUrl(input.requestedUrl), final = parseUrl(input.finalUrl);
+    if (!requested || !final) return observed("invalid_envelope");
+    if (!trusted(requested) || !trusted(final) || hasUserinfo(input.requestedUrl) || hasUserinfo(input.finalUrl))
+      return observed("untrusted_origin");
+    if (input.networkFailure) return observed("network_failure", true);
+    const status = input.httpStatus, body = input.document?.body;
+    if (final.pathname === "/login/index.php" || body?.id === "page-login-index" || status === 401) return observed("login");
+    if (status === 403) return observed("denied");
+    if (status === 404 && body?.id === "page-site-index") return observed("not_found");
+    if (status >= 500 || [408, 425, 429].includes(status)) return observed("transient_response", true);
+    const mime = (input.contentType ?? "").split(";", 1)[0]!.trim().toLowerCase();
+    if (status !== 200 || (mime !== "text/html" && mime !== "application/xhtml+xml")) return observed("unsupported_response");
+    if (final.href !== requested.href || !body) return observed("ambiguous_content");
+    const classes = body.classList;
+    const accessible = route.kind === "course"
+      ? final.pathname === "/course/view.php" && final.search === `?id=${route.courseId}` &&
+        classes.contains("format-topics") && classes.contains(`course-${route.courseId}`)
+      : final.pathname === "/mod/quiz/view.php" && final.search === `?id=${route.cmid}` &&
+        body.id === "page-mod-quiz-view" && classes.contains(`cmid-${route.cmid}`) && classes.contains(`course-${route.courseId}`);
+    return observed(accessible ? "accessible" : "ambiguous_content");
+  } catch {
+    return observed("invalid_envelope");
   }
 }

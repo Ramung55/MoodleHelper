@@ -51,7 +51,7 @@ export function BridgeConnection() {
   };
   return <div className="my-3 space-y-2">
     <p role="status" className="text-sm">{guidance}</p>
-    <p className="text-xs text-muted-foreground">Use Chrome 106 or newer on localhost:5173 or 127.0.0.1:5173. Enable the extension and allow local site access. Start the backend on 127.0.0.1:8000. After a timeout, reload or backend restart, a write may have completed: reconnect and refresh saved data before manually retrying. Live Moodle identity and collection setup are separate and unavailable here.</p>
+    <p className="text-xs text-muted-foreground">Use Chrome 109 or newer on localhost:5173 or 127.0.0.1:5173. Enable the extension and allow local site access. Start the backend on 127.0.0.1:8000. After a timeout, reload or backend restart, a write may have completed: reconnect and refresh saved data before manually retrying. Live Moodle identity and collection setup are separate and unavailable here.</p>
     <Button variant="outline" disabled={busy} onClick={() => void check()}>{busy ? "Checking extension…" : "Check / reconnect extension"}</Button>
   </div>;
 }

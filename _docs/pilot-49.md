@@ -19,8 +19,8 @@ uv run python tools/package_pilot.py
 The script rebuilds `extension/dist` (`bun run --cwd extension build`, which deletes
 stale output first), then refuses to package unless:
 
-- `dist/` holds exactly the nine allowlisted files (manifest, `index.js`, `content.js`,
-  `dashboard-relay.js`, `popup.html/js`, `transfer.html/js`, `icon-128.png`);
+- `dist/` holds exactly the eleven allowlisted files (manifest, `index.js`, `content.js`,
+  `dashboard-relay.js`, `popup.html/js`, `transfer.html/js`, `offscreen.html/js`, `icon-128.png`);
 - every manifest reference exists, and permissions/host/content-script scope equal the
   reviewed values below;
 - no source maps, private keys, token-like strings, credential assignments or local user
@@ -44,7 +44,8 @@ Playwright are dashboard-side or test-only, so they are not in the extension zip
 3. Pin Moodle Helper from the puzzle menu and open the popup from the action button.
 4. After a rebuild, click **Reload** on the extension card.
 
-Minimum Chrome version: 106 (`minimum_chrome_version`). Only the Playwright-bundled
+Minimum Chrome version: 109 (`minimum_chrome_version`; raised from 106 for the `offscreen`
+permission, owner decision 2026-11-02, #20). Only the Playwright-bundled
 Chromium (#47) has been exercised; no specific stable Chrome version is verified.
 
 Permissions in the emitted manifest:
@@ -54,8 +55,9 @@ Permissions in the emitted manifest:
 | `alarms` | reminder/queue worker wake-ups |
 | `downloads` | explicit, user-started material downloads |
 | `notifications` | OS reminder notifications (depends on OS/Chrome notification settings) |
+| `offscreen` | one offscreen document (`offscreen.html`) parses fetched SDU pages for the read-only Sync all scan; the service worker has no DOMParser (#20) |
 | host `http://127.0.0.1:8000/*` | local backend |
-| host + content script `https://moodle.sdu.edu.kz/*` | read Moodle pages you visit |
+| host + content script `https://moodle.sdu.edu.kz/*` | read Moodle pages you visit; Sync all reads selected course pages and their quiz pages, one request at a time (#20) |
 | content script `http://127.0.0.1:5173/*`, `http://localhost:5173/*` | dashboard relay (development) |
 | content script `https://ramung55.github.io/MoodleHelper/*` | dashboard relay (approved HTTPS dashboard) |
 

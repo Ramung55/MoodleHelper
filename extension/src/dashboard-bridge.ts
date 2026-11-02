@@ -8,6 +8,7 @@ import {
   requestError,
   route,
   success,
+  SYNC_CONFLICTS,
   validReply,
   validResult,
   type Request,
@@ -115,6 +116,18 @@ export function createWorker(options: {
         redirect: "error",
         signal: controller.signal,
       });
+      if (response.status === 409 && path === "/api/sync") {
+        // #20: only the fixed Sync all conflicts map to their messages; a stale
+        // binding or any other 409 body still requires a reconnect.
+        let conflict: string | undefined;
+        const text = await response.text();
+        if (new TextEncoder().encode(text).length <= 1024 * 1024) {
+          try { const value = JSON.parse(text); if (closed(value, ["message"]) && typeof value.message === "string") conflict = SYNC_CONFLICTS[value.message]; } catch { /* fail closed */ }
+        }
+        if (conflict) throw conflict;
+        sessions.clear();
+        throw "RECONNECT_REQUIRED";
+      }
       if (response.status === 409) {
         if (path === "/api/reconciliation/pairs" || path === "/api/reconciliation/decisions" || path === "/api/syllabus-revisions/preview" || path === "/api/syllabus-revisions/confirm") {
           // The binding middleware uses this fixed response when the backend
@@ -249,6 +262,9 @@ export function createWorker(options: {
             "INVALID_RESPONSE",
             "TOO_LARGE",
             "SYNC_UNAVAILABLE",
+            "SYNC_NO_COURSES",
+            "SYNC_UNLINKED_COURSE",
+            "SYNC_ALREADY_RUNNING",
             "REVIEW_CONFLICT",
           ].includes(e)
           ? (e as any)
@@ -350,7 +366,7 @@ export function installWorker(chromeApi: {
       cb: (allowed: boolean) => void,
     ) => void;
   };
-}) {
+}, options: { onSyncStarted?: () => void } = {}) {
   const handler = createWorker({
     runtimeId: chromeApi.runtime.id,
     grant: () =>
@@ -360,7 +376,11 @@ export function installWorker(chromeApi: {
           (allowed) => resolve(!chromeApi.runtime.lastError && allowed),
         ),
       ),
-    onResult: (operation, result) => openTransferPage(chromeApi, operation, result),
+    onResult: (operation, result) => {
+      // #20: a 200 from Sync all queued scan jobs; wake the scan worker at once.
+      if (operation === "syncAll") options.onSyncStarted?.();
+      openTransferPage(chromeApi, operation, result);
+    },
   });
   chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!trustedSender(sender, chromeApi.runtime.id)) return;

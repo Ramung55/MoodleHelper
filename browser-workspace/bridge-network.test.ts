@@ -465,14 +465,20 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
     ]);
     expect(snap.courses).toHaveLength(1);
     expect(snap.settings.trackedCourseIds).toEqual([]);
-    await client.setTrackedCourses([snap.courses[0]!.id]);
-    const beforeSync = await client.load();
+    // #20: the fixed 409 reaches the page as its own bridge error, with nothing written.
+    const unselected = await client.load();
     let callbacks = 0;
     await expect(client.syncAll(() => callbacks++)).rejects.toMatchObject({
-      code: 'SYNC_UNAVAILABLE', message: 'Live course sync is unavailable until Moodle access is verified.',
+      code: 'SYNC_NO_COURSES', message: 'Select at least one course to sync.',
     });
     expect(callbacks).toBe(0);
-    expect(await client.load()).toEqual(beforeSync);
+    expect(await client.load()).toEqual(unselected);
+    await client.setTrackedCourses([snap.courses[0]!.id]);
+    // Sync all queues the live scan: the Snapshot says syncing, nothing is finished.
+    const queued = await client.syncAll(() => callbacks++);
+    expect(callbacks).toBe(1);
+    expect(queued.sync).toEqual([{ courseId: snap.courses[0]!.id, status: 'syncing', coverage: 'none', progress: 0 }]);
+    expect((await client.load()).sync).toEqual(queued.sync);
     await client.updateSettings({ semesterWeeks: 22 });
     await stop();
     await start("moodle");

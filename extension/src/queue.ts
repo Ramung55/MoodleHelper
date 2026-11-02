@@ -1,6 +1,10 @@
 /** Disposable MV3 mock queue. SQLite owns all durable state; execution can repeat. */
 import { BACKEND } from './dashboard-bridge';
-import {createSyntheticScanWorker} from './synthetic-scan-worker';
+import {createScanWorker, type ScanWorkerOptions} from './synthetic-scan-worker';
+import {createMoodlePageSource, offscreenAnalyzer, type OffscreenChrome} from './moodle-page-source';
+import {createMoodleRequestAuthority} from './moodle-request-authority';
+import {liveRegistry} from './page-refresh';
+import type {Analyzer} from './moodle-page-analysis';
 type Job = { id:string; courseId:string };
 type Claim = { job:Job; token:string; generation:number; expiresAt:number };
 type ClaimReply = { unfinished:boolean; claim?:Claim };
@@ -73,21 +77,31 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
   return {wake,start,dispose(){disposed=true; for(const timer of intervals) clearInterval(timer); intervals.clear(); for(const controller of controllers) controller.abort(); controllers.clear();}};
 }
 
-type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number;periodInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} };
-type SyntheticOptions=Omit<Parameters<typeof createSyntheticScanWorker>[0], 'base'|'fetcher'|'schedule'>;
-export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Parameters<typeof createQueueService>[0], 'schedule'>> & {syntheticScan?:SyntheticOptions}={}) {
+type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number;periodInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} } & {runtime:OffscreenChrome['runtime'];offscreen?:OffscreenChrome['offscreen']};
+type SyntheticOptions=Omit<ScanWorkerOptions, 'base'|'fetcher'|'schedule'>;
+/** In-process test seams for the live scan; the installed extension passes none. */
+export type LiveScanOptions={moodleFetch?:typeof fetch;now?:()=>number;wait?:(ms:number)=>Promise<void>;instance?:string;analyze?:Analyzer};
+export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Parameters<typeof createQueueService>[0], 'schedule'>> & {syntheticScan?:SyntheticOptions;liveScan?:LiveScanOptions}={}) {
   // One periodic alarm discovers runs created directly through the local API.
   // Register it and all listeners before any asynchronous worker activity.
   chrome.alarms.create(ALARM_NAME,{delayInMinutes:1,periodInMinutes:1});
-  const {syntheticScan,...queueOptions}=options;
+  const {syntheticScan,liveScan={},...queueOptions}=options;
   const service=createQueueService({...queueOptions,schedule:()=>{}});
-  // Only the in-process synthetic harness can supply this dependency. The
-  // installed extension supplies none and has no message/configuration switch.
-  const scan=syntheticScan ? createSyntheticScanWorker({...syntheticScan,base:queueOptions.base??BACKEND,fetcher:queueOptions.fetcher??fetch,schedule:()=>{}}) : undefined;
-  const wake=async()=>{await Promise.all([service.wake(),scan?.wake()]);};
+  const base=queueOptions.base??BACKEND;
+  const fetcher:typeof fetch=(input,init)=>(queueOptions.fetcher??globalThis.fetch)(input,init);
+  // The in-process synthetic harness injects its own source and authority. The
+  // installed extension always runs the live scan: the live page source, the
+  // single-flight request authority and the live registry (#20). Only a run
+  // created by Sync all (or the local scan API) gives it any Moodle work.
+  const now=liveScan.now??Date.now, wait=liveScan.wait??((ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms)));
+  const scan=syntheticScan ? createScanWorker({...syntheticScan,base,fetcher,schedule:()=>{}})
+    : createScanWorker({base,fetcher,schedule:()=>{},now,wait,registry:liveRegistry(),
+        source:createMoodlePageSource({...(liveScan.moodleFetch?{fetcher:liveScan.moodleFetch}:{}),analyze:liveScan.analyze??offscreenAnalyzer(chrome),now}),
+        authority:createMoodleRequestAuthority({base,fetcher,instance:liveScan.instance??(globalThis.crypto?.randomUUID?.()??String(Math.random()).slice(2))})});
+  const wake=async()=>{await Promise.all([service.wake(),scan.wake()]);};
   chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name===ALARM_NAME) void wake();});
   chrome.runtime.onStartup.addListener(()=>{void wake();});
   chrome.runtime.onInstalled.addListener(()=>{void wake();});
   void wake();
-  return {...service,wake,dispose(){service.dispose();scan?.dispose();}};
+  return {...service,wake,wakeScan:()=>scan.wake(),dispose(){service.dispose();scan.dispose();}};
 }

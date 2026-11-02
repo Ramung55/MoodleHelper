@@ -3,14 +3,15 @@ import { detectMoodleAccess, type MoodleAccessInput } from './moodle-access';
 import { parseMoodleAssignment } from './moodle-assignments';
 import { collectMoodleCalendar } from './moodle-calendar';
 import { collectMoodleMaterials } from './moodle-materials';
+import { parseMoodleQuizPage, type QuizReason } from './moodle-quizzes';
 import type { CollectionRepository } from './collection-repository';
 import { CollectionTransportError } from './collection-repository';
 import { validSchema, normalized } from '../../shared/src/bridge';
-import type { CollectorResult, CollectionContext, PageRefreshReceipt } from '../../frontend/src/domain/types';
+import type { CollectorResult, CollectionContext, PageRefreshReceipt, RawQuizObservation } from '../../frontend/src/domain/types';
 
 export type Collector = 'assignment'|'calendar'|'material'|'quiz'|'submission';
 export interface PageSource { url:string;documentKey:object|string;input?:MoodleAccessInput;sourceCourseId?:string }
-export interface CollectorAdapter {availability:'available'|'unavailable';evidenceMode:'synthetic'|'verified';collect:(input:MoodleAccessInput,selection:readonly string[],observedAt:string)=>Promise<CollectorResult>|CollectorResult}
+export interface CollectorAdapter {availability:'available'|'unavailable';evidenceMode:'synthetic'|'verified';collect:(input:MoodleAccessInput,selection:readonly string[],observedAt:string,hints?:{title?:string})=>Promise<CollectorResult>|CollectorResult}
 export type CollectorRegistry=Record<Collector,CollectorAdapter>;
 const unavailable:CollectorAdapter={availability:'unavailable',evidenceMode:'synthetic',collect:()=>({kind:'unavailable',reasons:['collector_unavailable']})};
 /** Real pure parsers, with invented structures; never advertised as verified. */
@@ -32,6 +33,50 @@ export function syntheticFixtureRegistry():CollectorRegistry {
 }
 /** Ordinary runtime has no verified collectors or trustworthy HTTP envelope. */
 export const disabledRegistry=():CollectorRegistry=>({assignment:unavailable,calendar:unavailable,material:unavailable,quiz:unavailable,submission:unavailable});
+
+type FailureReason=Extract<CollectorResult,{kind:'failed'}>['reasons'][number];
+const quizFailure=(reason:QuizReason):FailureReason=>
+  reason==='identity_mismatch'||reason==='unsafe_url'||reason==='invalid_date'||reason==='duplicate_date'||reason==='invalid_observed_at'?reason
+  :['signed_out','denied','missing_source','network_failure','transient_response','invalid_envelope','untrusted_origin','unsupported_response'].includes(reason)?'access_error'
+  :'unsupported_structure';
+/**
+ * #20 adapter from the #14 quiz parser (verified SDU variant) to the existing
+ * QuizRefreshResult wire shape. Only a complete quiz view page yields an
+ * observation. The quiz instance id is not observable on the verified variant, so
+ * the course-module id, which identifies the same quiz one-to-one, is used as the
+ * wire `sourceActivityId`. The view-page title element was not recorded by #3, so
+ * the title comes from the quiz card `.instancename` on the course page that
+ * discovered the quiz (`hints.title`); without it the result fails with
+ * missing_metadata instead of inventing a title.
+ */
+export function quizRefreshResult(input:MoodleAccessInput,observedAt:string,hints:{title?:string}={}):CollectorResult {
+  const parsed=parseMoodleQuizPage(input,observedAt);
+  if(parsed.page!=='quiz_view'||parsed.status!=='complete'||parsed.observations.length!==1)
+    return {kind:'failed',reasons:[parsed.status==='complete'?'unsupported_page':quizFailure(parsed.diagnostics[0]?.reason??'malformed_structure')]};
+  const o=parsed.observations[0]!;
+  const title=(hints.title??'').replace(/\s+/gu,' ').trim();
+  if(!title||title.length>256||/[<>\x00-\x1f]/.test(title))return {kind:'failed',reasons:['missing_metadata']};
+  const date=(d:typeof o.opening)=>d?{value:d.value,rawText:d.rawText,location:d.location}:undefined;
+  const fields=['state','allowed','used','remaining','other'] as const;
+  let attemptInformation:RawQuizObservation['attemptInformation']={kind:'unknown'};
+  if(o.attemptInformation.kind==='known'){
+    const facts=[...new Map(o.attemptInformation.facts.map(({field,rawText,location})=>[JSON.stringify([field,rawText,location]),{field,rawText,location}])).values()];
+    attemptInformation={kind:'known',facts,unknownFields:fields.filter(f=>!facts.some(x=>x.field===f)).sort()};
+  }
+  const opening=date(o.opening),closing=date(o.closing);
+  const observation:RawQuizObservation={sourceCourseId:o.sourceCourseId,sourceActivityId:o.sourceCourseModuleId,sourceCourseModuleId:o.sourceCourseModuleId,
+    sourceUrl:o.sourceUrl,title,observedAt:o.observedAt,...(opening?{opening}:{}),...(closing?{closing}:{}),attemptInformation};
+  return {kind:'quiz',observations:[observation],reviews:[],diagnostics:[],pages:[],coverage:'complete',scope:'visited_activity_only'};
+}
+/**
+ * #20 live registry: only the #14 quiz collector matches the observed SDU pages.
+ * Assignment, calendar and material stay unavailable until #83, submission until #16.
+ */
+export function liveRegistry():CollectorRegistry {
+  return {assignment:{...unavailable,evidenceMode:'verified'},calendar:{...unavailable,evidenceMode:'verified'},material:{...unavailable,evidenceMode:'verified'},
+    submission:{...unavailable,evidenceMode:'verified'},
+    quiz:{availability:'available',evidenceMode:'verified',collect:(input,_selection,time,hints)=>quizRefreshResult(input,time,hints)}};
+}
 export interface RefreshState {status:'idle'|'collecting'|'saved'|'unavailable'|'failed'|'cancelled';visitId?:string;reason?:string;receipts:PageRefreshReceipt[]}
 export function pageRoute(url:string):{kind:string;id?:string}|undefined {
   const m=/^https:\/\/moodle\.sdu\.edu\.kz\/(course|mod\/(assign|quiz|resource|url|folder))\/view\.php\?id=([1-9][0-9]*)(?:#[A-Za-z0-9_-]{1,128})?$/.exec(url);

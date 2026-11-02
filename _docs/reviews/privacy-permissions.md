@@ -14,7 +14,8 @@ real unpacked extension, run via `bun run test:e2e` from `frontend/`.
 ## 1. Permission and origin inventory
 
 `extension/manifest.json` and `extension/dist/manifest.json` are identical (pinned by
-`test_manifest_matches_reviewed_inventory`). MV3, `minimum_chrome_version` 106.
+`test_manifest_matches_reviewed_inventory`). MV3, `minimum_chrome_version` 109 (raised from 106
+for the `offscreen` permission, owner decision 2026-11-02, #20).
 No `optional_permissions`, `externally_connectable` or `web_accessible_resources`.
 The gate's starting inventory (only `alarms`, only the loopback host) is now outdated:
 #39 and #41 landed.
@@ -23,9 +24,10 @@ The gate's starting inventory (only `alarms`, only the loopback host) is now out
 |---|---|---|---|---|
 | `alarms` | manifest.json:37 | queue/reminder reconcile wake-ups (#39, #55) | worker only | NODE reminder-worker, queue-lifecycle tests pass |
 | `notifications` | manifest.json:39 | optional OS alerts for dashboard alerts (#39, `_docs/notifications-39.md:8`) | `extension/src/reminders.ts:163-168`, fixed options, backend-derived text | NODE notification-delivery tests pass |
+| `offscreen` | manifest.json | #20 live scan: the service worker has no DOMParser, so one offscreen document (`offscreen.html`, reason `DOM_PARSER`) parses fetched SDU pages and returns serializable results; it makes no request | `extension/src/moodle-page-source.ts` `offscreenAnalyzer`, `extension/src/offscreen.ts` (answers only this extension, no tab sender) | NODE live-scan-network tests |
 | `downloads` | manifest.json:38 | single explicit PDF save (#41) | `extension/src/transfer-entry.ts:18-21` | NODE material-transfer tests pass |
 | host `http://127.0.0.1:8000/*` | manifest.json:33 | local backend | worker fetches with `credentials:"omit"`, `redirect:"error"` (`collection-repository.ts:39`, `transfer-entry.ts:24-25`) | NODE bridge-network, queue-network |
-| host `https://moodle.sdu.edu.kz/*` | manifest.json:34 | privileged GET of one backend-registered pluginfile URL | regex `material-transfer.ts:9` + origin check `:71`, `GET`, `redirect:"error"`, `no-referrer` `:83`, redirect = sign-in `:87` | NODE material-transfer |
+| host `https://moodle.sdu.edu.kz/*` | manifest.json:34 | privileged GET of one backend-registered pluginfile URL; #20 read-only scan GETs of `course/view.php` and discovered quiz pages through the single-flight authority (`moodle-request-authority.ts`, `moodle-page-source.ts`: `credentials:"include"`, `redirect:"follow"`, `cache:"no-store"`, 30 s limit, 1 MiB cap, never `pluginfile.php`, resource or URL pages) | regex `material-transfer.ts:9` + origin check `:71`, `GET`, `redirect:"error"`, `no-referrer` `:83`, redirect = sign-in `:87` | NODE material-transfer |
 | content script SDU | manifest.json:15 | read-only page collection | top-frame + origin check `page-refresh.ts:101`; collectors read DOM only (`moodle-courses.ts:3`) | NODE scan tests |
 | content script dashboard | manifest.json:23-24 | bridge relay | equals `APPROVED_ORIGINS` (`shared/src/bridge.ts:7`), pinned by `test_bridge_allowlist_equals_dashboard_content_script_matches` | NODE bridge-security |
 

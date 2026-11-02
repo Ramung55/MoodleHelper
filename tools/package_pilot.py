@@ -36,6 +36,8 @@ ALLOWED_FILES = frozenset(
         "popup.js",
         "transfer.html",
         "transfer.js",
+        "offscreen.html",
+        "offscreen.js",
         "icon-128.png",
     }
 )
@@ -44,7 +46,7 @@ EXPECTED_MATCHES = {
     "dashboard-relay.js": ["http://127.0.0.1:5173/*", "http://localhost:5173/*", "https://ramung55.github.io/MoodleHelper/*"],
 }
 EXPECTED_HOSTS = ["http://127.0.0.1:8000/*", "https://moodle.sdu.edu.kz/*"]
-EXPECTED_PERMISSIONS = ["alarms", "downloads", "notifications"]
+EXPECTED_PERMISSIONS = ["alarms", "downloads", "notifications", "offscreen"]
 FIXED_TIME = (1980, 1, 1, 0, 0, 0)
 # Text that must never ship: secrets, private keys, credential-like assignments, local paths.
 FORBIDDEN = [

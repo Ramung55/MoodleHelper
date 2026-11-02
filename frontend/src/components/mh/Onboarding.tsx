@@ -115,7 +115,7 @@ export function Onboarding({ probe = probeExtension, moodleAccess = null }: { pr
             : extension.kind === "ready" ? `Extension connected. Local repository ready. Moodle collection is ${extension.moodleCollection}.`
             : `${{ missing: "Extension missing.", incompatible: "Extension incompatible.", unavailable: "Extension unavailable.", backend_unavailable: "Local backend unavailable." }[extension.kind]} ${extension.message}`}</p>
           {(extension.kind === "missing" || extension.kind === "incompatible") && <div className="text-sm text-muted-foreground">
-            <p>To install (never automatic): build with <code>bun run --cwd extension build</code>, open <code>chrome://extensions</code>, enable Developer mode, choose Load unpacked and select <code>extension/dist</code> (see the README local build guide). Use Chrome 106 or newer.</p>
+            <p>To install (never automatic): build with <code>bun run --cwd extension build</code>, open <code>chrome://extensions</code>, enable Developer mode, choose Load unpacked and select <code>extension/dist</code> (see the README local build guide). Use Chrome 109 or newer.</p>
             <p>Open the dashboard only on {APPROVED_ORIGINS.join(" or ")} and allow local site access, then reconnect.</p>
           </div>}
           <p className="text-sm">{signIn.message}{" "}

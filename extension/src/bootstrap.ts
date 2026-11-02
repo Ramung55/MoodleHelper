@@ -6,9 +6,12 @@ import {installReminderWorker} from './reminders';
 
 type ChromeApi=Parameters<typeof installWorker>[0] & Parameters<typeof installQueueWorker>[0] & Parameters<typeof installReminderWorker>[0];
 export function installExtension(chrome:ChromeApi, options:Parameters<typeof installQueueWorker>[1]={}) {
-  installWorker(chrome);
+  // Bound below, before any message can arrive: a 200 from Sync all wakes the scan worker at once.
+  let wakeScan:()=>void=()=>{};
+  installWorker(chrome,{onSyncStarted:()=>wakeScan()});
   installCollectionWorker(chrome);
   const queue=installQueueWorker(chrome,options);
+  wakeScan=()=>{void queue.wakeScan();};
   // Registered after the queue listeners; reminder alarms use separate fixed names.
   installReminderWorker(chrome,{...(options.base?{base:options.base}:{}),...(options.fetcher?{fetcher:options.fetcher}:{})});
   return queue;
