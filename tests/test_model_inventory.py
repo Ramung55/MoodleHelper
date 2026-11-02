@@ -195,16 +195,20 @@ def test_course_discovery_metadata_discriminators_round_trip_all_languages(statu
         contract_validator(contract["components"]["schemas"]["Snapshot"], value)
 
 
-@pytest.mark.parametrize("title,terms", [
-    ({"kind": "known", "value": "Название"}, {"kind": "known", "value": ["Осень", "Term B"]}),
-    ({"kind": "unknown"}, {"kind": "unknown"}),
+@pytest.mark.parametrize("title,terms,extra", [
+    ({"kind": "known", "value": "Название"}, {"kind": "known", "value": ["Осень", "Term B"]}, {}),
+    ({"kind": "unknown"}, {"kind": "unknown"}, {}),
+    # #84: optional code and classification.
+    ({"kind": "unknown"}, {"kind": "unknown"}, {"code": {"kind": "known", "value": "DEMO101"}, "classification": "inprogress"}),
+    ({"kind": "unknown"}, {"kind": "unknown"}, {"code": {"kind": "unknown"}}),
 ])
-def test_discovery_input_parity(title, terms, contract, contract_validator):
+def test_discovery_input_parity(title, terms, extra, contract, contract_validator):
     value = {"observations": [{"sourceCourseId": "9007199254740993123456789",
         "sourceUrl": "https://moodle.sdu.edu.kz/course/view.php?id=9007199254740993123456789",
-        "title": title, "termIndicators": terms}]}
+        "title": title, "termIndicators": terms, **extra}]}
     contract_validator(contract["components"]["schemas"]["CourseDiscoveryInput"], value)
-    assert schemas.CourseDiscoveryInput.model_validate(value).model_dump() == value
+    # Omitted optional fields stay omitted on the wire (exclude_none, as the routers dump).
+    assert schemas.CourseDiscoveryInput.model_validate(value).model_dump(exclude_none=True) == value
     assert zod("CourseDiscoveryInput", value) == {"success": True, "value": value}
 
 
@@ -214,6 +218,8 @@ def test_discovery_input_parity(title, terms, contract, contract_validator):
     {"termIndicators": {"kind": "known", "value": "Осень"}},
     {"termIndicators": {"kind": "known", "value": [3]}},
     {"currentTermStatus": "maybe"},
+    {"code": {"kind": "conflicting"}}, {"code": {"kind": "known"}}, {"code": "DEMO101"},
+    {"classification": "past"}, {"classification": "INPROGRESS"},
 ])
 def test_invalid_discovery_discriminators_rejected_by_all_three(patch, contract, contract_validator):
     value = {"sourceCourseId": "1", "sourceUrl": "https://moodle.sdu.edu.kz/course/view.php?id=1",
