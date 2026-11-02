@@ -34,12 +34,16 @@ export interface RawCourseObservation {
   sourceUrl: string;
   title: Observed<string>;
   termIndicators: Observed<string[]>;
+  /** #84: the first shortname segment only (enrolled-courses parser). Absent means unknown. */
+  code?: Observed<string>;
+  /** #84: the classification the extension itself requested, never read from a response. */
+  classification?: "inprogress";
 }
 export type DiscoveryCoverage = "complete" | "partial" | "none";
 export type CourseDiagnosticReason = "unsupported_list_route" | "malformed_list" |
   "incomplete_list" | "pagination_pending" | "empty_unconfirmed" |
   "missing_identity" | "unsafe_url" | "identity_mismatch" | "malformed_card" |
-  "title_conflict" | "term_conflict" | "malformed_response" | "page_cap_reached";
+  "title_conflict" | "term_conflict" | "malformed_response" | "page_cap_reached" | "code_conflict";
 export interface CourseDiagnostic {
   pageIndex: number;
   recordIndex?: number;
@@ -171,9 +175,10 @@ export function collectMoodleCourses(inputs: readonly MoodleAccessInput[]): Cour
 /**
  * #82 enrolled-courses endpoint parser (`core_course_get_enrolled_courses_by_timeline_classification`,
  * classification `inprogress`). Pure: input is the raw response text of each page, requested in
- * order at offset `index * limit`. Only the four observation fields leave this function; every
- * other course field (shortname, idnumber, category, dates, viewurl, visibility, favourite,
- * progress) is dropped. The URL is rebuilt from the id; `viewurl` is ignored.
+ * order at offset `index * limit`. Only five observation fields leave this function; every
+ * other course field (idnumber, category, dates, viewurl, visibility, favourite, progress) is
+ * dropped. Of `shortname` only the code segment is kept (#84, see `enrolledCourseCode`). The URL
+ * is rebuilt from the id; `viewurl` is ignored.
  *
  * Paging never uses `nextoffset` (observed to be 8 even when the list was exhausted): a page with
  * fewer courses than `limit` ends the list, a full page asks for one more page at `offset + limit`,
@@ -201,6 +206,19 @@ export function enrolledCourseTitle(fullname: unknown): Observed<string> {
   return title ? { kind: "known", value: title } : unknown();
 }
 
+/**
+ * #84: the code is the first segment of a shortname shaped `<code>-<n>-<login>-<year>-<term>`.
+ * Exactly five `-`-separated, nonblank segments are required, otherwise the code is unknown. Only
+ * that segment is returned; the rest (including the instructor login) is never kept.
+ */
+export function enrolledCourseCode(shortname: unknown): Observed<string> {
+  if (typeof shortname !== "string") return unknown();
+  const segments = shortname.split("-");
+  if (segments.length !== 5 || segments.some(segment => !segment.trim())) return unknown();
+  const code = segments[0]!.replace(/\s+/gu, " ").trim();
+  return code.length <= 64 ? { kind: "known", value: code } : unknown();
+}
+
 function enrolledPage(body: unknown, limit: number): unknown[] | null {
   let value: unknown;
   try { value = typeof body === "string" ? JSON.parse(body) : undefined; } catch { return null; }
@@ -217,7 +235,7 @@ export function parseEnrolledCourses(pages: readonly unknown[], options: { limit
   const observations: RawCourseObservation[] = [];
   const diagnostics: CourseDiagnostic[] = [];
   const byId = new Map<string, RawCourseObservation>();
-  const conflicted = new Set<string>();
+  const conflicted = { title: new Set<string>(), code: new Set<string>() };
   let partial = false, usable = 0, next: number | null = 0;
   pages.slice(0, ENROLLED_PAGE_CAP).forEach((body, pageIndex) => {
     const courses = enrolledPage(body, limit);
@@ -230,18 +248,23 @@ export function parseEnrolledCourses(pages: readonly unknown[], options: { limit
       }
       const sourceCourseId = String(id);
       const title = enrolledCourseTitle((course as { fullname?: unknown }).fullname);
+      const code = enrolledCourseCode((course as { shortname?: unknown }).shortname);
       const previous = byId.get(sourceCourseId);
       if (!previous) {
         const observation: RawCourseObservation = { sourceCourseId,
           sourceUrl: `https://moodle.sdu.edu.kz/course/view.php?id=${sourceCourseId}`,
-          title, termIndicators: { kind: "known", value: [ENROLLED_TERM] } };
+          title, termIndicators: { kind: "known", value: [ENROLLED_TERM] }, code };
         byId.set(sourceCourseId, observation); observations.push(observation); return;
       }
-      if (conflicted.has(sourceCourseId) || title.kind === "unknown") return;
-      if (previous.title.kind === "unknown") { previous.title = title; return; }
-      if (previous.title.value !== title.value) {
-        previous.title = unknown(); conflicted.add(sourceCourseId);
-        diagnostics.push({ pageIndex, recordIndex, reason: "title_conflict" });
+      // Unknown fills from known; conflicting known values become sticky unknown.
+      for (const [field, next] of [["title", title], ["code", code]] as const) {
+        const before = previous[field] ?? unknown();
+        if (conflicted[field].has(sourceCourseId) || next.kind === "unknown") continue;
+        if (before.kind === "unknown") { previous[field] = next; continue; }
+        if (before.value !== next.value) {
+          previous[field] = unknown(); conflicted[field].add(sourceCourseId);
+          diagnostics.push({ pageIndex, recordIndex, reason: field === "title" ? "title_conflict" : "code_conflict" });
+        }
       }
     });
     if (next === null) return;

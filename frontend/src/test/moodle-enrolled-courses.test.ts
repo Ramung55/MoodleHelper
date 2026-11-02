@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ENROLLED_PAGE_CAP, enrolledCourseTitle, parseEnrolledCourses } from "../../../extension/src/moodle-courses";
+import { ENROLLED_PAGE_CAP, enrolledCourseCode, enrolledCourseTitle, parseEnrolledCourses } from "../../../extension/src/moodle-courses";
 
 const observed = resolve(__dirname, "../../../tests/fixtures/moodle/observed");
 const inprogress = readFileSync(resolve(observed, "enrolled-courses-inprogress.json"), "utf8");
@@ -23,20 +23,58 @@ function invented(count: number, first = 1, extra: Record<string, unknown> = {},
 const known = (value: string) => ({ kind: "known", value });
 
 describe("#82 enrolled courses (inprogress)", () => {
-  it("gives the three observed courses in response order, with only the four fields", () => {
+  it("gives the three observed courses in response order, with only the five fields", () => {
     const result = parseEnrolledCourses([inprogress], { limit: LIMIT });
     expect(result.observations).toEqual(["9001", "9002", "9003"].map((id, i) => ({
       sourceCourseId: id, sourceUrl: `https://moodle.sdu.edu.kz/course/view.php?id=${id}`,
       title: known(["Fictional Course Alpha", "Fictional Course Beta", "Fictional Course Gamma"][i]!),
-      termIndicators: { kind: "known", value: ["In progress"] } })));
+      termIndicators: { kind: "known", value: ["In progress"] },
+      code: known(["DEMO101", "DEMO202", "DEMO303"][i]!) })));
     expect(result.coverage).toBe("complete");
     expect(result.next).toBeNull();
     expect(result.diagnostics).toEqual([]);
-    for (const observation of result.observations) expect(Object.keys(observation).sort()).toEqual(["sourceCourseId", "sourceUrl", "termIndicators", "title"]);
+    for (const observation of result.observations) expect(Object.keys(observation).sort()).toEqual(["code", "sourceCourseId", "sourceUrl", "termIndicators", "title"]);
     const text = JSON.stringify(result);
     for (const key of ["shortname", "idnumber", "coursecategory", "startdate", "enddate", "viewurl", "visible", "hidden", "isfavourite", "hasprogress", "progress"])
       expect(text).not.toContain(JSON.stringify(key) + ":");
-    for (const value of ["DEMO101", "redacted", "Fictional Term 2028", "moodle.example.invalid", "1831489200"]) expect(text).not.toContain(value);
+    // #84: DEMO101 is allowed only as the code; the rest of the shortname never leaves the parser.
+    for (const value of ["DEMO101-", "-1-", "redacted", "2028-1", "Fictional Term 2028", "moodle.example.invalid", "1831489200"]) expect(text).not.toContain(value);
+    expect(text.match(/DEMO101/g)).toEqual(["DEMO101"]);
+    expect(result.observations.every(o => !("classification" in o))).toBe(true);
+  });
+
+  it.each([
+    ["DEMO101-1-redacted-2028-1", "DEMO101"],
+    ["CSS 105-12-login.name-2025-2", "CSS 105"],
+  ])("gives the code of the shortname %j", (shortname, code) => {
+    expect(enrolledCourseCode(shortname)).toEqual(known(code));
+  });
+
+  it.each([
+    ["missing", undefined], ["null", null], ["a number", 101], ["an object", { code: "DEMO101" }], ["empty", ""], ["whitespace only", "   "],
+    ["one segment", "DEMO101"], ["four segments", "DEMO101-1-redacted-2028"], ["six segments", "DEMO101-1-redacted-2028-1-x"],
+    ["an empty code segment", "-1-x-2028-1"], ["an empty middle segment", "DEMO101--x-2028-1"], ["an empty last segment", "DEMO101-1-x-2028-"],
+    ["a blank segment", "DEMO101-1- -2028-1"], ["an over-long code", `${"D".repeat(65)}-1-x-2028-1`],
+  ])("gives code unknown for a shortname that is %s", (_name, shortname) => {
+    expect(enrolledCourseCode(shortname)).toEqual({ kind: "unknown" });
+    const course = shortname === undefined ? { id: 5, fullname: "Course" } : { id: 5, fullname: "Course", shortname };
+    const result = parseEnrolledCourses([JSON.stringify([{ error: false, data: { courses: [course] } }])], { limit: LIMIT });
+    expect(result.observations[0]!.code).toEqual({ kind: "unknown" });
+    expect(JSON.stringify(result)).not.toMatch(/redacted|2028/);
+  });
+
+  it("gives code unknown for one id with two different codes on two pages, never last-writer-wins", () => {
+    const page = (shortname: string, first = 1, count = LIMIT) => JSON.stringify([{ error: false, data: { courses: Array.from({ length: count }, (_, i) => ({
+      id: first + i, fullname: `Invented Course ${first + i}`, shortname: first + i === 3 ? shortname : `INV${first + i}-1-redacted-2028-1` })) } }]);
+    const conflict = parseEnrolledCourses([page("AAA1-1-x-2028-1"), page("BBB2-1-x-2028-1", 3, 1)], { limit: LIMIT });
+    expect(conflict.observations[2]).toEqual(expect.objectContaining({ sourceCourseId: "3", code: { kind: "unknown" } }));
+    expect(conflict.diagnostics).toEqual([{ pageIndex: 1, recordIndex: 0, reason: "code_conflict" }]);
+    // Sticky: a third page with the first code again does not restore it.
+    const third = parseEnrolledCourses([page("AAA1-1-x-2028-1"), page("BBB2-1-x-2028-1", 3, 1), page("AAA1-1-x-2028-1", 3, 1)], { limit: LIMIT });
+    expect(third.observations[2]!.code).toEqual({ kind: "unknown" });
+    // Same code twice is kept; unknown then known fills in.
+    expect(parseEnrolledCourses([page("AAA1-1-x-2028-1"), page("AAA1-1-x-2028-1", 3, 1)], { limit: LIMIT }).observations[2]!.code).toEqual(known("AAA1"));
+    expect(parseEnrolledCourses([page("bad"), page("AAA1-1-x-2028-1", 3, 1)], { limit: LIMIT }).observations[2]!.code).toEqual(known("AAA1"));
   });
 
   it("gives zero courses and complete coverage for the observed empty grouping without nextoffset", () => {

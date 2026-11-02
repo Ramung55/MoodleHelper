@@ -28,6 +28,8 @@ import {ACQUIRE_LIMIT_MS, type RequestAuthority} from './scan-coordinator';
 import {retryAfterDeadline, scanRetryDecision} from './scan-retry';
 
 export const DISCOVERY_LIMIT = 24;
+/** The one classification this worker requests; #84 records it in each observation from here. */
+export const DISCOVERY_CLASSIFICATION = 'inprogress' as const;
 const SESSKEY = /"sesskey":"([A-Za-z0-9]{1,64})"/;
 const SERVICE_URL = 'https://moodle.sdu.edu.kz/lib/ajax/service.php';
 
@@ -127,7 +129,7 @@ export function createCourseDiscovery(options:CourseDiscoveryOptions) {
       if (shellAccess.status !== 'accessible' || !sesskey) throw stop('failed');
       const pages:string[] = [];
       for (let offset = 0; ; ) {
-        const body = JSON.stringify([{index:0, methodname:ENROLLED_METHOD, args:{offset, limit:DISCOVERY_LIMIT, classification:'inprogress', sort:'fullname'}}]);
+        const body = JSON.stringify([{index:0, methodname:ENROLLED_METHOD, args:{offset, limit:DISCOVERY_LIMIT, classification:DISCOVERY_CLASSIFICATION, sort:'fullname'}}]);
         const page = await paced({method:'POST', url:enrolledCoursesUrl(sesskey), body});
         if (page.kind === 'failed') throw stop('failed');
         const value = page.value;
@@ -146,7 +148,8 @@ export function createCourseDiscovery(options:CourseDiscoveryOptions) {
         const result = parseEnrolledCourses(pages, {limit:DISCOVERY_LIMIT});
         if (result.diagnostics.some(d => d.reason === 'malformed_response')) throw stop('failed');
         if (result.next === null) {
-          const observations:RawCourseObservation[] = result.observations;
+          // The classification comes from this worker's own request, never from the response body.
+          const observations:RawCourseObservation[] = result.observations.map(observation => ({...observation, classification:DISCOVERY_CLASSIFICATION}));
           const binding = (await backend('/api/bridge-context'))?.binding;
           if (typeof binding !== 'string') throw stop('failed');
           const snapshot = await backend('/api/courses/discovery', binding, {observations});
