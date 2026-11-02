@@ -8,6 +8,8 @@ import { ReconciliationReview } from "@/components/mh/ReconciliationReview";
 import { SyllabusRevisionReview } from "@/components/mh/SyllabusRevisionReview";
 import { CourseTag, EmptyState, PageHeader, TYPE_LABEL } from "@/components/mh/bits";
 import { rankSyllabusSuggestions } from "@/domain/syllabus-suggestions";
+import { MOODLE_LOGIN_URL } from "@/domain/onboarding";
+import { looksLikeHtml, SAVED_WEB_PAGE } from "@/domain/saved-web-page";
 import { formatDate } from "@/domain/dates";
 import type { DateValue, ExtractionCandidate } from "@/domain/types";
 import { useApp } from "@/lib/app-store";
@@ -145,6 +147,7 @@ export function Syllabus() {
       const hash = await crypto.subtle.digest("SHA-256", bytes);
       const digest = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      if (looksLikeHtml(bytes)) throw new Error(SAVED_WEB_PAGE);
       if (/\.pdf$/i.test(f.name)) {
         const { validatePdf } = await import("@/services/validate-pdf");
         await validatePdf(bytes, controller.signal);
@@ -189,6 +192,9 @@ export function Syllabus() {
         <section className="rounded-lg border bg-card p-4">
           <h2 className="mb-2 text-lg font-semibold">Suggested from Moodle</h2>
           {suggestions.length === 0 && <p className="text-sm">No collected file suggestions yet.</p>}
+          {/* Moodle Helper never fetches the file itself. A lost session shows only on the student's own
+              Moodle tab: SDU answers a signed-out file URL with its login page (HTTP 200, Addendum 6). */}
+          {suggestions.length > 0 && <p className="mb-2 text-sm text-muted-foreground">Original links open SDU Moodle. If Moodle shows its sign-in page instead of the file, your Moodle session has ended: <a className="underline" href={MOODLE_LOGIN_URL} target="_blank" rel="noreferrer">sign in to SDU Moodle</a>, download the file again, then choose it here. A saved sign-in page is recognised and not imported.</p>}
           {[false, true].map((isDismissed) => {
             const rows = suggestions.filter((item) => dismissed.has(item.id) === isDismissed);
             return <div key={String(isDismissed)}>{isDismissed && <h3 className="mt-4 font-semibold">Dismissed suggestions</h3>}
