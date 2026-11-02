@@ -55,7 +55,7 @@ document imports and material downloads use the wrappers from `openapi.yaml`.
 | PATCH | `/api/assessments/{assessmentId}/overlay` | Updates separate personal layer |
 | POST | `/api/personal-events` | Creates a personal assessment |
 | DELETE | `/api/personal-events/{id}` | Removes personal assessment and overlay |
-| POST | `/api/sync` | Returns final simulated course sync outcomes |
+| POST | `/api/sync` | Demo: final simulated course sync outcomes. Real dataset: queues a read-only scan of the selected courses (Snapshot with `syncing` entries) or a fixed 409 |
 | POST | `/api/documents/import` | Accepts filename-only JSON, simulates extraction |
 | POST | `/api/candidates/{candidateId}/review` | Confirms, corrects, or rejects candidate |
 | POST | `/api/materials/{id}/download` | Returns unsupported download capability |

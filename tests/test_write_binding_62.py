@@ -64,7 +64,8 @@ def test_current_binding_sync_behaves_as_before(client):
     assert response.status_code == 200
 
 
-def test_current_binding_sync_keeps_unavailable_path(tmp_path):
+def test_current_binding_sync_reaches_the_live_sync_checks(tmp_path):
+    # #20: the real namespace now queues a live scan; an unlinked selected course is a fixed 409.
     namespace = namespace_key('moodle', origin='https://moodle.sdu.edu.kz', profile_label='test', stable_user_id='synthetic')
     store = SQLiteStore(URL.create('sqlite', database=str(tmp_path / 'sync.sqlite3')), namespace)
     try:
@@ -72,11 +73,22 @@ def test_current_binding_sync_keeps_unavailable_path(tmp_path):
         snapshot['settings']['trackedCourseIds'] = ['c-csc']
         store.replace(snapshot)
         with TestClient(create_app(store), bind_writes=False) as client:
-            assert client.post('/api/sync').status_code == 409
+            stale = client.post('/api/sync')
+            assert stale.status_code == 409 and stale.json() == {'message': 'Backend context changed. Reconnect.'}
+            before = client.get('/api/snapshot').json()
             response = client.post('/api/sync', headers=binding(client))
-            assert response.status_code == 503 and response.json() == {'message': SYNC_UNAVAILABLE}
+            assert response.status_code == 409 and response.json() == {'message': 'A selected course is not linked to a Moodle course.'}
+            assert client.get('/api/snapshot').json() == before
     finally:
         store.close()
+
+
+def test_current_binding_sync_unavailable_without_file_sqlite():
+    class RealMemory(InMemoryStore):
+        namespace = namespace_key('moodle', origin='https://moodle.sdu.edu.kz', profile_label='test', stable_user_id='synthetic')
+    with TestClient(create_app(RealMemory()), bind_writes=False) as client:
+        response = client.post('/api/sync', headers=binding(client))
+        assert response.status_code == 503 and response.json() == {'message': SYNC_UNAVAILABLE}
 
 
 def test_docs_still_load_and_swagger_reset_without_header_is_409(client):
