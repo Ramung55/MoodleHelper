@@ -104,8 +104,9 @@ card). #4 supplies observed-structure fixtures for it. The collector is
   `alpha` is the site theme #3 recorded for every inspected SDU page and the
   host is pinned to `moodle.sdu.edu.kz`; a page is rejected as another theme
   only on positive evidence (a non-`alpha` `/theme/<script>.php/<name>/` asset
-  or `table.quizattemptsummary`), because #3 recorded no alpha asset URL on the
-  quiz view page.
+  or `table.quizattemptsummary`). Addendum 6 (2026-11-02) recorded `alpha`
+  theme assets on all 3 live quiz view pages; a page without theme asset URLs
+  is still not treated as another theme.
 - **Dates.** Each row keeps its full wording, label, `meaning`
   (`quiz_open` / `quiz_close`) and location. The #3 display format is read as
   an exact time at the observed UTC+5 offset, zone `Asia/Almaty`. No "Closed:"

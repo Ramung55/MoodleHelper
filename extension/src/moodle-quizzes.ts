@@ -300,8 +300,8 @@ function checkVariant(doc: Document, page: QuizPageKind): QuizVariant {
   // and `trusted()` pins the host to moodle.sdu.edu.kz, so a page from that host is taken as alpha
   // unless it shows positive evidence of another theme: a `/theme/<script>.php/<name>/` asset with
   // another name, or the standard `table.quizattemptsummary` that alpha replaces. A page with no
-  // theme asset URL is not evidence of another theme (the course page records an alpha asset only
-  // on resource icons, and the quiz page records none).
+  // theme asset URL is not evidence of another theme. Addendum 6 (2026-11-02) recorded `/theme/…/alpha`
+  // assets on all 3 live quiz view pages; absence alone is still not treated as another theme.
   if ([...themes].some(t => t !== "alpha") || doc.querySelector("table.quizattemptsummary")) fail("unsupported_theme");
   const variant = supportedQuizVariant(page, "en", "alpha");
   if (!variant) fail("unsupported_page");
