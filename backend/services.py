@@ -96,6 +96,12 @@ class BackendService:
                     values = [fact["value"]] if field == "title" else fact["value"]
                     if not values or any(not value or " ".join(value.split()) != value for value in values):
                         raise ValueError(f"{field} requires normalized nonblank known values")
+            code = observation.get("code")
+            if code is not None and code["kind"] == "known":
+                value = code["value"]
+                # #84: one shortname segment only, so never the login or the full shortname.
+                if not value or " ".join(value.split()) != value or "-" in value or len(value) > 64:
+                    raise ValueError("code requires one normalized nonblank shortname segment")
             if source_id in incoming and incoming[source_id] != observation:
                 raise ValueError("Conflicting duplicate observations for one sourceCourseId")
             incoming[source_id] = observation
@@ -120,13 +126,25 @@ class BackendService:
                     raise ValueError("Course identity collision; no discovery was saved")
                 if mapped is not None and mapped["discovery"]["sourceUrl"] != observation["sourceUrl"]:
                     raise ValueError("Saved source identity has conflicting URL; no discovery was saved")
+                previous = {} if mapped is None else mapped["discovery"]
                 if mapped is None:
                     mapped = {"id": identifier, "code": f"Course {source_id}",
                               "color": 1 + int(sha256(source_id.encode()).hexdigest(), 16) % 6}
                     snapshot["courses"].append(mapped)
+                record = deepcopy(observation)
+                # #84: an unknown or absent code keeps the last known one; a missing
+                # classification keeps the last status (unknown for a new course).
+                if record.get("code", {}).get("kind") != "known" and previous.get("code", {}).get("kind") == "known":
+                    record["code"] = deepcopy(previous["code"])
+                if "classification" not in record and "classification" in previous:
+                    record["classification"] = previous["classification"]
+                status = ("current" if record.get("classification") == "inprogress"
+                          else previous.get("currentTermStatus", "unknown"))
+                if record.get("code", {}).get("kind") == "known":
+                    mapped["code"] = record["code"]["value"]
                 mapped.update(name=(observation["title"]["value"] if observation["title"]["kind"] == "known"
-                                    else "Title unavailable"), current=False,
-                              discovery={**deepcopy(observation), "currentTermStatus": "unknown"})
+                                    else "Title unavailable"), current=status == "current",
+                              discovery={**record, "currentTermStatus": status})
         return self.store.mutate(apply)
 
     def set_tracked_courses(self, ids: list[str]) -> dict:
