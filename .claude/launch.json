@@ -1,0 +1,50 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "uvicorn",
+        "backend.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": [
+        "run",
+        "--cwd",
+        "frontend",
+        "dev",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5173"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "pages-preview",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "python",
+        "-m",
+        "http.server",
+        "4180",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "C:/Users/hpram/AppData/Local/Temp/claude/C--Users-hpram-Desktop-MoodleHelper/91846846-5839-40d3-b8c3-40419fc556e1/scratchpad/pages-site"
+      ],
+      "port": 4180
+    }
+  ]
+}
