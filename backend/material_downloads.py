@@ -1,11 +1,14 @@
 """Explicit single-file material transfer metadata (#41).
 
 The backend never fetches Moodle bytes. It resolves a stable material ID to a
-validated credential-free SDU pluginfile destination, registers one opaque
-transfer per dataset+material, and records honest progress/terminal outcomes
-reported by the extension's packaged transfer page. Ordinary runtime has no
-verified SDU source/session capability, so registration fails closed unless a
-capability is injected in-process (synthetic fixtures only).
+validated credential-free SDU destination (an exact pluginfile URL, or the exact
+`/mod/resource/view.php?id=<cmid>` link of a collected PDF resource record),
+registers one opaque transfer per dataset+material, and records honest
+progress/terminal outcomes reported by the extension's packaged transfer page.
+The capability is on only for the trusted startup real namespace in #20's
+`verified` context mode (owner decision 2026-11-02); demo, synthetic and
+in-memory stores fail closed with `source_unavailable`. Tests may still inject a
+capability in-process; no request can select it.
 """
 
 import json
@@ -22,12 +25,14 @@ from pydantic import Field
 from backend.schemas import Integer, ProposedHttpError, WireModel
 
 MAX_BYTES = 20 * 1024 * 1024
+# Total bound for one attempt: up to 30 s waiting for the #20 request-authority
+# lease plus #20's 30 s per-request limit for the file fetch itself.
 TIMEOUT_MS = 60_000
 OpaqueId = Annotated[str, Field(pattern=r'^[A-Za-z0-9-]{1,128}$')]
 MaterialId = Annotated[str, Field(min_length=1, max_length=256)]
 State = Literal['queued', 'validating', 'saving', 'complete', 'failed', 'cancelled', 'interrupted']
 Reason = Literal['sign_in_required', 'forbidden', 'not_found', 'network', 'unsupported_type', 'too_large',
-                 'timeout', 'cancelled_by_user', 'page_closed', 'download_interrupted', 'outcome_unknown']
+                 'timeout', 'cancelled_by_user', 'page_closed', 'download_interrupted', 'outcome_unknown', 'not_a_file']
 Unsupported = Literal['material_not_found', 'not_a_file', 'unsupported_type', 'unsafe_destination', 'source_unavailable']
 ACTIVE = ('queued', 'validating', 'saving')
 TERMINAL = ('complete', 'failed', 'cancelled', 'interrupted')
@@ -36,6 +41,7 @@ NEXT = {'queued': {'validating', 'failed', 'cancelled', 'interrupted'},
         'saving': {'saving', 'complete', 'failed', 'cancelled', 'interrupted'}}
 PLUGINFILE = re.compile(r'^https://moodle\.sdu\.edu\.kz/pluginfile\.php/[1-9][0-9]*/mod_resource/content/[1-9][0-9]*/'
                         r'(?:[A-Za-z0-9._~!$&\'()*+,;=:@-]|%[0-9A-F]{2})+(?:\?forcedownload=1)?$')
+RESOURCE_VIEW = 'https://moodle.sdu.edu.kz/mod/resource/view.php?id={}'
 MESSAGES = {
     'material_not_found': 'This material is no longer in your local index. Refresh materials and try again.',
     'not_a_file': 'Only a single file can be downloaded. Folders and links open in Moodle instead.',
@@ -117,6 +123,15 @@ def resolve(snapshot: dict, material_id: str) -> tuple[dict | None, str | None]:
             return None, 'unsupported_type'
         url = o.get('destinationUrl')
         title = o['title'].get('value') if o['title']['kind'] == 'known' else None
+        cmid = o.get('sourceCourseModuleId')
+        # SDU links a resource as its exact view.php?id=<cmid>; only the response
+        # (followed redirect to pluginfile.php, application/pdf, %PDF-) confirms a file.
+        if (url and isinstance(cmid, str) and re.fullmatch(r'[1-9][0-9]{0,18}', cmid)
+                and url == RESOURCE_VIEW.format(cmid)):
+            descriptor = {'url': url, 'format': 'pdf'}
+            if isinstance(title, str) and title.strip():
+                descriptor['suggestedName'] = title.strip()[:200]
+            return descriptor, None
     else:
         legacy = next((m for m in snapshot['materials'] if m['id'] == material_id), None)
         if legacy is None:

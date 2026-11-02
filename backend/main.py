@@ -75,6 +75,14 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         return QueueService(selected, concurrency, **({'clock':queue_clock} if queue_clock else {}))
     def make_reminders(selected):
         return ReminderService(selected, reminder_clock, **({'resolver': reminder_resolver} if reminder_resolver else {}))
+    def download_capability(collection):
+        # #41 (owner decision 2026-11-02): PDF downloads are on only for the trusted
+        # startup real namespace in #20's verified mode. Demo, synthetic and
+        # in-memory stores keep source_unavailable. Only in-process construction
+        # (tests) may inject a capability; no request can select it.
+        if material_download_capability is not None:
+            return material_download_capability
+        return collection._mode() == 'verified'
     def make_erase(app, selected):
         from backend.reminders import MemoryLedger
         rows = app.state.material_downloads.rows
@@ -94,7 +102,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(selected, app.state.bridge_binding, collection_provider)
         app.state.reminders = make_reminders(selected)
-        app.state.material_downloads = MaterialDownloadService(selected, material_download_capability)
+        app.state.material_downloads = MaterialDownloadService(selected, download_capability(app.state.collection))
         app.state.restore = RestoreService(selected, reminder_clock, reminder_resolver,
                                            None if hasattr(app.state.material_downloads.rows, 'connection') else app.state.material_downloads.rows)
         app.state.erase = make_erase(app, selected)
@@ -115,7 +123,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.bridge_binding = uuid4().hex
         app.state.collection = CollectionService(store, app.state.bridge_binding, collection_provider)
         app.state.reminders = make_reminders(store)
-        app.state.material_downloads = MaterialDownloadService(store, material_download_capability)
+        app.state.material_downloads = MaterialDownloadService(store, download_capability(app.state.collection))
         app.state.restore = RestoreService(store, reminder_clock, reminder_resolver,
                                            None if hasattr(app.state.material_downloads.rows, 'connection') else app.state.material_downloads.rows)
         app.state.erase = make_erase(app, store)

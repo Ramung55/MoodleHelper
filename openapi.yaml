@@ -2775,6 +2775,7 @@ components:
           - page_closed
           - download_interrupted
           - outcome_unknown
+          - not_a_file
           title: Reason
         downloadId:
           type: integer
@@ -2930,6 +2931,7 @@ components:
           - page_closed
           - download_interrupted
           - outcome_unknown
+          - not_a_file
           title: Reason
         downloadId:
           type: integer

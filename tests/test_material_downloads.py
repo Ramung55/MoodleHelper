@@ -217,3 +217,120 @@ def test_restore_fences_saving_transfer_and_rollback_keeps_it(make):
     fenced = client.get(f"/api/material-downloads/{t['transferId']}").json()
     assert fenced['cancelRequested'] and fenced['generation'] == saving['generation'] + 1
     assert client.post(f"/api/material-downloads/{t['transferId']}/descriptor").status_code == 409
+
+
+# ---- #41 pilot capability (owner decision 2026-11-02) ----
+from backend.identity import namespace_key  # noqa: E402
+
+REAL = namespace_key('moodle', origin='https://moodle.sdu.edu.kz', profile_label='test', stable_user_id='synthetic-student')
+CMID = '990104'
+VIEW_URL = f'https://moodle.sdu.edu.kz/mod/resource/view.php?id={CMID}'
+
+
+def resource_record(rid='r-pdf', *, cm=CMID, url=None, module='resource', kind='file', file_type='pdf', mime=None):
+    at = '2026-11-01T10:00:00Z'
+    source = f'https://moodle.sdu.edu.kz/mod/{module}/view.php?id={cm}'
+    o = {'sourcePageUrl': 'https://moodle.sdu.edu.kz/course/view.php?id=7001', 'sourceUrl': source, 'observedAt': at,
+         'location': 'course.material', 'sourceCourseId': '7001', 'sourceCourseModuleId': cm, 'sourceModuleType': module,
+         'resourceKey': f'["https://moodle.sdu.edu.kz","7001","{module}","module","{cm}"]', 'kind': kind,
+         'title': {'kind': 'known', 'value': 'Лекция 1'}, 'section': {'kind': 'unknown'},
+         'fileType': {'kind': 'known', 'value': file_type} if file_type else {'kind': 'unknown'},
+         'mimeType': {'kind': 'known', 'value': mime} if mime else {'kind': 'unknown'},
+         'destinationUrl': url if url is not None else f'https://moodle.sdu.edu.kz/mod/resource/view.php?id={cm}',
+         'references': []}
+    return {'kind': 'material', 'id': rid, 'courseId': '', 'firstObservedAt': at, 'lastObservedAt': at, 'observations': [o]}
+
+
+def collected(*records):
+    s = build_sample_snapshot()
+    for r in records:
+        r['courseId'] = s['courses'][0]['id']
+    s['collection'] = {'records': list(records), 'reviews': [], 'refreshes': []}
+    return s
+
+
+@pytest.fixture
+def real(tmp_path):
+    opened = []
+    def factory(snap, namespace=REAL, name='real'):
+        store = SQLiteStore(URL.create('sqlite', database=str(tmp_path / f'{name}{len(opened)}.sqlite3')), namespace)
+        store.replace(snap)
+        client = TestClient(create_app(store))  # No injected capability: trusted construction only.
+        client.__enter__()
+        opened.append((client, store))
+        client.headers['X-Moodle-Helper-Bridge-Binding'] = client.get('/api/bridge-context').json()['binding']
+        return client, store
+    yield factory
+    for client, store in opened:
+        client.__exit__(None, None, None)
+        store.close()
+
+
+def test_verified_real_namespace_queues_resource_view_pdf(real):
+    client, store = real(collected(resource_record()))
+    assert client.get('/api/collection-context').json()['mode'] == 'verified'
+    r = start(client, store, 'r-pdf').json()
+    assert r['supported'] is True and r['transfer']['state'] == 'queued' and r.get('reason') != 'source_unavailable'
+    d = client.post(f"/api/material-downloads/{r['transfer']['transferId']}/descriptor").json()
+    assert d['url'] == VIEW_URL and d['format'] == 'pdf' and d['timeoutMs'] == 60000 and d['maxBytes'] == 20 * 1024 * 1024
+    assert d['suggestedName'] == 'Лекция 1'
+
+
+def test_demo_namespace_and_memory_store_stay_source_unavailable(real):
+    client, store = real(collected(resource_record()), namespace=namespace_key(), name='demo')
+    assert client.get('/api/collection-context').json()['mode'] != 'verified'
+    r = start(client, store, 'r-pdf').json()
+    assert r['reason'] == 'source_unavailable' and 'Open the file in Moodle' in r['message']
+    memory_store = InMemoryStore(collected(resource_record()))
+    with TestClient(create_app(memory_store)) as memory:
+        memory.headers['X-Moodle-Helper-Bridge-Binding'] = memory.get('/api/bridge-context').json()['binding']
+        assert start(memory, memory_store, 'r-pdf').json()['reason'] == 'source_unavailable'
+
+
+def test_synthetic_provider_namespace_stays_source_unavailable(tmp_path):
+    from backend.collection import SyntheticCollectionContext
+    store = SQLiteStore(URL.create('sqlite', database=str(tmp_path / 's.sqlite3')), REAL)
+    store.replace(collected(resource_record()))
+    try:
+        with TestClient(create_app(store, collection_provider=SyntheticCollectionContext(namespace=REAL))) as client:
+            assert client.get('/api/collection-context').json()['mode'] == 'synthetic'
+            client.headers['X-Moodle-Helper-Bridge-Binding'] = client.get('/api/bridge-context').json()['binding']
+            assert start(client, store, 'r-pdf').json()['reason'] == 'source_unavailable'
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize('record,reason', [
+    (resource_record(cm='990105', url=VIEW_URL), 'unsafe_destination'),  # cmid does not match the record
+    (resource_record(url=VIEW_URL + '&redirect=1'), 'unsafe_destination'),
+    (resource_record(url='https://moodle.sdu.edu.kz/mod/url/view.php?id=' + CMID), 'unsafe_destination'),
+    (resource_record(url='https://evil.example/mod/resource/view.php?id=' + CMID), 'unsafe_destination'),
+    (resource_record(url='http://moodle.sdu.edu.kz/mod/resource/view.php?id=' + CMID), 'unsafe_destination'),
+    (resource_record(module='folder', kind='folder'), 'not_a_file'),
+    (resource_record(module='url', kind='link', file_type='link'), 'not_a_file'),
+    (resource_record(module='resource', kind='link', file_type=None), 'not_a_file'),
+    (resource_record(file_type='other', mime='application/epub+zip'), 'unsupported_type'),
+    (resource_record(file_type='docx'), 'unsupported_type'),
+    (resource_record(file_type='pptx'), 'unsupported_type'),
+])
+def test_real_namespace_destination_and_type_rules(real, record, reason):
+    client, store = real(collected(record))
+    assert start(client, store, 'r-pdf').json()['reason'] == reason
+
+
+def test_real_namespace_keeps_exact_pluginfile_destination(real):
+    client, store = real(collected(resource_record(url=PDF_URL.replace('/42/', '/55001/'))))
+    assert start(client, store, 'r-pdf').json()['supported'] is True
+
+
+@pytest.mark.parametrize('reason', ['not_a_file', 'network', 'sign_in_required', 'forbidden', 'not_found', 'timeout', 'download_interrupted'])
+def test_new_failure_reasons_never_record_success(real, reason):
+    client, store = real(collected(resource_record()))
+    t = start(client, store, 'r-pdf').json()['transfer']
+    d = client.post(f"/api/material-downloads/{t['transferId']}/descriptor").json()
+    v = client.post(f"/api/material-downloads/{t['transferId']}/status", json={'generation': d['generation'], 'attemptId': d['attemptId'], 'state': 'validating'}).json()
+    state = 'interrupted' if reason == 'download_interrupted' else 'failed'
+    r = client.post(f"/api/material-downloads/{t['transferId']}/status", json={'generation': v['generation'], 'attemptId': d['attemptId'], 'state': state, 'reason': reason}).json()
+    assert r['state'] == state and r['reason'] == reason and 'completedAt' not in r
+    assert all('downloadedAt' not in m for m in store.read()['materials'])
+    assert client.get('/api/material-downloads').json()['transfers'][0]['state'] == state
