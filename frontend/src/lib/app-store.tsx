@@ -7,7 +7,8 @@ import { mapTeachingDate } from "@/domain/teaching-weeks";
 import type { Snapshot } from "@/domain/types";
 import { getAdapter, type MoodleHelperAdapter } from "@/services";
 import type { ConnectionInfo } from "@/services/adapter";
-import { detectExtension } from "@/services/extension-adapter";
+import { detectExtension, discoverSduCourses } from "@/services/extension-adapter";
+import { DISCOVERY_MESSAGES } from "../../../shared/src/bridge";
 import { onLocalInvalidation, resumeEraseCleanup } from "@/services/local-erase";
 
 interface AppState {
@@ -30,6 +31,9 @@ interface AppState {
   retryCourseSelection: () => void;
   syncAll: () => Promise<void>;
   setSnap: (s: Snapshot) => void;
+  /** #82 "Find my SDU courses": shown only with the extension in the real dataset. */
+  discovery: { available: boolean; pending: boolean; status: string | null; error: string | null };
+  discoverCourses: () => Promise<void>;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -130,6 +134,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [adapter, enqueue]);
 
+  const [discovery, setDiscovery] = useState<{ pending: boolean; status: string | null; error: string | null }>({ pending: false, status: null, error: null });
+  const discoveryBusy = useRef(false);
+  const discoveryAvailable = !!conn && conn.state !== "demo" && (adapter.discoverCourses ? adapter.kind === "extension" : conn.extensionDetected);
+  const discoverCourses = useCallback(async () => {
+    if (discoveryBusy.current) return;
+    discoveryBusy.current = true;
+    setDiscovery({ pending: true, status: null, error: null });
+    try {
+      const outcome = await (adapter.discoverCourses ? adapter.discoverCourses() : discoverSduCourses());
+      if ("message" in outcome) { setDiscovery({ pending: false, status: null, error: outcome.message }); return; }
+      // Serialized with selection saves; the backend never ticks a discovered course.
+      await enqueue(async () => setSnap(outcome.snapshot as Snapshot));
+      const status = outcome.found === 0 && outcome.coverage === "complete" ? "SDU Moodle lists no in-progress courses."
+        : outcome.coverage === "complete" ? `Found ${outcome.found} in-progress courses on SDU Moodle. Tick the ones to track.`
+        : `Found ${outcome.found} in-progress courses on SDU Moodle. The list may be incomplete.`;
+      setDiscovery({ pending: false, status, error: null });
+    } catch (e) {
+      // A failure leaves the shown courses and selection as they were; no toast.
+      setDiscovery({ pending: false, status: null, error: e instanceof Error ? e.message : DISCOVERY_MESSAGES.failed });
+    } finally {
+      discoveryBusy.current = false;
+    }
+  }, [adapter, enqueue]);
+
   const derived = useMemo(() => {
     if (!snap) return { views: [], weeks: [], unallocated: [], unallocatedSummary: null, workloadError: null, currentWeek: null };
     const views = viewAll(snap.reconciliation?.logicalAssessments ?? snap.assessments, snap.reconciliation?.logicalOverlays ?? snap.overlays, snap.settings, snap);
@@ -149,7 +177,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (fresh.length) void run((a) => a.saveAlerts([...fresh, ...snap.alerts]));
   }, [snap, derived, run]);
 
-  return <Ctx.Provider value={{ adapter, snap, conn, error, syncing, retryLoad, run, syncAll, setSnap, selectionPending, selectionError, saveCourseSelection, retryCourseSelection, ...derived }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ adapter, snap, conn, error, syncing, retryLoad, run, syncAll, setSnap, selectionPending, selectionError, saveCourseSelection, retryCourseSelection,
+    discovery: { available: discoveryAvailable, ...discovery }, discoverCourses, ...derived }}>{children}</Ctx.Provider>;
 }
 
 export function useApp() {

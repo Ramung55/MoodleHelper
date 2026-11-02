@@ -58,10 +58,15 @@ export function BridgeConnection() {
 
 /** Confirmed saved values only; pending/error/retry live in the provider across navigation. */
 export function TrackedCourses() {
-  const { snap, selectionPending, selectionError, saveCourseSelection, retryCourseSelection } = useApp();
+  const { snap, selectionPending, selectionError, saveCourseSelection, retryCourseSelection, discovery, discoverCourses } = useApp();
   if (!snap) return null;
   const selected = snap.settings.trackedCourseIds;
   return <Section title="Tracked courses">
+    {discovery.available && <div className="mb-3 space-y-2">
+      <Button variant="outline" disabled={discovery.pending} onClick={() => void discoverCourses()}>{discovery.pending ? "Finding courses…" : "Find my SDU courses"}</Button>
+      {discovery.status && <p role="status" className="text-sm">{discovery.status}</p>}
+      {discovery.error && <p role="alert" className="text-sm text-destructive">{discovery.error}</p>}
+    </div>}
     {!snap.courses.length && <p className="text-sm text-muted-foreground">No discovered courses are available yet.</p>}
     {selected.length === 0 && <p className="mb-3 text-sm text-muted-foreground">No courses selected. No courses will be synced.</p>}
     <ul className="space-y-3" aria-busy={selectionPending}>

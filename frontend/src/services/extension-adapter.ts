@@ -5,6 +5,8 @@ import {
   idValid,
   requestError,
   validReply,
+  type DiscoveryResult,
+  type LocalOperation,
   type Request,
   type Operation,
 } from "../../../shared/src/bridge";
@@ -20,6 +22,8 @@ import type {
 } from "./adapter";
 export { APPROVED_ORIGINS };
 export const isApprovedOrigin = approved;
+/** #82: a run reads up to 5 Moodle requests, each paced, retried and limited to 30 s. */
+export const DISCOVERY_DEADLINE_MS = 300_000;
 
 type Pending = {
   request: Request;
@@ -37,7 +41,7 @@ export class BridgeClient implements MoodleHelperAdapter {
   private listener: (e: MessageEvent) => void;
   constructor(
     win: Window | undefined = typeof window === "undefined" ? undefined : window,
-    private deadlines = { hello: 800, operation: 10000 },
+    private deadlines: { hello: number; operation: number; discovery?: number } = { hello: 800, operation: 10000 },
   ) {
     this.window = win;
     this.clientId = crypto.randomUUID();
@@ -103,7 +107,7 @@ export class BridgeClient implements MoodleHelperAdapter {
       moodleCollection: "unavailable";
     };
   }
-  private send(operation: Operation | "hello", payload: any): Promise<any> {
+  private send(operation: Operation | "hello" | LocalOperation, payload: any): Promise<any> {
     const win = this.window;
     if (!win || win.top !== win || !approved(win.location.origin))
       return Promise.reject(new BridgeError("PERMISSION_DENIED"));
@@ -131,7 +135,8 @@ export class BridgeClient implements MoodleHelperAdapter {
           );
           this.invalidate();
         },
-        operation === "hello" ? this.deadlines.hello : this.deadlines.operation,
+        operation === "hello" ? this.deadlines.hello
+          : operation === "discoverCourses" ? this.deadlines.discovery ?? DISCOVERY_DEADLINE_MS : this.deadlines.operation,
       );
       this.pending.set(request.requestId, { request, resolve, reject, timer });
       try {
@@ -153,6 +158,10 @@ export class BridgeClient implements MoodleHelperAdapter {
   cancelMockRun(id: string) { return this.send("cancelMockRun", { id }); }
   replaceAll(snapshot: Snapshot): Promise<Snapshot> {
     return this.send("replaceAll", snapshot);
+  }
+  /** #82 worker-local "Find my SDU courses" run; the reply is closed and never holds the sesskey. */
+  discoverCourses(): Promise<DiscoveryResult> {
+    return this.send("discoverCourses", {});
   }
   ingestCourseDiscovery(observations: RawCourseObservation[]): Promise<Snapshot> {
     return this.send("ingestCourseDiscovery", { observations });
@@ -241,6 +250,16 @@ export class BridgeClient implements MoodleHelperAdapter {
   }
 }
 export class ExtensionAdapter extends BridgeClient {}
+/** #82: one explicit discovery through a fresh bridge session, beside the default HTTP adapter. */
+export async function discoverSduCourses(): Promise<DiscoveryResult> {
+  const client = new BridgeClient();
+  try {
+    await client.connect();
+    return await client.discoverCourses();
+  } finally {
+    client.dispose();
+  }
+}
 /** Detection is explanatory only; the default HTTP adapter and its saved Snapshot stay in use. */
 export async function detectExtension(timeoutMs = 800): Promise<boolean> {
   const client = new BridgeClient(undefined, { hello: timeoutMs, operation: 10000 });

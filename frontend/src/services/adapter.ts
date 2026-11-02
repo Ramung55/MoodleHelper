@@ -46,6 +46,8 @@ export interface MoodleHelperAdapter {
   load(): Promise<Snapshot>;
 
   ingestCourseDiscovery(observations: RawCourseObservation[]): Promise<Snapshot>;
+  /** #82 "Find my SDU courses": only the extension adapter can read SDU Moodle. */
+  discoverCourses?(): Promise<import("../../../shared/src/bridge").DiscoveryResult>;
   setTrackedCourses(ids: string[]): Promise<Snapshot>;
   updateOverlay(assessmentId: string, patch: OverlayPatch): Promise<Snapshot>;
   addPersonalEvent(input: PersonalEventInput): Promise<Snapshot>;

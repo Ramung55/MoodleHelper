@@ -1,15 +1,16 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { AppProvider, useApp } from "@/lib/app-store";
 import { TrackedCourses } from "@/routes/settings";
 import { buildDemoSnapshot } from "@/services/fixtures";
 import { Snapshot } from "@/domain/types";
 import { makeBackup, previewRestore } from "@/domain/backup";
 
-const state = vi.hoisted(() => ({ adapter: { load: vi.fn(), connection: vi.fn(), setTrackedCourses: vi.fn(), ingestCourseDiscovery: vi.fn() } }));
+const state = vi.hoisted(() => ({ adapter: { load: vi.fn(), connection: vi.fn(), setTrackedCourses: vi.fn(), ingestCourseDiscovery: vi.fn() } as { load: Mock; connection: Mock; setTrackedCourses: Mock; ingestCourseDiscovery: Mock; kind?: string; discoverCourses?: Mock },
+  extension: { detected: false, discover: vi.fn() } }));
 vi.mock("@/services", () => ({ getAdapter: () => state.adapter }));
-vi.mock("@/services/extension-adapter", () => ({ detectExtension: async () => false }));
+vi.mock("@/services/extension-adapter", () => ({ detectExtension: async () => state.extension.detected, discoverSduCourses: () => state.extension.discover() }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 
 let saved: Snapshot;
@@ -24,6 +25,9 @@ function Harness() {
 const mount = () => render(<AppProvider><Harness /></AppProvider>);
 beforeEach(() => {
   vi.clearAllMocks();
+  state.extension.detected = false;
+  delete state.adapter.discoverCourses;
+  state.adapter.kind = "demo";
   saved = buildDemoSnapshot();
   saved.settings.reminders.enabled = false;
   saved.settings.reminders.busyWeek = false;
@@ -128,5 +132,89 @@ describe("Settings course selection", () => {
     mount();
     expect(await screen.findByText("No discovered courses are available yet.")).toBeVisible();
     expect(screen.getByText("No courses selected. No courses will be synced.")).toBeVisible();
+  });
+});
+
+describe("#82 Find my SDU courses", () => {
+  const discovered = (ids: string[]) => {
+    const next = structuredClone(saved);
+    for (const [i, id] of ids.entries()) next.courses.push({ id: `moodle-${id}`, code: `Course ${id}`, name: `Fictional Course ${i}`, color: 1, current: false,
+      discovery: { sourceCourseId: id, sourceUrl: `https://moodle.sdu.edu.kz/course/view.php?id=${id}`, title: { kind: "known", value: `Fictional Course ${id}` },
+        termIndicators: { kind: "known", value: ["In progress"] }, currentTermStatus: "unknown" } });
+    return next;
+  };
+  const real = () => { state.extension.detected = true; state.adapter.connection.mockResolvedValue({ state: "disconnected", message: "Real dataset", extensionDetected: false }); };
+
+  it("is not shown without the extension or in the demo dataset", async () => {
+    real(); state.extension.detected = false;
+    const first = mount();
+    await screen.findByRole("checkbox", { name: "Track Full observed title" });
+    expect(screen.queryByRole("button", { name: "Find my SDU courses" })).not.toBeInTheDocument();
+    first.unmount();
+    state.extension.detected = true;
+    state.adapter.connection.mockResolvedValue({ state: "demo", message: "Fixture", extensionDetected: false });
+    mount();
+    await screen.findByRole("checkbox", { name: "Track Full observed title" });
+    expect(screen.queryByRole("button", { name: "Find my SDU courses" })).not.toBeInTheDocument();
+  });
+
+  it("finds courses: busy while running, then the status line and new unticked in-progress courses", async () => {
+    real();
+    let finish!: (value: unknown) => void;
+    state.extension.discover.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Find my SDU courses" }));
+    const busy = await screen.findByRole("button", { name: "Finding courses…" });
+    expect(busy).toBeDisabled();
+    fireEvent.click(busy);
+    expect(state.extension.discover).toHaveBeenCalledTimes(1);
+    finish({ snapshot: discovered(["9001", "9002", "9003"]), found: 3, coverage: "complete" });
+    expect(await screen.findByText("Found 3 in-progress courses on SDU Moodle. Tick the ones to track.")).toHaveAttribute("role", "status");
+    expect(screen.getByRole("button", { name: "Find my SDU courses" })).toBeEnabled();
+    for (const id of ["9001", "9002", "9003"]) {
+      const box = screen.getByRole("checkbox", { name: `Track Fictional Course ${id}` });
+      expect(box).not.toBeChecked();
+      const item = box.closest("li")!;
+      expect(item).toHaveTextContent("In progress");
+      expect(item).toHaveTextContent("Current term uncertain");
+    }
+    expect(screen.getByRole("checkbox", { name: "Track Full observed title" })).toBeChecked();
+    expect(state.adapter.setTrackedCourses).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ found: 96, coverage: "partial" }, "Found 96 in-progress courses on SDU Moodle. The list may be incomplete."],
+    [{ found: 0, coverage: "complete" }, "SDU Moodle lists no in-progress courses."],
+  ])("shows the status line for %j", async (outcome, line) => {
+    real();
+    state.extension.discover.mockResolvedValue({ snapshot: structuredClone(saved), ...outcome });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Find my SDU courses" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(line);
+  });
+
+  it.each(["Sign in to SDU Moodle to continue.", "Could not read your SDU courses. Try again later."])(
+    "shows %j as an alert, with no toast and the courses and selection unchanged", async (message) => {
+      real();
+      const { toast } = await import("sonner");
+      state.extension.discover.mockResolvedValue({ message });
+      mount();
+      fireEvent.click(await screen.findByRole("button", { name: "Find my SDU courses" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(message);
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+      expect(screen.getAllByRole("checkbox")).toHaveLength(4);
+      expect(screen.getByRole("checkbox", { name: "Track Full observed title" })).toBeChecked();
+    });
+
+  it("uses the extension adapter's own discovery when it is the active adapter", async () => {
+    state.adapter.kind = "extension";
+    state.adapter.discoverCourses = vi.fn().mockResolvedValue({ snapshot: discovered(["9004"]), found: 1, coverage: "complete" });
+    state.adapter.connection.mockResolvedValue({ state: "disconnected", message: "Real dataset", extensionDetected: false });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Find my SDU courses" }));
+    expect(await screen.findByRole("checkbox", { name: "Track Fictional Course 9004" })).not.toBeChecked();
+    expect(state.extension.discover).not.toHaveBeenCalled();
   });
 });
