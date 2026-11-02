@@ -1,31 +1,50 @@
 /**
  * Explicit single-file material transfer (#41), run only in the packaged visible
- * transfer page. Fetches the exact backend-registered SDU pluginfile URL with the
- * browser's own session (no cookie access, no custom auth headers, redirect:error),
- * validates a bounded PDF in memory and hands Chrome the exact validated local Blob.
- * Chrome's download ID is never treated as completion.
+ * transfer page after one explicit click. The page fetches the exact
+ * backend-registered SDU destination (an exact pluginfile URL, or a resource's
+ * exact /mod/resource/view.php?id=<cmid> link) with the browser's own session: GET
+ * only, no cookie access, no custom headers, no sesskey. The fetch starts only
+ * while the page holds a lease from the #20 request authority (a
+ * chrome.runtime.connect port to the worker), so it never overlaps a scan or a
+ * course discovery. Redirects are followed and the final URL is checked first:
+ * origin exactly https://moodle.sdu.edu.kz, then #20's observed access check
+ * (final path, status, <body> id) for sign-in; a resource page is `not_a_file`.
+ * A bounded PDF (application/pdf and %PDF-) is validated in memory and Chrome is
+ * handed the exact validated local Blob. Chrome's download ID is never treated as
+ * completion.
  */
+import { detectObservedMoodleAccess } from "./moodle-access";
+
 export const SDU_ORIGIN = "https://moodle.sdu.edu.kz";
 const PLUGINFILE = /^https:\/\/moodle\.sdu\.edu\.kz\/pluginfile\.php\/[1-9][0-9]*\/mod_resource\/content\/[1-9][0-9]*\/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-F]{2})+(?:\?forcedownload=1)?$/;
+const RESOURCE_VIEW = /^https:\/\/moodle\.sdu\.edu\.kz\/mod\/resource\/view\.php\?id=[1-9][0-9]{0,18}$/;
+/** #20's per-request limit and the lease wait; the descriptor's timeoutMs (60 s) bounds both together. */
+export const REQUEST_LIMIT_MS = 30_000;
+export const LEASE_WAIT_MS = 30_000;
+const HTML_PREFIX_BYTES = 256 * 1024;
 
-export type Reason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown";
+export type Reason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown" | "not_a_file";
 export type State = "queued" | "validating" | "saving" | "complete" | "failed" | "cancelled" | "interrupted";
 export type Descriptor = { transferId: string; generation: number; attemptId: string; materialId: string; url: string; format: "pdf"; suggestedName?: string; maxBytes: number; timeoutMs: number };
 export type Transfer = { transferId: string; generation: number; materialId: string; state: State; reason?: Reason; downloadId?: number; cancelRequested: boolean };
-export type Acquired = { ok: true; blob: Blob; filename: string; size: number } | { ok: false; reason: Reason };
+/** `busy` marks a 429/503 (reason network); `leaseLost` marks a worker restart (reason download_interrupted). */
+export type Acquired = { ok: true; blob: Blob; filename: string; size: number } | { ok: false; reason: Reason; busy?: true; leaseLost?: true };
 
+export const BUSY_TEXT = "Moodle is busy. Try again later. Nothing was saved.";
+export const LEASE_LOST_TEXT = "The extension restarted while reading the file. Nothing was saved. Retry to download again.";
 export const REASON_TEXT: Record<Reason, string> = {
-  sign_in_required: "Moodle returned a login page instead of the file. Sign in to Moodle in Chrome, then retry. Nothing was saved.",
+  sign_in_required: "Moodle returned a login page instead of the file. Sign in to SDU Moodle in Chrome, then retry. Nothing was saved.",
   forbidden: "Moodle refused access to this file. Nothing was saved.",
   not_found: "Moodle no longer has this file. Nothing was saved.",
-  network: "Moodle could not be reached or redirected the request (often an expired login). Sign in to Moodle in Chrome, then retry. Nothing was saved.",
+  network: "Moodle could not be reached, or sent the request to another site. Nothing was saved.",
   unsupported_type: "Moodle did not return a valid PDF. Nothing was saved; open the file in Moodle instead.",
   too_large: "The file is larger than the 20 MiB download limit. Nothing was saved.",
-  timeout: "The download took longer than 60 seconds. Nothing was saved.",
+  timeout: "Moodle did not answer in time. Nothing was saved. Try again later.",
   cancelled_by_user: "Download cancelled.",
   page_closed: "The transfer page was closed before the download finished. Retry to download again.",
   download_interrupted: "Chrome interrupted the download. The file may be incomplete; retry to download again.",
   outcome_unknown: "The download outcome is unknown. Check Chrome's downloads list, or retry.",
+  not_a_file: "This resource opens as a Moodle page, not a file. Open it in Moodle.",
 };
 
 const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i;
@@ -66,35 +85,148 @@ export function looksLikeHtml(bytes: Uint8Array): boolean {
 export const isPdf = (bytes: Uint8Array) => ascii(bytes, 5) === "%PDF-";
 
 export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
-/** Bounded read-only acquisition; nothing is returned unless every check passed. */
-export async function acquire(d: Descriptor, deps: { fetcher: Fetcher; signal: AbortSignal; onProgress?: (bytes: number, total: number | null) => void }): Promise<Acquired> {
-  if (d.format !== "pdf" || !PLUGINFILE.test(d.url) || new URL(d.url).origin !== SDU_ORIGIN) return { ok: false, reason: "unsupported_type" };
+
+/** A held #20 request-authority lease: `lost` aborts on worker restart; `settle` releases it after the fetch settled. */
+export type Lease = { lost: AbortSignal; settle(info: { status?: number; retryAfter?: string }): void };
+export type LeaseResult = { ok: true; lease: Lease } | { ok: false; reason: "timeout" | "refused" | "lost" | "cancelled" };
+export type LeaseRequester = (transferId: string, signal: AbortSignal) => Promise<LeaseResult>;
+
+/** Port shape of chrome.runtime.connect, so the page side is testable against the real worker host. */
+export type LeaseClientPort = {
+  postMessage(message: unknown): void; disconnect(): void;
+  onMessage: { addListener(listener: (message: any) => void): void };
+  onDisconnect: { addListener(listener: () => void): void };
+};
+/** Page side of the #20 lease protocol (see createTransferLeaseHost in moodle-request-authority.ts). */
+export function leaseRequester(connect: () => LeaseClientPort, options: { waitMs?: number } = {}): LeaseRequester {
+  return (transferId, signal) => new Promise<LeaseResult>((resolve) => {
+    let port: LeaseClientPort;
+    try { port = connect(); } catch { resolve({ ok: false, reason: "lost" }); return; }
+    const lost = new AbortController();
+    let answered = false, granted = false;
+    const answer = (r: LeaseResult) => { if (!answered) { answered = true; clearTimeout(timer); signal.removeEventListener("abort", onAbort); resolve(r); } };
+    const drop = () => { try { port.disconnect(); } catch { /* already closed */ } };
+    // The worker answers `timeout` at 30 s; this is only a backstop for a silent worker.
+    const timer = setTimeout(() => { if (!granted) { drop(); answer({ ok: false, reason: "timeout" }); } }, Math.min(options.waitMs ?? LEASE_WAIT_MS, LEASE_WAIT_MS) + 2000);
+    const onAbort = () => { if (!granted) { drop(); answer({ ok: false, reason: "cancelled" }); } };
+    signal.addEventListener("abort", onAbort);
+    port.onMessage.addListener((m) => {
+      if (m?.type === "granted" && !answered) {
+        granted = true;
+        answer({ ok: true, lease: { lost: lost.signal, settle: (info) => { try { port.postMessage({ type: "settled", ...info }); } catch { /* worker gone: it released on disconnect */ } } } });
+      } else if (m?.type === "timeout") answer({ ok: false, reason: "timeout" });
+      else if (m?.type === "refused") answer({ ok: false, reason: "refused" });
+    });
+    port.onDisconnect.addListener(() => { if (granted) lost.abort(); else answer({ ok: false, reason: "lost" }); });
+    if (signal.aborted) { onAbort(); return; }
+    try { port.postMessage({ type: "acquire", transferId }); } catch { answer({ ok: false, reason: "lost" }); }
+  });
+}
+
+type FinalKind = "file" | "page" | "login" | "other";
+function finalKind(url: URL): FinalKind {
+  if (url.pathname.startsWith("/pluginfile.php/")) return "file";
+  if (url.pathname === "/mod/resource/view.php") return "page";
+  if (url.pathname === "/login/index.php") return "login";
+  return "other";
+}
+async function readPrefix(response: Response, limit: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < limit) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value); size += value.byteLength;
+    }
+  } finally { await reader.cancel().catch(() => {}); }
+  const bytes = new Uint8Array(Math.min(size, limit));
+  let at = 0;
+  for (const c of chunks) { const part = c.subarray(0, bytes.length - at); bytes.set(part, at); at += part.byteLength; if (at >= bytes.length) break; }
+  return new TextDecoder().decode(bytes);
+}
+const defaultParse = (html: string): Document | undefined => (typeof DOMParser === "undefined" ? undefined : new DOMParser().parseFromString(html, "text/html"));
+
+export type AcquireDeps = {
+  fetcher: Fetcher; signal: AbortSignal; lease: LeaseRequester;
+  onProgress?: (bytes: number, total: number | null) => void;
+  /** The page's DOMParser; injected in tests. Only the <body> id/classes are read, by #20's access check. */
+  parseHtml?: (html: string) => Document | undefined;
+};
+/** Bounded read-only acquisition under a #20 lease; nothing is returned unless every check passed. */
+export async function acquire(d: Descriptor, deps: AcquireDeps): Promise<Acquired> {
+  if (d.format !== "pdf" || !(PLUGINFILE.test(d.url) || RESOURCE_VIEW.test(d.url)) || new URL(d.url).origin !== SDU_ORIGIN) return { ok: false, reason: "unsupported_type" };
+  const budget = Math.max(1, d.timeoutMs);
+  const granted = await deps.lease(d.transferId, deps.signal);
+  if (!granted.ok) {
+    if (granted.reason === "cancelled" || deps.signal.aborted) return { ok: false, reason: "cancelled_by_user" };
+    if (granted.reason === "timeout") return { ok: false, reason: "timeout" }; // no Moodle request was made
+    return { ok: false, reason: "download_interrupted", leaseLost: true };
+  }
+  const lease = granted.lease;
   const controller = new AbortController();
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, d.timeoutMs);
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, Math.min(REQUEST_LIMIT_MS, budget));
   const relay = () => controller.abort();
-  if (deps.signal.aborted) controller.abort();
+  if (deps.signal.aborted || lease.lost.aborted) controller.abort();
   deps.signal.addEventListener("abort", relay);
-  const why = (): Reason => (deps.signal.aborted ? "cancelled_by_user" : timedOut ? "timeout" : "network");
+  lease.lost.addEventListener("abort", relay);
+  const why = (): Acquired => (lease.lost.aborted && !deps.signal.aborted ? { ok: false, reason: "download_interrupted", leaseLost: true }
+    : { ok: false, reason: deps.signal.aborted ? "cancelled_by_user" : timedOut ? "timeout" : "network" });
+  const settled: { status?: number; retryAfter?: string } = {};
+  const fail = async (response: Response, reason: Reason, extra: { busy?: true } = {}): Promise<Acquired> => {
+    await response.body?.cancel().catch(() => {});
+    return { ok: false, reason, ...extra };
+  };
   try {
     let response: Response;
+    if (controller.signal.aborted) return why(); // cancelled or lost while the lease was granted: no request
     try {
-      // Browser session only: no custom headers, no cookies API, no redirect following.
-      response = await deps.fetcher(d.url, { method: "GET", credentials: "include", redirect: "error", cache: "no-store", referrerPolicy: "no-referrer", signal: controller.signal });
+      // Browser session only: GET, no custom headers, no cookies API; redirects followed, final URL checked below.
+      response = await deps.fetcher(d.url, { method: "GET", credentials: "include", redirect: "follow", cache: "no-store", referrerPolicy: "no-referrer", signal: controller.signal });
     } catch {
-      return { ok: false, reason: why() };
+      return why();
     }
-    if (response.redirected || response.type === "opaqueredirect" || (response.url && response.url !== d.url)) return fail(response, "sign_in_required");
-    if (response.status === 401) return fail(response, "sign_in_required");
-    if (response.status === 403) return fail(response, "forbidden");
-    if (response.status === 404 || response.status === 410) return fail(response, "not_found");
-    if (response.status < 200 || response.status > 299) return fail(response, "network");
+    settled.status = response.status;
+    let final: URL;
+    try { final = new URL(response.url || d.url); } catch { return await fail(response, "network"); }
+    // A redirect off the exact SDU origin is refused before its body is read.
+    if (final.origin !== SDU_ORIGIN || final.username || final.password) return await fail(response, "network");
+    const kind = finalKind(final);
+    const status = response.status;
     const type = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
-    if (type === "text/html" || type === "application/xhtml+xml" || type.startsWith("text/")) return fail(response, "sign_in_required");
-    if (type !== "application/pdf") return fail(response, "unsupported_type");
+    const envelope = { requestedUrl: d.url, finalUrl: final.origin + final.pathname, httpStatus: status, networkFailure: false, ...(type ? { contentType: type } : {}) };
+    if (status === 401 || kind === "login") {
+      // #20's observed access check: final path /login/index.php or HTTP 401 is signed out.
+      return await fail(response, detectObservedMoodleAccess(envelope, { kind: "service" }).status === "signed_out" ? "sign_in_required" : "network");
+    }
+    if (status === 429 || status === 503) {
+      const retryAfter = response.headers.get("retry-after");
+      if (retryAfter) settled.retryAfter = retryAfter.slice(0, 64);
+      return await fail(response, "network", { busy: true }); // never retried automatically
+    }
+    if (status === 403) return await fail(response, "forbidden");
+    if (status === 404 || status === 410) return await fail(response, "not_found");
+    if (status < 200 || status > 299) return await fail(response, "network");
+    if (type === "text/html" || type === "application/xhtml+xml") {
+      let text: string;
+      try { text = await readPrefix(response, HTML_PREFIX_BYTES); } catch { return why(); }
+      let document: Document | undefined;
+      try { document = (deps.parseHtml ?? defaultParse)(text); } catch { document = undefined; }
+      const access = detectObservedMoodleAccess({ ...envelope, ...(document ? { document } : {}) }, { kind: "service" });
+      if (access.status === "signed_out") return { ok: false, reason: "sign_in_required" };
+      // A resource that stays on its view.php page (or any other Moodle page) is not a file.
+      if (kind !== "file") return { ok: false, reason: "not_a_file" };
+      return { ok: false, reason: "sign_in_required" }; // HTML in place of a file is never saved
+    }
+    if (kind !== "file") return await fail(response, type.startsWith("text/") ? "not_a_file" : "unsupported_type");
+    if (type.startsWith("text/")) return await fail(response, "sign_in_required");
+    if (type !== "application/pdf") return await fail(response, "unsupported_type");
     const declared = response.headers.get("content-length");
     const total = declared && /^\d{1,12}$/.test(declared) ? Number(declared) : null;
-    if (total !== null && total > d.maxBytes) return fail(response, "too_large");
+    if (total !== null && total > d.maxBytes) return await fail(response, "too_large");
     if (!response.body) return { ok: false, reason: "unsupported_type" };
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -109,25 +241,27 @@ export async function acquire(d: Descriptor, deps: { fetcher: Fetcher; signal: A
         deps.onProgress?.(size, total);
       }
     } catch {
-      return { ok: false, reason: why() };
+      await reader.cancel().catch(() => {});
+      return why();
     }
-    if (controller.signal.aborted) return { ok: false, reason: why() };
+    if (controller.signal.aborted) return why();
     const bytes = new Uint8Array(size);
     let at = 0;
     for (const c of chunks) { bytes.set(c, at); at += c.byteLength; }
     if (size === 0) return { ok: false, reason: "unsupported_type" };
     if (looksLikeHtml(bytes)) return { ok: false, reason: "sign_in_required" };
     if (!isPdf(bytes)) return { ok: false, reason: "unsupported_type" };
+    // The name comes from the final response's Content-Disposition or the stored metadata,
+    // always through the sanitizer; the final URL path is never used.
     const filename = sanitizeFilename(dispositionName(response.headers.get("content-disposition")) ?? d.suggestedName, d.materialId);
     return { ok: true, blob: new Blob([bytes], { type: "application/pdf" }), filename, size };
   } finally {
     clearTimeout(timer);
     deps.signal.removeEventListener("abort", relay);
+    lease.lost.removeEventListener("abort", relay);
+    // The fetch and its body have settled (read, cancelled or aborted): release the lease.
+    lease.settle(settled);
   }
-}
-function fail(response: Response, reason: Reason): Acquired {
-  void response.body?.cancel().catch(() => {});
-  return { ok: false, reason };
 }
 
 export type TransferApi = {
@@ -145,6 +279,8 @@ export type DownloadsApi = {
 export type View = { phase: State | "starting" | "unrecorded"; message: string; bytes?: number; total?: number | null; filename?: string; downloadId?: number };
 export type PageDeps = {
   api: TransferApi; fetcher: Fetcher; downloads: DownloadsApi;
+  /** #20 request-authority lease; the file fetch starts only while it is held. */
+  lease: LeaseRequester; parseHtml?: (html: string) => Document | undefined;
   blobs: { create(b: Blob): string; revoke(u: string): void };
   render(v: View): void; pollMs?: number; closed: AbortSignal;
 };
@@ -167,9 +303,9 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
     generation = t.generation;
     return t;
   };
-  const end = async (state: State, reason?: Reason): Promise<View> => {
+  const end = async (state: State, reason?: Reason, text?: string): Promise<View> => {
     finished = true;
-    const message = state === "complete" ? "Downloaded. This is a download record; the file may later be moved or removed." : REASON_TEXT[reason ?? "outcome_unknown"];
+    const message = text ?? (state === "complete" ? "Downloaded. This is a download record; the file may later be moved or removed." : REASON_TEXT[reason ?? "outcome_unknown"]);
     for (let i = 0; i < 3; i++) {
       try {
         await report({ state, ...(reason ? { reason } : {}), ...(downloadId !== undefined ? { downloadId } : {}) });
@@ -187,8 +323,17 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
     generation = d.generation; attemptId = d.attemptId;
     await report({ state: "validating" });
     view({ phase: "validating", message: "Checking the file from Moodle…" });
-    const got = await acquire(d, { fetcher: deps.fetcher, signal: user.signal, onProgress: (bytes, total) => view({ phase: "validating", message: "Reading from Moodle…", bytes, total }) });
-    if (!got.ok) return await end(got.reason === "cancelled_by_user" ? (deps.closed.aborted ? "interrupted" : "cancelled") : "failed", deps.closed.aborted ? "page_closed" : got.reason);
+    view({ phase: "validating", message: "Waiting for Moodle to be free…" });
+    const got = await acquire(d, { fetcher: deps.fetcher, signal: user.signal, lease: deps.lease,
+      ...(deps.parseHtml ? { parseHtml: deps.parseHtml } : {}),
+      onProgress: (bytes, total) => view({ phase: "validating", message: "Reading from Moodle…", bytes, total }) });
+    if (!got.ok) {
+      if (deps.closed.aborted) return await end(got.reason === "cancelled_by_user" ? "interrupted" : "failed", "page_closed");
+      if (got.reason === "cancelled_by_user") return await end("cancelled", "cancelled_by_user");
+      // Worker restart: the lease port dropped, the fetch was aborted, nothing was saved.
+      if (got.leaseLost) return await end("interrupted", "download_interrupted", LEASE_LOST_TEXT);
+      return await end("failed", got.reason, got.busy ? BUSY_TEXT : undefined);
+    }
     if (user.signal.aborted) return await end(deps.closed.aborted ? "interrupted" : "cancelled", deps.closed.aborted ? "page_closed" : "cancelled_by_user");
     blobUrl = deps.blobs.create(got.blob);
     let resolveTerminal!: (s: { state: "complete" } | { state: "interrupted" | "cancelled"; error?: string }) => void;

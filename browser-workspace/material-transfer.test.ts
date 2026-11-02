@@ -1,4 +1,5 @@
-import { acquire, dispositionName, looksLikeHtml, runTransfer, sanitizeFilename, type Descriptor, type DownloadDelta, type Transfer } from "../extension/src/material-transfer";
+// @vitest-environment jsdom
+import { acquire, dispositionName, looksLikeHtml, runTransfer, sanitizeFilename, type Descriptor, type DownloadDelta, type LeaseRequester, type Transfer } from "../extension/src/material-transfer";
 import { openTransferPage } from "../extension/src/dashboard-bridge";
 
 // Authorized synthetic fixture transport only: injected in-process, never a page/query toggle.
@@ -12,24 +13,26 @@ function res(body: Uint8Array | null, init: { status?: number; type?: string; he
   if (init.redirected) Object.defineProperty(r, "redirected", { value: true });
   return r;
 }
+/** A lease that is always granted at once; the #20 lease protocol itself is checked in material-transfer-lease.test.ts. */
+const grant: LeaseRequester = async () => ({ ok: true, lease: { lost: new AbortController().signal, settle: () => {} } });
 const run = (r: Response | (() => Promise<Response>), d = desc(), signal = new AbortController().signal) =>
-  acquire(d, { fetcher: typeof r === "function" ? r : async () => r, signal });
+  acquire(d, { fetcher: typeof r === "function" ? r : async () => r, signal, lease: grant });
 
 describe("#41 bounded acquisition", () => {
   it("accepts a valid PDF with exact read-only browser-session request", async () => {
     let init: RequestInit | undefined;
-    const got = await acquire(desc(), { fetcher: async (_u, i) => { init = i; return res(PDF); }, signal: new AbortController().signal });
+    const got = await acquire(desc(), { fetcher: async (_u, i) => { init = i; return res(PDF); }, signal: new AbortController().signal, lease: grant });
     expect(got).toMatchObject({ ok: true, filename: "Lecture 1.pdf", size: PDF.length });
-    expect(init).toMatchObject({ method: "GET", credentials: "include", redirect: "error" });
+    expect(init).toMatchObject({ method: "GET", credentials: "include", redirect: "follow", cache: "no-store", referrerPolicy: "no-referrer" });
     expect(init!.headers).toBeUndefined();
   });
   it("login HTML with 200 and PDF disguise yields sign-in guidance, never a file", async () => {
     expect(await run(res(LOGIN, { type: "text/html" }))).toEqual({ ok: false, reason: "sign_in_required" });
     expect(await run(res(LOGIN, { headers: { "content-disposition": 'attachment; filename="lecture.pdf"' } }))).toEqual({ ok: false, reason: "sign_in_required" });
-    expect(await run(res(PDF, { redirected: true }))).toEqual({ ok: false, reason: "sign_in_required" });
+    expect(await run(res(LOGIN, { type: "text/html", redirected: true, url: "https://moodle.sdu.edu.kz/login/index.php" }))).toEqual({ ok: false, reason: "sign_in_required" });
     expect(await run(res(PDF, { status: 401 }))).toEqual({ ok: false, reason: "sign_in_required" });
   });
-  it("redirect refusal and network errors are reported without claiming a destination", async () => {
+  it("network errors are reported as network", async () => {
     expect(await run(() => Promise.reject(new TypeError("Failed to fetch")))).toEqual({ ok: false, reason: "network" });
   });
   it("distinguishes forbidden, not found and MIME/signature mismatch", async () => {
@@ -42,7 +45,7 @@ describe("#41 bounded acquisition", () => {
   it("refuses non-exact destinations before any fetch", async () => {
     let called = false;
     for (const url of ["https://evil.example/pluginfile.php/1/mod_resource/content/1/a.pdf", URL_OK + "?token=1", "http://moodle.sdu.edu.kz/pluginfile.php/1/mod_resource/content/1/a.pdf"]) {
-      expect(await acquire(desc({ url }), { fetcher: async () => { called = true; return res(PDF); }, signal: new AbortController().signal })).toEqual({ ok: false, reason: "unsupported_type" });
+      expect(await acquire(desc({ url }), { fetcher: async () => { called = true; return res(PDF); }, signal: new AbortController().signal, lease: grant })).toEqual({ ok: false, reason: "unsupported_type" });
     }
     expect(called).toBe(false);
   });
@@ -54,9 +57,9 @@ describe("#41 bounded acquisition", () => {
   });
   it("times out and cancels without partial success", async () => {
     const hang = (_u: string, i: RequestInit) => new Promise<Response>((_ok, no) => i.signal!.addEventListener("abort", () => no(new DOMException("abort", "AbortError"))));
-    expect(await acquire(desc({ timeoutMs: 20 }), { fetcher: hang, signal: new AbortController().signal })).toEqual({ ok: false, reason: "timeout" });
+    expect(await acquire(desc({ timeoutMs: 20 }), { fetcher: hang, signal: new AbortController().signal, lease: grant })).toEqual({ ok: false, reason: "timeout" });
     const c = new AbortController();
-    const p = acquire(desc(), { fetcher: hang, signal: c.signal }); c.abort();
+    const p = acquire(desc(), { fetcher: hang, signal: c.signal, lease: grant }); c.abort();
     expect(await p).toEqual({ ok: false, reason: "cancelled_by_user" });
   });
   it("uses a safe Content-Disposition name including Russian", async () => {
@@ -110,7 +113,7 @@ function harness(opts: { body?: Uint8Array; type?: string; cancelAt?: "validatin
   const closed = new AbortController();
   const views: any[] = [];
   const go = () => runTransfer("t1", {
-    api, downloads, fetcher: async () => res(opts.body ?? PDF, { type: opts.type ?? "application/pdf" }),
+    api, downloads, lease: grant, fetcher: async () => res(opts.body ?? PDF, { type: opts.type ?? "application/pdf" }),
     blobs: { create: () => { created.push("blob:1"); return "blob:1"; }, revoke: (u) => revoked.push(u) },
     render: (v) => views.push(v), pollMs: 2, closed: closed.signal,
   });
@@ -137,7 +140,7 @@ describe("#41 transfer state machine", () => {
     const v = await h.go();
     expect(h.downloaded).toEqual([]);
     expect(h.reports.at(-1)).toMatchObject({ state: "failed", reason: "sign_in_required" });
-    expect(v.message).toContain("Sign in to Moodle");
+    expect(v.message).toContain("Sign in to SDU Moodle in Chrome");
   });
   it("Chrome interruption and user cancel are distinct, unrelated IDs ignored", async () => {
     expect((await harness({ chrome: "interrupted" }).go()).phase).toBe("interrupted");

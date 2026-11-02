@@ -1,8 +1,8 @@
 /** Disposable MV3 mock queue. SQLite owns all durable state; execution can repeat. */
-import { BACKEND } from './dashboard-bridge';
+import { BACKEND, transferTabFor } from './dashboard-bridge';
 import {createScanWorker, type ScanWorkerOptions} from './synthetic-scan-worker';
 import {createMoodlePageSource, createOffscreenClient, type OffscreenChrome} from './moodle-page-source';
-import {createMoodleRequestAuthority} from './moodle-request-authority';
+import {createMoodleRequestAuthority, createTransferLeaseHost, type LeasePort} from './moodle-request-authority';
 import {liveRegistry} from './page-refresh';
 import type {AccessChecker, Analyzer} from './moodle-page-analysis';
 import {createCourseDiscovery} from './course-discovery';
@@ -78,10 +78,11 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
   return {wake,start,dispose(){disposed=true; for(const timer of intervals) clearInterval(timer); intervals.clear(); for(const controller of controllers) controller.abort(); controllers.clear();}};
 }
 
-type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number;periodInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} } & {runtime:OffscreenChrome['runtime'];offscreen?:OffscreenChrome['offscreen']};
+type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number;periodInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} } & {runtime:OffscreenChrome['runtime'];offscreen?:OffscreenChrome['offscreen']} &
+  {runtime:{id?:string;onConnect?:{addListener:(cb:(port:LeasePort)=>void)=>void}}};
 type SyntheticOptions=Omit<ScanWorkerOptions, 'base'|'fetcher'|'schedule'>;
 /** In-process test seams for the live scan; the installed extension passes none. */
-export type LiveScanOptions={moodleFetch?:typeof fetch;now?:()=>number;wait?:(ms:number)=>Promise<void>;instance?:string;analyze?:Analyzer;access?:AccessChecker;requestLimitMs?:number};
+export type LiveScanOptions={moodleFetch?:typeof fetch;now?:()=>number;wait?:(ms:number)=>Promise<void>;instance?:string;analyze?:Analyzer;access?:AccessChecker;requestLimitMs?:number;transferTabFor?:(transferId:string)=>number|undefined};
 export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Parameters<typeof createQueueService>[0], 'schedule'>> & {syntheticScan?:SyntheticOptions;liveScan?:LiveScanOptions}={}) {
   // One periodic alarm discovers runs created directly through the local API.
   // Register it and all listeners before any asynchronous worker activity.
@@ -106,6 +107,13 @@ export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Para
   // #82: runs only when the bridge discoverCourses operation (an explicit click) asks.
   const discovery=createCourseDiscovery({base,fetcher,authority,access:liveScan.access??offscreen.access,now,wait,
     ...(liveScan.moodleFetch?{moodleFetch:liveScan.moodleFetch}:{}),...(liveScan.requestLimitMs?{requestLimitMs:liveScan.requestLimitMs}:{})});
+  // #41: the transfer page's file fetch takes a lease from the same authority, so a
+  // download, a scan and course discovery never overlap their Moodle requests.
+  if(chrome.runtime.onConnect&&chrome.runtime.id&&chrome.runtime.getURL){
+    const leases=createTransferLeaseHost({authority,now,wait,extensionId:chrome.runtime.id,
+      transferPageUrl:chrome.runtime.getURL('transfer.html'),tabFor:liveScan.transferTabFor??transferTabFor});
+    chrome.runtime.onConnect.addListener(port=>leases.onConnect(port));
+  }
   const wake=async()=>{await Promise.all([service.wake(),scan.wake()]);};
   chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name===ALARM_NAME) void wake();});
   chrome.runtime.onStartup.addListener(()=>{void wake();});

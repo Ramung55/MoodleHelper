@@ -369,17 +369,27 @@ export function createWorker(options: {
   };
 }
 const opened = new Set<string>();
+const transferTabs = new Map<string, number>();
+type TabsCreate = (o: { url: string; active: boolean }, callback?: (tab?: { id?: number }) => void) => void;
 /** #41: one visible packaged transfer page per newly registered explicit transfer. */
-export function openTransferPage(chromeApi: { runtime: { getURL?: (p: string) => string }; tabs?: { create: (o: { url: string; active: boolean }) => void } }, operation: string, result: any) {
+export function openTransferPage(chromeApi: { runtime: { getURL?: (p: string) => string }; tabs?: { create: TabsCreate } }, operation: string, result: any) {
   const t = operation === "startMaterialDownload" && result?.supported === true ? result.transfer : undefined;
   if (!t || t.state !== "queued" || !idValid(t.transferId) || opened.has(t.transferId) || !chromeApi.tabs || !chromeApi.runtime.getURL) return false;
   opened.add(t.transferId);
-  chromeApi.tabs.create({ url: chromeApi.runtime.getURL("transfer.html") + "#" + t.transferId, active: true });
+  const transferId: string = t.transferId;
+  // The tab id is remembered so only this tab may take the #20 request-authority lease.
+  chromeApi.tabs.create({ url: chromeApi.runtime.getURL("transfer.html") + "#" + transferId, active: true }, (tab) => {
+    if (typeof tab?.id === "number") transferTabs.set(transferId, tab.id);
+  });
   return true;
+}
+/** #41: the tab this worker opened for a transfer, if any. */
+export function transferTabFor(transferId: string): number | undefined {
+  return transferTabs.get(transferId);
 }
 export function installWorker(chromeApi: {
   runtime: Runtime & { getURL?: (p: string) => string };
-  tabs?: { create: (o: { url: string; active: boolean }) => void };
+  tabs?: { create: TabsCreate };
   permissions: {
     contains: (
       p: { origins: string[] },

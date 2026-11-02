@@ -1,8 +1,9 @@
 /** Packaged visible transfer page bootstrap (#41). Transfer ID comes only from this page's own hash. */
 import { BACKEND } from "./dashboard-bridge";
-import { runTransfer, type DownloadsApi, type View } from "./material-transfer";
+import { leaseRequester, runTransfer, type DownloadsApi, type LeaseClientPort, type View } from "./material-transfer";
+import { TRANSFER_LEASE_PORT } from "./moodle-request-authority";
 
-declare const chrome: { downloads: { download(o: object, cb: (id: number) => void): void; cancel(id: number, cb: () => void): void; search(q: object, cb: (items: any[]) => void): void; onChanged: DownloadsApi["onChanged"] }; runtime: { lastError?: unknown } };
+declare const chrome: { downloads: { download(o: object, cb: (id: number) => void): void; cancel(id: number, cb: () => void): void; search(q: object, cb: (items: any[]) => void): void; onChanged: DownloadsApi["onChanged"] }; runtime: { lastError?: unknown; connect(info: { name: string }): LeaseClientPort } };
 
 const PHASE: Record<View["phase"], string> = { starting: "Starting", queued: "Queued", validating: "Validating", saving: "Saving", complete: "Downloaded", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted", unrecorded: "Outcome not yet recorded" };
 function render(v: View) {
@@ -39,6 +40,9 @@ else void runTransfer(id, {
     report: (t, b) => backend(`/api/material-downloads/${t}/status`, "POST", b, closed.signal.aborted),
   },
   fetcher: (u, i) => fetch(u, i), downloads,
+  // #20 authority lease over a port to this extension's worker; closing the tab drops the port and releases it.
+  lease: leaseRequester(() => chrome.runtime.connect({ name: TRANSFER_LEASE_PORT })),
+  parseHtml: (html) => new DOMParser().parseFromString(html, "text/html"),
   blobs: { create: (b) => URL.createObjectURL(b), revoke: (u) => URL.revokeObjectURL(u) },
   render, closed: closed.signal,
 });
