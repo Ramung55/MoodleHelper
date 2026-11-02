@@ -233,6 +233,9 @@ class RawCourseObservation(WireModel):
     sourceUrl: str
     title: Annotated[KnownString | UnknownFact, Field(discriminator="kind")]
     termIndicators: Annotated[KnownStrings | UnknownFact, Field(discriminator="kind")]
+    # #84: first shortname segment only; the classification the extension requested.
+    code: Annotated[KnownString | UnknownFact, Field(discriminator="kind")] = None
+    classification: Literal["inprogress"] = None
 
 
 class CourseDiscovery(RawCourseObservation):

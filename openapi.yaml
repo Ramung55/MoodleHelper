@@ -3861,6 +3861,21 @@ components:
           - $ref: '#/components/schemas/UnknownFact'
           discriminator:
             propertyName: kind
+        code: &discoveryCode
+          description: Course code, the first segment of the Moodle shortname only. Unknown
+            or absent gives the `Course <id>` fallback; an unknown code never replaces a
+            stored known code.
+          oneOf:
+          - $ref: '#/components/schemas/KnownString'
+          - $ref: '#/components/schemas/UnknownFact'
+          discriminator:
+            propertyName: kind
+        classification: &discoveryClassification
+          description: The Moodle timeline classification the extension itself requested
+            (never read from the response). `inprogress` gives currentTermStatus `current`;
+            absent keeps the last status, or `unknown` for a new course.
+          type: string
+          const: inprogress
       required:
       - sourceCourseId
       - sourceUrl
@@ -3873,6 +3888,8 @@ components:
         sourceUrl: *id016
         title: *id017
         termIndicators: *id018
+        code: *discoveryCode
+        classification: *discoveryClassification
         currentTermStatus:
           type: string
           enum:

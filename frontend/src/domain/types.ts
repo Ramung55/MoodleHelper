@@ -53,6 +53,8 @@ export const RawCourseObservation = z.object({
   sourceUrl: z.string(),
   title: z.discriminatedUnion("kind", [KnownString, UnknownFact]),
   termIndicators: z.discriminatedUnion("kind", [KnownStrings, UnknownFact]),
+  code: z.discriminatedUnion("kind", [KnownString, UnknownFact]).optional(),
+  classification: z.literal("inprogress").optional(),
 });
 export type RawCourseObservation = z.infer<typeof RawCourseObservation>;
 export const CourseDiscovery = RawCourseObservation.extend({
