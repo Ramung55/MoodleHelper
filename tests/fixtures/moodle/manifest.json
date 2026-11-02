@@ -140,7 +140,12 @@
         "coverage": "synthetic-only",
         "syntheticFixtures": [
           "assignment"
-        ]
+        ],
+        "upstreamFixtures": [
+          "upstream-assign-draft"
+        ],
+        "seenOnSdu": false,
+        "note": "Upstream Moodle wording and cell class only (#16 owner decision, 2026-11-02): upstream, not seen on SDU. Still Unavailable / UNVERIFIED on SDU."
       },
       {
         "table": "page-variant-matrix",
@@ -148,7 +153,12 @@
         "coverage": "synthetic-only",
         "syntheticFixtures": [
           "reopened"
-        ]
+        ],
+        "upstreamFixtures": [
+          "upstream-assign-reopened"
+        ],
+        "seenOnSdu": false,
+        "note": "Upstream Moodle wording and cell class only (#16 owner decision, 2026-11-02): upstream, not seen on SDU. Still Unavailable / UNVERIFIED on SDU."
       },
       {
         "table": "page-variant-matrix",
@@ -2194,6 +2204,90 @@
           "exact redirect status (303 or 302)"
         ],
         "schemaGapOwners": []
+      }
+    },
+    {
+      "id": "upstream-assign-draft",
+      "path": "upstream/assign-draft.html",
+      "sourceVariant": "upstream-moodle-405/assign-draft",
+      "pageClass": "assignment",
+      "language": "en",
+      "purpose": "Assignment status cell for the upstream Moodle 'draft' submission state (#16 owner decision, 2026-11-02).",
+      "synthetic": false,
+      "sourceKind": "upstream-string",
+      "label": "upstream, not seen on SDU",
+      "provenance": "Copy of observed/assign-submitted.html with only the submission status cell class and text replaced by the cited upstream Moodle string and cell class. Upstream, not seen on SDU. All content, ids and dates are invented. Not a capture.",
+      "baseFixture": "observed-assign-submitted",
+      "citation": {
+        "repository": "moodle/moodle",
+        "branch": "MOODLE_405_STABLE",
+        "commit": "c0690bbc765fccacd4956452cbff3f6aacad77c5",
+        "files": [
+          "mod/assign/lang/en/assign.php",
+          "mod/assign/classes/output/renderer.php"
+        ],
+        "stringKey": "submissionstatus_draft",
+        "string": "Draft (not submitted)",
+        "cellClass": "submissionstatusdraft",
+        "citedDate": "2026-11-02"
+      },
+      "edgeCases": [
+        "draft"
+      ],
+      "expected": {
+        "statusCell": {
+          "selector": ".submissionstatustable td.submissionstatusdraft",
+          "text": [
+            "Draft (not submitted)"
+          ]
+        },
+        "derived": {
+          "submission_status": "draft",
+          "evidenceBasis": "upstream-not-seen-on-sdu",
+          "actionRequired": false
+        }
+      }
+    },
+    {
+      "id": "upstream-assign-reopened",
+      "path": "upstream/assign-reopened.html",
+      "sourceVariant": "upstream-moodle-405/assign-reopened",
+      "pageClass": "assignment",
+      "language": "en",
+      "purpose": "Assignment status cell for the upstream Moodle 'reopened' submission state (#16 owner decision, 2026-11-02).",
+      "synthetic": false,
+      "sourceKind": "upstream-string",
+      "label": "upstream, not seen on SDU",
+      "provenance": "Copy of observed/assign-submitted.html with only the submission status cell class and text replaced by the cited upstream Moodle string and cell class. Upstream, not seen on SDU. All content, ids and dates are invented. Not a capture.",
+      "baseFixture": "observed-assign-submitted",
+      "citation": {
+        "repository": "moodle/moodle",
+        "branch": "MOODLE_405_STABLE",
+        "commit": "c0690bbc765fccacd4956452cbff3f6aacad77c5",
+        "files": [
+          "mod/assign/lang/en/assign.php",
+          "mod/assign/classes/output/renderer.php"
+        ],
+        "stringKey": "submissionstatus_reopened",
+        "string": "Reopened",
+        "cellClass": "submissionstatusreopened",
+        "citedDate": "2026-11-02"
+      },
+      "edgeCases": [
+        "reopened"
+      ],
+      "expected": {
+        "statusCell": {
+          "selector": ".submissionstatustable td.submissionstatusreopened",
+          "text": [
+            "Reopened"
+          ]
+        },
+        "derived": {
+          "submission_status": "reopened",
+          "evidenceBasis": "upstream-not-seen-on-sdu",
+          "actionRequired": true
+        }
       }
     }
   ],

@@ -1,8 +1,9 @@
 # Moodle fixtures
 
-All fixtures are offline, inert inputs. They contain no captured student or course information, private document bodies, real names, grades, file names or session values. Every identifier, title and date is fictional. There are two kinds, and the manifest labels each entry with `sourceKind`:
+All fixtures are offline, inert inputs. They contain no captured student or course information, private document bodies, real names, grades, file names or session values. Every identifier, title and date is fictional. There are three kinds, and the manifest labels each entry with `sourceKind`:
 
 - **`observed-structure`** (`observed/`): the markup structure is taken from the live SDU inspection in [issue #3](https://github.com/Ramung55/MoodleHelper/issues/3), recorded in the [SDU Moodle compatibility matrix](../../../_docs/compatibility/sdu-moodle.md) (inspected 2026-11-01, English, theme `alpha`). The selectors, classes, data attributes and label wording that #3 recorded follow the matrix. Some surrounding markup and wording that #3 did not record is filled in from Moodle defaults so the pages are complete. Each such detail is listed in the manifest's `unrecordedFields`, and any check that asserts it is marked `basis: assumed` (see below). All content is invented. These files are not captures.
+- **`upstream-string`** (`upstream/`): assignment pages for submission states that SDU did not show (draft and reopened), labelled `"label": "upstream, not seen on SDU"`. Each is a copy of `observed/assign-submitted.html` with only the submission status cell class and text replaced by a cited upstream Moodle string, by the #16 owner decision of 2026-11-02. The entry's `citation` names repository `moodle/moodle`, branch `MOODLE_405_STABLE`, commit `c0690bbc765fccacd4956452cbff3f6aacad77c5`, the files `mod/assign/lang/en/assign.php` (string) and `mod/assign/classes/output/renderer.php` (cell class `'submissionstatus' . <status>`), the `stringKey` (`submissionstatus_draft` "Draft (not submitted)", `submissionstatus_reopened` "Reopened"), the `cellClass` and `citedDate` 2026-11-02. On `main` (commit `0580991669815767026aea115a2053e2040378af`) the strings are in `public/mod/assign/lang/en/assign.php`. These fixtures are not observed SDU markup and make no SDU support claim: draft and reopened stay Unavailable / UNVERIFIED in the compatibility matrix. Their `expected` block holds the `statusCell` selector and text and the `derived` state, evidence basis `upstream-not-seen-on-sdu` and `actionRequired`.
 - **`synthetic`** (top level): invented edge-case inputs with fixture-specific `data-fact` markers. They are not SDU markup, and their English and Russian text claims no SDU locale support.
 
 ## Observed coverage
@@ -27,7 +28,7 @@ All fixtures are offline, inert inputs. They contain no captured student or cour
 | Login redirect: course page (final path `/login/index.php`, HTTP 200) | observed-login-redirect-course |
 | Login redirect: file download (final path `/login/index.php`, HTTP 200, `text/html`) | observed-login-redirect-resource |
 
-The rows #3 marks UNVERIFIED or unavailable are listed in `observedCoverage.unverifiedVariants` as `synthetic-only`. These are: draft and reopened submissions, cut-off/extension/individual override, quiz in-progress or multiple attempts, other calendar views and event types, video and restricted resources, folders with files or subfolders, restricted activities, RU/KK interfaces, calendar and resource pagination, restricted folders and session expiry. Where a synthetic fixture exercises one of them, the manifest names it. That fixture claims no SDU support.
+The rows #3 marks UNVERIFIED or unavailable are listed in `observedCoverage.unverifiedVariants` as `synthetic-only`. These are: draft and reopened submissions, cut-off/extension/individual override, quiz in-progress or multiple attempts, other calendar views and event types, video and restricted resources, folders with files or subfolders, restricted activities, RU/KK interfaces, calendar and resource pagination, restricted folders and session expiry. Where a synthetic fixture exercises one of them, the manifest names it. That fixture claims no SDU support. The draft and reopened rows also name their `upstreamFixtures` (`upstream-assign-draft`, `upstream-assign-reopened`) with `seenOnSdu: false` and a note that says "upstream, not seen on SDU"; their coverage stays `synthetic-only` because SDU never showed them.
 
 ## How observed-structure fixtures differ from the live pages
 
@@ -77,7 +78,8 @@ Run `uv run pytest tests/test_moodle_fixtures.py`. The checks cover the followin
 - That every Observed row in the #3 matrix maps to an observed-structure fixture, and every other row to `synthetic-only`.
 - Selector and JSON-path facts.
 - Observed/assumed labelling, generic for every observed-structure entry: every check has a basis and an `asserts` detail, an assumed check asserts a listed `unrecordedFields` entry, an observed check never asserts one, and every field is in `observedFields` and is backed by an observed check. Relabelling any assumed check as observed therefore fails. The details QA found unrecorded also stay listed.
-- Inert markup, through an allowlist for each kind.
+- Inert markup, through an allowlist for each kind. Upstream-string fixtures reuse the observed-structure allowlist.
+- Upstream-string label and citation: the exact label, repository, branch, commit, both file paths, string key, string, cell class and cited date, and that the file equals `observed/assign-submitted.html` with only the status cell changed. Negative tests show that removing the label or any part of the citation fails.
 - Safe invented URLs and personal-data patterns (grade values, session keys and cookies, real host, e-mail, instructor-login shortnames).
 - Negative controls for scripts, handlers, `href`/`src`, styles, forms, frames, comments and unsafe paths or URLs.
 

@@ -80,3 +80,31 @@ time/identity/URL failure, known-to-unknown retention, inaccessible equivalent
 unknown, older attempts, contradictory ties, replay, detached outputs and input
 immutability. Overall #16 remains blocked until observed wording is supplied;
 QA may report only this partial primitive's checks, never overall issue PASS.
+
+## Owner decision on evidence (2026-11-02)
+
+PM grooming 2026-11-02 unblocked #16. Where this section differs from the observed-wording constraint above, it wins.
+
+| State | Evidence | Source |
+| --- | --- | --- |
+| `submitted` | `td.submissionstatussubmitted` "Submitted for grading" | Observed on SDU, compatibility report Addenda 5 and 6 (5 of 19 assignments) |
+| `not_submitted` | "Submission status" cell with no `submissionstatus*` class, "No submissions have been made yet" | Observed on SDU, Addenda 5 and 6 (14 of 19) |
+| `draft` | `td.submissionstatusdraft` "Draft (not submitted)" | Upstream, not seen on SDU |
+| `reopened` | `td.submissionstatusreopened` "Reopened" | Upstream, not seen on SDU |
+| `unknown` | Everything else: unrecognised wording, a non-English page, a class and text that disagree, no or conflicting status rows, an inaccessible or unreadable page | Contract default |
+
+Upstream citation, checked 2026-11-02: repository `moodle/moodle`, branch `MOODLE_405_STABLE`, commit `c0690bbc765fccacd4956452cbff3f6aacad77c5`. `mod/assign/lang/en/assign.php` keys `submissionstatus_draft` = 'Draft (not submitted)', `submissionstatus_reopened` = 'Reopened', `submissionstatus_submitted` = 'Submitted for grading', `nosubmissionyet` = 'No submissions have been made yet' and `submissionstatus` = 'Submission status'. On `main` (commit `0580991669815767026aea115a2053e2040378af`) the strings are in `public/mod/assign/lang/en/assign.php`. `mod/assign/classes/output/renderer.php` (status table, around lines 709–720) renders a non-team, non-`new` submission as cell text `get_string('submissionstatus_' . <status>)` with class `'submissionstatus' . <status>`, and otherwise a class-less `nosubmissionyet` cell, which explains the class-less not-submitted cell seen on SDU.
+
+Draft and reopened stay Unavailable / UNVERIFIED on SDU in `_docs/compatibility/sdu-moodle.md`. The decision changes only what counts as evidence for them. Team submissions, `submissionstatus_marked` "Graded", `submissionstatus_new`, `noonlinesubmissions` and Russian/Kazakh interfaces are not mapped and stay `unknown`.
+
+### Mapper (implemented for #16)
+
+`extension/src/moodle-submission-status.ts:parseMoodleSubmissionStatus(input, observedAt)` is pure and read-only and takes no grade or completion argument.
+
+- It calls `detectMoodleAccess` first. SDU assignment pages do not show the synthetic #10 session navigation and `main[data-region]` markers, so the observed fixtures report `ambiguous_content`; only `accessible` and `ambiguous_content` allow the DOM read. Every other access reason, a non-200 status or a final `/login/index.php` URL gives `unknown` with `unknownReason: "inaccessible"` and the detector's `access` status and reason, never `not_submitted`.
+- It reads only the `.submissionstatustable` row whose `th` is "Submission status". A recognised state needs the exact class and the exact English text after whitespace normalisation; not-submitted needs a cell with no `submissionstatus*` class. The page must be `body#page-mod-assign-view` with `<html lang="en">` and no body `lang-*` class other than `lang-en`.
+- A result is `{status: "observed", observation}` with `state`, `wording` and `evidenceBasis` (`observed-sdu` or `upstream-not-seen-on-sdu`; both absent for `unknown`), `actionRequired` (true only for the reopened cell), `observedAt` (caller string, unchanged), canonical `sourceUrl`, `sourceCourseId` (body `course-<id>`, `null` when the page shows none, for example on an inaccessible page), `sourceCourseModuleId` (requested URL `id`, which body `cmid-<id>` and the final URL must equal), `access` and a fixed `unknownReason` for `unknown`.
+- Errors are `{status: "error", error}` with `invalid_observed_at`, `unsafe_url` or `identity_mismatch`. A missing or invalid `observedAt` is never replaced by the current time.
+- `state` values are the #5 `SubmissionStatus` enum, the strings `backend/submission_retention.py:retain_submission` accepts. Storing results through the retention policy, the provenance wire model and the activity-instance id are #81.
+
+Fixtures: `tests/fixtures/moodle/observed/assign-submitted.html`, `observed/assign-not-submitted.html`, and `upstream/assign-draft.html` and `upstream/assign-reopened.html` (`sourceKind: "upstream-string"`, label "upstream, not seen on SDU"). Tests: `frontend/src/test/moodle-submission-status.test.ts` and `tests/test_moodle_fixtures.py`.

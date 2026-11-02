@@ -18,6 +18,20 @@ SYNTHETIC = [entry for entry in ENTRIES if entry["sourceKind"] == "synthetic"]
 OBSERVED = [entry for entry in ENTRIES if entry["sourceKind"] == "observed-structure"]
 OBSERVED_HTML = [entry for entry in OBSERVED if entry["path"].endswith(".html")]
 OBSERVED_JSON = [entry for entry in OBSERVED if entry["path"].endswith(".json")]
+UPSTREAM = [entry for entry in ENTRIES if entry["sourceKind"] == "upstream-string"]
+UPSTREAM_LABEL = "upstream, not seen on SDU"
+# #16 owner decision (2026-11-02): cited upstream Moodle strings for states SDU did not show.
+UPSTREAM_CITATION = {
+    "repository": "moodle/moodle",
+    "branch": "MOODLE_405_STABLE",
+    "commit": "c0690bbc765fccacd4956452cbff3f6aacad77c5",
+    "files": ["mod/assign/lang/en/assign.php", "mod/assign/classes/output/renderer.php"],
+    "citedDate": "2026-11-02",
+}
+UPSTREAM_STRINGS = {
+    "submissionstatus_draft": ("Draft (not submitted)", "submissionstatusdraft", "draft"),
+    "submissionstatus_reopened": ("Reopened", "submissionstatusreopened", "reopened"),
+}
 OBSERVED_PROVENANCE = (
     "Observed structure from the #3 live SDU inspection: the selectors, classes, data attributes and "
     "label wording that #3 recorded. Details #3 did not record are listed in unrecordedFields, and checks "
@@ -274,7 +288,8 @@ def matrix_rows():
 def test_manifest_discovery_and_observed_coverage():
     declared_paths(ENTRIES, ROOT)
     assert len({entry["id"] for entry in ENTRIES}) == len(ENTRIES)
-    assert {entry["sourceKind"] for entry in ENTRIES} == {"synthetic", "observed-structure"}
+    assert {entry["sourceKind"] for entry in ENTRIES} == {"synthetic", "observed-structure", "upstream-string"}
+    assert {entry["path"] for entry in UPSTREAM} == {"upstream/assign-draft.html", "upstream/assign-reopened.html"}
     coverage = MANIFEST["observedCoverage"]
     assert coverage["status"] == "covered"
     assert coverage["comparedAgainst"] == {
@@ -309,6 +324,15 @@ def test_every_observed_matrix_variant_has_an_observed_fixture():
     for item in stated.values():
         assert item["coverage"] == "synthetic-only"
         assert all(by_id[f]["sourceKind"] == "synthetic" for f in item["syntheticFixtures"])
+        for f in item.get("upstreamFixtures", []):
+            assert by_id[f]["sourceKind"] == "upstream-string"
+            assert item["seenOnSdu"] is False and UPSTREAM_LABEL in item["note"]
+    # Draft and reopened stay unverified on SDU; only upstream wording backs them.
+    upstream_rows = {key[1]: item.get("upstreamFixtures") for key, item in stated.items() if "upstreamFixtures" in item}
+    assert upstream_rows == {"Assignment | Draft submission": ["upstream-assign-draft"],
+                             "Assignment | Reopened submission": ["upstream-assign-reopened"]}
+    assert {f for fixtures in upstream_rows.values() for f in fixtures} == {entry["id"] for entry in UPSTREAM}
+    assert all(rows[key].startswith("Unavailable") for key in stated if "upstreamFixtures" in stated[key])
 
 
 @pytest.mark.parametrize("entry", SYNTHETIC, ids=lambda entry: entry["id"])
@@ -348,6 +372,26 @@ def check_observed_metadata(entry):
     for key in ("absentFields", "redactedFields", "unrecordedFields", "schemaGapOwners"):
         assert isinstance(expected[key], list)
     check_basis_labels(expected)
+
+
+def check_upstream_metadata(entry):
+    """An upstream-string entry carries its label and the full cited source of its one string."""
+    assert entry["sourceKind"] == "upstream-string" and entry["synthetic"] is False
+    assert entry["label"] == UPSTREAM_LABEL
+    assert "Upstream, not seen on SDU." in entry["provenance"] and "Not a capture." in entry["provenance"]
+    assert entry["path"].startswith("upstream/") and entry["language"] == "en"
+    assert "inspectionDate" not in entry and "theme" not in entry
+    assert entry["sourceVariant"].startswith("upstream-moodle-405/")
+    assert entry["baseFixture"] == "observed-assign-submitted"
+    citation = entry["citation"]
+    assert {key: citation.get(key) for key in UPSTREAM_CITATION} == UPSTREAM_CITATION
+    assert set(citation) == set(UPSTREAM_CITATION) | {"stringKey", "string", "cellClass"}
+    text, cell_class, state = UPSTREAM_STRINGS[citation["stringKey"]]
+    assert citation["string"] == text and citation["cellClass"] == cell_class
+    assert entry["expected"]["statusCell"] == {"selector": f".submissionstatustable td.{cell_class}", "text": [text]}
+    assert entry["expected"]["derived"] == {"submission_status": state, "evidenceBasis": "upstream-not-seen-on-sdu",
+                                            "actionRequired": state == "reopened"}
+    assert entry["edgeCases"] == [state]
 
 
 CHECK_KINDS = ("count", "attr", "text", "contains", "includes", "matches", "absent", "length", "equals")
@@ -464,6 +508,51 @@ def test_observed_json_records_match_manifest(entry):
             safe_url(value, allow_ids=True)
         elif value.startswith("/"):
             safe_relative(value)
+
+
+@pytest.mark.parametrize("entry", UPSTREAM, ids=lambda entry: entry["id"])
+def test_upstream_fixture_is_cited_inert_copy_of_observed_submitted(entry):
+    check_upstream_metadata(entry)
+    text = (ROOT / entry["path"]).read_text(encoding="utf-8")
+    # Same inert-markup allowlist as the observed-structure fixtures.
+    root = parse_observed(text)
+    assert "lang-en" in select(root, "body")[0].classes
+    cell = entry["expected"]["statusCell"]
+    assert [node.text() for node in select(root, cell["selector"])] == cell["text"]
+    # Only the status cell class and text differ from the observed submitted page.
+    by_id = {e["id"]: e for e in ENTRIES}
+    base = (ROOT / by_id[entry["baseFixture"]]["path"]).read_text(encoding="utf-8")
+    observed_cell = '<td class="submissionstatussubmitted">Submitted for grading</td>'
+    citation = entry["citation"]
+    assert base.count(observed_cell) == 1
+    assert text == base.replace(observed_cell, f'<td class="{citation["cellClass"]}">{citation["string"]}</td>')
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda e: e.pop("label"),
+    lambda e: e.update(label="observed on SDU"),
+    lambda e: e.pop("citation"),
+    lambda e: e["citation"].pop("repository"),
+    lambda e: e["citation"].pop("branch"),
+    lambda e: e["citation"].update(commit="0580991669815767026aea115a2053e2040378af"),
+    lambda e: e["citation"]["files"].pop(),
+    lambda e: e["citation"].pop("stringKey"),
+    lambda e: e["citation"].update(cellClass="submissionstatussubmitted"),
+    lambda e: e["citation"].update(string="Draft"),
+    lambda e: e["citation"].pop("citedDate"),
+    lambda e: e.update(sourceKind="observed-structure"),
+    lambda e: e.update(inspectionDate="2026-11-01"),
+], ids=["no-label", "wrong-label", "no-citation", "no-repository", "no-branch", "wrong-commit", "one-file",
+        "no-string-key", "wrong-cell-class", "wrong-string", "no-cited-date", "relabelled-observed",
+        "claims-inspection"])
+def test_upstream_guard_rejects_missing_label_or_citation(mutate):
+    import copy
+    for original in UPSTREAM:
+        entry = copy.deepcopy(original)
+        check_upstream_metadata(entry)
+        mutate(entry)
+        with pytest.raises((AssertionError, KeyError)):
+            check_upstream_metadata(entry)
 
 
 def test_observed_semantics_follow_the_matrix():
