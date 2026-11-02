@@ -83,8 +83,9 @@ async def main() -> int:
             row.update(outcome='pass' if not failed else 'fail', failed=failed, proposals=proposals)
         except AiFailure as failure:
             row.update(outcome='fail', failed=[failure.code])
-        except Exception as error:  # noqa: BLE001 - recorded by class name only
-            row.update(outcome='fail', failed=['provider_failure:' + type(error).__name__])
+        except Exception as error:  # noqa: BLE001 - recorded by class name and HTTP code/status only, never the message
+            detail = ':'.join(str(v) for v in (getattr(error, 'code', None), getattr(error, 'status', None)) if v)
+            row.update(outcome='fail', failed=['provider_failure:' + type(error).__name__ + (':' + detail if detail else '')])
         usage = provider.usage
         cost = prices.worst_case() if usage is None else (usage[0] * prices.input_usd_per_million + usage[1] * prices.output_usd_per_million) / 1e6
         spent += cost
