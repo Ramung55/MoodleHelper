@@ -315,6 +315,24 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
   second.worker.dispose();
 }, 60000);
 
+it('#46: the real dataset reports the verified collection mode the dashboard reads, and a bridged Sync all starts the scan without an alarm', async () => {
+  const backend = new Backend('hello'); await backend.start();
+  const ids = await backend.seed(['9001']);
+  expect((await backend.get('/api/collection-context')).mode).toBe('verified');
+  expect((await backend.get('/api/connection')).state).not.toBe('demo');
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  const site = moodle(clock, observedSite);
+  const app = install(backend, clock, site.fetcher);
+  // No alarm or startup wake: the bridge's own wake after the 200 starts the queued job.
+  const reply = await app.bridge(1, 'syncAll');
+  expect(reply.ok).toBe(true);
+  const [run] = await backend.settled(1);
+  expect(run.status).toBe('completed');
+  expect(run.courseIds).toEqual([ids['9001']]);
+  expect(site.starts().map(e => e.url)).toContain(courseUrl('9001'));
+  app.worker.dispose();
+}, 60000);
+
 it('AC2/AC4: forbidden, missing, non-topics and truncated pages are requested once and stay incomplete', async () => {
   const backend = new Backend('incomplete'); await backend.start();
   const ids = await backend.seed(['9001', '9002', '9003']);

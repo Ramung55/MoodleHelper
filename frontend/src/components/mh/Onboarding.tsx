@@ -202,7 +202,7 @@ export function Onboarding({ probe = probeExtension, moodleAccess = null, signIn
 
         {current === "connection" && <>
           <p role="status" className="text-sm">{extension.kind === "checking" ? "Checking extension…"
-            : extension.kind === "ready" ? `Extension connected. Local repository ready. Moodle collection is ${extension.moodleCollection}.`
+            : extension.kind === "ready" ? `Extension connected. Local repository ready. Moodle collection is ${conn?.liveSync ? "ready" : extension.moodleCollection}.`
             : `${{ missing: "Extension missing.", incompatible: "Extension incompatible.", unavailable: "Extension unavailable.", backend_unavailable: "Local backend unavailable." }[extension.kind]} ${extension.message}`}</p>
           {(extension.kind === "missing" || extension.kind === "incompatible") && <div className="text-sm text-muted-foreground">
             <p>To install (never automatic): build with <code>bun run --cwd extension build</code>, open <code>chrome://extensions</code>, enable Developer mode, choose Load unpacked and select <code>extension/dist</code> (steps in <a className="underline" href={PILOT_GUIDE_URL} target="_blank" rel="noopener noreferrer"><code>_docs/pilot-49.md</code></a>). Use Chrome 109 or newer.</p>

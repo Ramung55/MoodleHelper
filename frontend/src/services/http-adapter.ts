@@ -96,6 +96,7 @@ export class HttpAdapter implements MoodleHelperAdapter {
     return this.request("GET", "/snapshot", Snapshot);
   }
   dataContext() { return this.request("GET", "/data-context", dataContextSchema); }
+  async collectionMode() { return (await this.request("GET", "/collection-context", z.object({ mode: z.enum(["disabled", "synthetic", "verified"]) }))).mode; }
   private async binding(message: string) {
     const base = this.baseUrl.replace(/\/$/, "");
     const context = await this.fetcher(`${base}/api/bridge-context`, { credentials: "omit", cache: "no-store" }).catch(() => null);

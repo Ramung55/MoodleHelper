@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/mh/bits";
 import { formatDate } from "@/domain/dates";
 import { useApp } from "@/lib/app-store";
+import { syncAllLabel } from "@/domain/live-sync";
 import { cn } from "@/lib/utils";
 import { MockProgress } from "@/components/mh/MockProgress";
 import { syncFreshness, type FullSyncAttestation } from "../../../shared/src/full-sync";
@@ -57,7 +58,7 @@ export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAtt
         actions={
           <Button onClick={syncAll} disabled={syncing}>
             <RefreshCw className={cn("mr-2 h-4 w-4", syncing && "animate-spin")} aria-hidden />
-            {syncing ? "Syncing…" : "Sync all courses (demo)"}
+            {syncing ? "Syncing…" : syncAllLabel(conn)}
           </Button>
         }
       />

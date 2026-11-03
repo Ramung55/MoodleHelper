@@ -7,6 +7,12 @@ export interface ConnectionInfo {
   /** Shown verbatim to the student */
   message: string;
   extensionDetected: boolean;
+  /**
+   * #46: live Moodle sync is available here: the real (non-demo) dataset, the extension
+   * detected, and its handshake reporting the backend's verified collection mode.
+   * Set by the dashboard from the handshake, never by the backend connection reply.
+   */
+  liveSync?: boolean;
 }
 
 export interface PersonalEventInput {
@@ -86,6 +92,8 @@ export interface MoodleHelperAdapter {
   restoreBackup?(request: RestoreRequest): Promise<RestoreResult>;
   /** #56 read-only lifecycle context; HTTP-only. */
   dataContext?(): Promise<DataContext>;
+  /** #46: the backend's collection mode; "verified" is the trusted real dataset where Sync all runs a live scan. */
+  collectionMode?(): Promise<"disabled" | "synthetic" | "verified">;
   /** #56 confirmed full erasure; HTTP-only. Throws EraseOutcomeUnknown when a commit may have happened. */
   eraseLocalData?(request: EraseRequest): Promise<EraseResult>;
   eraseStatus?(eraseId: string): Promise<EraseStatus>;

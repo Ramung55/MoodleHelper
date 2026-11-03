@@ -14,6 +14,7 @@ import { currentDataset } from "@/services/local-documents";
 import { EraseOutcomeUnknown, RestoreOutcomeUnknown, type AiAvailability, type DataContext, type EraseCleanup, type RestoreContext } from "@/services/adapter";
 import { beginErase, finishDashboardCleanup } from "@/services/local-erase";
 import { useApp } from "@/lib/app-store";
+import { syncAllLabel } from "@/domain/live-sync";
 import { BridgeClient } from "@/services/extension-adapter";
 import { BridgeError } from "../../../shared/src/bridge";
 import { TeachingCalendarSettings } from "@/components/mh/TeachingCalendarSettings";
@@ -36,7 +37,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return <section className="rounded-lg border bg-card p-5"><h2 className="mb-3 text-lg font-semibold">{title}</h2>{children}</section>;
 }
 
-export function BridgeConnection() {
+export function BridgeConnection({ liveSync = false }: { liveSync?: boolean } = {}) {
   const [guidance, setGuidance] = useState("Check the optional extension connection. The local HTTP app remains available.");
   const [busy, setBusy] = useState(false);
   const check = async () => {
@@ -44,7 +45,9 @@ export function BridgeConnection() {
     const client = new BridgeClient();
     try {
       await client.connect();
-      setGuidance("Local repository bridge ready. Moodle collection is unavailable. The dashboard continues using the local HTTP backend.");
+      setGuidance(liveSync
+        ? "Local repository bridge ready. Moodle collection is ready: Sync all scans the selected courses read-only through the extension."
+        : "Local repository bridge ready. Moodle collection is unavailable. The dashboard continues using the local HTTP backend.");
     } catch (e) {
       setGuidance(e instanceof BridgeError ? e.message : "Reload the dashboard and reconnect.");
     } finally {client.dispose();setBusy(false);}
@@ -277,7 +280,7 @@ function SettingsPage() {
         <TrackedCourses />
 
         <Section title="Connection & sync">
-          <BridgeConnection />
+          <BridgeConnection liveSync={!!conn?.liveSync} />
           <p className="text-sm"><strong>State:</strong> {conn?.state === "demo" ? "Demo mode (no extension)" : conn?.state}</p>
           <p className="mb-3 text-sm text-muted-foreground">{conn?.message}</p>
           <ul className="mb-3 space-y-1 text-sm">
@@ -291,7 +294,7 @@ function SettingsPage() {
             ))}
           </ul>
           {s.sync.filter((c) => c.error).map((c) => <p key={c.courseId} className="text-xs text-destructive">{s.courses.find((x) => x.id === c.courseId)?.code}: {c.error}</p>)}
-          <Button className="mt-3" onClick={syncAll} disabled={syncing}>{syncing ? "Syncing…" : "Sync all courses (demo)"}</Button>
+          <Button className="mt-3" onClick={syncAll} disabled={syncing}>{syncing ? "Syncing…" : syncAllLabel(conn)}</Button>
         </Section>
 
         <TeachingCalendarSettings />

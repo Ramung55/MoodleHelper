@@ -7,8 +7,9 @@ import { mapTeachingDate } from "@/domain/teaching-weeks";
 import type { Snapshot } from "@/domain/types";
 import { getAdapter, type MoodleHelperAdapter } from "@/services";
 import type { ConnectionInfo } from "@/services/adapter";
-import { detectExtension, discoverSduCourses } from "@/services/extension-adapter";
+import { detectExtension, discoverSduCourses, syncAllThroughExtension } from "@/services/extension-adapter";
 import { DISCOVERY_MESSAGES } from "../../../shared/src/bridge";
+import { connectionWithExtension } from "@/domain/live-sync";
 import { onLocalInvalidation, resumeEraseCleanup } from "@/services/local-erase";
 
 /**
@@ -71,11 +72,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     Promise.all([adapter.load(), adapter.connection(), detectExtension()])
-      .then(([s, c, detected]) => {
+      .then(async ([s, c, detected]) => {
+        // #46: only the real dataset with the extension asks the backend for its collection mode.
+        const mode = detected && c.state !== "demo" && adapter.collectionMode ? await adapter.collectionMode().catch(() => undefined) : undefined;
         if (!alive) return;
         setError(null);
         setSnap(s);
-        setConn(detected ? { ...c, extensionDetected: true, message: "Extension detected, but live sync is not implemented yet. Still showing demo data." } : c);
+        setConn(connectionWithExtension(c, detected, mode));
       })
       .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not load local data"));
     // #56: resume an interrupted browser cleanup for the current erase epoch; never seeds or syncs.
@@ -121,10 +124,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (failedSelection.current !== null) void saveCourseSelection(failedSelection.current);
   }, [saveCourseSelection]);
 
+  // #46: in the real dataset with live collection ready, Sync all goes through the extension,
+  // whose bridge wakes the scan worker after the 200 instead of waiting for its next alarm.
+  const throughExtension = !!conn?.liveSync && adapter.kind !== "extension";
   const syncAll = useCallback(async (): Promise<SyncOutcome> => {
     setSyncing(true);
     try {
-      const s = await enqueue(() => adapter.syncAll(setSnap));
+      const s = await enqueue(() => throughExtension ? syncAllThroughExtension(setSnap) : adapter.syncAll(setSnap));
       setSnap(s);
       // #20: a real-dataset Sync all only queues the scan (sync entries say syncing);
       // nothing has finished yet, so no success toast is shown.
@@ -142,7 +148,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false);
     }
-  }, [adapter, enqueue]);
+  }, [adapter, enqueue, throughExtension]);
 
   const [discovery, setDiscovery] = useState<{ pending: boolean; status: string | null; error: string | null }>({ pending: false, status: null, error: null });
   const discoveryBusy = useRef(false);

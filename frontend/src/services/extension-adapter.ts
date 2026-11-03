@@ -278,6 +278,16 @@ export async function checkSduSignIn(): Promise<SignInResult> {
     client.dispose();
   }
 }
+/** #20/#46: Sync all through a fresh bridge session, so the worker starts the queued scan at once. */
+export async function syncAllThroughExtension(onProgress: (s: Snapshot) => void): Promise<Snapshot> {
+  const client = new BridgeClient();
+  try {
+    await client.connect();
+    return await client.syncAll(onProgress);
+  } finally {
+    client.dispose();
+  }
+}
 /** Detection is explanatory only; the default HTTP adapter and its saved Snapshot stay in use. */
 export async function detectExtension(timeoutMs = 800): Promise<boolean> {
   const client = new BridgeClient(undefined, { hello: timeoutMs, operation: 10000 });
