@@ -101,7 +101,7 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 | Module type | Observed | Seen across 8 enrolled courses: `assign`, `quiz`, `forum`, `url`, `resource`, `page`. No `folder` in enrolled courses; `folder` was observed only in a not-enrolled, guest-viewable course (rows 13, 14). |
 | Section | Observed | `li.section` / `data-sectionid`; 17 section nodes on the sample course (`format-topics`) |
 | Inline dates | Observed | `[data-region="activity-dates"]` children: "Opened: <weekday>, <d> <Month> <yyyy>, <h:mm AM/PM>", "Due: …", "Closed: …". The shown weekday can disagree with its own date (observed quirk, 2026-11-01, Addendum 4; see the note under Quiz). |
-| Resource file type | Observed | `.activitybadge` / details text "PDF", "PPTX"; icon path `/theme/image.php/alpha/core/<rev>/f/pdf` |
+| Resource file type | Observed | `.activitybadge` / details text "PDF", "PPTX"; icon path `/theme/image.php/alpha/core/<rev>/f/pdf`. A "DOCX" badge is **UNVERIFIED** (not seen on SDU); since #85 the collector maps it to `docx`, inferred from the observed "PDF"/"PPTX" pattern. |
 | Restriction info | Unavailable | No `.availabilityinfo` in any enrolled course |
 
 ### Assignment (`/mod/assign/view.php?id=<cmid>`)
@@ -160,7 +160,8 @@ The pages also made these requests themselves; Claude did not call them: `core_c
 | --- | --- | --- |
 | File resource target | Observed | `/mod/resource/view.php?id=<cmid>` → 303/302 → `/pluginfile.php/<ctx>/mod_resource/content/<rev>/<filename>` |
 | Content type | Observed | `Content-Type: application/pdf`, `Content-Disposition: inline` |
-| File type label | Observed | `.activitybadge` "PDF" / "PPTX" on the course page |
+| File type label | Observed | `.activitybadge` "PDF" / "PPTX" on the course page. "DOCX" is UNVERIFIED (#85 maps it to `docx`). |
+| DOCX / PPTX file responses | **UNVERIFIED** | #85 downloads DOCX and PPTX after an OOXML content-type and ZIP central-directory check, but no DOCX or PPTX *response* was observed on SDU (Addendum 6 saw only PDF and EPUB files, plus a PPTX badge). Stays UNVERIFIED until the optional owner Chrome step on #85. EPUB and folder entries are not downloadable (owner decision 2026-11-03). |
 | URL / page targets | UNVERIFIED | Seen as modtypes only |
 | Folder relationships | Unavailable in enrolled courses; parent-to-child UNVERIFIED | No folder module in this account's courses. The one inspected folder (row 14) was empty, so no parent-to-child file or subfolder relationship was observed. |
 
@@ -210,6 +211,7 @@ These cases were not observed on 2026-11-01. They stay UNVERIFIED, and collector
 - **Quiz variants:** in-progress attempts and multiple attempts.
 - **Calendar variants:** other event types and the day and month views.
 - **URL, page and video targets.**
+- **DOCX and PPTX file responses and the "DOCX" badge** (#85): their content type, disposition and container shape on SDU.
 
 Inspecting these needs an account or course that has them, with the same authorized, read-only session path. That is follow-up evidence; it is not a blocker for the observed rows.
 

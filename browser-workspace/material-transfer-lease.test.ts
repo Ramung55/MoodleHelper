@@ -17,6 +17,7 @@ import {
 } from "../extension/src/material-transfer";
 import { LEASE_REQUEST_LIMIT_MS, TRANSFER_LEASE_PORT, createMoodleRequestAuthority, createTransferLeaseHost, type LeasePort, type LeaseSender } from "../extension/src/moodle-request-authority";
 import { openTransferPage, transferTabFor } from "../extension/src/dashboard-bridge";
+import { DOCX_MIME, PPTX_MIME, docx, pptx } from "./ooxml-fixtures";
 
 const root = path.resolve(import.meta.dirname, "..");
 const observed = (name: string) => readFileSync(path.join(root, "tests/fixtures/moodle/observed", name), "utf8");
@@ -181,7 +182,7 @@ describe("#41 final-URL classification with observed fixtures (AC1, AC3)", () =>
 });
 
 /** One transfer page run against fakes; the lease comes from the given requester. */
-function page(lease: LeaseRequester, fetcher: (url: string, init: RequestInit) => Promise<Response>, log: Ev[], over: { chrome?: "complete" | "none" } = {}) {
+function page(lease: LeaseRequester, fetcher: (url: string, init: RequestInit) => Promise<Response>, log: Ev[], over: { chrome?: "complete" | "none"; descriptor?: Descriptor } = {}) {
   const reports: any[] = [];
   let transfer: Transfer = { transferId: "tx-1", generation: 1, materialId: "r-pdf", state: "queued", cancelRequested: false };
   const listeners = new Set<(d: DownloadDelta) => void>();
@@ -190,7 +191,7 @@ function page(lease: LeaseRequester, fetcher: (url: string, init: RequestInit) =
   const views: any[] = [];
   const go = () => runTransfer("tx-1", {
     api: {
-      descriptor: async () => desc(),
+      descriptor: async () => over.descriptor ?? desc(),
       read: async () => transfer,
       report: async (_id, b: any) => {
         reports.push(b); log.push({ event: "state:" + b.state });
@@ -382,5 +383,83 @@ describe("#41 QA fix 2: the busy outcome reaches the dashboard label", () => {
   });
   it("the transfer page and the dashboard use the same busy text", () => {
     expect(DASHBOARD_BUSY_TEXT).toBe(BUSY_TEXT);
+  });
+});
+
+describe("#85 DOCX and PPTX under the #20 lease (synthetic ZIP bodies, observed redirect and login fixtures)", () => {
+  const office = (format: "docx" | "pptx") => desc({ format, materialId: "r-" + format });
+  const body = (format: "docx" | "pptx") => (format === "docx" ? docx() : pptx());
+  const mime = (format: "docx" | "pptx") => (format === "docx" ? DOCX_MIME : PPTX_MIME);
+  it.each(["docx", "pptx"] as const)("one click on a %s: one lease, one GET, release after the body, one download, complete only from onChanged", async (format) => {
+    const w = worker();
+    const inits: RequestInit[] = [];
+    const fetcher = async (url: string, init: RequestInit) => {
+      inits.push(init); w.log.push({ event: "GET", detail: url });
+      return reply(body(format), { url: FILE.replace(/\.pdf$/, "." + format), type: mime(format) }, w.log);
+    };
+    const p = page(leaseRequester(w.connect()), fetcher, w.log, { descriptor: office(format) });
+    const v = await p.go();
+    await pause(5);
+    const events = w.log.map((e) => e.event);
+    expect(events.filter((e) => ["acquire", "GET", "body-read", "download"].includes(e))).toEqual(["acquire", "GET", "body-read", "download"]);
+    expect(events.indexOf("release")).toBeGreaterThan(events.indexOf("body-read"));
+    expect(events.filter((e) => e === "acquire")).toHaveLength(1);
+    expect(w.log.find((e) => e.event === "GET")!.detail).toBe(VIEW);
+    expect(inits[0]!.headers).toBeUndefined();
+    expect(p.downloads).toEqual([{ url: "blob:transfer-test/1", filename: `Lecture 1.${format}`, conflictAction: "uniquify", saveAs: false }]);
+    expect(p.reports.map((r) => r.state)).toEqual(["validating", "saving", "complete"]);
+    expect(events.indexOf("state:complete")).toBeGreaterThan(events.indexOf("onChanged:complete"));
+    expect(v.phase).toBe("complete");
+    expect(w.gate.held()).toBe(false);
+  });
+  it("the observed login redirect is sign_in_required for a DOCX, also when the login page is labelled as a docx", async () => {
+    const final = ORIGIN + LOGIN_REDIRECT.response.finalPath;
+    expect(await get(() => reply(LOGIN_PAGE, { url: final, status: LOGIN_REDIRECT.response.status, type: LOGIN_REDIRECT.response.contentType }), office("docx"))).toEqual({ ok: false, reason: "sign_in_required" });
+    expect(await get(() => reply(LOGIN_PAGE, { url: final, type: DOCX_MIME }), office("docx"))).toEqual({ ok: false, reason: "sign_in_required" });
+    expect(await get(() => reply(LOGIN_PAGE, { url: FILE, type: "text/html; charset=utf-8" }), office("pptx"))).toEqual({ ok: false, reason: "sign_in_required" });
+    // the same login HTML labelled as a docx on pluginfile.php is not signed out by #20's check: unsupported_type
+    expect(await get(() => reply(LOGIN_PAGE, { url: FILE, type: DOCX_MIME }), office("docx"))).toEqual({ ok: false, reason: "unsupported_type" });
+    expect(await get(() => reply("", { url: FILE, status: 401, type: "text/html" }), office("pptx"))).toEqual({ ok: false, reason: "sign_in_required" });
+  });
+  it("a PPTX resource that stays on its view.php page is not_a_file", async () => {
+    const view = '<!doctype html><html><body id="page-mod-resource-view" class="lang-ru cmid-990104 course-9001"><main><h1>Страница</h1></main></body></html>';
+    expect(await get(() => reply(view, { url: VIEW, type: "text/html; charset=utf-8" }), office("pptx"))).toEqual({ ok: false, reason: "not_a_file" });
+  });
+  it("the observed redirect to a pluginfile.php PDF is refused for a DOCX descriptor (type must match)", async () => {
+    expect(await get(() => reply(PDF, { url: FILE, headers: { "content-disposition": RESOURCE_REDIRECT.final.contentDisposition } }), office("docx"))).toEqual({ ok: false, reason: "unsupported_type" });
+    expect(await get(() => reply(docx(), { url: FILE, type: "application/octet-stream" }), office("pptx"))).toEqual({ ok: false, reason: "unsupported_type" });
+  });
+  it("with no lease within 30 s a DOCX ends failed/timeout with no Moodle request", async () => {
+    const w = worker();
+    expect(await w.authority.acquire(w.clock.now)).toEqual(expect.any(String)); // a scan request holds the authority
+    let calls = 0;
+    const p = page(leaseRequester(w.connect()), async () => { calls++; return reply(docx(), { type: DOCX_MIME }); }, [], { descriptor: office("docx") });
+    const v = await p.go();
+    expect(calls).toBe(0);
+    expect(p.reports.at(-1)).toMatchObject({ state: "failed", reason: "timeout" });
+    expect(p.downloads).toEqual([]);
+    expect(v.phase).toBe("failed");
+  });
+  it("a 429 on a PPTX is fetched once and reports failed/network with networkDetail busy", async () => {
+    const w = worker();
+    let calls = 0;
+    const p = page(leaseRequester(w.connect()), async () => { calls++; return reply("", { status: 429, type: "text/html" }); }, [], { descriptor: office("pptx") });
+    const v = await p.go();
+    expect(calls).toBe(1);
+    expect(p.reports.at(-1)).toMatchObject({ state: "failed", reason: "network", networkDetail: "busy" });
+    expect(v.message).toBe(BUSY_TEXT);
+    expect(p.downloads).toEqual([]);
+  });
+  it("a worker restart mid-fetch of a DOCX is interrupted and saves nothing", async () => {
+    const w = worker();
+    const fetcher = (_u: string, init: RequestInit) => new Promise<Response>((_ok, no) => {
+      init.signal!.addEventListener("abort", () => no(new DOMException("Aborted", "AbortError")));
+      setTimeout(() => w.port().worker.disconnect(), 5);
+    });
+    const p = page(leaseRequester(w.connect()), fetcher, [], { descriptor: office("docx") });
+    const v = await p.go();
+    expect(p.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "download_interrupted" });
+    expect(v.message).toBe(LEASE_LOST_TEXT);
+    expect(p.downloads).toEqual([]);
   });
 });

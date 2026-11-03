@@ -81,7 +81,8 @@ describe("observed/ course-page materials (#83 AC3)", () => {
   });
 
   it("does not guess a type from another badge and leaves the section unknown without data-sectionid", () => {
-    const html = coursePage.replace(">PPTX<", ">DOCX<").replace(' data-sectionid="70002"', "");
+    // #85: DOCX now maps to docx (UNVERIFIED badge); EPUB is still an unmapped badge.
+    const html = coursePage.replace(">PPTX<", ">EPUB<").replace(' data-sectionid="70002"', "");
     const r = materialRefreshResult(input(html), ["9001"], observedAt) as Material;
     expect(r.observations[1]).toMatchObject({ sourceCourseModuleId: "990105", fileType: unknown, section: unknown });
     expect(r.observations[0]).toMatchObject({ fileType: known("pdf"), section: unknown });

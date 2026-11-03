@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { collectMoodleMaterials, type RawMaterialObservation } from "../../../extension/src/moodle-materials";
+import { collectMoodleMaterials, collectObservedMoodleMaterials, type RawMaterialObservation } from "../../../extension/src/moodle-materials";
 import { account, denied, login, origin } from "./moodle-access-fixtures";
 const time = "2026-10-26T12:30:00.12+05:00";
 const courseLink = '<a data-role="course-link" href="/course/view.php?id=101">Fictional course</a>';
@@ -425,5 +425,34 @@ describe("#17 synthetic material collection (live SDU unverified)", () => {
     expect(collectMoodleMaterials(null as never, ["101"], time).coverage).toBe("none");
     const bad = input(); Object.defineProperty(bad.document, "querySelectorAll", { value() { throw new Error("private-sentinel-secret"); } });
     expect(JSON.stringify(collectMoodleMaterials([bad], ["101"], time))).not.toContain("private-sentinel-secret");
+  });
+});
+
+/**
+ * #85 DOCX badge: SYNTHETIC cards (not under observed/, never seen on SDU) added to the
+ * observed #83 course page. "DOCX" is UNVERIFIED and inferred from the observed PDF/PPTX
+ * badges; EPUB and any other badge stay unknown.
+ */
+describe("#85 synthetic DOCX badge card", () => {
+  const page = readFileSync(resolve(__dirname, "../../../tests/fixtures/moodle/observed/course-page.html"), "utf8");
+  const card = (cmid: string, badge: string) => `<li class="activity resource modtype_resource" id="module-${cmid}">
+<a data-href="/mod/resource/view.php?id=${cmid}"><img class="icon" alt=""><span class="instancename">Synthetic ${badge} card<span class="accesshide"> File</span></span></a>
+<span class="activitybadge">${badge}</span>
+</li>`;
+  const html = page.replace('<li class="activity url modtype_url"', card("990201", "DOCX") + "\n" + card("990202", "EPUB") + "\n" + card("990203", "docx") + "\n" + '<li class="activity url modtype_url"');
+  const url = origin + "/course/view.php?id=9001";
+  const result = collectObservedMoodleMaterials({ document: new DOMParser().parseFromString(html, "text/html"), requestedUrl: url, finalUrl: url,
+    httpStatus: 200, networkFailure: false, contentType: "text/html; charset=utf-8" }, ["9001"], "2028-03-05T10:00:00.000Z");
+  const byCmid = (cmid: string) => (result.status === "success" ? result.observations : []).find((o) => o.sourceCourseModuleId === cmid);
+  it("maps the DOCX badge to docx, like PDF and PPTX", () => {
+    expect(result.status).toBe("success");
+    expect(byCmid("990201")).toMatchObject({ kind: "file", sourceModuleType: "resource", fileType: { kind: "known", value: "docx" }, mimeType: { kind: "unknown" },
+      destinationUrl: origin + "/mod/resource/view.php?id=990201" });
+    expect(byCmid("990104")).toMatchObject({ fileType: { kind: "known", value: "pdf" } });
+    expect(byCmid("990105")).toMatchObject({ fileType: { kind: "known", value: "pptx" } });
+  });
+  it("leaves EPUB and a non-exact badge unknown, never guessed", () => {
+    expect(byCmid("990202")).toMatchObject({ kind: "file", fileType: { kind: "unknown" } });
+    expect(byCmid("990203")).toMatchObject({ kind: "file", fileType: { kind: "unknown" } });
   });
 });

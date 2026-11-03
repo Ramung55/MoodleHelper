@@ -55,16 +55,20 @@ describe("#41 transfer labels", () => {
     }
     expect(transferLabel(base({ state: "failed", reason: "timeout" })).text).not.toContain("60 seconds");
   });
+  it("#85 unsupported_type names the allowed types", () => {
+    expect(transferLabel(base({ state: "failed", reason: "unsupported_type" })).text)
+      .toBe("Download failed. Moodle did not return a valid PDF, DOCX or PPTX file of the listed type. Nothing was saved.");
+  });
 });
 
-function snap(): Snapshot {
+function snap(fileType: "pdf" | "docx" | "pptx" | "other" = "pdf"): Snapshot {
   const s = buildDemoSnapshot();
   s.collection = { records: [], reviews: [], refreshes: [] };
-  s.materials = [{ id: "m-pdf", courseId: s.settings.trackedCourseIds[0]!, section: "Week 1", title: "Lecture 1", fileType: "pdf", url: "https://moodle.sdu.edu.kz/pluginfile.php/42/mod_resource/content/3/lecture-1.pdf", accessible: true, stale: false, lastCheckedAt: "2026-10-30T09:00:00Z", syllabusSuggestion: false }];
+  s.materials = [{ id: "m-pdf", courseId: s.settings.trackedCourseIds[0]!, section: "Week 1", title: "Lecture 1", fileType, url: "https://moodle.sdu.edu.kz/pluginfile.php/42/mod_resource/content/3/lecture-1.pdf", accessible: true, stale: false, lastCheckedAt: "2026-10-30T09:00:00Z", syllabusSuggestion: false }];
   return s;
 }
-function mount(adapter: Record<string, unknown>) {
-  state.app = { snap: snap(), adapter: { downloadMaterial: vi.fn(), ...adapter }, setSnap: vi.fn(), error: null, retryLoad: vi.fn() };
+function mount(adapter: Record<string, unknown>, fileType: "pdf" | "docx" | "pptx" | "other" = "pdf") {
+  state.app = { snap: snap(fileType), adapter: { downloadMaterial: vi.fn(), ...adapter }, setSnap: vi.fn(), error: null, retryLoad: vi.fn() };
   render(<Materials />);
 }
 
@@ -73,7 +77,7 @@ describe("#41 explicit download control", () => {
     let resolve!: (v: unknown) => void;
     const start = vi.fn(() => new Promise((r) => { resolve = r; }));
     mount({ startMaterialDownload: start, listMaterialDownloads: vi.fn(async () => ({ transfers: [] })), cancelMaterialDownload: vi.fn() });
-    const button = await screen.findByRole("button", { name: "Download PDF" });
+    const button = await screen.findByRole("button", { name: "Download file" });
     fireEvent.click(button); fireEvent.click(button); fireEvent.click(button);
     await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
     expect(start).toHaveBeenCalledWith("ds-1", "m-pdf", expect.any(String));
@@ -85,7 +89,7 @@ describe("#41 explicit download control", () => {
     const { toast } = await import("sonner");
     const start = vi.fn(async () => ({ supported: false, reason: "source_unavailable", message: "Downloads need a verified signed-in Moodle session" }));
     mount({ startMaterialDownload: start, listMaterialDownloads: vi.fn(async () => ({ transfers: [] })), cancelMaterialDownload: vi.fn() });
-    fireEvent.click(await screen.findByRole("button", { name: "Download PDF" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Download file" }));
     await waitFor(() => expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("verified signed-in")));
     expect(screen.queryByTestId("transfer-status")).toBeNull();
   });
@@ -104,7 +108,7 @@ describe("#41 explicit download control", () => {
     const { toast } = await import("sonner");
     const start = vi.fn(async () => ({ supported: true, message: "This download is already in progress.", transfer: base({ state: "validating" }) }));
     mount({ startMaterialDownload: start, listMaterialDownloads: vi.fn(async () => ({ transfers: [] })), cancelMaterialDownload: vi.fn() });
-    fireEvent.click(await screen.findByRole("button", { name: "Download PDF" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Download file" }));
     await waitFor(() => expect(toast.info).toHaveBeenCalledWith("This download is already in progress."));
     expect(await screen.findByRole("button", { name: "Downloading…" })).toBeDisabled();
   });
@@ -130,9 +134,29 @@ describe("#41 explicit download control", () => {
       cleanup();
     }
   });
+  it.each(["docx", "pptx"] as const)("#85 a %s file gets the same one-click Download file control", async (fileType) => {
+    const start = vi.fn(async () => ({ supported: true, message: "Download queued.", transfer: base({}) }));
+    mount({ startMaterialDownload: start, listMaterialDownloads: vi.fn(async () => ({ transfers: [] })), cancelMaterialDownload: vi.fn() }, fileType);
+    const button = await screen.findByRole("button", { name: "Download file" });
+    fireEvent.click(button); fireEvent.click(button);
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
+    expect(start).toHaveBeenCalledWith("ds-1", "m-pdf", expect.any(String));
+    expect(await screen.findByRole("button", { name: "Downloading…" })).toBeDisabled();
+  });
+  it("#85 another file type is never offered a download", async () => {
+    const list = vi.fn(async () => ({ transfers: [] }));
+    mount({ startMaterialDownload: vi.fn(), listMaterialDownloads: list, cancelMaterialDownload: vi.fn() }, "other");
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Download file" })).toBeNull();
+  });
+  it("#85 a failed unsupported_type record shows the allowed-types text", async () => {
+    mount({ startMaterialDownload: vi.fn(), listMaterialDownloads: vi.fn(async () => ({ transfers: [base({ state: "failed", reason: "unsupported_type" })] })), cancelMaterialDownload: vi.fn() }, "pptx");
+    expect((await screen.findByTestId("transfer-status")).textContent).toContain("Moodle did not return a valid PDF, DOCX or PPTX file of the listed type. Nothing was saved.");
+    expect(screen.getByRole("button", { name: "Download again" })).toBeEnabled();
+  });
   it("demo/HTTP adapters keep the legacy capability message path", () => {
     mount({});
-    expect(screen.queryByRole("button", { name: "Download PDF" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download file" })).toBeNull();
     expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
   });
 });

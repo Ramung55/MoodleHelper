@@ -9,9 +9,11 @@
  * course discovery. Redirects are followed and the final URL is checked first:
  * origin exactly https://moodle.sdu.edu.kz, then #20's observed access check
  * (final path, status, <body> id) for sign-in; a resource page is `not_a_file`.
- * A bounded PDF (application/pdf and %PDF-) is validated in memory and Chrome is
- * handed the exact validated local Blob. Chrome's download ID is never treated as
- * completion.
+ * A bounded PDF (application/pdf and %PDF-), or (#85) a bounded DOCX or PPTX (its
+ * OOXML content type, or application/octet-stream, plus a local ZIP central-directory
+ * check) is validated in memory, the validated type must equal the descriptor's
+ * `format`, and Chrome is handed the exact validated local Blob. Chrome's download ID
+ * is never treated as completion.
  */
 import { detectObservedMoodleAccess } from "./moodle-access";
 
@@ -25,7 +27,15 @@ const HTML_PREFIX_BYTES = 256 * 1024;
 
 export type Reason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown" | "not_a_file";
 export type State = "queued" | "validating" | "saving" | "complete" | "failed" | "cancelled" | "interrupted";
-export type Descriptor = { transferId: string; generation: number; attemptId: string; materialId: string; url: string; format: "pdf"; suggestedName?: string; maxBytes: number; timeoutMs: number };
+/** #85 (owner decision 2026-11-03): PDF, DOCX and PPTX only; EPUB and folder entries are declined. */
+export type Format = "pdf" | "docx" | "pptx";
+export const MIME: Record<Format, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+const FORMATS: readonly Format[] = ["pdf", "docx", "pptx"];
+export type Descriptor = { transferId: string; generation: number; attemptId: string; materialId: string; url: string; format: Format; suggestedName?: string; maxBytes: number; timeoutMs: number };
 /** Optional detail of a failed `network` outcome: `busy` is a 429/503 on the file fetch (#41). */
 export type NetworkDetail = "busy";
 export type Transfer = { transferId: string; generation: number; materialId: string; state: State; reason?: Reason; networkDetail?: NetworkDetail; downloadId?: number; cancelRequested: boolean };
@@ -39,7 +49,7 @@ export const REASON_TEXT: Record<Reason, string> = {
   forbidden: "Moodle refused access to this file. Nothing was saved.",
   not_found: "Moodle no longer has this file. Nothing was saved.",
   network: "Moodle could not be reached, or sent the request to another site. Nothing was saved.",
-  unsupported_type: "Moodle did not return a valid PDF. Nothing was saved; open the file in Moodle instead.",
+  unsupported_type: "Moodle did not return a valid PDF, DOCX or PPTX file of the listed type. Nothing was saved.",
   too_large: "The file is larger than the 20 MiB download limit. Nothing was saved.",
   timeout: "Moodle did not answer in time. Nothing was saved. Try again later.",
   cancelled_by_user: "Download cancelled.",
@@ -50,20 +60,23 @@ export const REASON_TEXT: Record<Reason, string> = {
 };
 
 const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i;
-/** Safe base name ending in .pdf; never a path, traversal, control/format char or device name. */
-export function sanitizeFilename(candidate: string | undefined, materialId: string): string {
-  const fallback = `moodle-material-${materialId.replace(/[^A-Za-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 64) || "file"}.pdf`;
+/**
+ * Safe base name ending in the validated type's extension (#85: never one from the title
+ * or header); never a path, traversal, control/format char or device name.
+ */
+export function sanitizeFilename(candidate: string | undefined, materialId: string, ext: Format = "pdf"): string {
+  const fallback = `moodle-material-${materialId.replace(/[^A-Za-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 64) || "file"}.${ext}`;
   if (typeof candidate !== "string") return fallback;
   let name = candidate.toWellFormed ? candidate.toWellFormed() : candidate.replace(/[\uD800-\uDFFF]/g, "�");
   name = name.normalize("NFC").replace(/�/g, "");
   name = name.split(/[\\/]/).pop() ?? "";
   name = name.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}<>:"|?*~]/gu, "").replace(/\s+/g, " ").trim();
   name = name.replace(/^[.\s]+/, "").replace(/[.\s]+$/, "");
-  name = name.replace(/\.pdf$/i, "").replace(/[.\s]+$/, "");
+  name = name.replace(/\.(?:pdf|docx|pptx)$/i, "").replace(/[.\s]+$/, "");
   const stem = name.split(".")[0] ?? "";
   if (!name || RESERVED.test(stem.trim()) || /^\.+$/.test(name)) return fallback;
   name = Array.from(name).slice(0, 120).join("").trim().replace(/[.\s]+$/, "");
-  return name ? `${name}.pdf` : fallback;
+  return name ? `${name}.${ext}` : fallback;
 }
 
 /** Bounded Content-Disposition filename (RFC 6266 filename* preferred); undefined when absent or malformed. */
@@ -77,6 +90,90 @@ export function dispositionName(header: string | null): string | undefined {
 
 const ascii = (bytes: Uint8Array, n: number) => Array.from(bytes.subarray(0, n), (b) => String.fromCharCode(b)).join("");
 export const isPdf = (bytes: Uint8Array) => ascii(bytes, 5) === "%PDF-";
+
+const enc = new TextEncoder();
+const CONTENT_TYPES = enc.encode("[Content_Types].xml");
+const WORD_MAIN = enc.encode("word/document.xml");
+const PPT_MAIN = enc.encode("ppt/presentation.xml");
+const EOCD_SIZE = 22;
+const CEN_SIZE = 46;
+const LOC_SIZE = 30;
+const MAX_COMMENT = 0xffff;
+const MAX_ENTRIES = 10_000;
+const LOC_SIG = 0x04034b50, CEN_SIG = 0x02014b50, EOCD_SIG = 0x06054b50;
+const sameBytes = (a: Uint8Array, at: number, len: number, b: Uint8Array) => {
+  if (len !== b.length || at < 0 || at + len > a.length) return false;
+  for (let i = 0; i < len; i++) if (a[at + i] !== b[i]) return false;
+  return true;
+};
+type Part = { name: Uint8Array; local: number; count: number };
+
+/**
+ * #85 local OOXML container check over the whole bounded body: reads ZIP headers only,
+ * decompresses nothing, uses no library. Returns the type only when every step holds:
+ * a leading local header; an EOCD that ends exactly at the end of the body (searched
+ * over the last 22 + 65,535 bytes); single disk, no ZIP64, 1..10,000 entries; a central
+ * directory that ends exactly at the EOCD and walks exactly the declared entries inside
+ * its bounds; `[Content_Types].xml` exactly once plus exactly one of `word/document.xml`
+ * (docx) or `ppt/presentation.xml` (pptx), never both; no encrypted entry; and each
+ * required entry's local header (before the central directory) carries the same name.
+ * Every read is bounds-checked; malformed input gives null, never a throw.
+ */
+export function ooxmlType(bytes: Uint8Array): "docx" | "pptx" | null {
+  try {
+    const len = bytes.length;
+    if (len < EOCD_SIZE) return null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (view.getUint32(0, true) !== LOC_SIG) return null;
+    let eocd = -1;
+    for (let at = len - EOCD_SIZE, low = Math.max(0, len - EOCD_SIZE - MAX_COMMENT); at >= low; at--) {
+      if (view.getUint32(at, true) === EOCD_SIG && at + EOCD_SIZE + view.getUint16(at + 20, true) === len) { eocd = at; break; }
+    }
+    if (eocd < 0) return null;
+    const disk = view.getUint16(eocd + 4, true), cdDisk = view.getUint16(eocd + 6, true);
+    const onDisk = view.getUint16(eocd + 8, true), total = view.getUint16(eocd + 10, true);
+    const cdSize = view.getUint32(eocd + 12, true), cdOffset = view.getUint32(eocd + 16, true);
+    if (disk !== 0 || cdDisk !== 0 || onDisk !== total) return null; // single disk only
+    if (total === 0xffff || cdSize === 0xffffffff || cdOffset === 0xffffffff) return null; // ZIP64
+    if (total < 1 || total > MAX_ENTRIES) return null;
+    if (cdOffset + cdSize !== eocd) return null;
+    const types: Part = { name: CONTENT_TYPES, local: -1, count: 0 };
+    const word: Part = { name: WORD_MAIN, local: -1, count: 0 };
+    const ppt: Part = { name: PPT_MAIN, local: -1, count: 0 };
+    let p = cdOffset;
+    for (let n = 0; n < total; n++) {
+      if (p + CEN_SIZE > eocd || view.getUint32(p, true) !== CEN_SIG) return null;
+      const flags = view.getUint16(p + 8, true);
+      const packed = view.getUint32(p + 20, true), plain = view.getUint32(p + 24, true);
+      const nameLen = view.getUint16(p + 28, true), extraLen = view.getUint16(p + 30, true), commentLen = view.getUint16(p + 32, true);
+      const startDisk = view.getUint16(p + 34, true), local = view.getUint32(p + 42, true);
+      const next = p + CEN_SIZE + nameLen + extraLen + commentLen;
+      if (next > eocd) return null;
+      if (flags & 1) return null; // encrypted entry
+      if (startDisk !== 0 || packed === 0xffffffff || plain === 0xffffffff || local === 0xffffffff) return null; // ZIP64 / multi-disk
+      for (const part of [types, word, ppt]) {
+        if (sameBytes(bytes, p + CEN_SIZE, nameLen, part.name)) { part.count++; part.local = local; }
+      }
+      p = next;
+    }
+    if (p !== eocd) return null;
+    if (types.count !== 1) return null;
+    let kind: "docx" | "pptx";
+    if (word.count === 1 && ppt.count === 0) kind = "docx";
+    else if (ppt.count === 1 && word.count === 0) kind = "pptx";
+    else return null;
+    for (const part of [types, kind === "docx" ? word : ppt]) {
+      const at = part.local;
+      if (at < 0 || at + LOC_SIZE > cdOffset || view.getUint32(at, true) !== LOC_SIG) return null;
+      if (view.getUint16(at + 6, true) & 1) return null; // encrypted
+      const nameLen = view.getUint16(at + 26, true);
+      if (at + LOC_SIZE + nameLen > cdOffset || !sameBytes(bytes, at + LOC_SIZE, nameLen, part.name)) return null;
+    }
+    return kind;
+  } catch {
+    return null; // defensive: a malformed body never throws out of the validator
+  }
+}
 
 export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -151,7 +248,7 @@ export type AcquireDeps = {
 };
 /** Bounded read-only acquisition under a #20 lease; nothing is returned unless every check passed. */
 export async function acquire(d: Descriptor, deps: AcquireDeps): Promise<Acquired> {
-  if (d.format !== "pdf" || !(PLUGINFILE.test(d.url) || RESOURCE_VIEW.test(d.url)) || new URL(d.url).origin !== SDU_ORIGIN) return { ok: false, reason: "unsupported_type" };
+  if (!FORMATS.includes(d.format) || !(PLUGINFILE.test(d.url) || RESOURCE_VIEW.test(d.url)) || new URL(d.url).origin !== SDU_ORIGIN) return { ok: false, reason: "unsupported_type" };
   const budget = Math.max(1, d.timeoutMs);
   const granted = await deps.lease(d.transferId, deps.signal);
   if (!granted.ok) {
@@ -217,7 +314,10 @@ export async function acquire(d: Descriptor, deps: AcquireDeps): Promise<Acquire
       return { ok: false, reason: "unsupported_type" };
     }
     if (kind !== "file") return await fail(response, type.startsWith("text/") ? "not_a_file" : "unsupported_type");
-    if (type !== "application/pdf") return await fail(response, "unsupported_type");
+    // #85: the content type must be the listed format's exact MIME type; application/octet-stream
+    // is tolerated for DOCX/PPTX only, and only together with the full container check below.
+    const octet = type === "application/octet-stream" && d.format !== "pdf";
+    if (type !== MIME[d.format] && !octet) return await fail(response, "unsupported_type");
     const declared = response.headers.get("content-length");
     const total = declared && /^\d{1,12}$/.test(declared) ? Number(declared) : null;
     if (total !== null && total > d.maxBytes) return await fail(response, "too_large");
@@ -244,12 +344,14 @@ export async function acquire(d: Descriptor, deps: AcquireDeps): Promise<Acquire
     for (const c of chunks) { bytes.set(c, at); at += c.byteLength; }
     if (size === 0) return { ok: false, reason: "unsupported_type" };
     // Sign-in is classified only by #20's access check above (final URL, status, <body> id),
-    // never from body text: any application/pdf body not starting %PDF- is unsupported_type.
-    if (!isPdf(bytes)) return { ok: false, reason: "unsupported_type" };
+    // never from body text: any body that fails its type's check is unsupported_type.
+    const validated: Format | null = d.format === "pdf" ? (isPdf(bytes) ? "pdf" : null) : ooxmlType(bytes);
+    // The validated type must equal the listed format: a DOCX for a pptx badge is refused, never renamed.
+    if (validated === null || validated !== d.format) return { ok: false, reason: "unsupported_type" };
     // The name comes from the final response's Content-Disposition or the stored metadata,
-    // always through the sanitizer; the final URL path is never used.
-    const filename = sanitizeFilename(dispositionName(response.headers.get("content-disposition")) ?? d.suggestedName, d.materialId);
-    return { ok: true, blob: new Blob([bytes], { type: "application/pdf" }), filename, size };
+    // always through the sanitizer, with the validated type's extension; the final URL path is never used.
+    const filename = sanitizeFilename(dispositionName(response.headers.get("content-disposition")) ?? d.suggestedName, d.materialId, validated);
+    return { ok: true, blob: new Blob([bytes], { type: MIME[validated] }), filename, size };
   } finally {
     clearTimeout(timer);
     deps.signal.removeEventListener("abort", relay);

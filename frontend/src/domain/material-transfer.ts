@@ -43,7 +43,7 @@ const REASON: Record<TransferReason, string> = {
   // Plain network errors and off-origin redirects. A 429/503 is also `network`, but its record
   // carries networkDetail "busy" and shows BUSY_TEXT instead (see failedText).
   network: NETWORK_TEXT,
-  unsupported_type: "Moodle did not return a valid PDF. Nothing was saved.",
+  unsupported_type: "Moodle did not return a valid PDF, DOCX or PPTX file of the listed type. Nothing was saved.",
   too_large: "The file is larger than the 20 MiB limit. Nothing was saved.",
   timeout: "Moodle did not answer in time. Nothing was saved. Try again later.",
   cancelled_by_user: "Download cancelled. Nothing is available offline.",
@@ -75,5 +75,10 @@ export function transferLabel(t: MaterialTransfer): TransferLabel {
   }
 }
 
-/** Only one supported file kind; folders/links/unknown are never offered. */
-export const downloadable = (i: { kind: string; type: string; provenance: string }) => i.kind === "file" && i.type === "pdf";
+/**
+ * #85: PDF, DOCX and PPTX files only. EPUB, unknown types, folders, folder entries (declined by
+ * the owner; the backend answers not_a_file) and links are never offered.
+ */
+const DOWNLOADABLE_TYPES = new Set(["pdf", "docx", "pptx"]);
+export const downloadable = (i: { kind: string; type: string; provenance: string; parentResourceKey?: string }) =>
+  i.kind === "file" && DOWNLOADABLE_TYPES.has(i.type) && !i.parentResourceKey;

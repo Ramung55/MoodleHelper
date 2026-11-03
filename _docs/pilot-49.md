@@ -81,7 +81,7 @@ Permissions in the emitted manifest:
 | Permission / scope | Why |
 |---|---|
 | `alarms` | reminder/queue worker wake-ups |
-| `downloads` | explicit, user-started PDF downloads (#41) |
+| `downloads` | explicit, user-started PDF, DOCX and PPTX downloads (#41, #85) |
 | `notifications` | OS reminder notifications (depends on OS/Chrome notification settings) |
 | `offscreen` | one offscreen document (`offscreen.html`) parses fetched SDU pages for the read-only scans; the service worker has no DOMParser (#20) |
 | host `http://127.0.0.1:8000/*` | local backend |
@@ -106,8 +106,9 @@ credentials are stored.
   `/course/view.php?id=…`, the quiz and assignment pages found on it, and the upcoming
   calendar `/calendar/view.php?view=upcoming` once per course job. Resource, URL and folder
   links are recorded from the course page without being requested.
-- **Download PDF** (#41): one explicit click fetches one file from `https://moodle.sdu.edu.kz`
-  and hands it to Chrome's download manager. Nothing is fetched automatically.
+- **Download file** (#41, #85): one explicit click fetches one PDF, DOCX or PPTX file from
+  `https://moodle.sdu.edu.kz` and hands it to Chrome's download manager. Nothing is fetched
+  automatically.
 
 **Local network access prompt.** The Pages dashboard calls the local backend at
 `http://127.0.0.1:8000` directly. Chrome may show a "local network access" prompt asking to
@@ -198,7 +199,7 @@ loads. Record a screenshot without personal data, or backend log lines with an
   stale flag, in the backend Snapshot's collection layer. No grades or submission text are
   stored. No live collector sends submission status yet (the submission collector is not
   dispatched until #20 enables it), so in practice nothing is stored.
-- **Downloaded PDFs (#41):** a Download PDF click saves the file through Chrome's download
+- **Downloaded files (#41, #85):** a Download file click saves the file through Chrome's download
   manager into your normal downloads folder. Moodle Helper keeps only a transfer record
   (`material_transfers`) and the material's `downloadedAt`. Erase removes those records but
   **not** the file on disk or its entry in Chrome's download history; delete those yourself.
@@ -256,15 +257,17 @@ issue stays open until its owner Chrome steps are run.
 - [#83](https://github.com/Ramung55/MoodleHelper/issues/83) assignment, calendar and material
   collectors on observed pages: repo checks passed; owner Chrome check pending.
 - [#41](https://github.com/Ramung55/MoodleHelper/issues/41) Download PDF: repo checks passed;
-  owner Chrome steps 1–6 pending. PDFs only. Demo, synthetic and in-memory data answer "not
-  available yet". A login page, a resource that opens as a Moodle page, EPUB/DOCX/PPTX and
-  folder entries are never saved.
+  owner Chrome steps 1–6 pending. Demo, synthetic and in-memory data answer "not available
+  yet". A login page, a resource that opens as a Moodle page, EPUB files and folder entries
+  are never saved.
 - [#21](https://github.com/Ramung55/MoodleHelper/issues/21) sync progress and freshness: repo
   checks passed; owner Chrome check pending.
 - [#46](https://github.com/Ramung55/MoodleHelper/issues/46) first-run onboarding: repo checks
   passed; owner Chrome steps pending.
-- [#85](https://github.com/Ramung55/MoodleHelper/issues/85) non-PDF and folder downloads:
-  needs an owner decision before any work.
+- [#85](https://github.com/Ramung55/MoodleHelper/issues/85) DOCX and PPTX downloads: built
+  (owner decision 2026-11-03); downloads cover PDF, DOCX and PPTX. DOCX and PPTX responses
+  and the "DOCX" badge are UNVERIFIED on SDU; the owner Chrome step is optional. EPUB and
+  folder entries stay non-downloadable (declined).
 - [#42](https://github.com/Ramung55/MoodleHelper/issues/42),
   [#44](https://github.com/Ramung55/MoodleHelper/issues/44) cloud AI: deferred by the owner
   (2026-11-02). The free-tier key is rejected with `403 PERMISSION_DENIED`, so no real AI

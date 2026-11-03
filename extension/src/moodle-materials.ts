@@ -464,7 +464,9 @@ export function collectMoodleMaterials(
  * `data-sectionid`.
  *
  * - `resource`: a file reference. The file type comes only from the `.activitybadge`
- *   ("PDF" -> pdf, "PPTX" -> pptx; any other badge leaves it unknown, never guessed).
+ *   ("PDF" -> pdf, "PPTX" -> pptx, "DOCX" -> docx; any other badge, EPUB included, leaves it
+ *   unknown, never guessed). The DOCX badge is UNVERIFIED: not seen on SDU, inferred from
+ *   the observed PDF/PPTX badge pattern (#85 default, 2026-11-03).
  *   The destination is the module's own `/mod/resource/view.php?id=<cmid>` (#41 resolves it
  *   to a file only from a checked final path and content type); no `pluginfile.php` URL or
  *   file name is read, and the MIME type stays unknown. Nothing here claims access.
@@ -483,7 +485,8 @@ export type ObservedMaterialResult =
   | { status: "error"; access: MoodleAccessResult; reason: "access_error" | "unsupported_structure" | "unselected_course" | "invalid_selection" | "invalid_observed_at" }
   | { status: "success"; access: MoodleAccessResult; observations: RawMaterialObservation[]; diagnostics: MaterialDiagnostic[]; candidateCount: number; coverage: MaterialCoverage };
 
-const observedBadges: Record<string, MaterialFileType> = { PDF: "pdf", PPTX: "pptx" };
+/** PDF and PPTX were observed on SDU; DOCX is UNVERIFIED (not seen on SDU, #85). */
+const observedBadges: Record<string, MaterialFileType> = { PDF: "pdf", PPTX: "pptx", DOCX: "docx" };
 const observedMaterialModules = new Set(["resource", "url", "folder", "page"]);
 
 export function collectObservedMoodleMaterials(

@@ -184,17 +184,22 @@ describe("materials route (#40)", () => {
 });
 
 describe("#41 pilot: a collected SDU PDF resource linked as view.php?id=<cmid>", () => {
-  it("offers Download PDF for that record only and starts exactly that material", async () => {
+  it("offers Download file for PDF, DOCX and PPTX records only and starts exactly that material", async () => {
     const DATASET = "0b8f6a52-3c1d-4e2f-9a7b-1c2d3e4f5a6b";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ datasetId: DATASET }), { headers: { "content-type": "application/json" } })));
     try {
       const viewPdf = rec("r-view", obs({ cm: "990104", title: known("Лекция 1"), section: known("Week 1"), fileType: known("pdf"), destinationUrl: `${O}/mod/resource/view.php?id=990104` }));
       const start = vi.fn(async () => ({ supported: true, message: "Download queued.", transfer: { transferId: "t1", generation: 0, materialId: "r-view", state: "queued", cancelRequested: false, createdAt: T, updatedAt: T } }));
-      mount(snap([viewPdf, slides, external, folder], (s) => { s.materials = []; }),
+      // #85: DOCX and PPTX are offered too; EPUB, unknown types, links, folders and folder entries never are.
+      const word = rec("r-docx", obs({ cm: "990106", title: known("Notes"), fileType: known("docx"), destinationUrl: `${O}/mod/resource/view.php?id=990106` }));
+      const epub = rec("r-epub", obs({ cm: "990107", title: known("Book"), fileType: known("other"), mimeType: known("application/epub+zip") }));
+      mount(snap([viewPdf, slides, word, epub, untitled, external, folder, child], (s) => { s.materials = []; }),
         { adapter: { downloadMaterial: vi.fn(), importDocument: vi.fn(), startMaterialDownload: start, listMaterialDownloads: vi.fn(async () => ({ transfers: [] })), cancelMaterialDownload: vi.fn() } });
-      const buttons = await screen.findAllByRole("button", { name: "Download PDF" });
-      expect(buttons).toHaveLength(1); // PPTX, link and folder are never offered
-      fireEvent.click(buttons[0]!);
+      const buttons = await screen.findAllByRole("button", { name: "Download file" });
+      expect(buttons).toHaveLength(3); // the PDF, PPTX and DOCX records only
+      const rowOf = (title: string) => screen.getByText(title, { selector: "span" }).closest("li")!;
+      for (const title of ["Slides PPTX", "Notes"]) expect(within(rowOf(title)).getByRole("button", { name: "Download file" })).toBeTruthy();
+      fireEvent.click(within(rowOf("Лекция 1")).getByRole("button", { name: "Download file" }));
       await vi.waitFor(() => expect(start).toHaveBeenCalledWith(DATASET, "r-view", expect.any(String)));
       expect(await screen.findByRole("button", { name: "Downloading…" })).toBeDisabled();
     } finally {

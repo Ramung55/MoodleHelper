@@ -166,7 +166,7 @@ export function Materials() {
                           {downloadsApi && downloadable(m) && (() => {
                             const t = transfers.byMaterial.get(m.recordId);
                             const busy = isActive(t) || transfers.pending.has(m.recordId);
-                            return <Button size="sm" variant="ghost" disabled={busy} title={busy ? "This file is already downloading" : undefined} onClick={() => void transfers.start(m.recordId)}>{busy ? "Downloading…" : t ? "Download again" : "Download PDF"}</Button>;
+                            return <Button size="sm" variant="ghost" disabled={busy} title={busy ? "This file is already downloading" : undefined} onClick={() => void transfers.start(m.recordId)}>{busy ? "Downloading…" : t ? "Download again" : "Download file"}</Button>;
                           })()}
                           {!downloadsApi && m.provenance === "legacy" && m.kind === "file" && (
                             <Button size="sm" variant="ghost" onClick={async () => {

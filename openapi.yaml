@@ -2877,7 +2877,10 @@ components:
           title: Url
         format:
           type: string
-          const: pdf
+          enum:
+          - pdf
+          - docx
+          - pptx
           title: Format
         suggestedName:
           type: string

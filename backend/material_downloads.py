@@ -2,7 +2,8 @@
 
 The backend never fetches Moodle bytes. It resolves a stable material ID to a
 validated credential-free SDU destination (an exact pluginfile URL, or the exact
-`/mod/resource/view.php?id=<cmid>` link of a collected PDF resource record),
+`/mod/resource/view.php?id=<cmid>` link of a collected PDF, DOCX or PPTX resource
+record, #85),
 registers one opaque transfer per dataset+material, and records honest
 progress/terminal outcomes reported by the extension's packaged transfer page.
 The capability is on only for the trusted startup real namespace in #20's
@@ -45,10 +46,14 @@ NEXT = {'queued': {'validating', 'failed', 'cancelled', 'interrupted'},
 PLUGINFILE = re.compile(r'^https://moodle\.sdu\.edu\.kz/pluginfile\.php/[1-9][0-9]*/mod_resource/content/[1-9][0-9]*/'
                         r'(?:[A-Za-z0-9._~!$&\'()*+,;=:@-]|%[0-9A-F]{2})+(?:\?forcedownload=1)?$')
 RESOURCE_VIEW = 'https://moodle.sdu.edu.kz/mod/resource/view.php?id={}'
+# #85 (owner decision 2026-11-03): PDF, DOCX and PPTX only; EPUB and folder entries are declined.
+FORMATS = {'pdf': 'application/pdf',
+           'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+           'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'}
 MESSAGES = {
     'material_not_found': 'This material is no longer in your local index. Refresh materials and try again.',
     'not_a_file': 'Only a single file can be downloaded. Folders and links open in Moodle instead.',
-    'unsupported_type': 'Only PDF files can be downloaded for now. Open this resource in Moodle instead.',
+    'unsupported_type': 'Only PDF, Word (DOCX) and PowerPoint (PPTX) files can be downloaded. Open this resource in Moodle instead.',
     'unsafe_destination': 'This file has no verified Moodle download address. Open it in Moodle instead.',
     'source_unavailable': 'Downloads need a verified signed-in Moodle session in the Chrome extension, which is not available yet. Open the file in Moodle instead.',
 }
@@ -93,7 +98,7 @@ class MaterialTransferDescriptor(WireModel):
     attemptId: OpaqueId
     materialId: MaterialId
     url: str
-    format: Literal['pdf']
+    format: Literal['pdf', 'docx', 'pptx']
     suggestedName: str = Field(default=None, max_length=200)
     maxBytes: Integer = Field(ge=1)
     timeoutMs: Integer = Field(ge=1)
@@ -124,16 +129,17 @@ def resolve(snapshot: dict, material_id: str) -> tuple[dict | None, str | None]:
             return None, 'not_a_file'
         file_type = o['fileType'].get('value') if o['fileType']['kind'] == 'known' else None
         mime = o['mimeType'].get('value') if o['mimeType']['kind'] == 'known' else None
-        if file_type != 'pdf' or mime not in (None, 'application/pdf'):
+        if file_type not in FORMATS or mime not in (None, FORMATS[file_type]):
             return None, 'unsupported_type'
+        fmt = file_type
         url = o.get('destinationUrl')
         title = o['title'].get('value') if o['title']['kind'] == 'known' else None
         cmid = o.get('sourceCourseModuleId')
         # SDU links a resource as its exact view.php?id=<cmid>; only the response
-        # (followed redirect to pluginfile.php, application/pdf, %PDF-) confirms a file.
+        # (followed redirect to pluginfile.php, its content type and container check) confirms a file.
         if (url and isinstance(cmid, str) and re.fullmatch(r'[1-9][0-9]{0,18}', cmid)
                 and url == RESOURCE_VIEW.format(cmid)):
-            descriptor = {'url': url, 'format': 'pdf'}
+            descriptor = {'url': url, 'format': fmt}
             if isinstance(title, str) and title.strip():
                 descriptor['suggestedName'] = title.strip()[:200]
             return descriptor, None
@@ -143,12 +149,12 @@ def resolve(snapshot: dict, material_id: str) -> tuple[dict | None, str | None]:
             return None, 'material_not_found'
         if legacy['fileType'] in ('link', 'video'):
             return None, 'not_a_file'
-        if legacy['fileType'] != 'pdf':
+        if legacy['fileType'] not in FORMATS:
             return None, 'unsupported_type'
-        url, title = legacy['url'], legacy['title']
+        url, title, fmt = legacy['url'], legacy['title'], legacy['fileType']
     if not url or not PLUGINFILE.match(url):
         return None, 'unsafe_destination'
-    descriptor = {'url': url, 'format': 'pdf'}
+    descriptor = {'url': url, 'format': fmt}
     if isinstance(title, str) and title.strip():
         descriptor['suggestedName'] = title.strip()[:200]
     return descriptor, None
@@ -268,7 +274,9 @@ class MaterialDownloadService:
             if row['state'] != 'queued' or row['descriptorIssued'] or row['cancelRequested']:
                 raise TransferConflict('Transfer is no longer waiting to start.')
             descriptor, reason = resolve(self.store.read(), row['materialId'])
-            if reason or not self.capability or descriptor['url'] != row['descriptor']['url']:
+            # #85: a changed URL or a changed format (badge) both fail the attempt.
+            if (reason or not self.capability or descriptor['url'] != row['descriptor']['url']
+                    or descriptor['format'] != row['descriptor'].get('format', 'pdf')):
                 row.update(state='failed', reason='outcome_unknown' if not reason else 'unsupported_type',
                            updatedAt=self._now(), generation=row['generation'] + 1)
                 rows.put(row)

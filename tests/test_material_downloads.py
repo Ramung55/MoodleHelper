@@ -60,11 +60,23 @@ def test_unsupported_materials_never_register(make, material, reason):
     assert start(client, store, material).json()['reason'] == reason
 
 
-def test_docx_and_links_are_truthfully_unsupported(make):
-    client, store = make(snapshot(file_type='docx'))
-    assert start(client, store).json()['reason'] == 'unsupported_type'
-    client, store = make(snapshot(file_type='link'))
-    assert start(client, store).json()['reason'] == 'not_a_file'
+def test_other_types_and_links_are_truthfully_unsupported(make):
+    # #85: DOCX and PPTX are now allowed; any other type stays unsupported, links not a file.
+    client, store = make(snapshot(file_type='other'))
+    r = start(client, store).json()
+    assert r['reason'] == 'unsupported_type'
+    assert r['message'] == 'Only PDF, Word (DOCX) and PowerPoint (PPTX) files can be downloaded. Open this resource in Moodle instead.'
+    for file_type in ('link', 'video'):
+        client, store = make(snapshot(file_type=file_type))
+        assert start(client, store).json()['reason'] == 'not_a_file'
+
+
+@pytest.mark.parametrize('file_type', ['docx', 'pptx'])
+def test_legacy_docx_and_pptx_register_with_their_format(make, file_type):
+    client, store = make(snapshot(url=PDF_URL.replace('.pdf', '.' + file_type), file_type=file_type))
+    t = start(client, store).json()['transfer']
+    d = client.post(f"/api/material-downloads/{t['transferId']}/descriptor").json()
+    assert d['format'] == file_type and d['url'].endswith('.' + file_type)
 
 
 @pytest.mark.parametrize('url', ['https://moodle.sdu.edu.kz/pluginfile.php/42/mod_resource/content/3/a.pdf?token=x',
@@ -310,8 +322,11 @@ def test_synthetic_provider_namespace_stays_source_unavailable(tmp_path):
     (resource_record(module='url', kind='link', file_type='link'), 'not_a_file'),
     (resource_record(module='resource', kind='link', file_type=None), 'not_a_file'),
     (resource_record(file_type='other', mime='application/epub+zip'), 'unsupported_type'),
-    (resource_record(file_type='docx'), 'unsupported_type'),
-    (resource_record(file_type='pptx'), 'unsupported_type'),
+    (resource_record(file_type='other'), 'unsupported_type'),
+    (resource_record(file_type=None), 'unsupported_type'),
+    (resource_record(file_type='docx', mime='application/pdf'), 'unsupported_type'),
+    (resource_record(file_type='pptx', mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'), 'unsupported_type'),
+    (resource_record(file_type='pdf', mime='application/octet-stream'), 'unsupported_type'),
 ])
 def test_real_namespace_destination_and_type_rules(real, record, reason):
     client, store = real(collected(record))
@@ -388,3 +403,62 @@ def test_network_detail_is_a_closed_enum(real, detail):
     r = client.post(f'/api/material-downloads/{tid}/status', json={'generation': gen, 'attemptId': attempt, 'state': 'failed', 'reason': 'network', 'networkDetail': detail})
     assert r.status_code == 422
     assert client.get(f'/api/material-downloads/{tid}').json()['state'] == 'validating'
+
+
+# ---- #85 DOCX and PPTX (owner decision 2026-11-03) ----
+DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+
+
+@pytest.mark.parametrize('file_type,mime', [('pdf', None), ('pdf', 'application/pdf'), ('docx', None), ('docx', DOCX_MIME),
+                                            ('pptx', None), ('pptx', PPTX_MIME)])
+def test_resolve_allows_pdf_docx_pptx_with_matching_or_unknown_mime(file_type, mime):
+    from backend.material_downloads import resolve
+    s = {'materials': [], 'collection': {'records': [resource_record(file_type=file_type, mime=mime)]}}
+    assert resolve(s, 'r-pdf') == ({'url': VIEW_URL, 'format': file_type, 'suggestedName': 'Лекция 1'}, None)
+
+
+@pytest.mark.parametrize('record,reason', [
+    (resource_record(file_type='other', mime='application/epub+zip'), 'unsupported_type'),  # EPUB: declined
+    (resource_record(file_type=None), 'unsupported_type'),
+    (resource_record(file_type='docx', mime=PPTX_MIME), 'unsupported_type'),
+    (resource_record(file_type='pptx', mime='application/zip'), 'unsupported_type'),
+    (resource_record(module='folder', kind='folder', file_type=None), 'not_a_file'),
+    (resource_record(module='folder', kind='file', file_type='docx'), 'not_a_file'),  # folder entry: declined
+    (resource_record(module='page', kind='link', file_type=None, url=''), 'not_a_file'),
+    (resource_record(module='url', kind='link', file_type='link'), 'not_a_file'),
+    (resource_record(kind='link', file_type='video'), 'not_a_file'),
+])
+def test_resolve_declines_epub_unknown_mismatch_and_folders(record, reason):
+    from backend.material_downloads import resolve
+    assert resolve({'materials': [], 'collection': {'records': [record]}}, 'r-pdf') == (None, reason)
+
+
+@pytest.mark.parametrize('file_type', ['docx', 'pptx'])
+def test_verified_real_namespace_queues_docx_and_pptx(real, file_type):
+    client, store = real(collected(resource_record(file_type=file_type)))
+    r = start(client, store, 'r-pdf').json()
+    assert r['supported'] is True and r['transfer']['state'] == 'queued'
+    again = start(client, store, 'r-pdf', key='k2').json()  # repeated click: the same transfer
+    assert again['transfer']['transferId'] == r['transfer']['transferId']
+    d = client.post(f"/api/material-downloads/{r['transfer']['transferId']}/descriptor").json()
+    assert d['url'] == VIEW_URL and d['format'] == file_type and d['maxBytes'] == 20 * 1024 * 1024
+
+
+@pytest.mark.parametrize('before,after', [('pptx', 'docx'), ('docx', 'pptx'), ('pdf', 'pptx'), ('docx', 'other')])
+def test_descriptor_fails_when_the_format_changed(real, before, after):
+    client, store = real(collected(resource_record(file_type=before)))
+    t = start(client, store, 'r-pdf').json()['transfer']
+    def change(s):
+        s['collection']['records'][0]['observations'][-1]['fileType'] = {'kind': 'known', 'value': after}
+    store.mutate(change)
+    assert client.post(f"/api/material-downloads/{t['transferId']}/descriptor").status_code == 409
+    failed = client.get(f"/api/material-downloads/{t['transferId']}").json()
+    assert failed['state'] == 'failed' and failed['reason'] in ('outcome_unknown', 'unsupported_type')
+    assert all('downloadedAt' not in m for m in store.read()['materials'])
+
+
+def test_descriptor_format_enum_is_additive():
+    from backend.material_downloads import MaterialTransferDescriptor
+    schema = MaterialTransferDescriptor.model_json_schema()['properties']['format']
+    assert schema['enum'] == ['pdf', 'docx', 'pptx']
