@@ -403,3 +403,71 @@ def test_non_sqlite_real_namespace_stays_unavailable():
         h = {'X-Moodle-Helper-Bridge-Binding': client.get('/api/bridge-context').json()['binding']}
         response = client.post('/api/sync', headers=h)
         assert response.status_code == 503 and response.json() == {'message': SYNC_UNAVAILABLE}
+
+
+# #83 AC4 ---------------------------------------------------------------------
+
+def exact(iso):
+    return dict(kind='exact', iso=iso, tz='Asia/Almaty')
+
+
+def observed_scan(source='9001'):
+    """Wire evidence shaped like the #83 live scan: assignment pages, the upcoming calendar and course-page material."""
+    course = f'{ORIGIN}/course/view.php?id={source}'
+    def assign(cm, title, due, raw):
+        base = dict(due=dict(value=exact(due), rawText=raw, location='assignment.base.due'))
+        result = dict(kind='assignment', observations=[dict(sourceCourseId=source, sourceActivityId=cm, sourceCourseModuleId=cm,
+                      sourceUrl=f'{ORIGIN}/mod/assign/view.php?id={cm}', title=title, observedAt=TIME, baseDates=base,
+                      individualExtensions=[], effectiveDates=deepcopy(base))], reviews=[], diagnostics=[], pages=[],
+                      coverage='complete', scope='visited_activity_only')
+        return dict(pageType='assignment', scope='visited_activity_only', outcome='ok', coverage='complete', reasons=[], observedAt=TIME,
+                    pageUrl=f'{ORIGIN}/mod/assign/view.php?id={cm}', collector='assignment', result=result)
+    def material(cm, module, kind, file_type):
+        url = f'{ORIGIN}/mod/{module}/view.php?id={cm}'
+        ref = dict(sourcePageUrl=course, sourceUrl=url, destinationUrl=url, observedAt=TIME, location='course.material')
+        return dict(ref, sourceCourseId=source, sourceCourseModuleId=cm, sourceModuleType=module,
+                    resourceKey=f'["{ORIGIN}","{source}","{module}","module","{cm}"]', kind=kind,
+                    title={'kind': 'known', 'value': f'Fictional {module} {cm}'}, section={'kind': 'known', 'value': '70002'},
+                    fileType={'kind': 'known', 'value': file_type}, mimeType={'kind': 'unknown'}, references=[dict(ref)])
+    materials = dict(kind='material', observations=[material('990104', 'resource', 'file', 'pdf'), material('990106', 'url', 'link', 'link')],
+                     reviews=[], diagnostics=[dict(pageIndex=0, recordIndex=3, reason='unsupported_structure')],
+                     pages=[dict(pageIndex=0, coverage='partial', candidateCount=4, paginationPending=False)],
+                     coverage='partial', scope='supplied_pages_only')
+    calendar = dict(kind='calendar', observations=[dict(sourceEventId='880001', sourceCourseId=source, title='Fictional Lab Report',
+                    sourceUrl=f'{ORIGIN}/calendar/view.php?event=880001', observedAt=TIME,
+                    start=dict(value=exact('2028-03-07T14:30:00+05:00'), rawText='Fictional Lab Report is due', location='calendar.start'),
+                    activity=dict(moduleType='assign', sourceActivityId='990102', sourceCourseModuleId='990102',
+                                  sourceUrl=f'{ORIGIN}/mod/assign/view.php?id=990102'))],
+                    reviews=[], diagnostics=[dict(reason='unselected_course', pageIndex=0, recordIndex=1)],
+                    pages=[dict(coverage='partial', candidateCount=2, paginationPending=False)], coverage='partial', scope='supplied_ranges_only')
+    return [dict(pageType='course', scope='supplied_pages_only', outcome='partial', coverage='partial', reasons=['undiscovered'],
+                 observedAt=TIME, pageUrl=course, collector='material', result=materials),
+            dict(pageType='material', scope='unknown', outcome='unavailable', coverage='none', reasons=['unsupported_page', 'collector_unavailable'],
+                 observedAt=TIME, pageUrl=f'{ORIGIN}/mod/resource/view.php?id=990104'),
+            assign('990101', 'Fictional Essay Outline', '2028-03-08T23:59:00+05:00', 'Due: Wednesday, 8 March 2028, 11:59 PM'),
+            assign('990102', 'Fictional Lab Report', '2028-03-07T14:30:00+05:00', 'Due: Tuesday, 7 March 2028, 2:30 PM'),
+            unavailable('submission', f'{ORIGIN}/mod/assign/view.php?id=990101'),
+            dict(pageType='calendar', scope='supplied_ranges_only', outcome='partial', coverage='partial', reasons=['undiscovered'],
+                 observedAt=TIME, pageUrl=f'{ORIGIN}/calendar/view.php?view=upcoming', collector='calendar', result=calendar),
+            undiscovered('quiz')]
+
+
+def test_scan_accepts_observed_assignment_calendar_and_material_results(live):
+    live.client.put('/api/tracked-courses', headers=live.h(), json=['c-csc'])
+    live.post('/api/sync')
+    claim = live.post('/api/scan/claim', {}).json()['claim']
+    assert claim['sourceCourseId'] == '9001'
+    assert live.post('/api/scan/finish', completed(claim, observed_scan())).status_code == 200
+    snapshot = live.client.get('/api/snapshot').json()
+    due = {a['title']: next(s['date'] for s in a['sources'] if s['source'] == 'moodle') for a in snapshot['assessments']
+           if a['courseId'] == 'c-csc' and any(s.get('url', '').startswith(f'{ORIGIN}/mod/assign/view.php?id=9901') for s in a['sources'])}
+    assert due == {'Fictional Essay Outline': exact('2028-03-08T23:59:00+05:00'), 'Fictional Lab Report': exact('2028-03-07T14:30:00+05:00')}
+    kinds = sorted(r['kind'] for r in snapshot['collection']['records'])
+    assert kinds == ['assignment', 'assignment', 'calendar', 'material', 'material']
+    pdf = next(r for r in snapshot['collection']['records'] if r['kind'] == 'material' and r['observations'][0]['kind'] == 'file')
+    assert pdf['observations'][0]['destinationUrl'] == f'{ORIGIN}/mod/resource/view.php?id=990104'
+    assert not snapshot['collection']['reviews']
+    pages = live.client.get(f"/api/scan/jobs/{claim['job']['id']}/pages").json()['pages']
+    checked = {(p['pageType'], p.get('collector')): p['outcome'] for p in pages if p.get('collector')}
+    assert checked == {('course', 'material'): 'partial', ('assignment', 'assignment'): 'ok', ('calendar', 'calendar'): 'partial'}
+    assert live.sync_entry('c-csc')['status'] == 'partial'
