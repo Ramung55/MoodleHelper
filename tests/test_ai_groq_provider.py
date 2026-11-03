@@ -93,7 +93,12 @@ def test_availability_names_groq_model_retention_and_3072_limit(tmp_path):
     assert info['mode'] == 'groq' and info['destination'] == 'groq:openai/gpt-oss-120b'
     assert info['provider'] == 'Groq openai/gpt-oss-120b, free plan (external)'
     assert info['policyVersion'] == 'groq-free-policy-1' and info['retention'] == GROQ_RETENTION
-    assert 'Groq' in info['retention'] and '30 days' in info['retention'] and 'training' in info['retention'] and '18+' in info['retention']
+    # #44 consent copy, word for word from the issue body (PM grooming 2026-11-03).
+    assert info['retention'] == ('The selected excerpts are sent to Groq (GroqCloud free plan) for processing. By default '
+                                 'Groq does not keep inputs or outputs, but it may log them for up to 30 days to troubleshoot '
+                                 "errors or investigate suspected abuse; logs are stored in the United States. Groq's terms "
+                                 'do not allow it to train models on them. You must be 18 or older. Do not send personal or '
+                                 'confidential information. Nothing else from Moodle Helper is sent.')
     assert len(info['retention']) <= 500  # the client schema bound
     limits = info['limits']
     assert limits['maxBodyBytes'] == GROQ_MAX_BODY_BYTES == 3072

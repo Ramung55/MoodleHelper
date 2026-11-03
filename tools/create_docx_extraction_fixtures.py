@@ -24,3 +24,13 @@ write("extraction-unsupported.docx", ZIP_STORED, '<w:p><w:fldSimple w:instr="DAT
 write("extraction-nested.docx", ZIP_STORED, '<w:tbl><w:tr><w:tc><w:tbl/></w:tc></w:tr></w:tbl>')
 write("extraction-empty.docx", ZIP_STORED, '<w:p/>')
 write("extraction-entity.docx", ZIP_STORED, '<w:p><w:r><w:t>&external;</w:t></w:r></w:p>', '<!DOCTYPE document [<!ENTITY external SYSTEM "https://example.invalid/private">]>')
+# #44 live checks: the #42 eval fixture sentences (_docs/architecture/ai-contract-eval-fixtures.json), worded so the
+# local detector finds them. The first three stay unresolved locally, so "Optional AI help" offers them; the last
+# one resolves locally and is not offered.
+write("ai-fallback-synthetic.docx", ZIP_STORED, "".join(f"<w:p><w:r><w:t>{line}</w:t></w:r></w:p>" for line in [
+    "Synthetic syllabus for the optional AI help check (no real course)",
+    "Assignment 1 (essay) deadline: 03/04/2027.",
+    "Midterm exam in Week 6.",
+    "Контрольная работа 2 — 20 ноября.",
+    "Lab assignment 2 is due 14 November 2026.",
+]))

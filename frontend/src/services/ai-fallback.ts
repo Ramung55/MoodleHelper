@@ -6,6 +6,7 @@ import { apiBase } from "./api-base";
  */
 import { z } from "zod";
 import type { AssessmentMention } from "@/domain/assessment-mentions";
+import type { ParsedAssessmentMention } from "@/domain/syllabus-dates";
 import { LOCAL_PIPELINE_VERSION } from "@/domain/local-routing";
 import { LocalSyllabusProposal, type LocalSyllabusResult, type LocalSyllabusInput } from "@/domain/types";
 import { AI_MAX_BODY_BYTES, AI_MAX_EXCERPT_BYTES, AI_MAX_EXCERPTS, AI_VERSION, AiRequestError, aiPayloadDigest, requestAiExtract, type AiContextValue, type AiExcerptValue, type AiExtractRequestValue, type AiExtractResponseValue } from "./ai-gateway";
@@ -32,6 +33,11 @@ export async function loadAiAvailability(baseUrl = apiBase(), fetcher: typeof fe
     const parsed = AiAvailabilityInfo.safeParse(await response.json());
     return parsed.success ? parsed.data : { available: false, reason: UNAVAILABLE_COPY };
   } catch { signal?.throwIfAborted(); return { available: false, reason: UNAVAILABLE_COPY }; }
+}
+
+/** The excerpts "Optional AI help" offers: OCR regions and mentions without a proposed calendar date. */
+export function unresolvedMentions(mentions: AssessmentMention[], parsed: ParsedAssessmentMention[]): AssessmentMention[] {
+  return mentions.filter(mention => mention.location.kind === "ocr_region" || !parsed.find(value => value.mention.id === mention.id)?.dates.some(date => date.state === "proposed" && date.date.kind !== "unknown"));
 }
 
 export const utf8Bytes = (text: string) => new TextEncoder().encode(text).length;
@@ -99,7 +105,7 @@ export function classifyAiFailure(error: unknown, cancelledByUser: boolean): AiO
     if (s === 504) return { kind: "timeout", maybeReceived: true, message: `The AI provider timed out. Nothing was retried automatically.${local}` };
     if (s === 499) return { kind: "cancelled", maybeReceived: true, message: `The AI request was cancelled. No proposals were accepted.${local}` };
     if (s === 502 && code === "invalid_output") return { kind: "invalid", maybeReceived: true, message: `The AI response was invalid. No proposals were accepted.${local}` };
-    if (s === 502) return { kind: "provider", maybeReceived: true, message: `The AI provider refused or failed. Nothing was retried automatically.${local}` };
+    if (s === 502) return { kind: "provider", maybeReceived: true, message: `AI provider failed. Nothing was retried automatically; retry the same request or continue local review.${local}` };
     if (s === 409 && code === "duplicate_request") return { kind: "conflict", maybeReceived: true, message: `This exact request was already processed; its outcome is recorded and it was not resent. Review and consent again to send a new request.${local}` };
     if (s === 409) return { kind: "conflict", maybeReceived: false, message: `The local dataset or request changed. Review a new preview before sending.${local}` };
     if (s === 422 || s === 413) return { kind: "consent", maybeReceived: false, message: `The gateway rejected the consent or payload. Review a new preview.${local}` };

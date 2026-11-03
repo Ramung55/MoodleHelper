@@ -51,11 +51,13 @@ GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'  # hardcoded: the k
 GROQ_USER_AGENT = 'MoodleHelper-AIGateway/1.0'  # Cloudflare in front of Groq refuses the default Python-urllib agent
 GROQ_POLICY = 'groq-free-policy-1'
 GROQ_PRICES_VERSION = 'groq-free-2026-11-03'
-# Wording follows console.groq.com/docs/your-data and the Groq Services Agreement, checked 2026-11-03.
-GROQ_RETENTION = ("The selected excerpts are sent to Groq (free plan) and processed in the US. Under Groq's terms they "
-                  'are not used for training, and no inference data is kept by default, but Groq may log inputs and '
-                  'outputs for up to 30 days to troubleshoot errors or investigate suspected abuse. Groq requires users '
-                  'to be 18+. Nothing else from Moodle Helper is sent.')
+# Wording is the #44 consent copy (PM grooming 2026-11-03), from console.groq.com/docs/your-data and the
+# Groq Services Agreement, checked 2026-11-03. A change needs an owner decision on #44 and a policy bump.
+GROQ_RETENTION = ('The selected excerpts are sent to Groq (GroqCloud free plan) for processing. By default Groq does '
+                  'not keep inputs or outputs, but it may log them for up to 30 days to troubleshoot errors or '
+                  "investigate suspected abuse; logs are stored in the United States. Groq's terms do not allow it "
+                  'to train models on them. You must be 18 or older. Do not send personal or confidential '
+                  'information. Nothing else from Moodle Helper is sent.')
 GROQ_MAX_BODY_BYTES = 3072  # sized with the token bound below for the free plan's 8K tokens per minute
 GROQ_TOKENS_PER_MINUTE = 8_000
 GROQ_TEMPLATE_TOKENS = 256  # fixed chat-template allowance on top of the byte bound
