@@ -22,6 +22,7 @@ import {installPopup} from '../extension/src/popup';
 import {BACKEND} from '../extension/src/dashboard-bridge';
 import {formatInstant} from '../shared/src/full-sync';
 import {JSDOM} from '../frontend/node_modules/jsdom/lib/api.js';
+import {buildMaterialLibrary} from '../frontend/src/domain/material-library';
 
 const root = path.resolve(import.meta.dirname, '..');
 const python = path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
@@ -285,6 +286,19 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
   expect(records.filter((r: any) => r.kind === 'material').map((r: any) => [r.observations[0].sourceCourseModuleId, r.observations[0].kind]).sort()).toEqual(
     [['990104', 'file'], ['990105', 'file'], ['990106', 'link'], ['990107', 'link'], ['990204', 'file'], ['990205', 'file'], ['990206', 'link'], ['990207', 'link']]);
   expect(snapshot.collection.refreshes.every((r: any) => r.evidenceMode === 'verified')).toBe(true);
+  // #83 owner Chrome check: the course-page material list is stored as collected material records
+  // (snapshot.collection.records), which the Materials page lists. The legacy Snapshot.materials list is
+  // never written by a scan, so its count is 0 by design; the resource and URL pages themselves stay
+  // unrequested (`unsupported_page`/`collector_unavailable` readback rows above).
+  expect(snapshot.materials).toEqual([]);
+  const library = buildMaterialLibrary(snapshot);
+  expect(library).toHaveLength(8);
+  for (const course of ['9001', '9002']) {
+    const n = course.slice(-1);
+    expect(library.filter(i => i.courseId === ids[course]).map(i => [i.provenance, i.kind, i.type, i.destination?.href]).sort()).toEqual([
+      ['collected', 'file', 'pdf', `${ORIGIN}/mod/resource/view.php?id=990${n}04`], ['collected', 'file', 'pptx', `${ORIGIN}/mod/resource/view.php?id=990${n}05`],
+      ['collected', 'link', 'link', `${ORIGIN}/mod/url/view.php?id=990${n}06`], ['collected', 'link', 'unknown', undefined]].sort());
+  }
   await backend.stop(); await backend.start();
   expect(await readback()).toEqual(before);
   // AC3(b): spacing holds across a service-worker restart (dispose, then a fresh install).
