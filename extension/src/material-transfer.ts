@@ -26,7 +26,9 @@ const HTML_PREFIX_BYTES = 256 * 1024;
 export type Reason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown" | "not_a_file";
 export type State = "queued" | "validating" | "saving" | "complete" | "failed" | "cancelled" | "interrupted";
 export type Descriptor = { transferId: string; generation: number; attemptId: string; materialId: string; url: string; format: "pdf"; suggestedName?: string; maxBytes: number; timeoutMs: number };
-export type Transfer = { transferId: string; generation: number; materialId: string; state: State; reason?: Reason; downloadId?: number; cancelRequested: boolean };
+/** Optional detail of a failed `network` outcome: `busy` is a 429/503 on the file fetch (#41). */
+export type NetworkDetail = "busy";
+export type Transfer = { transferId: string; generation: number; materialId: string; state: State; reason?: Reason; networkDetail?: NetworkDetail; downloadId?: number; cancelRequested: boolean };
 /** `busy` marks a 429/503 (reason network); `leaseLost` marks a worker restart (reason download_interrupted). */
 export type Acquired = { ok: true; blob: Blob; filename: string; size: number } | { ok: false; reason: Reason; busy?: true; leaseLost?: true };
 
@@ -296,12 +298,14 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
     generation = t.generation;
     return t;
   };
-  const end = async (state: State, reason?: Reason, text?: string): Promise<View> => {
+  const end = async (state: State, reason?: Reason, text?: string, networkDetail?: NetworkDetail): Promise<View> => {
     finished = true;
     const message = text ?? (state === "complete" ? "Downloaded. This is a download record; the file may later be moved or removed." : REASON_TEXT[reason ?? "outcome_unknown"]);
+    // The busy detail is sent only with failed/network, so the dashboard can show the same busy text.
+    const detail = networkDetail && state === "failed" && reason === "network" ? { networkDetail } : {};
     for (let i = 0; i < 3; i++) {
       try {
-        await report({ state, ...(reason ? { reason } : {}), ...(downloadId !== undefined ? { downloadId } : {}) });
+        await report({ state, ...(reason ? { reason } : {}), ...detail, ...(downloadId !== undefined ? { downloadId } : {}) });
         return view({ phase: state, message, ...(downloadId !== undefined ? { downloadId } : {}) });
       } catch { /* retry the same outcome; never restart the download */ }
     }
@@ -325,7 +329,9 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
       if (got.reason === "cancelled_by_user") return await end("cancelled", "cancelled_by_user");
       // Worker restart: the lease port dropped, the fetch was aborted, nothing was saved.
       if (got.leaseLost) return await end("interrupted", "download_interrupted", LEASE_LOST_TEXT);
-      return await end("failed", got.reason, got.busy ? BUSY_TEXT : undefined);
+      // 429/503: reason stays `network`; the record carries networkDetail "busy" for the dashboard.
+      if (got.busy) return await end("failed", got.reason, BUSY_TEXT, "busy");
+      return await end("failed", got.reason);
     }
     if (user.signal.aborted) return await end(deps.closed.aborted ? "interrupted" : "cancelled", deps.closed.aborted ? "page_closed" : "cancelled_by_user");
     blobUrl = deps.blobs.create(got.blob);

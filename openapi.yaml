@@ -2778,6 +2778,11 @@ components:
           - outcome_unknown
           - not_a_file
           title: Reason
+        networkDetail:
+          type: string
+          const: busy
+          title: Networkdetail
+          description: 'Optional detail of a failed `network` outcome (#41). `busy`: the file fetch got HTTP 429 or 503 (Moodle answered busy). Only with state `failed` and reason `network`; absent for every other network failure.'
         downloadId:
           type: integer
           minimum: 0.0
@@ -2934,6 +2939,11 @@ components:
           - outcome_unknown
           - not_a_file
           title: Reason
+        networkDetail:
+          type: string
+          const: busy
+          title: Networkdetail
+          description: 'Optional detail of a failed `network` outcome (#41). `busy`: the file fetch got HTTP 429 or 503 (Moodle answered busy). Only with state `failed` and reason `network`; absent for every other network failure.'
         downloadId:
           type: integer
           minimum: 0.0

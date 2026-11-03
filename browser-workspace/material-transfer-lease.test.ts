@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { BUSY_TEXT as DASHBOARD_BUSY_TEXT, transferLabel, type MaterialTransfer as DashboardTransfer } from "../frontend/src/domain/material-transfer";
 import {
   BUSY_TEXT, LEASE_LOST_TEXT, LEASE_WAIT_MS, REASON_TEXT, REQUEST_LIMIT_MS, acquire, leaseRequester, runTransfer,
   type Descriptor, type DownloadDelta, type LeaseClientPort, type LeaseRequester, type Transfer,
@@ -300,13 +301,32 @@ describe("#41 lease rules (AC1)", () => {
       const v = await p.go();
       await pause(5);
       expect(calls).toBe(1);
-      expect(p.reports.at(-1)).toMatchObject({ state: "failed", reason: "network" });
+      // The reported outcome stays failed/network and carries the busy detail for the dashboard (#41 QA fix 2).
+      expect(p.reports.at(-1)).toEqual({ generation: expect.any(Number), attemptId: "a1", state: "failed", reason: "network", networkDetail: "busy" });
+      expect(p.reports.some((r) => r.state === "complete" || r.downloadId !== undefined)).toBe(false);
+      expect(p.downloads).toEqual([]);
       expect(v.message).toBe(BUSY_TEXT);
       const release = w.log.find((e) => e.event === "release")!;
       expect(release.detail as number).toBeGreaterThanOrEqual(release.at! + wait);
       // The next request (a scan, say) is refused by the gate until that wait has passed.
       expect(await w.authority.acquire(w.clock.now + wait - 1)).toBeNull();
       expect(await w.authority.acquire(w.clock.now + wait)).toEqual(expect.any(String));
+    }
+  });
+  it("a plain network error and an off-origin redirect end failed/network with no busy detail", async () => {
+    const fetchers = [
+      () => Promise.reject(new TypeError("Failed to fetch")),
+      () => Promise.resolve(reply(PDF, { url: "https://evil.example/pluginfile.php/1/x.pdf" })),
+    ];
+    for (const fetcher of fetchers) {
+      const w = worker();
+      const p = page(leaseRequester(w.connect()), fetcher, []);
+      const v = await p.go();
+      const last = p.reports.at(-1);
+      expect(last).toMatchObject({ state: "failed", reason: "network" });
+      expect(last).not.toHaveProperty("networkDetail");
+      expect(p.downloads).toEqual([]);
+      expect(v.message).toBe(REASON_TEXT.network);
     }
   });
   it("a worker restart (lease port disconnects) aborts the fetch: interrupted, nothing saved", async () => {
@@ -333,5 +353,34 @@ describe("#41 lease rules (AC1)", () => {
     await pause(5);
     expect(w.gate.held()).toBe(false);
     expect(w.log.map((e) => e.event)).toEqual(["acquire", "release"]);
+  });
+});
+
+describe("#41 QA fix 2: the busy outcome reaches the dashboard label", () => {
+  /** The record the backend stores from the page's last report (round trip: tests/test_material_downloads.py). */
+  const recordOf = (r: any): DashboardTransfer => {
+    const { generation: _g, attemptId: _a, ...outcome } = r;
+    return { transferId: "tx-1", generation: 9, materialId: "r-pdf", cancelRequested: false, createdAt: "2026-11-03T00:00:00Z", updatedAt: "2026-11-03T00:00:00Z", ...outcome };
+  };
+  it.each([429, 503])("%i: the page reports failed/network with networkDetail busy; the dashboard shows the busy text", async (status) => {
+    const w = worker();
+    const p = page(leaseRequester(w.connect()), async () => reply("", { status, type: "text/html" }), []);
+    const v = await p.go();
+    const last = p.reports.at(-1);
+    expect(last).toMatchObject({ state: "failed", reason: "network", networkDetail: "busy" });
+    expect(p.downloads).toEqual([]);
+    expect(v.message).toBe(DASHBOARD_BUSY_TEXT);
+    expect(transferLabel(recordOf(last)).text).toBe("Download failed. Moodle is busy. Try again later. Nothing was saved.");
+  });
+  it("a generic network error: no detail, and the dashboard keeps the generic network text", async () => {
+    const w = worker();
+    const p = page(leaseRequester(w.connect()), () => Promise.reject(new TypeError("Failed to fetch")), []);
+    await p.go();
+    const last = p.reports.at(-1);
+    expect(last).not.toHaveProperty("networkDetail");
+    expect(transferLabel(recordOf(last)).text).toBe("Download failed. Moodle could not be reached, or sent the request to another site. Nothing was saved.");
+  });
+  it("the transfer page and the dashboard use the same busy text", () => {
+    expect(DASHBOARD_BUSY_TEXT).toBe(BUSY_TEXT);
   });
 });

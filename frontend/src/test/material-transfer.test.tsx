@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildDemoSnapshot } from "@/services/fixtures";
 import { Materials } from "@/routes/materials";
-import { transferLabel, type MaterialTransfer } from "@/domain/material-transfer";
+import { BUSY_TEXT, transferLabel, type MaterialTransfer } from "@/domain/material-transfer";
 import type { Snapshot } from "@/domain/types";
 
 const state = vi.hoisted(() => ({ app: {} as any }));
@@ -31,13 +31,16 @@ describe("#41 transfer labels", () => {
     expect(transferLabel(base({ state: "cancelled", reason: "cancelled_by_user" })).text).toContain("Nothing is available offline");
     expect(transferLabel(base({ state: "interrupted", reason: "page_closed" })).canRetry).toBe(true);
   });
-  it("#41 pilot texts: sign-in and not a file; the old combined redirect text is gone", () => {
+  it("#41 pilot texts: sign-in, not a file and busy; the old combined redirect text is gone", () => {
     expect(transferLabel(base({ state: "failed", reason: "sign_in_required" })).text)
       .toBe("Download failed. Moodle returned a login page instead of the file. Sign in to SDU Moodle in Chrome, then retry. Nothing was saved.");
     expect(transferLabel(base({ state: "failed", reason: "not_a_file" })).text)
       .toBe("Download failed. This resource opens as a Moodle page, not a file. Open it in Moodle.");
-    // `network` also covers plain network errors and off-origin redirects: the record cannot tell
-    // them from 429/503, so the busy text is shown only on the transfer page that saw the status.
+    // 429/503: the record stays failed/network and carries networkDetail "busy" (#41 QA fix 2).
+    expect(BUSY_TEXT).toBe("Moodle is busy. Try again later. Nothing was saved.");
+    expect(transferLabel(base({ state: "failed", reason: "network", networkDetail: "busy" })).text)
+      .toBe("Download failed. Moodle is busy. Try again later. Nothing was saved.");
+    // Any other network failure (no detail) keeps the generic network text.
     expect(transferLabel(base({ state: "failed", reason: "network" })).text)
       .toBe("Download failed. Moodle could not be reached, or sent the request to another site. Nothing was saved.");
     expect(transferLabel(base({ state: "failed", reason: "network" })).text).not.toContain("Moodle is busy");
@@ -113,9 +116,45 @@ describe("#41 explicit download control", () => {
       cleanup();
     }
   });
+  it("shows the busy text for a busy network record and the generic text otherwise", async () => {
+    for (const [record, text, not] of [
+      [base({ state: "failed", reason: "network", networkDetail: "busy" }), "Download failed. Moodle is busy. Try again later. Nothing was saved.", "could not be reached"],
+      [base({ state: "failed", reason: "network" }), "Download failed. Moodle could not be reached, or sent the request to another site. Nothing was saved.", "Moodle is busy"],
+    ] as const) {
+      mount({ startMaterialDownload: vi.fn(), listMaterialDownloads: vi.fn(async () => ({ transfers: [record] })), cancelMaterialDownload: vi.fn() });
+      const status = await screen.findByTestId("transfer-status");
+      expect(status.textContent).toContain(text);
+      expect(status.textContent).not.toContain(not);
+      expect(status.textContent).not.toMatch(/Download record|available offline/);
+      expect(screen.getByRole("button", { name: "Download again" })).toBeEnabled();
+      cleanup();
+    }
+  });
   it("demo/HTTP adapters keep the legacy capability message path", () => {
     mount({});
     expect(screen.queryByRole("button", { name: "Download PDF" })).toBeNull();
     expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
+  });
+});
+
+/**
+ * #41 QA fix 2: the records below are exactly what the transfer page reports and the backend stores
+ * (browser-workspace/material-transfer-lease.test.ts; tests/test_material_downloads.py round trip).
+ */
+describe("#41 busy outcome in the materials view (AC1 limits, Frontend constraint)", () => {
+  const show = async (record: MaterialTransfer) => {
+    mount({ startMaterialDownload: vi.fn(), listMaterialDownloads: vi.fn(async () => ({ transfers: [record] })), cancelMaterialDownload: vi.fn() });
+    return (await screen.findByTestId("transfer-status")).textContent ?? "";
+  };
+  it.each([429, 503])("%i on the file (failed/network, networkDetail busy): the busy text", async () => {
+    const shown = await show(base({ state: "failed", reason: "network", networkDetail: "busy" }));
+    expect(shown).toContain("Moodle is busy. Try again later. Nothing was saved.");
+    expect(shown).not.toContain("could not be reached");
+    expect(shown).not.toMatch(/Download record|available offline/);
+  });
+  it("a generic network error (failed/network, no detail): the generic network text", async () => {
+    const shown = await show(base({ state: "failed", reason: "network" }));
+    expect(shown).toContain("Moodle could not be reached, or sent the request to another site. Nothing was saved.");
+    expect(shown).not.toContain("Moodle is busy");
   });
 });

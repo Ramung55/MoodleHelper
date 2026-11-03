@@ -33,6 +33,9 @@ MaterialId = Annotated[str, Field(min_length=1, max_length=256)]
 State = Literal['queued', 'validating', 'saving', 'complete', 'failed', 'cancelled', 'interrupted']
 Reason = Literal['sign_in_required', 'forbidden', 'not_found', 'network', 'unsupported_type', 'too_large',
                  'timeout', 'cancelled_by_user', 'page_closed', 'download_interrupted', 'outcome_unknown', 'not_a_file']
+# #41: optional detail of a `network` failure. `busy` marks a 429/503 answer to the file
+# fetch (Moodle was reached and said busy), so the dashboard can show the busy text.
+NetworkDetail = Literal['busy']
 Unsupported = Literal['material_not_found', 'not_a_file', 'unsupported_type', 'unsafe_destination', 'source_unavailable']
 ACTIVE = ('queued', 'validating', 'saving')
 TERMINAL = ('complete', 'failed', 'cancelled', 'interrupted')
@@ -63,6 +66,7 @@ class MaterialTransfer(WireModel):
     materialId: MaterialId
     state: State
     reason: Reason = None
+    networkDetail: NetworkDetail = None
     downloadId: Integer = Field(default=None, ge=0)
     bytesReceived: Integer = Field(default=None, ge=0)
     totalBytes: Integer = Field(default=None, ge=0)
@@ -100,6 +104,7 @@ class MaterialTransferStatus(WireModel):
     attemptId: OpaqueId
     state: State
     reason: Reason = None
+    networkDetail: NetworkDetail = None
     downloadId: Integer = Field(default=None, ge=0)
     bytesReceived: Integer = Field(default=None, ge=0, le=MAX_BYTES)
     totalBytes: Integer = Field(default=None, ge=0)
@@ -309,13 +314,15 @@ class MaterialDownloadService:
                 raise TransferConflict('Completion requires the matching Chrome download identifier.')
             if state in ('failed', 'cancelled', 'interrupted') and not body.get('reason'):
                 raise TransferConflict('A terminal failure needs a reason.')
+            if body.get('networkDetail') is not None and not (state == 'failed' and body.get('reason') == 'network'):
+                raise TransferConflict('A network detail belongs only to a failed network outcome.')
             t = self._now()
             row.update(state=state, updatedAt=t, generation=row['generation'] + 1)
-            for key in ('reason', 'downloadId', 'bytesReceived', 'totalBytes'):
+            for key in ('reason', 'networkDetail', 'downloadId', 'bytesReceived', 'totalBytes'):
                 if body.get(key) is not None:
                     row[key] = body[key]
             if state == 'complete':
-                row.update(completedAt=t, reason=None)
+                row.update(completedAt=t, reason=None, networkDetail=None)
                 complete_at = t
             rows.put(row)
             result = self.public(row)

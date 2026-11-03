@@ -334,3 +334,57 @@ def test_new_failure_reasons_never_record_success(real, reason):
     assert r['state'] == state and r['reason'] == reason and 'completedAt' not in r
     assert all('downloadedAt' not in m for m in store.read()['materials'])
     assert client.get('/api/material-downloads').json()['transfers'][0]['state'] == state
+
+
+def _to_validating(client, store):
+    t = start(client, store, 'r-pdf').json()['transfer']
+    d = client.post(f"/api/material-downloads/{t['transferId']}/descriptor").json()
+    v = client.post(f"/api/material-downloads/{t['transferId']}/status", json={'generation': d['generation'], 'attemptId': d['attemptId'], 'state': 'validating'}).json()
+    return t['transferId'], d['attemptId'], v['generation']
+
+
+def test_busy_network_detail_round_trips_to_the_dashboard_list(real):
+    """#41 QA fix 2: a 429/503 stays failed/network and carries networkDetail=busy, never a success record."""
+    client, store = real(collected(resource_record()))
+    tid, attempt, gen = _to_validating(client, store)
+    body = {'generation': gen, 'attemptId': attempt, 'state': 'failed', 'reason': 'network', 'networkDetail': 'busy'}
+    r = client.post(f'/api/material-downloads/{tid}/status', json=body)
+    assert r.status_code == 200
+    assert (r.json()['state'], r.json()['reason'], r.json()['networkDetail']) == ('failed', 'network', 'busy')
+    assert 'completedAt' not in r.json()
+    assert client.post(f'/api/material-downloads/{tid}/status', json=body).json()['networkDetail'] == 'busy'  # idempotent replay
+    assert client.get(f'/api/material-downloads/{tid}').json()['networkDetail'] == 'busy'
+    listed = client.get('/api/material-downloads').json()['transfers'][0]
+    assert (listed['state'], listed['reason'], listed['networkDetail']) == ('failed', 'network', 'busy')
+    assert all('downloadedAt' not in m for m in store.read()['materials'])
+
+
+def test_plain_network_failure_has_no_network_detail(real):
+    client, store = real(collected(resource_record()))
+    tid, attempt, gen = _to_validating(client, store)
+    r = client.post(f'/api/material-downloads/{tid}/status', json={'generation': gen, 'attemptId': attempt, 'state': 'failed', 'reason': 'network'}).json()
+    assert (r['state'], r['reason']) == ('failed', 'network') and 'networkDetail' not in r
+    assert 'networkDetail' not in client.get('/api/material-downloads').json()['transfers'][0]
+
+
+@pytest.mark.parametrize('extra', [
+    {'state': 'failed', 'reason': 'timeout', 'networkDetail': 'busy'},
+    {'state': 'interrupted', 'reason': 'network', 'networkDetail': 'busy'},
+    {'state': 'saving', 'downloadId': 7, 'networkDetail': 'busy'},
+])
+def test_network_detail_only_on_a_failed_network_outcome(real, extra):
+    client, store = real(collected(resource_record()))
+    tid, attempt, gen = _to_validating(client, store)
+    r = client.post(f'/api/material-downloads/{tid}/status', json={'generation': gen, 'attemptId': attempt, **extra})
+    assert r.status_code == 409
+    assert client.get(f'/api/material-downloads/{tid}').json()['state'] == 'validating'
+    assert all('downloadedAt' not in m for m in store.read()['materials'])
+
+
+@pytest.mark.parametrize('detail', ['Busy', 'rate_limited', '', None])
+def test_network_detail_is_a_closed_enum(real, detail):
+    client, store = real(collected(resource_record()))
+    tid, attempt, gen = _to_validating(client, store)
+    r = client.post(f'/api/material-downloads/{tid}/status', json={'generation': gen, 'attemptId': attempt, 'state': 'failed', 'reason': 'network', 'networkDetail': detail})
+    assert r.status_code == 422
+    assert client.get(f'/api/material-downloads/{tid}').json()['state'] == 'validating'
