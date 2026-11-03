@@ -1093,7 +1093,7 @@ class AiAvailable(WireModel):
     available: Literal[True]
     provider: str
     retention: str
-    mode: Literal['mock', 'gemini'] = None
+    mode: Literal['mock', 'gemini', 'groq'] = None
     policyVersion: str = None
     destination: str = None
     limits: AiLimits = None
@@ -1647,7 +1647,7 @@ class AiUsage(AiClosed):
 class AiExtractResponse(AiClosed):
     version: Literal['ai-extract.v1']
     requestId: AiId
-    mode: Literal['mock', 'gemini']
+    mode: Literal['mock', 'gemini', 'groq']
     policyVersion: str
     status: Literal['ok']
     proposals: list[AiProposal] = Field(max_length=50)

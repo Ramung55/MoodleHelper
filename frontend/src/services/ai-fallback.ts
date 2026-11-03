@@ -17,7 +17,7 @@ export const UNAVAILABLE_COPY = "External AI unavailable; continue locally";
 
 export const AiAvailabilityInfo = z.union([
   z.object({ available: z.literal(false), reason: z.string().max(500) }).passthrough(),
-  z.object({ available: z.literal(true), provider: z.string().min(1).max(200), retention: z.string().min(1).max(500), mode: z.enum(["mock", "gemini"]),
+  z.object({ available: z.literal(true), provider: z.string().min(1).max(200), retention: z.string().min(1).max(500), mode: z.enum(["mock", "gemini", "groq"]),
     policyVersion: z.string().min(1).max(128), destination: z.string().min(1).max(128),
     limits: z.object({ maxExcerpts: z.number().int(), maxExcerptBytes: z.number().int(), maxBodyBytes: z.number().int(), timeoutSeconds: z.number(), monthlyCapUsd: z.number(), perRequestReserveUsd: z.number(), simulatedCost: z.boolean() }).passthrough() }).passthrough(),
 ]);
@@ -78,7 +78,8 @@ export async function freezePreview(input: { association: LocalAssociation; data
   const request: AiExtractRequestValue = { version: AI_VERSION, requestId, expectedDatasetId: datasetId,
     consent: { policyVersion: info.policyVersion, destination: info.destination, approvedExcerptIds: wire.map(e => e.id), payloadDigest }, excerpts: wire, ...(context ? { context } : {}) };
   const bodyBytes = utf8Bytes(JSON.stringify(request));
-  if (bodyBytes > Math.min(AI_MAX_BODY_BYTES, info.limits.maxBodyBytes)) throw new Error("The selected excerpts exceed the 16 KiB request limit. Remove an excerpt.");
+  const maxBody = Math.min(AI_MAX_BODY_BYTES, info.limits.maxBodyBytes);
+  if (bodyBytes > maxBody) throw new Error(`The selected excerpts exceed the ${maxBody}-byte request limit. Remove an excerpt.`);
   return { requestId, datasetId, association: { datasetId: association.datasetId, courseId: association.courseId, digest: association.digest, name: association.name },
     policy: { provider: info.provider, retention: info.retention, policyVersion: info.policyVersion, destination: info.destination, mode: info.mode, limits: info.limits },
     mentions: structuredClone(mentions), excerpts, context, payloadDigest, request, bodyBytes };

@@ -29,6 +29,13 @@ it("freezes exactly the wire request and rejects oversized selections without tr
   await expect(freezePreview({ association, datasetId: "dataset", info, mentions: Array.from({ length: 9 }, (_, i) => mention(`x${i}`, "Quiz")) })).rejects.toThrow("at most 8");
 });
 
+it("states the server body limit (Groq 3072 B) when a selection exceeds it", async () => {
+  const groq: AvailableAi = { ...info, provider: "Groq openai/gpt-oss-120b, free plan (external)", mode: "groq", policyVersion: "groq-free-policy-1", destination: "groq:openai/gpt-oss-120b", limits: { ...info.limits, maxBodyBytes: 3072 } };
+  await expect(freezePreview({ association, datasetId: "dataset", info: groq, mentions: [mention("a", "q".repeat(1500)), mention("b", "q".repeat(1500))] })).rejects.toThrow("3072-byte request limit");
+  const preview = await freezePreview({ association, datasetId: "dataset", info: groq, mentions: [m1] });
+  expect(preview.request.consent.destination).toBe("groq:openai/gpt-oss-120b");
+});
+
 it("sends nothing to the extract route when the gateway is unavailable, and offers only local continuation", async () => {
   const send = vi.fn();
   render(<AiFallback document={association} mentions={[m1]} deps={{ send, loadAvailability: async () => ({ available: false, reason: "x" }) }} />);
