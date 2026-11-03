@@ -87,3 +87,84 @@ describe("#41 bridgeMaterialDownloads", () => {
     expect(log).toEqual(["connect", "start:ds-1,r-pdf,k1", "dispose", "connect", "list", "dispose", "connect", "cancel", "dispose"]);
   });
 });
+
+/**
+ * #41 owner live check 2: after a bridged start the open page stayed on "saving" while Chrome had
+ * finished. A labeled fake backend behind the real bridgeMaterialDownloads (one fake bridge session
+ * per operation) drives the page to each final outcome without a reload.
+ */
+describe("#41 live check 2: the open page follows a bridged transfer to its outcome", () => {
+  function bridged() {
+    const backend = { transfer: { ...queued } as MaterialTransfer, listFails: false, reads: 0, inFlight: 0, maxInFlight: 0, cancels: 0 };
+    const answer = async <T,>(f: () => T, read = false): Promise<T> => {
+      if (read) { backend.inFlight++; backend.maxInFlight = Math.max(backend.maxInFlight, backend.inFlight); }
+      try { await new Promise((r) => setTimeout(r, 5)); return f(); } finally { if (read) backend.inFlight--; }
+    };
+    const client = () => ({
+      connect: async () => {}, dispose: () => {},
+      startMaterialDownload: () => answer(() => ({ supported: true, message: "Download queued.", transfer: backend.transfer })),
+      listMaterialDownloads: () => answer(() => { backend.reads++; if (backend.listFails) throw new Error("BUSY"); return { transfers: [backend.transfer] }; }, true),
+      materialDownload: (id: string) => answer(() => { backend.reads++; expect(id).toBe("t-1"); return backend.transfer; }, true),
+      cancelMaterialDownload: () => answer(() => { backend.cancels++; backend.transfer = { ...backend.transfer, cancelRequested: true, generation: backend.transfer.generation + 1 }; return backend.transfer; }),
+    });
+    return { backend, client };
+  }
+  async function open(client: () => unknown) {
+    const { bridgeMaterialDownloads } = await vi.importActual<typeof import("@/services/extension-adapter")>("@/services/extension-adapter");
+    state.bridge = bridgeMaterialDownloads(client as any);
+    state.app = { snap: snap(), adapter: httpAdapter(), conn: { state: "connected", message: "", extensionDetected: true, liveSync: true }, setSnap: vi.fn(), error: null, retryLoad: vi.fn() };
+    render(<Materials />);
+    fireEvent.click(within(row("Scanned PDF")).getByRole("button", { name: "Download file" }));
+    expect((await screen.findByTestId("transfer-status")).textContent).toContain("Queued — the transfer tab will open");
+  }
+  const status = () => screen.getByTestId("transfer-status").textContent ?? "";
+  const step = (b: { transfer: MaterialTransfer }, patch: Partial<MaterialTransfer>) => { b.transfer = { ...b.transfer, ...patch, generation: b.transfer.generation + 1 }; };
+  const until = (f: () => void) => waitFor(f, { timeout: 5000 });
+
+  it("queued -> validating -> saving -> complete, with the list unreadable at the end", async () => {
+    const { backend, client } = bridged();
+    await open(client);
+    step(backend, { state: "validating", bytesReceived: 10 });
+    await until(() => expect(status()).toContain("Validating file from Moodle"));
+    step(backend, { state: "saving", downloadId: 9, bytesReceived: 20, totalBytes: 20 });
+    await until(() => expect(status()).toContain("Chrome is saving the file — not finished yet"));
+    expect(within(row("Scanned PDF")).getByRole("button", { name: "Downloading…" })).toBeDisabled();
+    // Chrome finished; the transfer page recorded it. The list read now fails (e.g. a busy bridge),
+    // so the page reads the active transfer by its id.
+    backend.listFails = true;
+    step(backend, { state: "complete", completedAt: T });
+    await until(() => expect(status()).toContain("Download record: saved by Chrome on"));
+    expect(within(row("Scanned PDF")).getByRole("button", { name: "Download again" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Cancel download" })).toBeNull();
+    // One transfer read at a time, and none once every transfer is finished.
+    expect(backend.maxInFlight).toBe(1);
+    const reads = backend.reads;
+    await new Promise((r) => setTimeout(r, 1800));
+    expect(backend.reads).toBe(reads);
+  }, 20000);
+
+  it("Cancel during saving -> Cancelling… -> cancelled", async () => {
+    const { backend, client } = bridged();
+    await open(client);
+    step(backend, { state: "saving", downloadId: 9 });
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel download" }, { timeout: 5000 }));
+    await until(() => expect(status()).toContain("Cancelling…"));
+    expect(backend.cancels).toBe(1);
+    step(backend, { state: "cancelled", reason: "cancelled_by_user" });
+    await until(() => expect(status()).toContain("Download cancelled. Nothing is available offline."));
+    expect(within(row("Scanned PDF")).getByRole("button", { name: "Download again" })).toBeEnabled();
+  }, 20000);
+
+  it("a late reply never takes the shown transfer back", async () => {
+    const { newer } = await import("@/routes/materials");
+    const saving = { ...queued, state: "saving" as const, generation: 2 };
+    const done = { ...queued, state: "complete" as const, generation: 3, completedAt: T };
+    expect(newer(done, saving)).toBe(false);
+    expect(newer(saving, done)).toBe(true);
+    expect(newer(saving, { ...saving, generation: 1, state: "validating" })).toBe(false);
+    // An earlier attempt of the same material never replaces a later one.
+    const later = { ...queued, transferId: "t-2", createdAt: "2026-11-02T10:05:00Z" };
+    expect(newer(later, done)).toBe(false);
+    expect(newer(done, later)).toBe(true);
+  });
+});

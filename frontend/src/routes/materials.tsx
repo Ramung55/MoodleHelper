@@ -35,21 +35,64 @@ function folderListing(i: LibraryItem): string {
   return "Listed contents as observed (only supplied entries)";
 }
 
-/** #41 backend transfer records, polled only while a transfer is active. */
+/**
+ * #41: a reply never takes a transfer backwards. Bridged reads each use their own session and may
+ * land out of order; an older generation of the same transfer, an active record over a finished
+ * one, or an earlier attempt over a later one is ignored.
+ */
+export function newer(held: MaterialTransfer | undefined, next: MaterialTransfer): boolean {
+  if (!held) return true;
+  if (held.transferId !== next.transferId) return next.createdAt >= held.createdAt;
+  if (isActive(next) && !isActive(held)) return false;
+  return next.generation >= held.generation;
+}
+export const POLL_MS = 1500;
+
+/**
+ * #41 backend transfer records, read until every shown transfer is finished. One read at a time;
+ * the next is scheduled after the previous settles. If the list cannot be read, each active
+ * transfer is read by its id. Returning to the page (visible, focus) reads at once.
+ */
 function useTransfers(api: MaterialDownloads | null) {
   const [byMaterial, setByMaterial] = useState<Map<string, MaterialTransfer>>(new Map());
   const [pending, setPending] = useState<Set<string>>(new Set());
   const inFlight = useRef(new Set<string>());
-  const refresh = useCallback(async () => {
-    if (!api) return;
-    try { setByMaterial(new Map((await api.listMaterialDownloads()).transfers.map((t) => [t.materialId, t]))); } catch { /* keep last known */ }
-  }, [api]);
+  const held = useRef(byMaterial);
+  held.current = byMaterial;
+  const apply = useCallback((records: MaterialTransfer[], replace: boolean) => {
+    setByMaterial((m) => {
+      const n = new Map(replace ? [] : m);
+      if (replace) for (const [k, t] of m) if (isActive(t) && !records.some((r) => r.materialId === k)) n.set(k, t);
+      for (const t of records) n.set(t.materialId, newer(m.get(t.materialId), t) ? t : m.get(t.materialId)!);
+      return n;
+    });
+  }, []);
+  const reading = useRef<Promise<void> | null>(null);
+  const refresh = useCallback(() => {
+    if (!api) return Promise.resolve();
+    // Never two reads at once: overlapping bridged reads may land out of order.
+    if (reading.current) return reading.current;
+    const run = (async () => {
+      try { apply((await api.listMaterialDownloads()).transfers, true); return; } catch { /* fall back to the active transfers */ }
+      const active = [...held.current.values()].filter(isActive);
+      const read = await Promise.allSettled(active.map((t) => api.materialDownload(t.transferId)));
+      apply(read.flatMap((r) => (r.status === "fulfilled" ? [r.value] : [])), false);
+    })().finally(() => { reading.current = null; });
+    reading.current = run;
+    return run;
+  }, [api, apply]);
   useEffect(() => { void refresh(); }, [refresh]);
   const anyActive = [...byMaterial.values()].some(isActive);
   useEffect(() => {
     if (!api || !anyActive) return;
-    const timer = setInterval(() => void refresh(), 1500);
-    return () => clearInterval(timer);
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const next = () => { if (!stopped) timer = setTimeout(() => void refresh().finally(next), POLL_MS); };
+    const now = () => { if (typeof document === "undefined" || document.visibilityState !== "hidden") void refresh(); };
+    next();
+    window.addEventListener("focus", now);
+    document.addEventListener("visibilitychange", now);
+    return () => { stopped = true; clearTimeout(timer); window.removeEventListener("focus", now); document.removeEventListener("visibilitychange", now); };
   }, [api, anyActive, refresh]);
   const start = async (materialId: string) => {
     if (!api || inFlight.current.has(materialId) || isActive(byMaterial.get(materialId))) return; // no duplicate starts
@@ -57,7 +100,7 @@ function useTransfers(api: MaterialDownloads | null) {
     setPending((p) => new Set(p).add(materialId));
     try {
       const r = await api.startMaterialDownload(await currentDataset(), materialId, crypto.randomUUID());
-      if (r.transfer) setByMaterial((m) => new Map(m).set(materialId, r.transfer!));
+      if (r.transfer) apply([r.transfer], false);
       if (!r.supported || r.message === ALREADY_IN_PROGRESS) toast.info(r.message);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Download request failed.");
@@ -68,7 +111,7 @@ function useTransfers(api: MaterialDownloads | null) {
   };
   const cancel = async (t: MaterialTransfer) => {
     if (!api) return;
-    try { const n = await api.cancelMaterialDownload(t.transferId); setByMaterial((m) => new Map(m).set(n.materialId, n)); } catch (e) { toast.error(e instanceof Error ? e.message : "Cancel failed."); }
+    try { apply([await api.cancelMaterialDownload(t.transferId)], false); } catch (e) { toast.error(e instanceof Error ? e.message : "Cancel failed."); }
   };
   return { byMaterial, pending, start, cancel };
 }
