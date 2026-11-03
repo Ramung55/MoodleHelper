@@ -208,6 +208,8 @@ it('shares the request authority with a running #20 scan: requests interleave bu
   const site_ = moodle(clock, (method, url, attempt, body) => {
     const course = /course\/view\.php\?id=(\d+)$/.exec(url)?.[1];
     if (course) return ok(coursePage.replaceAll('course-9001', `course-${course}`).replace(/<li class="activity[\s\S]*?<\/li>/g, ''));
+    // #83: the scan also reads the upcoming calendar once per course job.
+    if (url === `${ORIGIN}/calendar/view.php?view=upcoming`) return ok('<!doctype html><html lang="en"><head></head><body class="lang-en"></body></html>');
     return discovery(method, url, attempt, body);
   });
   const app = install(backend, clock, site_.fetcher);
@@ -523,6 +525,8 @@ it('#41: a download, a #20 scan and a #82 discovery at the same time: at most 1 
   const site_ = moodle(clock, (method, url, attempt, body) => {
     const course = /course\/view\.php\?id=(\d+)$/.exec(url)?.[1];
     if (course) return ok(coursePage.replaceAll('course-9001', `course-${course}`).replace(/<li class="activity[\s\S]*?<\/li>/g, ''));
+    // #83: the scan also reads the upcoming calendar once per course job.
+    if (url === `${ORIGIN}/calendar/view.php?view=upcoming`) return ok('<!doctype html><html lang="en"><head></head><body class="lang-en"></body></html>');
     if (method === 'GET' && url === VIEW) return {status: 200, body: '%PDF-1.7\n1 0 obj\n%%EOF', finalUrl: FILE, contentType: 'application/pdf',
       headers: {'content-disposition': 'inline; filename="fixture-document.pdf"'}};
     return discovery(method, url, attempt, body);
