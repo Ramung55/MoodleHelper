@@ -233,8 +233,8 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
     const n = course.slice(-1);
     // #83 AC4: material is the course-page row with the material collector; checked means ok or partial
     // with a collector and the observedAt of its own request.
-    expect(by('course')).toEqual([expect.objectContaining({collector: 'material', outcome: 'partial', coverage: 'partial', scope: 'supplied_pages_only',
-      reasons: ['undiscovered'], pageUrl: courseUrl(course), observedAt: requestedAt(courseUrl(course))})]);
+    expect(by('course')).toEqual([expect.objectContaining({collector: 'material', outcome: 'ok', coverage: 'complete', scope: 'supplied_pages_only',
+      reasons: [], pageUrl: courseUrl(course), observedAt: requestedAt(courseUrl(course))})]);
     expect(by('assignment').map((p: any) => [p.pageUrl, p.collector, p.outcome, p.coverage, p.reasons])).toEqual(assignments(course).map(cm => [assignUrl(cm), 'assignment', 'ok', 'complete', []]));
     expect(by('quiz').map((p: any) => [p.pageUrl, p.outcome, p.coverage, p.reasons])).toEqual(quizzes(course).map(cm => [quizUrl(cm), 'ok', 'complete', []]));
     for (const page of [...by('quiz'), ...by('assignment')]) // observedAt is the time of that request
@@ -249,7 +249,7 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
     expect(by('material').map((p: any) => [p.pageUrl, p.outcome, p.coverage, p.reasons])).toEqual(
       [`resource/view.php?id=990${n}04`, `resource/view.php?id=990${n}05`, `url/view.php?id=990${n}06`].map(tail => [`${ORIGIN}/mod/${tail}`, 'unavailable', 'none', ['unsupported_page', 'collector_unavailable']]));
     expect(by('unsupported')).toHaveLength(2);
-    expect(pages.every((p: any) => ['quiz', 'assignment'].includes(p.pageType) || p.coverage !== 'complete')).toBe(true);
+    expect(pages.every((p: any) => ['quiz', 'assignment', 'course'].includes(p.pageType) || p.coverage !== 'complete')).toBe(true);
     expect(incompleteReasons).toEqual(expect.arrayContaining(['collector_unavailable', 'undiscovered', 'unsupported_page']));
   }
   // Each course job's calendar row carries the time of its own calendar request.
@@ -273,7 +273,7 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
   const records = snapshot.collection.records;
   expect(records.filter((r: any) => r.kind === 'calendar').map((r: any) => r.observations[0].activity.sourceCourseModuleId).sort()).toEqual(['990102', '990201']);
   expect(records.filter((r: any) => r.kind === 'material').map((r: any) => [r.observations[0].sourceCourseModuleId, r.observations[0].kind]).sort()).toEqual(
-    [['990104', 'file'], ['990105', 'file'], ['990106', 'link'], ['990204', 'file'], ['990205', 'file'], ['990206', 'link']]);
+    [['990104', 'file'], ['990105', 'file'], ['990106', 'link'], ['990107', 'link'], ['990204', 'file'], ['990205', 'file'], ['990206', 'link'], ['990207', 'link']]);
   expect(snapshot.collection.refreshes.every((r: any) => r.evidenceMode === 'verified')).toBe(true);
   await backend.stop(); await backend.start();
   expect(await readback()).toEqual(before);

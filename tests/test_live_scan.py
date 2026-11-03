@@ -411,6 +411,17 @@ def exact(iso):
     return dict(kind='exact', iso=iso, tz='Asia/Almaty')
 
 
+def material_record(source, cm, module, kind, file_type):
+    """A course-page material observation as the #83 collector writes it; a page module has no type and no destination."""
+    course, url = f'{ORIGIN}/course/view.php?id={source}', f'{ORIGIN}/mod/{module}/view.php?id={cm}'
+    ref = dict(sourcePageUrl=course, sourceUrl=url, observedAt=TIME, location='course.material', **({'destinationUrl': url} if file_type else {}))
+    return dict(ref, sourceCourseId=source, sourceCourseModuleId=cm, sourceModuleType=module,
+                resourceKey=f'["{ORIGIN}","{source}","{module}","module","{cm}"]', kind=kind,
+                title={'kind': 'known', 'value': f'Fictional {module} {cm}'}, section={'kind': 'known', 'value': '70002'},
+                fileType={'kind': 'known', 'value': file_type} if file_type else {'kind': 'unknown'}, mimeType={'kind': 'unknown'},
+                references=[dict(ref)])
+
+
 def observed_scan(source='9001'):
     """Wire evidence shaped like the #83 live scan: assignment pages, the upcoming calendar and course-page material."""
     course = f'{ORIGIN}/course/view.php?id={source}'
@@ -422,17 +433,10 @@ def observed_scan(source='9001'):
                       coverage='complete', scope='visited_activity_only')
         return dict(pageType='assignment', scope='visited_activity_only', outcome='ok', coverage='complete', reasons=[], observedAt=TIME,
                     pageUrl=f'{ORIGIN}/mod/assign/view.php?id={cm}', collector='assignment', result=result)
-    def material(cm, module, kind, file_type):
-        url = f'{ORIGIN}/mod/{module}/view.php?id={cm}'
-        ref = dict(sourcePageUrl=course, sourceUrl=url, destinationUrl=url, observedAt=TIME, location='course.material')
-        return dict(ref, sourceCourseId=source, sourceCourseModuleId=cm, sourceModuleType=module,
-                    resourceKey=f'["{ORIGIN}","{source}","{module}","module","{cm}"]', kind=kind,
-                    title={'kind': 'known', 'value': f'Fictional {module} {cm}'}, section={'kind': 'known', 'value': '70002'},
-                    fileType={'kind': 'known', 'value': file_type}, mimeType={'kind': 'unknown'}, references=[dict(ref)])
-    materials = dict(kind='material', observations=[material('990104', 'resource', 'file', 'pdf'), material('990106', 'url', 'link', 'link')],
-                     reviews=[], diagnostics=[dict(pageIndex=0, recordIndex=3, reason='unsupported_structure')],
-                     pages=[dict(pageIndex=0, coverage='partial', candidateCount=4, paginationPending=False)],
-                     coverage='partial', scope='supplied_pages_only')
+    materials = dict(kind='material', observations=[material_record(source, '990104', 'resource', 'file', 'pdf'),
+                     material_record(source, '990106', 'url', 'link', 'link'), material_record(source, '990107', 'page', 'link', None)],
+                     reviews=[], diagnostics=[], pages=[dict(pageIndex=0, coverage='complete', candidateCount=4, paginationPending=False)],
+                     coverage='complete', scope='supplied_pages_only')
     calendar = dict(kind='calendar', observations=[dict(sourceEventId='880001', sourceCourseId=source, title='Fictional Lab Report',
                     sourceUrl=f'{ORIGIN}/calendar/view.php?event=880001', observedAt=TIME,
                     start=dict(value=exact('2028-03-07T14:30:00+05:00'), rawText='Fictional Lab Report is due', location='calendar.start'),
@@ -440,7 +444,7 @@ def observed_scan(source='9001'):
                                   sourceUrl=f'{ORIGIN}/mod/assign/view.php?id=990102'))],
                     reviews=[], diagnostics=[dict(reason='unselected_course', pageIndex=0, recordIndex=1)],
                     pages=[dict(coverage='partial', candidateCount=2, paginationPending=False)], coverage='partial', scope='supplied_ranges_only')
-    return [dict(pageType='course', scope='supplied_pages_only', outcome='partial', coverage='partial', reasons=['undiscovered'],
+    return [dict(pageType='course', scope='supplied_pages_only', outcome='ok', coverage='complete', reasons=[],
                  observedAt=TIME, pageUrl=course, collector='material', result=materials),
             dict(pageType='material', scope='unknown', outcome='unavailable', coverage='none', reasons=['unsupported_page', 'collector_unavailable'],
                  observedAt=TIME, pageUrl=f'{ORIGIN}/mod/resource/view.php?id=990104'),
@@ -463,11 +467,45 @@ def test_scan_accepts_observed_assignment_calendar_and_material_results(live):
            if a['courseId'] == 'c-csc' and any(s.get('url', '').startswith(f'{ORIGIN}/mod/assign/view.php?id=9901') for s in a['sources'])}
     assert due == {'Fictional Essay Outline': exact('2028-03-08T23:59:00+05:00'), 'Fictional Lab Report': exact('2028-03-07T14:30:00+05:00')}
     kinds = sorted(r['kind'] for r in snapshot['collection']['records'])
-    assert kinds == ['assignment', 'assignment', 'calendar', 'material', 'material']
+    assert kinds == ['assignment', 'assignment', 'calendar', 'material', 'material', 'material']
+    page = next(r for r in snapshot['collection']['records'] if r['kind'] == 'material' and r['observations'][0]['sourceModuleType'] == 'page')
+    assert page['observations'][0]['kind'] == 'link' and page['observations'][0]['fileType'] == {'kind': 'unknown'}
     pdf = next(r for r in snapshot['collection']['records'] if r['kind'] == 'material' and r['observations'][0]['kind'] == 'file')
     assert pdf['observations'][0]['destinationUrl'] == f'{ORIGIN}/mod/resource/view.php?id=990104'
     assert not snapshot['collection']['reviews']
     pages = live.client.get(f"/api/scan/jobs/{claim['job']['id']}/pages").json()['pages']
     checked = {(p['pageType'], p.get('collector')): p['outcome'] for p in pages if p.get('collector')}
-    assert checked == {('course', 'material'): 'partial', ('assignment', 'assignment'): 'ok', ('calendar', 'calendar'): 'partial'}
+    assert checked == {('course', 'material'): 'ok', ('assignment', 'assignment'): 'ok', ('calendar', 'calendar'): 'partial'}
     assert live.sync_entry('c-csc')['status'] == 'partial'
+
+
+@pytest.mark.parametrize('change', ['file_kind', 'known_type', 'known_mime', 'destination', 'reference_destination', 'wrong_url'])
+def test_page_material_is_a_link_with_unknown_type_and_no_destination(live, change):
+    page = material_record('9001', '990107', 'page', 'link', None)
+    if change == 'file_kind': page['kind'] = 'file'
+    if change == 'known_type': page['fileType'] = {'kind': 'known', 'value': 'link'}
+    if change == 'known_mime': page['mimeType'] = {'kind': 'known', 'value': 'text/html'}
+    if change == 'destination': page['destinationUrl'] = page['sourceUrl']
+    if change == 'reference_destination': page['references'][0]['destinationUrl'] = page['sourceUrl']
+    if change == 'wrong_url': page['sourceUrl'] = page['references'][0]['sourceUrl'] = f'{ORIGIN}/mod/url/view.php?id=990107'
+    pages = observed_scan()
+    pages[0]['result']['observations'] = [page]
+    live.client.put('/api/tracked-courses', headers=live.h(), json=['c-csc'])
+    live.post('/api/sync')
+    claim = live.post('/api/scan/claim', {}).json()['claim']
+    assert live.post('/api/scan/finish', completed(claim, pages)).status_code == 422
+    assert 'collection' not in live.client.get('/api/snapshot').json()
+
+
+def test_page_material_round_trips_and_is_never_downloadable():
+    from backend import schemas
+    from backend.material_downloads import resolve
+    page = material_record('9001', '990107', 'page', 'link', None)
+    assert schemas.RawMaterialObservation.model_validate(page).model_dump(exclude_none=True) == page
+    # Existing payloads still validate unchanged.
+    for record in (material_record('9001', '990104', 'resource', 'file', 'pdf'), material_record('9001', '990106', 'url', 'link', 'link')):
+        assert schemas.RawMaterialObservation.model_validate(record).model_dump(exclude_none=True) == record
+    with pytest.raises(Exception):
+        schemas.RawMaterialObservation.model_validate({**page, 'sourceModuleType': 'lesson'})
+    snapshot = {'collection': {'records': [{'id': 'm-page', 'kind': 'material', 'observations': [page]}]}, 'materials': []}
+    assert resolve(snapshot, 'm-page') == (None, 'not_a_file')

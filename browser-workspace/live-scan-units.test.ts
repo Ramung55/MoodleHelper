@@ -71,7 +71,7 @@ it('#83: analyzes observed assignment, upcoming calendar and course pages with t
     analyzeMoodlePage({envelope: envelope(url, 200), html, sourceCourseId: '9001', collectors, observedAt, ...(title ? {title} : {})}, {parse});
   const page = await request(course, await read('course-page.html'), ['material']);
   expect(page.titles).toMatchObject({990101: 'Fictional Essay Outline', 990102: 'Fictional Lab Report', 990103: 'Fictional Warm-up Quiz'});
-  expect(page.collected.material).toMatchObject({kind: 'material', observations: [{sourceCourseModuleId: '990104'}, {sourceCourseModuleId: '990105'}, {sourceCourseModuleId: '990106'}]});
+  expect(page.collected.material).toMatchObject({kind: 'material', coverage: 'complete', observations: [{sourceCourseModuleId: '990104'}, {sourceCourseModuleId: '990105'}, {sourceCourseModuleId: '990106'}, {sourceCourseModuleId: '990107', sourceModuleType: 'page', kind: 'link'}]});
   const assignUrl = 'https://moodle.sdu.edu.kz/mod/assign/view.php?id=990102';
   const assign = await request(assignUrl, await read('assign-not-submitted.html'), ['assignment'], 'Fictional Lab Report');
   expect(assign.access.status).toBe('accessible');

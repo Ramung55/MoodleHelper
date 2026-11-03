@@ -735,7 +735,7 @@ class RawMaterialObservation(CollectionWire):
     listingChildResourceKeys: list[str] = None
     sourceCourseId: str
     sourceCourseModuleId: str
-    sourceModuleType: Literal['resource', 'url', 'folder']
+    sourceModuleType: Literal['resource', 'url', 'folder', 'page']
     sourceResourceId: str = None
     sourceFileId: str = None
     sourceFolderId: str = None

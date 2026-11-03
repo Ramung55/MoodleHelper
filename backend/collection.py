@@ -232,7 +232,9 @@ class CollectionService:
                 if module!='folder' or not (parent==root or len(parent)==6 and parent[:4]==[ORIGIN,source,'folder',cm] and parent[4]=='folder'): reject()
                 if len(parent)==6: decimal(parent[5])
             if ('sourceFileId' in item or 'sourceFolderId' in item)!=('parentResourceKey' in item): reject()
-            expected_kind='file' if 'sourceFileId' in item else 'folder' if 'sourceFolderId' in item or module=='folder' else 'link' if module=='url' else 'file'
+            # #83: a page module is a link-kind material with an unknown file type; it is never downloadable.
+            if module=='page' and (item['fileType']['kind']!='unknown' or item['mimeType']['kind']!='unknown' or 'destinationUrl' in item or any('destinationUrl' in r for r in item['references'])): reject()
+            expected_kind='file' if 'sourceFileId' in item else 'folder' if 'sourceFolderId' in item or module=='folder' else 'link' if module in ('url','page') else 'file'
             if item['kind']!=expected_kind: reject()
             for r in [item]+item['references']:
                 if r['sourcePageUrl']!=item['sourcePageUrl'] or r['sourceUrl']!=item['sourceUrl']: reject()

@@ -13,7 +13,8 @@ import { exact } from "./moodle-dates";
 
 export type Metadata<T> = { kind: "known"; value: T } | { kind: "unknown" };
 export type MaterialKind = "file" | "link" | "folder";
-export type ModuleType = "resource" | "url" | "folder";
+/** `page` (#83) is produced only by the observed course-page collector: a link with an unknown file type. */
+export type ModuleType = "resource" | "url" | "folder" | "page";
 export type MaterialFileType = "pdf" | "docx" | "pptx" | "link" | "video" | "other";
 export type MaterialCoverage = "complete" | "partial" | "none";
 export type MaterialReason = "access_error" | "invalid_selection" | "invalid_observed_at" |
@@ -471,9 +472,8 @@ export function collectMoodleMaterials(
  * - `folder`: a folder reference whose contents were not inspected
  *   (`folder_contents_uninspected`, coverage partial); no child is guessed, even if the
  *   card shows any (folders with files are UNVERIFIED).
- * - `page`: listed as a diagnostic only (`unsupported_structure`, by record index). The
- *   material wire contract and backend validator know only resource/url/folder modules, so
- *   a page module cannot be stored as a material record.
+ * - `page`: a link-kind material (`sourceModuleType: "page"`, contract change #83) with an
+ *   unknown file and MIME type and no destination; it is never downloadable.
  * - Assignment, quiz, forum and any other module are not materials.
  * - The section is the `data-sectionid` of the enclosing `li.section`, unknown without it.
  * Unobserved variants (other languages or formats) give an explicit failure.
@@ -516,7 +516,6 @@ export function collectObservedMoodleMaterials(
       if (seen.has(cmid)) { report("field_conflict", recordIndex); return; }
       seen.add(cmid);
       const type = types[0]!;
-      if (type === "page") { report("unsupported_structure", recordIndex); return; }
       const moduleType = type as ModuleType;
       const names = card.querySelectorAll(".instancename");
       let title: Metadata<string> = unknown();
@@ -538,9 +537,9 @@ export function collectObservedMoodleMaterials(
       }
       const sourceUrl = `${origin}/mod/${moduleType}/view.php?id=${cmid}`;
       const reference: MaterialReference = { sourcePageUrl: requested.href, sourceUrl, observedAt, location: "course.material",
-        ...(moduleType === "folder" ? { listingScope: "reference_only" as const, listingCoverage: "none" as const } : { destinationUrl: sourceUrl }) };
+        ...(moduleType === "folder" ? { listingScope: "reference_only" as const, listingCoverage: "none" as const } : moduleType === "page" ? {} : { destinationUrl: sourceUrl }) };
       observations.push({ ...reference, sourceCourseId: courseId, sourceCourseModuleId: cmid, sourceModuleType: moduleType,
-        resourceKey: key(courseId, moduleType, "module", cmid), kind: moduleType === "url" ? "link" : moduleType === "folder" ? "folder" : "file",
+        resourceKey: key(courseId, moduleType, "module", cmid), kind: moduleType === "url" || moduleType === "page" ? "link" : moduleType === "folder" ? "folder" : "file",
         title, section, fileType, mimeType: unknown(), references: [{ ...reference }] });
       // The folder card does not show the folder's contents; none are guessed.
       if (moduleType === "folder") report("folder_contents_uninspected", recordIndex);

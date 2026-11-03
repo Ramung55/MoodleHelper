@@ -4,7 +4,7 @@ import type { DateValue, Snapshot } from "./types";
 
 /** Read-only SDU Moodle origin used by ingestion (backend/identity.py MOODLE_ORIGIN). */
 export const SDU_ORIGIN = "https://moodle.sdu.edu.kz";
-const SOURCE_ROUTE = /^\/(?:course|mod\/(?:assign|quiz|resource|folder|url))\/view\.php$/;
+const SOURCE_ROUTE = /^\/(?:course|mod\/(?:assign|quiz|resource|folder|url|page))\/view\.php$/;
 
 /**
  * Display-boundary revalidation of a source link (#35). Mirrors the ingestion

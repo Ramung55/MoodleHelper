@@ -6,6 +6,7 @@ import type { MoodleAccessInput } from "../../../extension/src/moodle-access";
 import { collectObservedMoodleMaterials } from "../../../extension/src/moodle-materials";
 import { materialRefreshResult } from "../../../extension/src/page-refresh";
 import { validSchema } from "../../../shared/src/bridge";
+import { RawMaterialObservation } from "../domain/types";
 
 const origin = "https://moodle.sdu.edu.kz";
 const observedAt = "2028-03-05T10:00:00.000Z";
@@ -24,11 +25,11 @@ function input(html: string, url = courseUrl("9001"), overrides: Partial<MoodleA
 type Material = { kind: "material"; observations: Record<string, unknown>[]; diagnostics: { reason: string; recordIndex?: number }[]; coverage: string };
 
 describe("observed/ course-page materials (#83 AC3)", () => {
-  it("lists the PDF/PPTX resources, the URL module and no assignment, quiz or forum card", () => {
+  it("lists the PDF/PPTX resources, the URL and page modules and no assignment, quiz or forum card", () => {
     const result = materialRefreshResult(input(coursePage), ["9001"], observedAt);
     expect(validSchema("CollectorResult", result)).toBe(true);
     const r = result as Material;
-    expect(r.observations.map(o => o["sourceCourseModuleId"])).toEqual(["990104", "990105", "990106"]);
+    expect(r.observations.map(o => o["sourceCourseModuleId"])).toEqual(["990104", "990105", "990106", "990107"]);
     const reference = (module: string, cmid: string) => ({ sourcePageUrl: courseUrl("9001"), sourceUrl: `${origin}/mod/${module}/view.php?id=${cmid}`,
       destinationUrl: `${origin}/mod/${module}/view.php?id=${cmid}`, observedAt, location: "course.material" });
     expect(r.observations[0]).toEqual({ ...reference("resource", "990104"), sourceCourseId: "9001", sourceCourseModuleId: "990104", sourceModuleType: "resource",
@@ -38,9 +39,16 @@ describe("observed/ course-page materials (#83 AC3)", () => {
       fileType: known("pptx"), mimeType: unknown, destinationUrl: `${origin}/mod/resource/view.php?id=990105` });
     expect(r.observations[2]).toMatchObject({ kind: "link", sourceModuleType: "url", title: known("Fictional Reference Link"), section: known("70002"),
       fileType: known("link"), mimeType: unknown });
-    // The page module 990107 cannot be a material record (the contract knows resource/url/folder): it is listed by index.
-    expect(r.diagnostics).toEqual([{ pageIndex: 0, recordIndex: 3, reason: "unsupported_structure" }]);
-    expect(r.coverage).toBe("partial");
+    // #83 contract: a page module is a link-kind material with unknown file and MIME type and no destination.
+    const pageRef = { sourcePageUrl: courseUrl("9001"), sourceUrl: `${origin}/mod/page/view.php?id=990107`, observedAt, location: "course.material" };
+    expect(r.observations[3]).toEqual({ ...pageRef, sourceCourseId: "9001", sourceCourseModuleId: "990107", sourceModuleType: "page",
+      resourceKey: key("9001", "page", "module", "990107"), kind: "link", title: known("Fictional Course Notes"), section: known("70002"),
+      fileType: unknown, mimeType: unknown, references: [pageRef] });
+    expect(r.diagnostics).toEqual([]);
+    expect(r.coverage).toBe("complete");
+    // Zod and the shared OpenAPI inventory both accept the page record; the existing kinds still round-trip unchanged.
+    for (const o of r.observations) expect(RawMaterialObservation.parse(o)).toEqual(o);
+    expect(RawMaterialObservation.safeParse({ ...r.observations[3], sourceModuleType: "lesson" }).success).toBe(false);
     const text = JSON.stringify(result);
     for (const cmid of ["990101", "990102", "990103", "990108", "990109"]) expect(text).not.toContain(cmid);
     // Reference only: no pluginfile URL, file name or access claim.

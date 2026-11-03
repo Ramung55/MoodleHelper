@@ -5330,10 +5330,12 @@ components:
         sourceCourseModuleId: *id019
         sourceModuleType:
           type: string
+          description: Moodle module of the material. `page` (#83) is a link-kind material with an unknown file type and is never downloadable.
           enum:
           - resource
           - url
           - folder
+          - page
         sourceResourceId: *id019
         sourceFileId: *id019
         sourceFolderId: *id019

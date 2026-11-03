@@ -433,7 +433,7 @@ export const RawMaterialObservation = z.object({
   listingChildResourceKeys: z.array(z.string()).optional(),
   sourceCourseId: z.string(),
   sourceCourseModuleId: z.string(),
-  sourceModuleType: z.enum(["resource", "url", "folder"]),
+  sourceModuleType: z.enum(["resource", "url", "folder", "page"]),
   sourceResourceId: z.string().optional(),
   sourceFileId: z.string().optional(),
   sourceFolderId: z.string().optional(),
