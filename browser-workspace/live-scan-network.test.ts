@@ -18,6 +18,10 @@ import path from 'node:path';
 import {afterAll, beforeAll, expect, it} from 'vitest';
 import {installExtension} from '../extension/src/index';
 import {installOffscreen} from '../extension/src/offscreen';
+import {installPopup} from '../extension/src/popup';
+import {BACKEND} from '../extension/src/dashboard-bridge';
+import {formatInstant} from '../shared/src/full-sync';
+import {JSDOM} from '../frontend/node_modules/jsdom/lib/api.js';
 
 const root = path.resolve(import.meta.dirname, '..');
 const python = path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
@@ -459,4 +463,77 @@ it('AC4: a login redirect mid-scan fails the job and every unstarted job without
   for (let minute = 0; minute < 3; minute++) { clock.now += 60_000; app.alarm(); app.startup(); await pause(150); }
   expect(site.starts()).toHaveLength(2);
   app.worker.dispose();
+}, 60000);
+
+/** #21 AC2: TEST FIXTURE page set with every page type checked and complete; no live collector yields this yet (#83). */
+function allCompletePages(source: string) {
+  const observedAt = '2028-03-05T10:00:00.000Z', n = source.slice(-1);
+  const page = (pageType: string, collector: string, pageUrl: string, scope: string) => ({pageType, scope, outcome: 'ok', coverage: 'complete',
+    reasons: [], observedAt, pageUrl, collector, result: {kind: collector, observations: [], reviews: [], diagnostics: [], pages: [], coverage: 'complete', scope}});
+  return [page('course', 'material', courseUrl(source), 'supplied_pages_only'), page('material', 'material', courseUrl(source), 'supplied_pages_only'),
+    page('assignment', 'assignment', assignUrl(`990${n}01`), 'visited_activity_only'), page('submission', 'submission', assignUrl(`990${n}01`), 'visited_activity_only'),
+    page('calendar', 'calendar', CALENDAR, 'supplied_ranges_only'), page('quiz', 'quiz', quizUrl(`990${n}03`), 'visited_activity_only')];
+}
+
+/** The production popup (installPopup) in a fresh document against the loopback backend. */
+async function popupText(backend: Backend) {
+  const dom = new JSDOM('<p id="full-sync">No successful full sync yet.</p><div id="freshness"></div><div id="status"></div><button id="start"></button><button id="cancel"></button><button id="reconnect"></button><button id="example-retry"></button>', {url: 'https://extension.test'});
+  const doc = dom.window.document;
+  const popup = installPopup(doc, ((url: any, init: any) => fetch(String(url).replace(BACKEND, backend.base), init)) as typeof fetch, dom.window.localStorage);
+  try {
+    for (let i = 0; i < 200 && !doc.getElementById('freshness')!.textContent; i++) await pause(25);
+    return {full: doc.getElementById('full-sync')!.textContent!, text: doc.body.textContent!};
+  } finally { popup.dispose(); dom.window.close(); }
+}
+
+it('AC2 (#21): the popup shows a full sync only after an all-complete scan, distinct from the page refresh and a later failed attempt', async () => {
+  const backend = new Backend('freshness'); await backend.start();
+  const ids = await backend.seed(['9001', '9002']);
+  const selected = [ids['9001']!, ids['9002']!];
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  const first = install(backend, clock, moodle(clock, observedSite).fetcher);
+  expect((await first.bridge(1, 'syncAll')).ok).toBe(true);
+  await backend.settled(1); first.worker.dispose();
+  const entries = async () => (await backend.get('/api/snapshot')).sync.filter((s: any) => selected.includes(s.courseId));
+  // (a) #20's fixture scan is partial: no full sync, one completed-scan line per course and the page refresh.
+  let shown = await popupText(backend);
+  expect(shown.full).toBe('No successful full sync yet.');
+  expect(shown.text.match(/Last completed scan \(partial coverage\): /g)).toHaveLength(2);
+  expect(shown.text).toContain('Latest page refresh: ');
+  expect(shown.text).not.toMatch(/Successful full sync|Last failed scan attempt|fictional/);
+  // (b) An all-complete finish (fixture page set) for every selected course through the same HTTP API, then a restart.
+  expect((await backend.write('POST', '/api/sync')).status).toBe(200);
+  for (let claim; (claim = (await (await backend.write('POST', '/api/scan/claim', {})).json()).claim);) {
+    const finish = await backend.write('POST', '/api/scan/finish', {jobId: claim.job.id, generation: claim.generation, token: claim.token,
+      selectionRevision: claim.selectionRevision, outcome: 'completed', pages: allCompletePages(claim.sourceCourseId), incompleteReasons: []});
+    expect(finish.status).toBe(200);
+  }
+  await backend.stop(); await backend.start();
+  const full = await entries();
+  expect(full.map((s: any) => [s.status, s.coverage])).toEqual([['ok', 'full'], ['ok', 'full']]);
+  const timezone = (await backend.get('/api/snapshot')).settings.timezone;
+  const earliest = full.map((s: any) => s.lastSuccessAt).sort((a: string, b: string) => Date.parse(a) - Date.parse(b))[0];
+  const fullTime = formatInstant(earliest, timezone)!;
+  shown = await popupText(backend);
+  expect(shown.full).toBe(`Successful full sync: ${fullTime}`);
+  expect(shown.text).toContain('Latest page refresh: ');
+  expect(shown.text).not.toMatch(/Last completed scan|Last failed scan attempt|fictional/);
+  // (c) A login redirect fails the next scan: the full-sync time stays, and a later failed attempt is shown.
+  await pause(1100);
+  const second = install(backend, clock, moodle(clock, () => ({status: 200, body: html['login-page.html']!, finalUrl: `${ORIGIN}/login/index.php`})).fetcher);
+  expect((await second.bridge(1, 'syncAll')).ok).toBe(true);
+  expect((await backend.settled(3)).at(-1).status).toBe('failed'); second.worker.dispose();
+  const after = await entries();
+  shown = await popupText(backend);
+  expect(shown.full).toBe(`Successful full sync: ${fullTime}`);
+  for (const entry of after) {
+    expect(entry).toMatchObject({status: 'failed', coverage: 'full', error: SIGN_IN});
+    expect(entry.lastSuccessAt).toBe(full.find((s: any) => s.courseId === entry.courseId).lastSuccessAt);
+    expect(Date.parse(entry.lastAttemptAt)).toBeGreaterThan(Date.parse(entry.lastSuccessAt));
+    const attempt = formatInstant(entry.lastAttemptAt, timezone)!;
+    expect(attempt).not.toBe(fullTime);
+    expect(shown.text).toContain(`Last failed scan attempt: `);
+    expect(shown.text).toContain(` · ${attempt}`);
+  }
+  expect(shown.text.match(/Last failed scan attempt: /g)).toHaveLength(2);
 }, 60000);

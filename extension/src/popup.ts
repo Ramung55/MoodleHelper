@@ -1,7 +1,7 @@
 import { BACKEND } from './dashboard-bridge';
 import { validSchema } from '../../shared/src/bridge';
 import { createMockProgress, type ProgressState } from '../../shared/src/mock-progress';
-import { fullSyncFreshness, type FullSyncAttestation } from '../../shared/src/full-sync';
+import { syncFreshness, type FullSyncAttestation } from '../../shared/src/full-sync';
 
 export function installPopup(doc:Document, fetcher:typeof fetch=fetch, storage:Storage=localStorage, fullSyncAttestation?:FullSyncAttestation) {
   let binding='', snapshot:any;
@@ -36,10 +36,12 @@ export function installPopup(doc:Document, fetcher:typeof fetch=fetch, storage:S
   };
   const transport={
     async connect(){binding='';const context=await request('/api/bridge-context','BridgeContext');binding=context.binding; snapshot=await request('/api/snapshot','Snapshot');
-      freshness.replaceChildren(); const p=doc.createElement('p'); const selectedSources=new Set(snapshot.courses.filter((c:any)=>snapshot.settings.trackedCourseIds.includes(c.id)).map((c:any)=>c.discovery?.sourceCourseId).filter(Boolean)); const receipt=snapshot.collection?.refreshes.filter((r:any)=>r.sourceCourseIds.some((id:string)=>selectedSources.has(id))).sort((a:any,b:any)=>b.observedAt.localeCompare(a.observedAt))[0];
-      const fullSync=doc.getElementById('full-sync'); if(fullSync) fullSync.textContent=fullSyncFreshness(snapshot.settings.trackedCourseIds,fullSyncAttestation,snapshot.settings.timezone);
-      p.textContent=receipt?`Latest page refresh: ${receipt.observedAt} · ${receipt.scope} · ${receipt.outcome} · ${receipt.evidenceMode} evidence`:'No individual-page refresh recorded.';freshness.append(p);
-      for(const course of snapshot.sync.filter((x:any)=>x.lastSuccessAt)){const item=doc.createElement('p');item.textContent=`Saved course timestamp (sample/demo values are fictional): ${course.courseId} · ${course.lastSuccessAt}`;freshness.append(item);}
+      // Only a readable non-demo connection is the real dataset; anything else counts as demo (no real full sync).
+      const realData=await request('/api/connection','ConnectionInfo').then(c=>c.state!=='demo',()=>false);
+      const lines=syncFreshness(snapshot,realData,fullSyncAttestation);
+      freshness.replaceChildren();
+      const fullSync=doc.getElementById('full-sync'); if(fullSync) fullSync.textContent=lines.fullSync;
+      for(const text of [lines.pageRefresh,...lines.courses]){const item=doc.createElement('p');item.textContent=text;freshness.append(item);}
       const saved=doc.createElement('p'); saved.textContent=`Saved data: ${snapshot.courses.length} courses, ${snapshot.assessments.length} assessments. Previous data remains available in the dashboard.`;freshness.append(saved);
       const list=doc.createElement('ul');
       for(const assessment of snapshot.assessments.slice(0,5)) {const item=doc.createElement('li');item.textContent=assessment.title;list.append(item);}

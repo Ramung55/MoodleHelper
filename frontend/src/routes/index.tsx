@@ -6,7 +6,7 @@ import { formatDate } from "@/domain/dates";
 import { useApp } from "@/lib/app-store";
 import { cn } from "@/lib/utils";
 import { MockProgress } from "@/components/mh/MockProgress";
-import { fullSyncFreshness, type FullSyncAttestation } from "../../../shared/src/full-sync";
+import { syncFreshness, type FullSyncAttestation } from "../../../shared/src/full-sync";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -35,8 +35,11 @@ function Card({ to, search, title, value, tone, children }: { to: string; search
 }
 
 export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAttestation} = {}) {
-  const { snap, views, weeks, workloadError, currentWeek, syncAll, syncing } = useApp();
+  const { snap, conn, views, weeks, workloadError, currentWeek, syncAll, syncing } = useApp();
   const s = snap!;
+  // Only the real (non-demo) dataset can show a real full sync; an unknown connection counts as demo.
+  const realData = !!conn && conn.state !== "demo";
+  const freshness = syncFreshness(s, realData, fullSyncAttestation);
   const tz = s.settings.timezone;
   const now = Date.now();
   const visible = views.filter((v) => !v.hidden);
@@ -76,13 +79,14 @@ export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAtt
         <Card to="/deadlines" search={{ status: "attention" }} title="Needs submission" value={attention.length} tone={attention.length ? "bad" : undefined}>
           {attention.map((a) => a.title).join(" · ") || "Nothing pending in Moodle"}
         </Card>
-        <Card to="/settings" title="Successful full sync" value={fullSyncFreshness(s.settings.trackedCourseIds,fullSyncAttestation,s.settings.timezone).startsWith('Synthetic example') ? 'Example' : 'Never'}>
-          {fullSyncFreshness(s.settings.trackedCourseIds,fullSyncAttestation,s.settings.timezone)}
+        <Card to="/settings" title="Successful full sync" value={freshness.value}>
+          <p>{freshness.fullSync}</p>
+          {freshness.courses.map((line) => <p key={line}>{line}</p>)}
         </Card>
         <Card to="/alerts" title="Unread alerts" value={s.alerts.filter((a) => !a.read).length} />
       </div>
 
-      <MockProgress snapshot={s} fullSyncAttestation={fullSyncAttestation} />
+      <MockProgress snapshot={s} realData={realData} fullSyncAttestation={fullSyncAttestation} />
 
       <section className="mt-10">
         <div className="mb-3 flex items-center justify-between">

@@ -3,9 +3,10 @@ import { Link } from '@tanstack/react-router';
 import { BridgeClient } from '@/services/extension-adapter';
 import type { Snapshot } from '@/domain/types';
 import { createMockProgress, type ProgressState } from '../../../../shared/src/mock-progress';
-import { fullSyncFreshness, type FullSyncAttestation } from '../../../../shared/src/full-sync';
+import { syncFreshness, type FullSyncAttestation } from '../../../../shared/src/full-sync';
 
-export function MockProgress({snapshot, fullSyncAttestation}:{snapshot:Snapshot; fullSyncAttestation?:FullSyncAttestation | undefined}) {
+/** `realData` is true only for the real (non-demo) dataset; unknown counts as demo. */
+export function MockProgress({snapshot, realData=false, fullSyncAttestation}:{snapshot:Snapshot; realData?:boolean; fullSyncAttestation?:FullSyncAttestation | undefined}) {
   const [state,setState]=useState<ProgressState>({unavailable:false,busy:false,uncertain:false});
   const [controller,setController]=useState<ReturnType<typeof createMockProgress>>();
   useEffect(()=>{
@@ -15,14 +16,13 @@ export function MockProgress({snapshot, fullSyncAttestation}:{snapshot:Snapshot;
   },[]);
   const run=state.current?.run;
   const active=run && ['pending','running'].includes(run.status);
-  const selectedSources=new Set(snapshot.courses.filter(c=>snapshot.settings.trackedCourseIds.includes(c.id)).map(c=>c.discovery?.sourceCourseId).filter(Boolean));
-  const receipt=snapshot.collection?.refreshes.filter(r=>r.sourceCourseIds.some(id=>selectedSources.has(id))).sort((a,b)=>b.observedAt.localeCompare(a.observedAt))[0];
+  const freshness=syncFreshness(snapshot,realData,fullSyncAttestation);
   return <section className="mt-8 rounded-lg border bg-card p-5" aria-label="Mock scan progress">
     <h2 className="text-xl font-semibold">Mock scan progress</h2>
     <p className="text-sm text-muted-foreground">Demonstration only: this does not contact Moodle or refresh saved data.</p>
-    <p>{fullSyncFreshness(snapshot.settings.trackedCourseIds,fullSyncAttestation,snapshot.settings.timezone)}</p>
-    <p>{receipt ? `Latest page refresh: ${receipt.observedAt} · ${receipt.scope} · ${receipt.outcome} · ${receipt.evidenceMode} evidence` : 'No individual-page refresh recorded.'}</p>
-    {snapshot.sync.filter(x=>x.lastSuccessAt).map(x=><p key={x.courseId} className="text-sm">Saved course timestamp (sample/demo values are fictional): {x.courseId} · {x.lastSuccessAt}</p>)}
+    <p>{freshness.fullSync}</p>
+    <p>{freshness.pageRefresh}</p>
+    {freshness.courses.map(line=><p key={line} className="text-sm">{line}</p>)}
     {!state.current?.courseIds.length && !state.unavailable && <p>Select courses in <Link to="/settings" className="underline">Settings</Link> to start a mock run.</p>}
     {state.unavailable && <p role="alert">Progress is unavailable or the outcome is unknown. Saved data remains visible. Reconnect and read back before retrying. <button className="underline" onClick={()=>void controller?.reconnect()}>Reconnect</button></p>}
     {state.uncertain && <p>An earlier request may have completed. Reconnect and read back; an explicit retry uses the same unresolved key.</p>}
