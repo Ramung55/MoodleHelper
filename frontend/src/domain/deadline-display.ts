@@ -93,6 +93,9 @@ export type Freshness = { stale: boolean; label: string };
  * Source freshness from persisted evidence only (#35 AC4): last valid source
  * observation, the course sync state and failed page refreshes for this item's
  * source URLs. No universal age threshold and no guessed fresh timestamp.
+ * #21: a partial completed scan leaves a source fresh only when that scan read it
+ * again (observed at or after the scan's `lastScanStartedAt`); a failed latest
+ * sync, or a partial one that did not re-read it, stays stale.
  */
 export function sourceFreshness(v: AssessmentView, snap: Snapshot, tz: string): Freshness | null {
   if (v.a.personal) return null;
@@ -108,7 +111,9 @@ export function sourceFreshness(v: AssessmentView, snap: Snapshot, tz: string): 
   if (failedRefresh && (failedRefresh.outcome === "failed" || failedRefresh.outcome === "unavailable"))
     return { stale: true, label: `Stale — last observed ${lastText}; refresh ${failedRefresh.outcome} ${fmtInstant(failedRefresh.observedAt, tz)}` };
   const sync = snap.sync.find((s) => s.courseId === v.a.courseId);
-  if (sync && (sync.status === "failed" || sync.status === "partial")) {
+  const started = sync?.status === "partial" && sync.lastScanStartedAt ? Date.parse(sync.lastScanStartedAt) : NaN;
+  const reread = Number.isFinite(started) && Date.parse(last!) >= started;
+  if (sync && (sync.status === "failed" || sync.status === "partial") && !reread) {
     const ok = fmtInstant(sync.lastSuccessAt, tz);
     return { stale: true, label: `Stale — last observed ${lastText}; latest sync ${sync.status}${ok ? `, last successful sync ${ok}` : ", no successful sync recorded"}` };
   }

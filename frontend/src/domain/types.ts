@@ -176,6 +176,8 @@ export const CourseSyncState = z.object({
   coverage: z.enum(["full", "partial", "none"]),
   lastSuccessAt: z.string().optional(),
   lastAttemptAt: z.string().optional(),
+  /** #21: earliest page observation of the last completed verified scan; sources observed since were re-read by it. */
+  lastScanStartedAt: z.string().optional(),
   error: z.string().optional(),
   progress: z.number().min(0).max(100),
 });

@@ -14,6 +14,7 @@ from backend import schemas
 from backend.collection import CollectionRejected, canonical, route
 from backend.queue import QueueConflict, QueueInvalid, QueueMissing, QueueService
 from backend.scan_gate import ScanGate, forget_job_failures
+from backend.submission_retention import _instant
 
 # A job claimed this many times without finishing fails instead of running again,
 # so repeated worker crashes or restarts cannot make one job repeat forever.
@@ -270,8 +271,12 @@ class ScanQueueService(QueueService):
             if self.verified:
                 if body['outcome'] == 'completed':
                     incomplete = bool(body['incompleteReasons']) or any(p['coverage'] != 'complete' for p in body['pages'])
+                    # #21: the earliest request of this scan; sources observed since were read again by it.
+                    times = [p['observedAt'] for p in body['pages'] if p.get('observedAt')]
+                    started = min(times, key=_instant) if times else None
                     set_sync(snapshot, row.course_id, status='partial' if incomplete else 'ok',
-                             coverage='partial' if incomplete else 'full', progress=100, lastSuccessAt=now_iso(), error=None)
+                             coverage='partial' if incomplete else 'full', progress=100, lastSuccessAt=now_iso(), error=None,
+                             lastScanStartedAt=started)
                 else:
                     set_sync(snapshot, row.course_id, status='failed', progress=100, error=SYNC_ERRORS[body['errorCode']],
                              lastAttemptAt=now_iso())

@@ -327,6 +327,36 @@ def test_failed_scan_records_attempt_time_and_keeps_full_coverage(live, tmp_path
         live.close()
 
 
+def test_completed_scan_records_its_earliest_request_and_a_failed_job_keeps_it(live, tmp_path):
+    """#21 freshness: lastScanStartedAt is the earliest page observedAt of the last completed scan."""
+    live.post('/api/sync')
+    claim = live.post('/api/scan/claim', {}).json()['claim']
+    course, source = claim['job']['courseId'], claim['sourceCourseId']
+    pages = full_scan(source, ['990103'])
+    later, earliest = '2028-03-05T10:00:05.000Z', '2028-03-05T09:59:58.5+00:00'
+    pages[1]['observedAt'] = later
+    pages[0]['observedAt'] = earliest
+    assert live.post('/api/scan/finish', completed(claim, pages)).status_code == 200
+    entry = live.sync_entry(course)
+    assert (entry['status'], entry['lastScanStartedAt']) == ('partial', earliest)
+    while (other := live.post('/api/scan/claim', {}).json().get('claim')):
+        assert live.post('/api/scan/finish', completed(other, full_scan(other['sourceCourseId'], ['990203']))).status_code == 200
+    live.post('/api/sync')
+    claim = live.post('/api/scan/claim', {}).json()['claim']
+    failure = [dict(pageType='course', scope='unknown', outcome='failed', coverage='none', reasons=['request_failed'],
+                    observedAt='2028-03-06T10:00:00.000Z', pageUrl=f"{ORIGIN}/course/view.php?id={claim['sourceCourseId']}")]
+    before = live.sync_entry(claim['job']['courseId'])
+    assert live.post('/api/scan/finish', failed(claim, 'request_failed', failure)).status_code == 200
+    after = live.sync_entry(claim['job']['courseId'])
+    assert after['status'] == 'failed' and after['lastScanStartedAt'] == before['lastScanStartedAt']
+    saved = entries(live)
+    live = restarted(live, tmp_path)
+    try:
+        assert entries(live) == saved
+    finally:
+        live.close()
+
+
 def test_mock_run_never_changes_real_sync_entry(live, tmp_path):
     live.post('/api/sync')
     finish_all(live)

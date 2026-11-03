@@ -154,6 +154,34 @@ describe("freshness (#35 AC4)", () => {
   });
 });
 
+describe("freshness after a live scan (#21)", () => {
+  const setupScan = (status: "ok" | "partial" | "failed", startedAt: string | undefined, observedAt: string) => {
+    const snap = buildDemoSnapshot();
+    const a = snap.assessments.find((x) => x.courseId === "c-phy" && !x.personal)!;
+    a.sources = a.sources.map((s) => ({ ...s, observedAt }));
+    snap.collection = { records: [], reviews: [], refreshes: [] };
+    snap.sync = snap.sync.map((s) => s.courseId !== "c-phy" ? s : {
+      courseId: "c-phy", status, coverage: status === "ok" ? "full" : "partial", progress: 100, lastSuccessAt: "2028-03-05T10:05:00Z",
+      ...(startedAt ? { lastScanStartedAt: startedAt } : {}), ...(status === "failed" ? { error: "Sign in to SDU Moodle to continue." } : {}) });
+    return sourceFreshness(viewAssessment(a, undefined, snap.settings, snap), snap, "UTC")!;
+  };
+  it("a source read by the partial scan that just completed is not stale", () => {
+    const f = setupScan("partial", "2028-03-05T10:00:00Z", "2028-03-05T10:02:00Z");
+    expect(f.stale).toBe(false);
+    expect(f.label).toMatch(/^Last observed/);
+    expect(setupScan("partial", "2028-03-05T10:00:00Z", "2028-03-05T10:00:00Z").stale).toBe(false);
+  });
+  it("stays stale when a later partial scan did not read the source again, or when the latest scan failed", () => {
+    const partial = setupScan("partial", "2028-03-06T10:00:00Z", "2028-03-05T10:02:00Z");
+    expect(partial.stale).toBe(true);
+    expect(partial.label).toMatch(/latest sync partial/);
+    expect(setupScan("failed", "2028-03-05T10:00:00Z", "2028-03-05T10:02:00Z").stale).toBe(true);
+    // No recorded scan start (demo or older entries): the existing partial rule applies.
+    expect(setupScan("partial", undefined, "2028-03-05T10:02:00Z").stale).toBe(true);
+    expect(setupScan("partial", "not a time", "2028-03-05T10:02:00Z").stale).toBe(true);
+  });
+});
+
 describe("details and restore (#35 AC2/AC5)", () => {
   it("explains a missing deep-linked item with a back action", () => {
     setup();

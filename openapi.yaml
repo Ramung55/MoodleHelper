@@ -1587,8 +1587,9 @@ paths:
         transaction. The same transaction writes the course's Snapshot sync entry
         (completed with complete coverage gives ok/full; completed with any incomplete
         page type gives partial/partial; failed gives failed with a fixed error text;
-        lastSuccessAt only for a completed job; a failed job sets lastAttemptAt and keeps
-        coverage and lastSuccessAt). A failed job with errorCode signed_out
+        lastSuccessAt only for a completed job, with lastScanStartedAt as the earliest
+        page observedAt of that job; a failed job sets lastAttemptAt and keeps
+        coverage, lastSuccessAt and lastScanStartedAt). A failed job with errorCode signed_out
         also fails every other still-pending job of its runs as signed_out without
         a Moodle request, with the fixed sign-in guidance and lastAttemptAt as their sync entry, so no
         further Moodle request is made until a new Sync all. Retry failure counts
@@ -4376,6 +4377,13 @@ components:
           description: Time of the course's last failed verified scan attempt (a failed
             job, including the signed-out cascade). Optional and additive; it leaves
             coverage and lastSuccessAt unchanged. Mock runs never write it.
+        lastScanStartedAt:
+          type: string
+          description: Earliest page observation time of the course's last completed
+            verified scan (#21 freshness). A source observed at or after it was read
+            again by that scan, so a partial scan does not make it stale. Optional
+            and additive; written with lastSuccessAt, kept by a failed job. Mock runs
+            never write it.
         error:
           type: string
         progress:

@@ -364,6 +364,7 @@ class CourseSyncState(WireModel):
     coverage: Literal["full", "partial", "none"]
     lastSuccessAt: str = None
     lastAttemptAt: str = None
+    lastScanStartedAt: str = None
     error: str = None
     progress: float = Field(ge=0, le=100)
 
