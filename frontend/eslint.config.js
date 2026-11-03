@@ -6,7 +6,18 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  {
+    // Generated output plus local scratch/tooling folders (#67). Never real source.
+    // public/ocr/7.0.0 is copied in by scripts/prepare-ocr-assets.mjs and is git-ignored.
+    ignores: [
+      "dist",
+      ".output",
+      ".vinxi",
+      "public/ocr/7.0.0/**",
+      "**/.qa-temp/**",
+      "**/.playwright-browsers/**",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

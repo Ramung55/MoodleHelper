@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppProvider } from "@/lib/app-store";
 import { AppShell } from "@/components/mh/AppShell";
 import { Toaster } from "@/components/ui/sonner";
+import { shellPreview, shellSearch } from "@/lib/shell-preview";
 
 function NotFoundComponent() {
   return (
@@ -57,6 +58,7 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  validateSearch: shellSearch,
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -99,12 +101,16 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  // Router search can retain unvalidated keys; gate again at the effect boundary.
+  const shellState = shellPreview(Route.useSearch().shellState);
   return (
     <QueryClientProvider client={queryClient}>
-      <AppProvider>
-        <AppShell />
-        <Toaster />
-      </AppProvider>
+      {shellState ? <AppShell preview={shellState} /> : (
+        <AppProvider>
+          <AppShell />
+          <Toaster />
+        </AppProvider>
+      )}
     </QueryClientProvider>
   );
 }

@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/mod/resource/view.php?id=990104",
+    "credentials": "omit",
+    "authenticatedTarget": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf"
+  },
+  "response": {
+    "redirected": true,
+    "status": 200,
+    "finalPath": "/login/index.php",
+    "contentType": "text/html"
+  }
+}

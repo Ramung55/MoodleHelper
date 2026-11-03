@@ -1,6 +1,19 @@
 from copy import deepcopy
 
 
+def test_override_baseline_uses_known_syllabus_when_latest_moodle_is_unknown(client):
+    snapshot = client.get("/api/snapshot").json()
+    snapshot["assessments"][0]["sources"] = [
+        {"source": "moodle", "date": {"kind": "date", "date": "2026-10-01"}, "observedAt": "2026-10-01T00:00:00Z"},
+        {"source": "moodle", "date": {"kind": "unknown"}, "observedAt": "2026-10-02T00:00:00Z"},
+        {"source": "syllabus", "date": {"kind": "week", "week": 8}, "observedAt": "2026-10-01T00:00:00Z"},
+    ]
+    assert client.put("/api/snapshot", json=snapshot).status_code == 200
+    result = client.patch("/api/assessments/a1/overlay", json={"dateOverride": {"kind": "week", "week": 9}})
+    assert result.status_code == 200
+    assert next(o for o in result.json()["overlays"] if o["assessmentId"] == "a1")["overrideBase"] == {"kind": "week", "week": 8}
+
+
 def test_overlay_set_retain_clear_restores_latest_source(client):
     before = client.get("/api/snapshot").json()
     initial = client.patch("/api/assessments/a1/overlay", json={"titleOverride": "My title", "dateOverride": {"kind": "week", "week": 12}}).json()

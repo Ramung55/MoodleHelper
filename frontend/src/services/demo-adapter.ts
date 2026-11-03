@@ -1,6 +1,7 @@
-import { reconciledSourceDate } from "@/domain/assessments";
+import type { RawCourseObservation } from "@/domain/types";
+import { effectiveSources, reconciledSourceDate } from "@/domain/assessments";
 import { candidateToAssessment, checkFormat } from "@/domain/extraction";
-import { Snapshot as SnapshotSchema, type Snapshot } from "@/domain/types";
+import { Snapshot as SnapshotSchema, TeachingCalendar, type Snapshot } from "@/domain/types";
 import type { MoodleHelperAdapter, PersonalEventInput, ReviewDecision } from "./adapter";
 import { buildDemoSnapshot } from "./fixtures";
 
@@ -29,7 +30,8 @@ export const browserKV = (): KV =>
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function emptySnapshot(base: Snapshot): Snapshot {
-  return { ...base, courses: [], assessments: [], overlays: [], materials: [], documents: [], candidates: [], sync: [], changes: [], alerts: [], settings: { ...base.settings, trackedCourseIds: [] } };
+  const { collection: _collection, reconciliation: _reconciliation, deadlineStreams: _deadlineStreams, syllabusRevisions: _syllabusRevisions, ...retained } = base;
+  return { ...retained, courses: [], assessments: [], overlays: [], materials: [], documents: [], candidates: [], sync: [], changes: [], alerts: [], settings: { ...base.settings, trackedCourseIds: [] } };
 }
 
 /** Demo implementation of the services layer. Persists interactions locally. Never contacts Moodle. */
@@ -62,6 +64,10 @@ export class DemoAdapter implements MoodleHelperAdapter {
     return new Date(this.now()).toISOString();
   }
 
+  async ingestCourseDiscovery(_observations: RawCourseObservation[]): Promise<Snapshot> {
+    throw new Error("Course discovery persistence requires the local backend. Use the default HTTP adapter.");
+  }
+
   async connection() {
     return {
       state: "demo" as const,
@@ -89,7 +95,8 @@ export class DemoAdapter implements MoodleHelperAdapter {
       // remember which source date the override was set against
       if ("dateOverride" in patch) {
         const a = s.assessments.find((x) => x.id === id);
-        next.overrideBase = patch.dateOverride && a ? reconciledSourceDate(a.sources) : undefined;
+        const sources = a ? effectiveSources(s, a) : [];
+        next.overrideBase = patch.dateOverride && a ? (sources.length ? reconciledSourceDate(sources) : {kind:"unknown"}) : undefined;
       }
       return { ...s, overlays: [...s.overlays.filter((o) => o.assessmentId !== id), next] };
     });
@@ -139,10 +146,19 @@ export class DemoAdapter implements MoodleHelperAdapter {
     return s;
   }
 
-  async importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void) {
+  async importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void, contentDigest?: string) {
     const fmt = checkFormat(fileName);
     if (!fmt.ok) return { snapshot: this.read(), result: fmt };
-    const id = `d-${this.now().toString(36)}`;
+    const id = contentDigest ? `d-mock-${JSON.stringify([courseId, contentDigest])}` : `d-${this.now().toString(36)}`;
+    const previous = this.read();
+    if (contentDigest && previous.documents.some((d) => d.id === id)) {
+      if (previous.documents.filter((d) => d.id === id && d.courseId === courseId && d.mocked).length !== 1 ||
+          previous.candidates.filter((c) => c.id === `k-${id}` && c.documentId === id && c.courseId === courseId).length !== 1) {
+        throw new Error("Mock document identity collision; import was not saved.");
+      }
+      return { snapshot: previous, result: { ok: true as const } };
+    }
+    if (previous.candidates.some((c) => c.id === `k-${id}`)) throw new Error("Mock candidate identity collision; import was not saved.");
     let s = this.mutate((x) => ({ ...x, documents: [...x.documents, { id, courseId, name: fileName, format: fmt.format, status: "extracting", progress: 0, importedAt: this.stamp(), mocked: true }] }));
     onProgress(s);
     for (const p of [35, 70, 100]) {
@@ -184,6 +200,14 @@ export class DemoAdapter implements MoodleHelperAdapter {
       };
     });
   }
+  async proposeReconciliation(_left: string, _right: string): Promise<Snapshot> {
+    throw new Error("Match review requires the local backend. Demo data stays unchanged.");
+  }
+  async previewSyllabusRevision(_sourceId: string, _candidateId: string): Promise<never> { throw new Error("Syllabus revision review requires the local backend."); }
+  async confirmSyllabusRevision(_decision: import("@/domain/types").SyllabusRevisionDecision): Promise<Snapshot> { throw new Error("Syllabus revision review requires the local backend."); }
+  async decideReconciliation(_pairId: string, _fingerprint: string, _reviewRevision: string, _kind: "confirm" | "reject", _choices: Record<string, string>): Promise<Snapshot> {
+    throw new Error("Match review requires the local backend. Demo data stays unchanged.");
+  }
 
   async downloadMaterial(id: string) {
     const m = this.read().materials.find((x) => x.id === id);
@@ -193,7 +217,20 @@ export class DemoAdapter implements MoodleHelperAdapter {
   async saveAlerts(alerts: Snapshot["alerts"]) {
     return this.mutate((s) => ({ ...s, alerts }));
   }
+  async updateAlerts(ids: string[], action: "read" | "delete") {
+    const wanted = new Set(ids);
+    return this.mutate((s) => ({ ...s, alerts: action === "delete" ? s.alerts.filter((a) => !wanted.has(a.id)) : s.alerts.map((a) => (wanted.has(a.id) ? { ...a, read: true } : a)) }));
+  }
+  async setSyllabusSuggestionDismissal(recordId: string, dismissed: boolean) {
+    return this.mutate((s) => {
+      if (!s.collection?.records.some((r) => r.kind === "material" && r.id === recordId && r.observations.some((o) => o.kind !== "folder"))) throw new Error("Suggestion is no longer available. Refresh and try again.");
+      const ids = new Set(s.dismissedSyllabusSuggestions ?? []);
+      if (dismissed) ids.add(recordId); else ids.delete(recordId);
+      return { ...s, dismissedSyllabusSuggestions: [...ids].sort() };
+    });
+  }
   async updateSettings(patch: Partial<Snapshot["settings"]>) {
+    if (Object.hasOwn(patch, "teachingCalendar")) TeachingCalendar.parse(patch.teachingCalendar);
     return this.mutate((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
   }
   async replaceAll(next: Snapshot) {

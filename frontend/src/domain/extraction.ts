@@ -1,4 +1,4 @@
-import { weekOf } from "./dates";
+import { mapTeachingDate } from "./teaching-weeks";
 import type { Assessment, ExtractionCandidate, Settings } from "./types";
 import { reconciledSourceDate } from "./assessments";
 
@@ -30,11 +30,12 @@ export function canAutoAccept(c: ExtractionCandidate, matches: Assessment[]): bo
  * so recurring assignments in different weeks stay separate.
  */
 export function proposeMatches(c: ExtractionCandidate, assessments: Assessment[], s: Settings): Assessment[] {
-  const cw = weekOf(c.date, s.semesterStart, s.timezone);
-  if (cw == null) return [];
+  const cw = mapTeachingDate(c.date, s.teachingCalendar);
+  if (!cw.resolved) return [];
   return assessments.filter((a) => {
     if (a.personal || a.courseId !== c.courseId || a.type !== c.type) return false;
-    return weekOf(reconciledSourceDate(a.sources), s.semesterStart, s.timezone) === cw;
+    const mapped = mapTeachingDate(reconciledSourceDate(a.sources), s.teachingCalendar);
+    return mapped.resolved && mapped.week === cw.week;
   });
 }
 

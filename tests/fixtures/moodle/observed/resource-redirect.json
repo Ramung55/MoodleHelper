@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "HEAD",
+    "path": "/mod/resource/view.php?id=990104",
+    "credentials": "include"
+  },
+  "redirect": {
+    "statusOneOf": [303, 302],
+    "locationPath": "/pluginfile.php/55001/mod_resource/content/1/fixture-document.pdf"
+  },
+  "final": {
+    "contentType": "application/pdf",
+    "contentDisposition": "inline"
+  }
+}

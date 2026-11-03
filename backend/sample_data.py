@@ -53,6 +53,6 @@ def build_sample_snapshot() -> dict:
         ],
         "changes": [{"id": "ch1", "assessmentId": "a3", "from": {"kind": "date", "date": str(monday)}, "to": date, "detectedAt": stamp}],
         "alerts": [{"id": "alert1", "kind": "change", "assessmentId": "a3", "message": "Fictional physics deadline changed; review the source evidence.", "deliveryKey": "demo:change:a3", "createdAt": stamp, "read": False}],
-        "settings": {"trackedCourseIds": ["c-csc", "c-math", "c-phy"], "semesterStart": str(monday - timedelta(weeks=5)), "semesterWeeks": 15, "timezone": "Asia/Almaty", "weights": {"exam": 3, "assignment": 2, "quiz": 1, "other": 0}, "thresholds": {"maxOutstanding": 5, "maxWeighted": 10}, "reminders": {"enabled": True, "hoursBefore": 48, "busyWeek": True}, "ai": {"enabled": False, "consentGiven": False}},
+        "settings": {"trackedCourseIds": ["c-csc", "c-math", "c-phy"], "semesterStart": str(monday - timedelta(weeks=5)), "semesterWeeks": 15, "timezone": "Asia/Almaty", "weights": {"exam": 3, "assignment": 2, "quiz": 1, "other": 0}, "thresholds": {"maxOutstanding": 5, "maxWeighted": 10}, "reminders": {"enabled": True, "hoursBefore": 24, "busyWeek": True}, "ai": {"enabled": False, "consentGiven": False}},
     }
     return Snapshot.model_validate(result).model_dump(by_alias=True, exclude_none=True)

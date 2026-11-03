@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Moodle Helper — file download</title>
+    <style>body { margin: 0; padding: 24px; font: 14px system-ui; max-width: 560px; } progress { width: 100%; } #phase { font-weight: 600; }</style>
+  </head>
+  <body>
+    <h1>Downloading one Moodle file</h1>
+    <p>Keep this tab open until the download finishes. Closing it cancels the transfer.</p>
+    <p id="phase" aria-live="polite">Starting…</p>
+    <p id="message" aria-live="polite"></p>
+    <progress id="progress" hidden></progress>
+    <p id="detail"></p>
+    <script src="transfer.js"></script>
+  </body>
+</html>

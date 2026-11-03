@@ -126,7 +126,7 @@ export function buildDemoSnapshot(nowMs = Date.now()): Snapshot {
       timezone: "Asia/Almaty",
       weights: { exam: 3, assignment: 2, quiz: 1, other: 0 },
       thresholds: { maxOutstanding: 5, maxWeighted: 10 },
-      reminders: { enabled: true, hoursBefore: 48, busyWeek: true },
+      reminders: { enabled: true, hoursBefore: 24, busyWeek: true },
       ai: { enabled: false, consentGiven: false },
     },
   };

@@ -1,0 +1,55 @@
+[
+  {
+    "error": false,
+    "data": {
+      "courses": [
+        {
+          "id": 9001,
+          "fullname": "Fictional Course Alpha",
+          "shortname": "DEMO101-1-redacted-2028-1",
+          "idnumber": "",
+          "startdate": 1831489200,
+          "enddate": 1843326000,
+          "viewurl": "https://moodle.example.invalid/course/view.php?id=9001",
+          "coursecategory": "Fictional Term 2028 (2027-2028)",
+          "visible": true,
+          "hidden": false,
+          "isfavourite": false,
+          "hasprogress": true,
+          "progress": 0
+        },
+        {
+          "id": 9002,
+          "fullname": "Fictional Course Beta",
+          "shortname": "DEMO202-2-redacted-2028-1",
+          "idnumber": "",
+          "startdate": 1831489200,
+          "enddate": 1843326000,
+          "viewurl": "https://moodle.example.invalid/course/view.php?id=9002",
+          "coursecategory": "Fictional Term 2028 (2027-2028)",
+          "visible": true,
+          "hidden": false,
+          "isfavourite": true,
+          "hasprogress": true,
+          "progress": 0
+        },
+        {
+          "id": 9003,
+          "fullname": "Fictional Course Gamma",
+          "shortname": "DEMO303-1-redacted-2028-1",
+          "idnumber": "",
+          "startdate": 1831489200,
+          "enddate": 1843326000,
+          "viewurl": "https://moodle.example.invalid/course/view.php?id=9003",
+          "coursecategory": "Fictional Term 2028 (2027-2028)",
+          "visible": true,
+          "hidden": false,
+          "isfavourite": false,
+          "hasprogress": true,
+          "progress": 0
+        }
+      ],
+      "nextoffset": 3
+    }
+  }
+]
