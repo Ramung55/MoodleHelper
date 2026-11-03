@@ -1,12 +1,14 @@
 # Chrome pilot package (#49) — LOCAL REVIEW BUILD
 
-**Status: Not yet live-validated.** The extension package is not signed, not a store build,
-and not published or distributed. The approved HTTPS dashboard origin is
+**Status: Not yet live-validated as a whole.** The extension package is not signed, not a
+store build, and not published or distributed. The approved HTTPS dashboard origin is
 `https://ramung55.github.io/MoodleHelper/` (owner approval 2026-11-01, reconfirmed 2026-11-02).
 GitHub Pages **is enabled** with owner approval and serves the dashboard there (§3).
-Issue #49 stays open until all six original criteria pass. AC3 (fresh-install connection
-from the live Pages site) and AC5 (extension-path SDU smoke check) are owner-only Chrome
-steps and are **UNVERIFIED / pending** (§3, §5).
+Issue #49 stays open until all six original criteria pass. The owner-only Chrome steps
+ran on 2026-11-03: AC3 (connection from the live Pages site) **passed** (§3), and AC5
+(extension-path SDU smoke check) is **live-validated for the page variants listed in §5**.
+Variants not seen stay UNVERIFIED. The Pages build used was `b26c8aa`; later fixes are not
+yet deployed (§3).
 
 ## 1. Build the package
 
@@ -57,19 +59,25 @@ until Pages has deployed that same commit; then rebuild with
 
 | Recorded 2026-11-03 | Commit | Pages run |
 |---|---|---|
-| Last Pages deploy | `35067a2` | 41520591494 (success, 2026-11-02) |
-| This package (local HEAD, unpushed) | the `commit` in `build-info.json` | **pending**: needs the owner-approved push |
+| Pages build used for the AC3 check (2026-11-03) | `b26c8aa` | deployed |
+| Later fixes, up to `5575841` (local, unpushed) | the `commit` in `build-info.json` | **pending**: needs the owner-approved push |
 
-The owner's AC3/AC5 check must use an extension zip and a Pages deploy from the **same
-commit**: compare `build-info.json` `commit` with the Pages run's head SHA.
+A release check should use an extension zip and a Pages deploy from the **same commit**:
+compare `build-info.json` `commit` with the Pages run's head SHA. The 2026-11-03 owner
+checks did not: the dashboard was the Pages build `b26c8aa` and the extension was loaded
+unpacked from a later local HEAD (§3, §5).
 
 ## 2. Install (local only)
 
 1. Run `uv run python tools/package_pilot.py`, or unzip the package into an empty folder.
 2. Open `chrome://extensions`, turn on Developer mode, click **Load unpacked** and pick
    `<repo>/extension/dist` (absolute path) or the unzipped folder.
-3. Pin Moodle Helper from the puzzle menu and open the popup from the action button.
-4. After a rebuild, click **Reload** on the extension card.
+3. Click **Details** on the Moodle Helper card and check **Site access**. It must include
+   `ramung55.github.io` (for example "On all sites", or "On specific sites" with
+   `https://ramung55.github.io` added). If site access is restricted, the hosted dashboard
+   cannot detect the extension. Found during the owner's AC3 check on 2026-11-03.
+4. Pin Moodle Helper from the puzzle menu and open the popup from the action button.
+5. After a rebuild, click **Reload** on the extension card.
 
 Minimum Chrome version: 109 (`minimum_chrome_version`; raised from 106 for the `offscreen`
 permission, owner decision 2026-11-02, #20). The packager refuses any other value. Only the
@@ -158,9 +166,10 @@ with every route prerendered. Output is `frontend/.output/public/`:
 - **Deploy (enabled, owner-approved 2026-11-02, 5aab953):** `.github/workflows/pages.yml`
   runs on pushes to `codex/backend-in-memory` (allowed in the `github-pages` environment),
   runs `bun install --frozen-lockfile` and `bun run build:pages` in `frontend/` and publishes
-  `frontend/.output/public/`. Last deploy: run **41520591494** at commit **`35067a2`**
-  (success, 2026-11-02). Local HEAD is ahead and unpushed, so the live site does not yet
-  match this package.
+  `frontend/.output/public/`. The deploy live during the owner's 2026-11-03 checks was
+  built from **`b26c8aa`** (the earlier run 41520591494 at `35067a2` succeeded on
+  2026-11-02). Later fixes, up to `5575841`, are local and unpushed, so the live site does
+  not yet include them.
 - **Pending (owner):** approve the push that redeploys Pages from the packaged commit, then
   record the new run id here and in `build-info.json` (`--pages-run-id`). Agents do not push
   or deploy.
@@ -173,16 +182,20 @@ real local backend, a preflight from `https://ramung55.github.io` returned 200 w
 `Access-Control-Allow-Origin` and `Access-Control-Allow-Private-Network: true`; one from
 another origin returned 400.
 
-**AC3 fresh-install connection: UNVERIFIED (pending the owner's Chrome).** Agents' browsers
-cannot load extensions and block page-to-loopback requests. Backend log lines showing the
-owner's installed worker reaching the backend (2026-11-02) do not show the page origin and
-are not AC3 evidence. Owner steps (issue #49, "Owner Chrome steps"): record the Chrome
-version (109 or later); load `extension/dist` or the unzipped package in a fresh profile;
-start the backend; open `https://ramung55.github.io/MoodleHelper/deadlines` and allow local
-network access. Pass: data is shown (not "Local data could not be loaded"), the popup or
-Settings shows the extension connected, and a refresh of `/MoodleHelper/settings` still
-loads. Record a screenshot without personal data, or backend log lines with an
-`Origin: https://ramung55.github.io` request.
+**AC3 connection from the approved origin: PASS (owner's Chrome, 2026-11-03).** Owner steps
+are in issue #49, "Owner Chrome steps". Agents' browsers cannot load extensions and block
+page-to-loopback requests, so the owner's Chrome was used, with the extension loaded
+unpacked and the local backend running. Results:
+
+- `https://ramung55.github.io/MoodleHelper/settings` reported **"Extension detected"**.
+- `https://ramung55.github.io/MoodleHelper/deadlines` showed data (12 deadlines), not
+  "Local data could not be loaded".
+- Navigating to and refreshing `/MoodleHelper/settings` loaded each time.
+- Prerequisite found: the extension's Chrome **Site access** was restricted and had to
+  include `ramung55.github.io` before the page could detect the extension. The owner set
+  it, and it is now step 3 of the install guide (§2).
+- The dashboard was the Pages build from **`b26c8aa`**. Later fixes (up to `5575841`) are not
+  yet deployed, so the hosted dashboard does not include them.
 
 ## 4. Privacy summary
 
@@ -197,8 +210,8 @@ loads. Record a screenshot without personal data, or backend log lines with an
   (submitted, not submitted, draft, reopened or unknown), its wording, source link and
   observed time, with the latest attempt kept separate from the last confirmed status and a
   stale flag, in the backend Snapshot's collection layer. No grades or submission text are
-  stored. No live collector sends submission status yet (the submission collector is not
-  dispatched until #20 enables it), so in practice nothing is stored.
+  stored. Sync all now dispatches the submission collector on assignment pages (#20, closed);
+  the stored submission records were not separately checked in the owner's Chrome.
 - **Downloaded files (#41, #85):** a Download file click saves the file through Chrome's download
   manager into your normal downloads folder. Moodle Helper keeps only a transfer record
   (`material_transfers`) and the material's `downloadedAt`. Erase removes those records but
@@ -218,7 +231,9 @@ loads. Record a screenshot without personal data, or backend log lines with an
 
 ## 5. SDU smoke record
 
-**Package label: Not yet live-validated** (also in `build-info.json`).
+**Package label: Not yet live-validated** (also in `build-info.json`). The extension-path
+check below is live-validated only for the page variants it lists. The label stays until
+every variant is seen and Pages is redeployed from the packaged commit.
 
 **Source-page evidence** (read-only, by the student with consent): see
 `_docs/compatibility/sdu-moodle.md`, the page variant matrix and **Addendum 6** (re-check
@@ -236,38 +251,60 @@ loads. Record a screenshot without personal data, or backend log lines with an
 
 No names, grades, file names or credentials were kept.
 
-**Extension-path smoke check** (the installed extension running Find my SDU courses and
-Sync all on SDU): **UNVERIFIED, pending the owner's Chrome.** No agent has run the
-installed extension against SDU, and the #47 fixture journey is not live evidence. Owner
-step (issue #49, AC5): signed in to SDU yourself, open one course, one assignment and one
-quiz page, run Find my SDU courses and Sync all once, and record each page variant, date,
-language and result (complete, partial or signed_out) with no names, grades or
-credentials. If this cannot be done, this record stays UNVERIFIED, which the original AC5
-allows.
+**Extension-path smoke check: live-validated for the variants below** (the installed
+extension running Find my SDU courses, Sync all and Download file on SDU, in the owner's
+Chrome, signed in by the owner, 2026-11-03). Interface language as observed: English UI;
+the login page carried `lang-ru`. Counts only; no names, ids, dates, grades or credentials
+were kept. Details are in the 2026-11-03 "Owner Chrome check" comments on #20, #82, #41,
+#21 and #46.
+
+| Page variant | Outcome |
+|---|---|
+| Find my SDU courses | 8 in-progress courses found |
+| Course page (`course/view.php`) | `ok` on 6 of 8; 2 `partial`, with nothing discovered |
+| Assignment pages | 22 `ok` |
+| Quiz pages | 3 `ok` |
+| Upcoming calendar | `partial`, by design |
+| Materials (resource, URL, folder links) | 18–57 links recorded, none requested |
+| Signed out: redirect to `/login/index.php`, `body#page-login-index` | `signed_out`, with "Sign in to SDU Moodle to continue." |
+| Download file, PDF | Complete |
+| Download file, PDF over 20 MiB | Refused, nothing saved |
+| Download file, signed out | The login-page message, nothing saved |
+
+Still **UNVERIFIED** on the extension path (not seen): forbidden pages, a RU or KK
+interface, folder entries, and the source-page variants marked UNVERIFIED above.
 
 ## 6. Known limitations / open issues
 
-Status as of 2026-11-03. "Repo checks passed" means QA passed the repository checks; the
-issue stays open until its owner Chrome steps are run.
+Status as of 2026-11-03, checked with `gh`.
 
-- [#20](https://github.com/Ramung55/MoodleHelper/issues/20) Sync all wiring: repo checks
-  passed; owner Chrome check pending. Full sync is not yet trusted live.
+Closed since the last update:
+[#20](https://github.com/Ramung55/MoodleHelper/issues/20) Sync all wiring,
+[#21](https://github.com/Ramung55/MoodleHelper/issues/21) sync progress and freshness,
+[#41](https://github.com/Ramung55/MoodleHelper/issues/41) Download PDF,
+[#83](https://github.com/Ramung55/MoodleHelper/issues/83) assignment, calendar and material
+collectors, [#84](https://github.com/Ramung55/MoodleHelper/issues/84) course code and term,
+[#85](https://github.com/Ramung55/MoodleHelper/issues/85) DOCX and PPTX downloads, and
+[#81](https://github.com/Ramung55/MoodleHelper/issues/81) submission status storage.
+What these closures do not cover:
+
+- No live full sync has been seen: the calendar is always `partial`, so coverage is never
+  full (#21).
+- Download: demo, synthetic and in-memory data answer "not available yet". A login page, a
+  resource that opens as a Moodle page, EPUB files and folder entries are never saved
+  (#41). DOCX and PPTX responses and the "DOCX" badge are UNVERIFIED on SDU (#85).
+
+Still open:
+
 - [#82](https://github.com/Ramung55/MoodleHelper/issues/82) Find my SDU courses: repo checks
-  passed; owner Chrome check pending.
-- [#83](https://github.com/Ramung55/MoodleHelper/issues/83) assignment, calendar and material
-  collectors on observed pages: repo checks passed; owner Chrome check pending.
-- [#41](https://github.com/Ramung55/MoodleHelper/issues/41) Download PDF: repo checks passed;
-  owner Chrome steps 1–6 pending. Demo, synthetic and in-memory data answer "not available
-  yet". A login page, a resource that opens as a Moodle page, EPUB files and folder entries
-  are never saved.
-- [#21](https://github.com/Ramung55/MoodleHelper/issues/21) sync progress and freshness: repo
-  checks passed; owner Chrome check pending.
-- [#46](https://github.com/Ramung55/MoodleHelper/issues/46) first-run onboarding: repo checks
-  passed; owner Chrome steps pending.
-- [#85](https://github.com/Ramung55/MoodleHelper/issues/85) DOCX and PPTX downloads: built
-  (owner decision 2026-11-03); downloads cover PDF, DOCX and PPTX. DOCX and PPTX responses
-  and the "DOCX" badge are UNVERIFIED on SDU; the owner Chrome step is optional. EPUB and
-  folder entries stay non-downloadable (declined).
+  and most owner Chrome steps passed (8 courses found; signed-out discovery shows the
+  sign-in alert). Checking the extension storage and service-worker console for `sesskey`
+  needs the owner's own DevTools and is pending.
+- [#46](https://github.com/Ramung55/MoodleHelper/issues/46) first-run onboarding: owner
+  Chrome steps 2–9 passed at full width. Step 1 (extension off) and the 400 px check are
+  pending. On the real dataset the dashboard banner and Settings still describe live sync
+  as demo ("Sync all courses (demo)") although a real scan runs.
+- [#49](https://github.com/Ramung55/MoodleHelper/issues/49) this pilot package.
 - [#42](https://github.com/Ramung55/MoodleHelper/issues/42),
   [#44](https://github.com/Ramung55/MoodleHelper/issues/44) cloud AI: deferred by the owner
   (2026-11-02). The free-tier key is rejected with `403 PERMISSION_DENIED`, so no real AI
@@ -279,12 +316,14 @@ issue stays open until its owner Chrome steps are run.
 - Reminder notification clicks still open the development dashboard
   `http://127.0.0.1:5173` (`APPROVED_ORIGINS[0]` in `shared/src/bridge.ts`, used by
   `extension/src/reminders.ts`), not the Pages dashboard.
-- Submission status (#81) is stored by the backend but not yet collected live (§4).
-- The live Pages deploy (`35067a2`) is behind this package's commit until the owner approves
-  the push (§1, §3).
+- The extension popup's header still reads "Demonstration only…" on the real dataset (seen
+  in the owner's Chrome, 2026-11-03).
+- The live Pages deploy (`b26c8aa`) is behind the later fixes (up to `5575841`) until the
+  owner approves the push (§1, §3).
 
-Tested: backend pytest suite, frontend vitest, extension vitest, and the #47 fixture
-Chromium journey (synthetic data). Untested: the installed extension against live Moodle,
-real Chrome stable, a fresh install connecting from the live Pages site (AC3), and
+Tested: backend pytest suite, frontend vitest, extension vitest, the #47 fixture Chromium
+journey (synthetic data), and in the owner's Chrome on 2026-11-03 the connection from the
+live Pages site (AC3, §3) and the extension-path SDU variants in §5. Untested: a fresh
+Chrome profile, a recorded Chrome stable version, the unseen variants in §5, and
 multi-user use. There is **no promise of complete deadline coverage**, reliable full-sync
 success, full corruption detection, perfect OCR or date parsing, or a working AI service.
