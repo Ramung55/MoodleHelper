@@ -72,10 +72,19 @@ export type StepState = "done" | "choice" | "blocked" | "todo";
  */
 export type Facts = { snap: Snapshot; extension: ExtensionStatus; liveSync: "unavailable" | "ready"; hint: Hint; signIn?: "signed_in" | "signed_out" | "unverified" };
 
+/**
+ * #46 AC2: the initial sync is done when every selected course has a completed real scan
+ * entry: `ok`, or `partial` (still labelled partial coverage), each with `lastSuccessAt`.
+ */
+export function initialSyncComplete(snap: Snapshot): boolean {
+  const selected = snap.settings.trackedCourseIds;
+  return selected.length > 0 && selected.every((id) => snap.sync.some((s) => s.courseId === id && (s.status === "ok" || s.status === "partial") && !!s.lastSuccessAt));
+}
+
 /** Derive each step's state; data contradicting a hint wins (a hint never proves success). */
 export function deriveSteps({ snap, extension, liveSync, hint, signIn }: Facts): Record<StepId, StepState> {
   const choice = (id: StepId): StepState | null => (hint.choices[id] ? "choice" : null);
-  const sync = snap.settings.trackedCourseIds.length && snap.sync.some((s) => snap.settings.trackedCourseIds.includes(s.courseId) && s.status === "ok" && s.lastSuccessAt && liveSync === "ready");
+  const sync = liveSync === "ready" && initialSyncComplete(snap);
   return {
     connection: extension.kind === "ready" && (signIn === undefined || signIn === "signed_in") ? "done" : choice("connection") ?? "todo",
     courses: snap.settings.trackedCourseIds.length ? "done" : "todo",

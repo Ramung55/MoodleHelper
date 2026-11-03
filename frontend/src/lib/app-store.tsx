@@ -11,6 +11,12 @@ import { detectExtension, discoverSduCourses } from "@/services/extension-adapte
 import { DISCOVERY_MESSAGES } from "../../../shared/src/bridge";
 import { onLocalInvalidation, resumeEraseCleanup } from "@/services/local-erase";
 
+/**
+ * #46: what one Sync all click did, for callers that show it in place (the setup sync step).
+ * `code` is the bridge error code and `status` the HTTP status, when known. Toasts are unchanged.
+ */
+export type SyncOutcome = { ok: true; snapshot: Snapshot } | { ok: false; message: string; code?: string; status?: number };
+
 interface AppState {
   adapter: MoodleHelperAdapter;
   snap: Snapshot | null;
@@ -29,7 +35,7 @@ interface AppState {
   selectionError: string | null;
   saveCourseSelection: (ids: string[]) => Promise<void>;
   retryCourseSelection: () => void;
-  syncAll: () => Promise<void>;
+  syncAll: () => Promise<SyncOutcome>;
   setSnap: (s: Snapshot) => void;
   /** #82 "Find my SDU courses": shown only with the extension in the real dataset. */
   discovery: { available: boolean; pending: boolean; status: string | null; error: string | null };
@@ -115,7 +121,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (failedSelection.current !== null) void saveCourseSelection(failedSelection.current);
   }, [saveCourseSelection]);
 
-  const syncAll = useCallback(async () => {
+  const syncAll = useCallback(async (): Promise<SyncOutcome> => {
     setSyncing(true);
     try {
       const s = await enqueue(() => adapter.syncAll(setSnap));
@@ -127,8 +133,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (queued) { /* progress is shown by the sync entries themselves */ }
       else if (failed) toast.warning(`${failed} course(s) failed to sync. Earlier data was kept.`);
       else toast.success("Demo sync finished");
+      return { ok: true, snapshot: s };
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Sync failed. Your saved data was not changed.");
+      const message = e instanceof Error ? e.message : "Sync failed. Your saved data was not changed.";
+      toast.error(message);
+      const code = (e as { code?: unknown } | null)?.code, status = (e as { status?: unknown } | null)?.status;
+      return { ok: false, message, ...(typeof code === "string" ? { code } : {}), ...(typeof status === "number" ? { status } : {}) };
     } finally {
       setSyncing(false);
     }

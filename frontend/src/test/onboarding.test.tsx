@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDemoSnapshot } from "@/services/fixtures";
 import type { Snapshot } from "@/domain/types";
-import { BridgeError } from "../../../shared/src/bridge";
+import { BridgeError, errors } from "../../../shared/src/bridge";
 import { classifyHandshake, deriveSteps, emptyHint, hintKey, moodleSignIn, parseHint, resumeStep, type ExtensionStatus } from "@/domain/onboarding";
 
 // Mocked journey fixtures only: they exercise assembly, never a live Moodle producer.
@@ -261,5 +261,129 @@ describe("#46 AC1 sign-in probe (mocked bridge)", () => {
     const link = await screen.findByRole("link", { name: "_docs/pilot-49.md" });
     expect(link.getAttribute("href")).toMatch(/_docs\/pilot-49\.md$/);
     expect(screen.queryByText(/README/)).toBeNull();
+  });
+});
+
+describe("#46 AC2 initial sync step (mocked adapter)", () => {
+  const signedIn = { signal: { state: "signed_in", source: "sdu_session_probe", context: "my_courses" }, checkedAt: "2028-03-05T10:00:00.000Z" };
+  const at = "2028-03-05T10:05:00.000Z";
+  const entry = (courseId: string, fields: Record<string, unknown>) => ({ courseId, status: "never", coverage: "none", progress: 0, ...fields });
+  let starts = 0;
+  /** Real dataset, extension ready and signed in, two selected courses never synced: the setup resumes at the sync step. */
+  const real = () => {
+    state.adapter.connection = vi.fn(async () => ({ state: "connected", message: "Real dataset", extensionDetected: true }));
+    state.adapter.checkMoodleSignIn.mockResolvedValue(signedIn);
+    saved.settings.trackedCourseIds = ["c-csc", "c-math"];
+    saved.sync = [entry("c-csc", {}), entry("c-math", {})] as any;
+    starts = 0;
+    state.adapter.syncAll = vi.fn(async (onProgress: (s: Snapshot) => void) => {
+      starts++;
+      saved.sync = saved.settings.trackedCourseIds.map((id) => entry(id, { status: "syncing" })) as any;
+      const s = structuredClone(saved); onProgress(s); return s;
+    });
+  };
+  const open = async () => {
+    const view = mount(async () => ready);
+    expect(await screen.findByRole("heading", { name: "Initial sync" })).toBeVisible();
+    return view;
+  };
+  const fail = (message: string, status: number) => Object.assign(new Error(message), { status });
+
+  it("mounting or remounting sends no sync; one click sends one; a double click sends one; the run's progress is shown", async () => {
+    real();
+    const first = await open();
+    expect(screen.getByRole("button", { name: "Start initial sync" })).toBeVisible();
+    first.unmount();
+    await open();
+    expect(starts).toBe(0);
+    const start = screen.getByRole("button", { name: "Start initial sync" });
+    fireEvent.click(start); fireEvent.click(start);
+    expect(await screen.findByText("A sync is running. Its progress is shown below.")).toBeVisible();
+    expect(starts).toBe(1);
+    expect(screen.getByText(/CSS 215: syncing… 0%/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Start initial sync" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("AC4: reopening during an active run resumes at the sync step, reads the run and sends no start", async () => {
+    real();
+    saved.sync = [entry("c-csc", { status: "syncing", progress: 40 }), entry("c-math", { status: "syncing" })] as any;
+    const first = await open();
+    expect(screen.getByText(/CSS 215: syncing… 40%/)).toBeVisible();
+    first.unmount();
+    await open();
+    expect(screen.getByText("A sync is running. Its progress is shown below.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Start initial sync" })).toBeNull();
+    expect(starts).toBe(0);
+    expect(saved.settings.trackedCourseIds).toEqual(["c-csc", "c-math"]);
+  });
+
+  it("the 409 'already running' shows the running sync; other 409s are shown as they are", async () => {
+    real();
+    state.adapter.syncAll.mockRejectedValueOnce(fail(errors.SYNC_ALREADY_RUNNING, 409)).mockRejectedValueOnce(fail(errors.SYNC_UNLINKED_COURSE, 409));
+    const view = await open();
+    // The running run is read back from the local Snapshot.
+    state.adapter.load.mockImplementationOnce(async () => { const s = structuredClone(saved); s.sync = [entry("c-csc", { status: "syncing", progress: 10 }), entry("c-math", { status: "syncing" })] as any; return s; });
+    fireEvent.click(screen.getByRole("button", { name: "Start initial sync" }));
+    expect(await screen.findByText("A sync is running. Its progress is shown below.")).toBeVisible();
+    expect(await screen.findByText(/CSS 215: syncing… 10%/)).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
+    view.unmount();
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Start initial sync" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(errors.SYNC_UNLINKED_COURSE);
+    expect(screen.getByRole("button", { name: "Start initial sync" })).toBeEnabled();
+  });
+
+  it("a 503 shows the exact reason and the step stays unfinished", async () => {
+    real();
+    state.adapter.syncAll.mockRejectedValueOnce(fail(errors.SYNC_UNAVAILABLE, 503));
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Start initial sync" }));
+    expect(await screen.findByText(`Initial sync unavailable: ${errors.SYNC_UNAVAILABLE} This step stays unfinished. Previously saved data remains visible.`)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Start initial sync" })).toBeNull();
+    expect(screen.getByRole("button", { name: /Initial sync/ })).not.toHaveTextContent("Done");
+  });
+
+  it("progress follows the sync entries: partial coverage is never full, a signed-out job asks to sign in, a failed course keeps the others", async () => {
+    real();
+    saved.settings.trackedCourseIds = ["c-csc", "c-math", "c-phy"];
+    saved.sync = [
+      entry("c-csc", { status: "partial", coverage: "partial", progress: 100, lastSuccessAt: at }),
+      entry("c-math", { status: "failed", progress: 100, error: "Sign in to SDU Moodle to continue.", lastAttemptAt: at }),
+      entry("c-phy", { status: "failed", progress: 100, error: "Moodle could not be read for this course. Earlier data was kept.", lastAttemptAt: at }),
+    ] as any;
+    await open();
+    expect(screen.getByText(/CSS 215: completed with partial coverage/)).toBeVisible();
+    expect(screen.getByText(/MAT 102: failed: Sign in to SDU Moodle to continue\./)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open SDU Moodle sign-in" })).toHaveAttribute("href", "https://moodle.sdu.edu.kz/login/index.php");
+    expect(screen.getByText(/PHY 201: failed: Moodle could not be read for this course\./)).toBeVisible();
+    expect(screen.getByText("No successful full sync yet.")).toBeVisible();
+    expect(screen.queryByText(/completed \(full coverage\)/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Start initial sync" })).toBeVisible();
+    expect(starts).toBe(0);
+  });
+
+  it("the step is done when every selected course has a completed entry (ok, or partial still labelled partial)", async () => {
+    real();
+    saved.sync = [
+      entry("c-csc", { status: "ok", coverage: "full", progress: 100, lastSuccessAt: at }),
+      entry("c-math", { status: "partial", coverage: "partial", progress: 100, lastSuccessAt: at }),
+    ] as any;
+    mount(async () => ready);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Initial sync/ })).toHaveTextContent("Done"));
+    fireEvent.click(screen.getByRole("button", { name: /Initial sync/ }));
+    expect(await screen.findByText(/CSS 215: completed \(full coverage\)/)).toBeVisible();
+    expect(screen.getByText(/MAT 102: completed with partial coverage/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Start initial sync" })).toBeNull();
+  });
+
+  it("demo dataset: the unavailable text, no Start button and no sync", async () => {
+    saved.settings.trackedCourseIds = [saved.courses[0]!.id];
+    mount(async () => ready);
+    fireEvent.click(await screen.findByRole("button", { name: /Initial sync/ }));
+    expect(screen.getByText(/Live course sync is unavailable until Moodle access is verified\./)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Start initial sync" })).toBeNull();
+    expect(state.adapter.syncAll).not.toHaveBeenCalled();
   });
 });

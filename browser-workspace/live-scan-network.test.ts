@@ -176,7 +176,13 @@ function install(backend: Backend, clock: {now: number}, moodleFetch: typeof fet
   const chrome: any = {runtime, alarms: {create: () => {}, clear: () => {}, onAlarm: {addListener: (f: any) => alarms.push(f)}},
     permissions: {contains: (_: unknown, cb: (allowed: boolean) => void) => cb(true)},
     offscreen: {createDocument: async (options: unknown) => { created.push(options); installOffscreen({id: 'live-scan-test', onMessage: {addListener: (f: any) => offscreen.push(f)}}); }}};
-  const fetcher = ((input: RequestInfo | URL, init?: RequestInit) => fetch(String(input).replace('http://127.0.0.1:8000', backend.base), init)) as typeof fetch;
+  /** Every backend request of the worker and its bridge (method and path). */
+  const requests: string[] = [];
+  const fetcher = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input).replace('http://127.0.0.1:8000', backend.base);
+    requests.push(`${init?.method ?? 'GET'} ${new URL(url).pathname}`);
+    return fetch(url, init);
+  }) as typeof fetch;
   const worker = installExtension(chrome, {base: backend.base, fetcher,
     liveScan: {moodleFetch, now: () => clock.now, wait: async (ms: number) => { clock.now += ms; await pause(0); }, ...extra}});
   let request = 0;
@@ -187,7 +193,7 @@ function install(backend: Backend, clock: {now: number}, moodleFetch: typeof fet
     const hello = await send({...common, requestId: `r-${++request}`, operation: 'hello', payload: {}});
     return send({...common, requestId: `r-${++request}`, operation, sessionId: hello.result.sessionId, payload: {}});
   };
-  return {worker, created, alarm: () => alarms[0]!({name: 'moodle-helper-mock-queue'}), startup: () => startup[0]!(), bridge};
+  return {worker, created, requests, alarm: () => alarms[0]!({name: 'moodle-helper-mock-queue'}), startup: () => startup[0]!(), bridge};
 }
 
 function spacing(starts: {at: number}[]) {
@@ -536,4 +542,42 @@ it('AC2 (#21): the popup shows a full sync only after an all-complete scan, dist
     expect(shown.text).toContain(` · ${attempt}`);
   }
   expect(shown.text.match(/Last failed scan attempt: /g)).toHaveLength(2);
+}, 60000);
+
+it('#46 AC2/AC4: one Start initial sync gives one POST /api/sync and one run; reopening reads it without a start; a course held by another run gets the fixed already-running 409', async () => {
+  const backend = new Backend('onboarding'); await backend.start();
+  const ids = await backend.seed(['9001', '9002']);
+  const scanRuns = async () => (await backend.sql("SELECT count(*) FROM queue_runs WHERE kind='scan'"))[0][0];
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  let open!: () => void;
+  const site = moodle(clock, observedSite, new Promise<void>(resolve => open = resolve));
+  const app = install(backend, clock, site.fetcher);
+  const syncPosts = () => app.requests.filter(r => r === 'POST /api/sync').length;
+  // The setup step's one explicit click.
+  const started = await app.bridge(1, 'syncAll');
+  expect(started.ok).toBe(true);
+  expect(started.result.sync.filter((s: any) => s.status === 'syncing').map((s: any) => s.courseId).sort()).toEqual([ids['9001'], ids['9002']].sort());
+  // Leaving and reopening /setup reads the Snapshot (the run's progress) and sends no start.
+  for (const tab of [2, 3]) {
+    const read = await app.bridge(tab, 'load');
+    expect(read.result.sync.filter((s: any) => s.status === 'syncing')).toHaveLength(2);
+  }
+  expect(syncPosts()).toBe(1);
+  expect(await scanRuns()).toBe(1);
+  open();
+  const [run] = await backend.settled(1);
+  expect(run.status).toBe('completed');
+  // Incomplete page types: partial coverage with a completed time, never a full sync.
+  const snapshot = await backend.get('/api/snapshot');
+  for (const course of ['9001', '9002'])
+    expect(snapshot.sync.find((s: any) => s.courseId === ids[course])).toMatchObject({status: 'partial', coverage: 'partial', lastSuccessAt: expect.any(String)});
+  expect(site.maxActive()).toBe(1); spacing(site.starts());
+  app.worker.dispose();
+  // A course still held by another kind of run: the fixed 409 message, nothing started.
+  expect((await backend.write('POST', '/api/queue/runs', {idempotencyKey: 'mock-46', courseIds: [ids['9001']]})).status).toBe(200);
+  const conflict = await backend.write('POST', '/api/sync');
+  expect(conflict.status).toBe(409);
+  expect(await conflict.json()).toEqual({message: 'A sync is already running for one of the selected courses. Try again when it finishes.'});
+  expect(await scanRuns()).toBe(1);
+  expect(syncPosts()).toBe(1);
 }, 60000);
