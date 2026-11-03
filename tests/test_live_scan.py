@@ -248,6 +248,104 @@ def test_failed_job_keeps_last_success_and_sets_fixed_error(live):
     assert entry.get('lastSuccessAt') == before.get('lastSuccessAt') and entry['coverage'] == before['coverage']
 
 
+
+# #21 AC2: the verified sync entry is the full-sync, completed-scan and failed-attempt source ----
+
+def restarted(live, tmp_path):
+    """Close the backend and open the same file SQLite database again."""
+    live.close()
+    store = SQLiteStore(URL.create('sqlite', database=str(tmp_path / 'live.sqlite3')), REAL)
+    return Live(store, live.clock)
+
+
+def complete_page(page_type, collector, url, scope):
+    result = dict(kind=collector, observations=[], reviews=[], diagnostics=[], pages=[], coverage='complete', scope=scope)
+    return dict(pageType=page_type, scope=scope, outcome='ok', coverage='complete', reasons=[], observedAt=TIME,
+                pageUrl=url, collector=collector, result=result)
+
+
+def all_complete_pages(source):
+    """TEST FIXTURE page set: every page type checked with complete coverage (no live collector yields this yet)."""
+    course, assign = f'{ORIGIN}/course/view.php?id={source}', f'{ORIGIN}/mod/assign/view.php?id=990{source[-1]}01'
+    return [complete_page('course', 'material', course, 'supplied_pages_only'),
+            complete_page('material', 'material', course, 'supplied_pages_only'),
+            complete_page('assignment', 'assignment', assign, 'visited_activity_only'),
+            complete_page('submission', 'submission', assign, 'visited_activity_only'),
+            complete_page('calendar', 'calendar', f'{ORIGIN}/calendar/view.php?view=upcoming', 'supplied_ranges_only'),
+            quiz_page(f'990{source[-1]}03', source)]
+
+
+def finish_all(live):
+    """Finish every claimable job with the all-complete fixture page set."""
+    finished = []
+    while (claim := live.post('/api/scan/claim', {}).json().get('claim')):
+        body = completed(claim, all_complete_pages(claim['sourceCourseId']))
+        assert body['incompleteReasons'] == []
+        response = live.post('/api/scan/finish', body)
+        assert response.status_code == 200, response.text
+        finished.append(claim['job']['courseId'])
+    return finished
+
+
+def entries(live):
+    return {course: live.sync_entry(course) for course in ('c-csc', 'c-math')}
+
+
+def test_all_complete_scan_is_ok_full_with_last_success(live, tmp_path):
+    live.post('/api/sync')
+    assert sorted(finish_all(live)) == ['c-csc', 'c-math']
+    before = entries(live)
+    for entry in before.values():
+        assert (entry['status'], entry['coverage'], entry['progress']) == ('ok', 'full', 100)
+        assert entry['lastSuccessAt'] and 'error' not in entry and 'lastAttemptAt' not in entry
+    live = restarted(live, tmp_path)
+    try:
+        assert entries(live) == before
+    finally:
+        live.close()
+
+
+def test_failed_scan_records_attempt_time_and_keeps_full_coverage(live, tmp_path):
+    live.post('/api/sync')
+    finish_all(live)
+    full = entries(live)
+    live.post('/api/sync')
+    claim = live.post('/api/scan/claim', {}).json()['claim']
+    pages = [dict(pageType='course', scope='unknown', outcome='signed_out', coverage='none', reasons=['signed_out'],
+                  observedAt=TIME, pageUrl=f"{ORIGIN}/course/view.php?id={claim['sourceCourseId']}")]
+    assert live.post('/api/scan/finish', failed(claim, 'signed_out', pages)).status_code == 200
+    after = entries(live)
+    # The finished job and the signed-out cascade job both record the failed attempt.
+    for course, entry in after.items():
+        assert (entry['status'], entry['error']) == ('failed', SIGN_IN)
+        assert (entry['coverage'], entry['lastSuccessAt']) == ('full', full[course]['lastSuccessAt'])
+        assert entry['lastAttemptAt'] > entry['lastSuccessAt']
+    live = restarted(live, tmp_path)
+    try:
+        assert entries(live) == after
+    finally:
+        live.close()
+
+
+def test_mock_run_never_changes_real_sync_entry(live, tmp_path):
+    live.post('/api/sync')
+    finish_all(live)
+    before = live.client.get('/api/snapshot').json()['sync']
+    mock = QueueService(live.store, clock=lambda: live.clock[0])
+    mock.start('mock-run', ['c-csc', 'c-math'])
+    for outcome, error in (('completed', None), ('failed', 'mock_failure')):
+        claim = mock.claim()['claim']
+        mock.finish(claim['job']['id'], claim['generation'], claim['token'], outcome, error)
+    assert mock.claim() == {'unfinished': False}
+    assert live.client.get('/api/snapshot').json()['sync'] == before
+    assert not any('lastAttemptAt' in entry for entry in before)
+    live = restarted(live, tmp_path)
+    try:
+        assert live.client.get('/api/snapshot').json()['sync'] == before
+    finally:
+        live.close()
+
+
 # AC4 -----------------------------------------------------------------------
 
 def test_signed_out_fails_unstarted_jobs_without_requests_and_shows_guidance(live):

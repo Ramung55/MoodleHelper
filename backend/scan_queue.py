@@ -159,7 +159,8 @@ class ScanQueueService(QueueService):
                 self.execute(c, 'INSERT INTO scan_coverage(namespace,job_id,reasons) VALUES(?,?,?)', self.ns, row.id, canonical([reason]))
             forget_job_failures(c, row.id)
             if snapshot is not None:
-                set_sync(snapshot, row.course_id, status='failed', progress=100, error=SYNC_ERRORS[code])
+                set_sync(snapshot, row.course_id, status='failed', progress=100, error=SYNC_ERRORS[code],
+                         lastAttemptAt=now_iso())
 
     def _before_claim(self, c, now):
         snapshot = self._snapshot(c)
@@ -272,7 +273,8 @@ class ScanQueueService(QueueService):
                     set_sync(snapshot, row.course_id, status='partial' if incomplete else 'ok',
                              coverage='partial' if incomplete else 'full', progress=100, lastSuccessAt=now_iso(), error=None)
                 else:
-                    set_sync(snapshot, row.course_id, status='failed', progress=100, error=SYNC_ERRORS[body['errorCode']])
+                    set_sync(snapshot, row.course_id, status='failed', progress=100, error=SYNC_ERRORS[body['errorCode']],
+                             lastAttemptAt=now_iso())
             self._fail_jobs(c, cascade, 'signed_out', snapshot if self.verified else None)
             self._save(c, snapshot)
             self.execute(c, 'INSERT INTO scan_coverage(namespace,job_id,reasons) VALUES(?,?,?)',

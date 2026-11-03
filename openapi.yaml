@@ -1587,9 +1587,10 @@ paths:
         transaction. The same transaction writes the course's Snapshot sync entry
         (completed with complete coverage gives ok/full; completed with any incomplete
         page type gives partial/partial; failed gives failed with a fixed error text;
-        lastSuccessAt only for a completed job). A failed job with errorCode signed_out
+        lastSuccessAt only for a completed job; a failed job sets lastAttemptAt and keeps
+        coverage and lastSuccessAt). A failed job with errorCode signed_out
         also fails every other still-pending job of its runs as signed_out without
-        a Moodle request, with the fixed sign-in guidance as their sync error, so no
+        a Moodle request, with the fixed sign-in guidance and lastAttemptAt as their sync entry, so no
         further Moodle request is made until a new Sync all. Retry failure counts
         of the job's gate request keys are removed.
   /api/scan/gate/acquire:
@@ -4357,6 +4358,11 @@ components:
           - none
         lastSuccessAt:
           type: string
+        lastAttemptAt:
+          type: string
+          description: Time of the course's last failed verified scan attempt (a failed
+            job, including the signed-out cascade). Optional and additive; it leaves
+            coverage and lastSuccessAt unchanged. Mock runs never write it.
         error:
           type: string
         progress:

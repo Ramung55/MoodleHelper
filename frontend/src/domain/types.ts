@@ -175,6 +175,7 @@ export const CourseSyncState = z.object({
   status: z.enum(["ok", "partial", "failed", "never", "syncing"]),
   coverage: z.enum(["full", "partial", "none"]),
   lastSuccessAt: z.string().optional(),
+  lastAttemptAt: z.string().optional(),
   error: z.string().optional(),
   progress: z.number().min(0).max(100),
 });
