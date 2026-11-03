@@ -188,8 +188,8 @@ export function Onboarding({ probe = probeExtension, moodleAccess = null, signIn
       : "Optional setup. Your saved data is kept; nothing here resets it."}{" "}
       {!scope && "Setup progress hints are kept only for this visit (no dataset identity available)."}</p>
     {next === null && <p role="status" className="text-sm">Every step is finished or explicitly skipped. You can revisit any step.</p>}
-    <div className="grid gap-4 lg:grid-cols-[16rem_1fr]">
-      <nav aria-label="Setup steps"><ol className="space-y-1">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <nav aria-label="Setup steps" className="min-w-0"><ol className="space-y-1">
         {STEP_IDS.map((id, i) => <li key={id}>
           <button type="button" aria-current={current === id ? "step" : undefined} onClick={() => open(id)}
             className={cn("flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm", current === id ? "border-primary bg-muted" : "bg-card")}>
@@ -197,7 +197,7 @@ export function Onboarding({ probe = probeExtension, moodleAccess = null, signIn
           </button>
         </li>)}
       </ol></nav>
-      <section aria-labelledby="setup-step" className="space-y-3 rounded-lg border bg-card p-5">
+      <section aria-labelledby="setup-step" className="min-w-0 space-y-3 rounded-lg border bg-card p-4 sm:p-5">
         <h2 id="setup-step" className="text-lg font-semibold">{TITLES[current]}</h2>
 
         {current === "connection" && <>

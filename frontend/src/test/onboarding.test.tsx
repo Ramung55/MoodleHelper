@@ -387,3 +387,37 @@ describe("#46 AC2 initial sync step (mocked adapter)", () => {
     expect(state.adapter.syncAll).not.toHaveBeenCalled();
   });
 });
+
+// #46 step 9: Setup step 4 must fit a ~400 px viewport. jsdom has no layout engine
+// (every getBoundingClientRect is 0), so it cannot measure overflow. These assertions
+// guard the classes that fixed the live overflow; the 400 px measurement itself was
+// done in a real browser (0 of 16 controls past the edge, scrollWidth 400).
+describe("#46 step 9 narrow layout guards (class-level; jsdom cannot measure)", () => {
+  const classes = (el: Element | null) => (el?.getAttribute("class") ?? "").split(/\s+/);
+  it("keeps the step column shrinkable and the calendar form free of min-content blowouts", async () => {
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Semester calendar/ }));
+    expect(await screen.findByRole("heading", { name: "Semester calendar" })).toBeVisible();
+    const step = document.querySelector('section[aria-labelledby="setup-step"]')!;
+    const grid = step.parentElement!;
+    // Narrow: one shrinkable column; wide: the existing 16rem sidebar with a minmax(0,…) content track.
+    expect(classes(grid)).toEqual(expect.arrayContaining(["grid", "grid-cols-1", "lg:grid-cols-[16rem_minmax(0,1fr)]"]));
+    expect(classes(grid)).not.toContain("lg:grid-cols-[16rem_1fr]");
+    expect(classes(step)).toContain("min-w-0");
+    const calendar = screen.getByTestId("teaching-calendar");
+    expect(classes(calendar)).toContain("min-w-0");
+    // A fieldset defaults to min-inline-size: min-content, which let the timezone <select> widen the page.
+    expect(classes(calendar.querySelector("fieldset"))).toContain("min-w-0");
+    const start = screen.getByLabelText("Inclusive calendar start");
+    expect(classes(start.closest("label")!.parentElement)).toEqual(expect.arrayContaining(["grid-cols-1", "sm:grid-cols-2"]));
+    expect(classes(screen.getByLabelText("Calendar timezone"))).toEqual(expect.arrayContaining(["w-full", "min-w-0", "max-w-full"]));
+    fireEvent.click(screen.getByRole("button", { name: "Add partial holiday" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add week override" }));
+    for (const label of ["Holiday 1 start", "Override 1 start"]) {
+      const row = screen.getByLabelText(label).closest("label")!.parentElement!;
+      expect(classes(row)).toEqual(expect.arrayContaining(["min-w-0", "grid-cols-1", "sm:grid-cols-4"]));
+    }
+    expect(classes(screen.getByLabelText("Holiday 1 numbering"))).toEqual(expect.arrayContaining(["min-w-0", "max-w-full"]));
+    expect(classes(screen.getByRole("button", { name: "Save teaching calendar" }).parentElement)).toContain("flex-wrap");
+  });
+});
