@@ -7,6 +7,7 @@
  */
 import {detectObservedMoodleAccess, type MoodleAccessInput, type MoodleAccessResult, type ObservedRoute} from './moodle-access';
 import {parseMoodleQuizPage} from './moodle-quizzes';
+import {UPCOMING_CALENDAR_URL} from './moodle-calendar';
 import {liveRegistry, pageRoute, type Collector, type CollectorRegistry} from './page-refresh';
 import type {ScanEnvelope} from './scan-coordinator';
 import type {CollectorResult} from '../../frontend/src/domain/types';
@@ -65,7 +66,28 @@ export function observedRoute(url:string,sourceCourseId:string):ObservedRoute|un
   if(!route||!decimal(sourceCourseId))return undefined;
   if(route.kind==='course'&&route.id===sourceCourseId)return {kind:'course',courseId:sourceCourseId};
   if(route.kind==='quiz'&&decimal(route.id))return {kind:'quiz',cmid:route.id,courseId:sourceCourseId};
+  if(route.kind==='assign'&&decimal(route.id))return {kind:'assign',cmid:route.id,courseId:sourceCourseId};
+  // #83: only the upcoming view was observed (compatibility report row 8).
+  if(route.kind==='calendar'&&url===UPCOMING_CALENDAR_URL)return {kind:'calendar-upcoming'};
   return undefined;
+}
+/**
+ * #83 assignment card titles from the course page: `li.activity.modtype_assign#module-<cmid>`
+ * with exactly one `.instancename`, its `.accesshide` type label removed. The assignment
+ * page `h2` was not recorded by #3, so this card title backs the assignment title.
+ */
+export function assignmentCardTitles(doc:Document):Record<string,string> {
+  const titles:Record<string,string>={};
+  for(const card of Array.from(doc.querySelectorAll('li.activity.modtype_assign[id^="module-"]'))){
+    const cmid=/^module-([1-9][0-9]{0,18})$/.exec(card.id)?.[1];
+    const names=card.querySelectorAll('.instancename');
+    if(!cmid||names.length!==1||Object.hasOwn(titles,cmid))continue;
+    const name=names[0]!.cloneNode(true) as Element;
+    name.querySelectorAll('.accesshide').forEach(n=>n.remove());
+    const title=(name.textContent??'').replace(/\s+/gu,' ').trim();
+    if(title)titles[cmid]=title;
+  }
+  return titles;
 }
 const unsupportedRoute:MoodleAccessResult={status:'unsupported',retryable:false,reason:'unsupported_route',message:'This page route is not supported.'};
 
@@ -98,6 +120,7 @@ export async function analyzeMoodlePage(request:AnalysisRequest,options:{registr
     const cards=parseMoodleQuizPage(input,request.observedAt);
     for(const card of cards.observations)
       if(card.sourceCourseId===route.courseId&&card.title.kind==='known')titles[card.sourceCourseModuleId]=card.title.value;
+    for(const [cmid,title] of Object.entries(assignmentCardTitles(document)))if(!Object.hasOwn(titles,cmid))titles[cmid]=title;
   }
   for(const collector of request.collectors){
     const adapter=registry[collector];

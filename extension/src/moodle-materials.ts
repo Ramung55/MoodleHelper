@@ -8,7 +8,7 @@
  * Complete means supplied_pages_only, never all resources in a live course.
  * All DOM access is read-only; no network, navigation, logging, storage or runtime.
  */
-import { detectMoodleAccess, type MoodleAccessInput, type MoodleAccessResult } from "./moodle-access";
+import { detectMoodleAccess, detectObservedMoodleAccess, type MoodleAccessInput, type MoodleAccessResult } from "./moodle-access";
 import { exact } from "./moodle-dates";
 
 export type Metadata<T> = { kind: "known"; value: T } | { kind: "unknown" };
@@ -451,4 +451,102 @@ export function collectMoodleMaterials(
   }
   result.coverage = result.pages.length && result.pages.every(page => page.coverage === "complete") ? "complete" : result.pages.some(page => page.coverage !== "none") ? "partial" : "none";
   return result;
+}
+
+/**
+ * #83 observed SDU course-page material list (#3 live inspection 2026-11-01,
+ * compatibility report "Course page", "Materials" and "Folder" tables; fixtures
+ * observed/course-page.html and observed/course-page-guest-folder.html). The verified
+ * variant: English (`lang-en`), body `format-topics` and `course-<id>` (#20's observed
+ * course access check), activity cards `li.activity.modtype_<type>#module-<cmid>` with
+ * one `.instancename` (its `.accesshide` type label removed), inside `li.section` with
+ * `data-sectionid`.
+ *
+ * - `resource`: a file reference. The file type comes only from the `.activitybadge`
+ *   ("PDF" -> pdf, "PPTX" -> pptx; any other badge leaves it unknown, never guessed).
+ *   The destination is the module's own `/mod/resource/view.php?id=<cmid>` (#41 resolves it
+ *   to a file only from a checked final path and content type); no `pluginfile.php` URL or
+ *   file name is read, and the MIME type stays unknown. Nothing here claims access.
+ * - `url`: a link (`fileType` link), destination its own `/mod/url/view.php?id=<cmid>`.
+ * - `folder`: a folder reference whose contents were not inspected
+ *   (`folder_contents_uninspected`, coverage partial); no child is guessed, even if the
+ *   card shows any (folders with files are UNVERIFIED).
+ * - `page`: listed as a diagnostic only (`unsupported_structure`, by record index). The
+ *   material wire contract and backend validator know only resource/url/folder modules, so
+ *   a page module cannot be stored as a material record.
+ * - Assignment, quiz, forum and any other module are not materials.
+ * - The section is the `data-sectionid` of the enclosing `li.section`, unknown without it.
+ * Unobserved variants (other languages or formats) give an explicit failure.
+ * Pure and read-only; no network, navigation, storage or logging.
+ */
+export type ObservedMaterialResult =
+  | { status: "error"; access: MoodleAccessResult; reason: "access_error" | "unsupported_structure" | "unselected_course" | "invalid_selection" | "invalid_observed_at" }
+  | { status: "success"; access: MoodleAccessResult; observations: RawMaterialObservation[]; diagnostics: MaterialDiagnostic[]; candidateCount: number; coverage: MaterialCoverage };
+
+const observedBadges: Record<string, MaterialFileType> = { PDF: "pdf", PPTX: "pptx" };
+const observedMaterialModules = new Set(["resource", "url", "folder", "page"]);
+
+export function collectObservedMoodleMaterials(
+  input: MoodleAccessInput, selectedSourceCourseIds: readonly string[], observedAt: string,
+): ObservedMaterialResult {
+  let access: MoodleAccessResult = { status: "unknown", retryable: false, reason: "invalid_envelope", message: "Page evidence is invalid or incomplete." };
+  const fail = (reason: Extract<ObservedMaterialResult, { status: "error" }>["reason"]): ObservedMaterialResult => ({ status: "error", access, reason });
+  try {
+    const requested = canonicalRoute(input?.requestedUrl ?? null, true);
+    if (!requested || requested.type !== "course") {
+      access = { status: "unsupported", retryable: false, reason: "unsupported_route", message: "This page route is not supported." };
+      return fail("access_error");
+    }
+    const courseId = requested.id;
+    access = detectObservedMoodleAccess(input, { kind: "course", courseId });
+    if (access.status !== "accessible") return fail("access_error");
+    if (!Array.isArray(selectedSourceCourseIds) || !selectedSourceCourseIds.every(id)) return fail("invalid_selection");
+    if (typeof observedAt !== "string" || !exact(observedAt)) return fail("invalid_observed_at");
+    if (!selectedSourceCourseIds.includes(courseId)) return fail("unselected_course");
+    const doc = input.document, langs = Array.from(doc.body.classList).filter(c => c.startsWith("lang-"));
+    if (doc.documentElement.getAttribute("lang") !== "en" || langs.length !== 1 || langs[0] !== "lang-en") return fail("unsupported_structure");
+    const observations: RawMaterialObservation[] = [], diagnostics: MaterialDiagnostic[] = [], seen = new Set<string>();
+    const report = (reason: MaterialReason, recordIndex: number) => diagnostics.push({ pageIndex: 0, recordIndex, reason });
+    const cards = Array.from(doc.querySelectorAll('li.activity[id^="module-"]')).filter(card =>
+      Array.from(card.classList).some(c => /^modtype_(resource|url|folder|page)$/.test(c)));
+    cards.forEach((card, recordIndex) => {
+      const cmid = /^module-([1-9][0-9]*)$/.exec(card.id)?.[1];
+      const types = Array.from(card.classList).map(c => /^modtype_([a-z][a-z0-9_]*)$/.exec(c)?.[1]).filter((t): t is string => !!t);
+      if (!cmid || types.length !== 1 || !observedMaterialModules.has(types[0]!)) { report("missing_identity", recordIndex); return; }
+      if (seen.has(cmid)) { report("field_conflict", recordIndex); return; }
+      seen.add(cmid);
+      const type = types[0]!;
+      if (type === "page") { report("unsupported_structure", recordIndex); return; }
+      const moduleType = type as ModuleType;
+      const names = card.querySelectorAll(".instancename");
+      let title: Metadata<string> = unknown();
+      if (names.length === 1) {
+        const name = names[0]!.cloneNode(true) as Element;
+        name.querySelectorAll(".accesshide").forEach(n => n.remove());
+        title = label(name);
+        if (unsafeLabel(normalizedText(name))) report("unsafe_label", recordIndex);
+      }
+      if (title.kind === "unknown") report("missing_metadata", recordIndex);
+      const sectionId = card.closest("li.section")?.getAttribute("data-sectionid") ?? null;
+      const section: Metadata<string> = id(sectionId) ? known(sectionId) : unknown();
+      let fileType: Metadata<MaterialFileType> = unknown();
+      if (moduleType === "url") fileType = known("link");
+      if (moduleType === "resource") {
+        const badges = card.querySelectorAll(".activitybadge");
+        const badge = badges.length === 1 ? normalizedText(badges[0]!) : "";
+        if (Object.hasOwn(observedBadges, badge)) fileType = known(observedBadges[badge]!);
+      }
+      const sourceUrl = `${origin}/mod/${moduleType}/view.php?id=${cmid}`;
+      const reference: MaterialReference = { sourcePageUrl: requested.href, sourceUrl, observedAt, location: "course.material",
+        ...(moduleType === "folder" ? { listingScope: "reference_only" as const, listingCoverage: "none" as const } : { destinationUrl: sourceUrl }) };
+      observations.push({ ...reference, sourceCourseId: courseId, sourceCourseModuleId: cmid, sourceModuleType: moduleType,
+        resourceKey: key(courseId, moduleType, "module", cmid), kind: moduleType === "url" ? "link" : moduleType === "folder" ? "folder" : "file",
+        title, section, fileType, mimeType: unknown(), references: [{ ...reference }] });
+      // The folder card does not show the folder's contents; none are guessed.
+      if (moduleType === "folder") report("folder_contents_uninspected", recordIndex);
+    });
+    return { status: "success", access, observations, diagnostics, candidateCount: cards.length,
+      // An empty listing alone is not proof that every section was seen.
+      coverage: diagnostics.length || !observations.length ? "partial" : "complete" };
+  } catch { return fail("unsupported_structure"); }
 }

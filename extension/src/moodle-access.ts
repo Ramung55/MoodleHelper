@@ -165,7 +165,12 @@ export function detectMoodleAccess(input: MoodleAccessInput): MoodleAccessResult
  * - retryable: network failure, 408, 425, 429 and 5xx;
  * - accessible: HTTP 200 HTML on the requested route with the expected body markers
  *   (`format-topics` and `course-<id>` on a course page; `page-mod-quiz-view`,
- *   `cmid-<cmid>` and `course-<id>` on a quiz view page).
+ *   `cmid-<cmid>` and `course-<id>` on a quiz view page; `page-mod-assign-view`,
+ *   `cmid-<cmid>` and `course-<id>` on an assignment view page (#83, compatibility
+ *   report Assignment "Page / ids")).
+ * - #83 upcoming calendar: `/calendar/view.php?view=upcoming` is accessible as HTTP 200
+ *   HTML whose final URL is exactly the requested one. Its body id and classes were not
+ *   recorded (the fixture body is only `lang-en`), so, like `my-courses`, none are required.
  * - #82 course discovery: the `/my/courses.php` shell is accessible only as HTTP 200
  *   HTML whose final URL is exactly `/my/courses.php` (its body markers were not
  *   recorded, so none are required). An HTML answer to the enrolled-courses service
@@ -173,6 +178,7 @@ export function detectMoodleAccess(input: MoodleAccessInput): MoodleAccessResult
  * Anything else is an access error. Only the body id and classes are read.
  */
 export type ObservedRoute = { kind: "course"; courseId: string } | { kind: "quiz"; cmid: string; courseId: string } |
+  { kind: "assign"; cmid: string; courseId: string } | { kind: "calendar-upcoming" } |
   { kind: "my-courses" } | { kind: "service" };
 export interface ObservedAccessInput {
   readonly document?: Document;
@@ -205,11 +211,14 @@ export function detectObservedMoodleAccess(input: ObservedAccessInput, route: Ob
     const classes = body.classList;
     if (route.kind === "my-courses" || route.kind === "service")
       return observed(route.kind === "my-courses" && final.pathname === "/my/courses.php" && !final.search ? "accessible" : "ambiguous_content");
+    if (route.kind === "calendar-upcoming")
+      return observed(final.pathname === "/calendar/view.php" && final.search === "?view=upcoming" && !final.hash ? "accessible" : "ambiguous_content");
+    const module = route.kind === "quiz" ? "quiz" : "assign";
     const accessible = route.kind === "course"
       ? final.pathname === "/course/view.php" && final.search === `?id=${route.courseId}` &&
         classes.contains("format-topics") && classes.contains(`course-${route.courseId}`)
-      : final.pathname === "/mod/quiz/view.php" && final.search === `?id=${route.cmid}` &&
-        body.id === "page-mod-quiz-view" && classes.contains(`cmid-${route.cmid}`) && classes.contains(`course-${route.courseId}`);
+      : final.pathname === `/mod/${module}/view.php` && final.search === `?id=${route.cmid}` &&
+        body.id === `page-mod-${module}-view` && classes.contains(`cmid-${route.cmid}`) && classes.contains(`course-${route.courseId}`);
     return observed(accessible ? "accessible" : "ambiguous_content");
   } catch {
     return observed("invalid_envelope");

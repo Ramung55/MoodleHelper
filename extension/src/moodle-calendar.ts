@@ -1,6 +1,7 @@
 /** Invented structural calendar contract; live SDU compatibility is unverified. */
 import {
   detectMoodleAccess,
+  detectObservedMoodleAccess,
   type MoodleAccessInput,
   type MoodleAccessResult,
 } from "./moodle-access";
@@ -451,5 +452,132 @@ export function collectMoodleCalendar(
       : result.pages.some((p) => p.range)
         ? "partial"
         : "none";
+  return result;
+}
+
+/**
+ * #83 observed SDU upcoming calendar (#3 live inspection 2026-11-01, compatibility
+ * report "Calendar" table and matrix row 8; fixture observed/calendar-upcoming.html).
+ * The one verified page is `/calendar/view.php?view=upcoming`, English (`lang-en`).
+ *
+ * - Events are `div.calendar-event-box[data-type="event"]` with `data-event-id`,
+ *   `data-course-id`, `data-event-component`, `data-event-eventtype` and
+ *   `data-event-title` ("<name> is due"; the suffix is stripped from the title).
+ * - The time comes only from the day link `/calendar/view.php?view=day&time=<epoch>`
+ *   (epoch precision), shown in UTC+5 (Asia/Almaty). The displayed date text is an
+ *   assumed format (manifest `unrecordedFields`) and is never read; the date's raw
+ *   text is the observed event title.
+ * - The cmid comes from the action link `/mod/assign/view.php?id=<cmid>&action=editsubmission`,
+ *   which is never requested, followed or returned. The assignment instance id is not
+ *   observable, so, as in the #14 quiz adapter, the cmid stands in as `sourceActivityId`.
+ * - Only `mod_assign` / `due` events were observed. Others go to review (`unknown_kind`);
+ *   a missing course goes to review (`missing_course`); a missing or non-numeric epoch
+ *   gives no date (`missing_dates`); an event outside the selection is an
+ *   `unselected_course` exclusion; one event id with different values is `event_conflict`.
+ * - Only the upcoming window was seen and calendar pagination is UNVERIFIED, so coverage
+ *   is never `complete`.
+ * Pure and read-only; access is #20's observed check (route `calendar-upcoming`).
+ */
+export const UPCOMING_CALENDAR_URL = `${origin}/calendar/view.php?view=upcoming`;
+
+/** Exact `+05:00` (Asia/Almaty) instant of a Unix epoch in seconds, or null. */
+export function observedEpochIso(epoch: string): string | null {
+  if (!/^[1-9][0-9]{0,11}$/.test(epoch)) return null;
+  const shifted = new Date((Number(epoch) + 5 * 3600) * 1000);
+  if (Number.isNaN(shifted.getTime())) return null;
+  const iso = shifted.toISOString().slice(0, 19) + "+05:00";
+  return exact(iso) ? iso : null;
+}
+/** Live pages use `href`; observed-structure fixtures keep the same relative target in `data-href`. */
+function linkTarget(node: Element): string | null {
+  return node.getAttribute("href") ?? node.getAttribute("data-href");
+}
+/** The one day-link epoch of an event box; null when absent, "invalid" when malformed or ambiguous. */
+function dayLinkEpoch(box: Element): string | null | "invalid" {
+  const epochs = new Set<string>();
+  for (const a of box.querySelectorAll("a")) {
+    const raw = linkTarget(a);
+    if (!raw || !raw.includes("/calendar/view.php")) continue;
+    const m = /^(?:https:\/\/moodle\.sdu\.edu\.kz)?\/calendar\/view\.php\?view=day&time=([^&#]*)$/.exec(raw);
+    epochs.add(m && /^[1-9][0-9]*$/.test(m[1]!) ? m[1]! : "invalid");
+  }
+  if (!epochs.size) return null;
+  return epochs.size === 1 ? [...epochs][0]! : "invalid";
+}
+function actionLinkCmid(box: Element): string | null {
+  const ids = new Set<string>();
+  for (const a of box.querySelectorAll("a")) {
+    const m = /^(?:https:\/\/moodle\.sdu\.edu\.kz)?\/mod\/assign\/view\.php\?id=([1-9][0-9]*)&action=editsubmission$/.exec(linkTarget(a) ?? "");
+    if (m) ids.add(m[1]!);
+  }
+  return ids.size === 1 ? [...ids][0]! : null;
+}
+
+export function collectObservedMoodleCalendar(
+  input: MoodleAccessInput,
+  selectedSourceCourseIds: readonly string[],
+  observedAt: string,
+): CalendarCollection {
+  const result: CalendarCollection = { observations: [], review: [], exclusions: [], diagnostics: [], pages: [], coverage: "none", scope: "supplied_ranges_only" };
+  const validBatch = Array.isArray(selectedSourceCourseIds) && selectedSourceCourseIds.every(idValid) &&
+    typeof observedAt === "string" && exact(observedAt);
+  const access: MoodleAccessResult = input && input.requestedUrl === UPCOMING_CALENDAR_URL
+    ? detectObservedMoodleAccess(input, { kind: "calendar-upcoming" })
+    : { status: "unsupported", retryable: false, reason: "unsupported_route", message: "This page route is not supported." };
+  const page: CalendarPage = { access, coverage: "none", candidateCount: 0, paginationPending: false };
+  result.pages.push(page);
+  const diagnostic = (reason: Diagnostic["reason"], recordIndex?: number) =>
+    result.diagnostics.push({ reason, pageIndex: 0, ...(recordIndex === undefined ? {} : { recordIndex }) });
+  if (access.status !== "accessible") { diagnostic("access_error"); return result; }
+  if (!validBatch) { result.error = "invalid_batch_arguments"; diagnostic("invalid_batch_arguments"); return result; }
+  try {
+    const doc = input.document, langs = Array.from(doc.body.classList).filter(c => c.startsWith("lang-"));
+    // Only the English interface was observed; RU/KK pages are not interpreted.
+    if (doc.documentElement.getAttribute("lang") !== "en" || langs.length !== 1 || langs[0] !== "lang-en") { diagnostic("invalid_page"); return result; }
+    const boxes = Array.from(doc.querySelectorAll('div.calendar-event-box[data-type="event"]'));
+    page.candidateCount = boxes.length;
+    page.coverage = "partial";
+    const groups = new Map<string, { candidate: CalendarCandidate; reasons: CalendarReviewReason[]; signature: string; selected: boolean; excluded: boolean }[]>();
+    boxes.forEach((box, recordIndex) => {
+      if (box.parentElement?.closest("div.calendar-event-box")) { diagnostic("malformed_record", recordIndex); return; }
+      const event = box.getAttribute("data-event-id"), course = box.getAttribute("data-course-id");
+      const rawTitle = normalize(box.getAttribute("data-event-title") ?? "");
+      if (!idValid(event) || (course !== null && !idValid(course)) || !rawTitle) { diagnostic("malformed_record", recordIndex); return; }
+      const reasons: CalendarReviewReason[] = [];
+      const due = box.getAttribute("data-event-component") === "mod_assign" && box.getAttribute("data-event-eventtype") === "due";
+      if (!due) reasons.push("unknown_kind");
+      const title = due && rawTitle.endsWith(" is due") ? normalize(rawTitle.slice(0, -" is due".length)) : rawTitle;
+      if (!title) { diagnostic("malformed_record", recordIndex); return; }
+      const candidate: CalendarCandidate = { sourceEventId: event, title, sourceUrl: `${origin}/calendar/view.php?event=${event}`, observedAt };
+      if (course === null) reasons.push("missing_course");
+      else candidate.sourceCourseId = course;
+      const epoch = dayLinkEpoch(box);
+      const iso = epoch !== null && epoch !== "invalid" ? observedEpochIso(epoch) : null;
+      if (iso) candidate.start = { value: { kind: "exact", iso, tz: "Asia/Almaty" }, rawText: rawTitle, location: "calendar.start" };
+      else reasons.push("missing_dates");
+      const cmid = due ? actionLinkCmid(box) : null;
+      if (cmid) candidate.activity = { moduleType: "assign", sourceActivityId: cmid, sourceCourseModuleId: cmid, sourceUrl: `${origin}/mod/assign/view.php?id=${cmid}` };
+      const selected = course !== null && selectedSourceCourseIds.includes(course);
+      const excluded = course !== null && !selected;
+      if (excluded) result.exclusions.push({ reason: "unselected_course", pageIndex: 0, recordIndex });
+      const sig = signature(candidate) + JSON.stringify([due, reasons]);
+      const group = groups.get(event) ?? [];
+      if (!group.some(item => item.signature === sig)) group.push({ candidate, reasons, signature: sig, selected, excluded });
+      groups.set(event, group);
+    });
+    for (const group of groups.values()) {
+      for (const item of group) {
+        if (group.length > 1) item.reasons.push("event_conflict");
+        if (item.excluded) continue;
+        if (item.reasons.length) result.review.push({ candidate: item.candidate, reasons: [...new Set(item.reasons)] });
+        else if (item.selected) result.observations.push(item.candidate as RawCalendarObservation);
+      }
+    }
+    // Only the upcoming window was observed; calendar pagination is UNVERIFIED.
+    result.coverage = "partial";
+  } catch {
+    diagnostic("invalid_page");
+    page.coverage = "none";
+  }
   return result;
 }

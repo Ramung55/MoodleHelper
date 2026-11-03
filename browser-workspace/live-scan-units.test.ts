@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {expect, it} from 'vitest';
 import {detectMoodleAccess, detectObservedMoodleAccess} from '../extension/src/moodle-access';
-import {activityLinks} from '../extension/src/moodle-page-analysis';
+import {activityLinks, analyzeMoodlePage} from '../extension/src/moodle-page-analysis';
 import {createMoodlePageSource, liveRouteAllowed, MAX_BODY_BYTES, offscreenAnalyzer} from '../extension/src/moodle-page-source';
 import {installOffscreen} from '../extension/src/offscreen';
 import {liveRegistry, quizRefreshResult} from '../extension/src/page-refresh';
@@ -59,7 +59,34 @@ it('maps the #14 quiz parser to the QuizRefreshResult wire shape without inventi
   expect(quizRefreshResult({...input, finalUrl: 'https://moodle.sdu.edu.kz/login/index.php'}, '2028-03-05T10:00:00.000Z', {title: 'x'}))
     .toEqual({kind: 'failed', reasons: ['access_error']});
   const registry = liveRegistry();
-  expect(Object.entries(registry).filter(([, a]) => a.availability === 'available').map(([k]) => k)).toEqual(['quiz']);
+  // #83: assignment, calendar and material are on with their observed-fixture tests; submission waits for #16.
+  expect(Object.entries(registry).filter(([, a]) => a.availability === 'available').map(([k]) => k).sort()).toEqual(['assignment', 'calendar', 'material', 'quiz']);
+  expect(registry.submission.availability).toBe('unavailable');
+});
+
+it('#83: analyzes observed assignment, upcoming calendar and course pages with the live registry', async () => {
+  const read = async (name: string) => readFile(path.join(fixtures, name), 'utf8');
+  const observedAt = '2028-03-05T10:00:00.000Z';
+  const request = (url: string, html: string, collectors: any[], title?: string) =>
+    analyzeMoodlePage({envelope: envelope(url, 200), html, sourceCourseId: '9001', collectors, observedAt, ...(title ? {title} : {})}, {parse});
+  const page = await request(course, await read('course-page.html'), ['material']);
+  expect(page.titles).toMatchObject({990101: 'Fictional Essay Outline', 990102: 'Fictional Lab Report', 990103: 'Fictional Warm-up Quiz'});
+  expect(page.collected.material).toMatchObject({kind: 'material', observations: [{sourceCourseModuleId: '990104'}, {sourceCourseModuleId: '990105'}, {sourceCourseModuleId: '990106'}]});
+  const assignUrl = 'https://moodle.sdu.edu.kz/mod/assign/view.php?id=990102';
+  const assign = await request(assignUrl, await read('assign-not-submitted.html'), ['assignment'], 'Fictional Lab Report');
+  expect(assign.access.status).toBe('accessible');
+  expect(validSchema('CollectorResult', assign.collected.assignment)).toBe(true);
+  expect(assign.collected.assignment).toMatchObject({kind: 'assignment', observations: [{sourceCourseModuleId: '990102', title: 'Fictional Lab Report',
+    effectiveDates: {due: {value: {kind: 'exact', iso: '2028-03-07T14:30:00+05:00', tz: 'Asia/Almaty'}}}}]});
+  expect((await request(assignUrl, await read('assign-not-submitted.html'), ['assignment'], 'x')).links).toEqual([]);
+  const calendar = await request('https://moodle.sdu.edu.kz/calendar/view.php?view=upcoming', await read('calendar-upcoming.html'), ['calendar']);
+  expect(calendar.access.status).toBe('accessible');
+  expect(calendar.links).toEqual([]); // the action link is never returned as a scan link
+  expect(calendar.collected.calendar).toMatchObject({kind: 'calendar', coverage: 'partial', observations: [{sourceEventId: '880001', sourceCourseId: '9001'}]});
+  // Other calendar views were not observed and are not analyzed.
+  expect((await request('https://moodle.sdu.edu.kz/calendar/view.php?view=month', await read('calendar-upcoming.html'), ['calendar'])).access.reason).toBe('unsupported_route');
+  // The content script keeps the disabled registry; liveRouteAllowed still refuses resource and URL pages.
+  expect(liveRouteAllowed('https://moodle.sdu.edu.kz/calendar/view.php?view=upcoming')).toBe(true);
 });
 
 it('requests only allowed routes, GET with credentials, and bounds non-HTML and oversized bodies', async () => {

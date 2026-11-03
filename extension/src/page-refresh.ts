@@ -1,14 +1,14 @@
 /** Production visited-page algorithm; all synthetic facilities are injected. */
 import { detectMoodleAccess, type MoodleAccessInput } from './moodle-access';
-import { parseMoodleAssignment } from './moodle-assignments';
-import { collectMoodleCalendar } from './moodle-calendar';
-import { collectMoodleMaterials } from './moodle-materials';
+import { parseMoodleAssignment, parseObservedMoodleAssignment } from './moodle-assignments';
+import { collectMoodleCalendar, collectObservedMoodleCalendar } from './moodle-calendar';
+import { collectMoodleMaterials, collectObservedMoodleMaterials } from './moodle-materials';
 import { parseMoodleQuizPage, type QuizReason } from './moodle-quizzes';
 import { parseMoodleSubmissionStatus, type SubmissionStatusInput } from './moodle-submission-status';
 import type { CollectionRepository } from './collection-repository';
 import { CollectionTransportError } from './collection-repository';
 import { validSchema, normalized } from '../../shared/src/bridge';
-import type { CollectorResult, CollectionContext, PageRefreshReceipt, RawQuizObservation, SubmissionSourceRecord } from '../../frontend/src/domain/types';
+import type { CollectorResult, CollectionContext, PageRefreshReceipt, RawAssignmentObservation, RawQuizObservation, SubmissionSourceRecord } from '../../frontend/src/domain/types';
 
 export type Collector = 'assignment'|'calendar'|'material'|'quiz'|'submission';
 export interface PageSource { url:string;documentKey:object|string;input?:MoodleAccessInput;sourceCourseId?:string }
@@ -69,6 +69,43 @@ export function quizRefreshResult(input:MoodleAccessInput,observedAt:string,hint
     sourceUrl:o.sourceUrl,title,observedAt:o.observedAt,...(opening?{opening}:{}),...(closing?{closing}:{}),attemptInformation};
   return {kind:'quiz',observations:[observation],reviews:[],diagnostics:[],pages:[],coverage:'complete',scope:'visited_activity_only'};
 }
+const cleanTitle=(value:string|undefined)=>{
+  const title=(value??'').replace(/\s+/gu,' ').trim();
+  return !title||title.length>256||/[<>\x00-\x1f]/.test(title)?undefined:title;
+};
+/**
+ * #83 adapter from the observed assignment parser to the AssignmentRefreshResult wire
+ * shape. As for quizzes, the assignment instance id is not observable, so the cmid is
+ * the wire `sourceActivityId`, and the title comes from the course-page card
+ * (`hints.title`); without it the result fails with missing_metadata. Only base opening
+ * and due dates are observed: no extensions, effective dates equal the base dates.
+ */
+export function assignmentRefreshResult(input:MoodleAccessInput,observedAt:string,hints:{title?:string;sourceCourseId?:string}={}):CollectorResult {
+  const parsed=parseObservedMoodleAssignment(input,observedAt,hints.sourceCourseId??'');
+  if(parsed.status==='error')return {kind:'failed',reasons:[parsed.reason]};
+  const title=cleanTitle(hints.title);
+  if(!title)return {kind:'failed',reasons:['missing_metadata']};
+  const o=parsed.observation;
+  const baseDates:RawAssignmentObservation['baseDates']={};
+  for(const field of ['opening','due'] as const){const d=o[field];if(d)baseDates[field]={value:d.value,rawText:d.rawText,location:d.location};}
+  const observation:RawAssignmentObservation={sourceCourseId:o.sourceCourseId,sourceActivityId:o.sourceCourseModuleId,sourceCourseModuleId:o.sourceCourseModuleId,
+    sourceUrl:o.sourceUrl,title,observedAt:o.observedAt,baseDates,individualExtensions:[],effectiveDates:structuredClone(baseDates)};
+  return {kind:'assignment',observations:[observation],reviews:[],diagnostics:[],pages:[],coverage:'complete',scope:'visited_activity_only'};
+}
+/** #83 adapter from the observed upcoming-calendar collector to the CalendarRefreshResult wire shape. */
+export function calendarRefreshResult(input:MoodleAccessInput,selection:readonly string[],observedAt:string):CollectorResult {
+  const r=collectObservedMoodleCalendar(input,selection,observedAt);
+  if(r.pages[0]?.access.status!=='accessible')return {kind:'failed',reasons:['access_error']};
+  return {kind:'calendar',observations:r.observations,reviews:r.review.map(v=>({kind:'calendar' as const,...v})),diagnostics:[...r.diagnostics,...r.exclusions],
+    pages:r.pages.map(({access:_access,...page})=>page),coverage:r.coverage,scope:r.scope};
+}
+/** #83 adapter from the observed course-page material collector to the MaterialRefreshResult wire shape. */
+export function materialRefreshResult(input:MoodleAccessInput,selection:readonly string[],observedAt:string):CollectorResult {
+  const r=collectObservedMoodleMaterials(input,selection,observedAt);
+  if(r.status==='error')return {kind:'failed',reasons:[r.reason]};
+  return {kind:'material',observations:r.observations,reviews:[],diagnostics:r.diagnostics,
+    pages:[{pageIndex:0,coverage:r.coverage,candidateCount:r.candidateCount,paginationPending:false}],coverage:r.coverage,scope:'supplied_pages_only'};
+}
 /**
  * #81 adapter from the #16 submission status mapper to the existing
  * SubmissionRefreshResult wire shape. The SDU assignment view page shows only
@@ -91,11 +128,15 @@ export function submissionRefreshResult(input:SubmissionStatusInput,observedAt:s
   return {kind:'submission',observations:[observation],reviews:[],diagnostics:[],pages:[],coverage:'complete',scope:'visited_activity_only'};
 }
 /**
- * #20 live registry: only the #14 quiz collector matches the observed SDU pages.
- * Assignment, calendar and material stay unavailable until #83, submission until #16.
+ * #20 live registry: the collectors that match the observed SDU pages, each switched on
+ * with its passing observed-fixture tests: #14 quiz; #83 assignment (assignment view
+ * page), calendar (upcoming view) and material (course page). Submission stays
+ * unavailable until #16 is wired.
  */
 export function liveRegistry():CollectorRegistry {
-  return {assignment:{...unavailable,evidenceMode:'verified'},calendar:{...unavailable,evidenceMode:'verified'},material:{...unavailable,evidenceMode:'verified'},
+  return {assignment:{availability:'available',evidenceMode:'verified',collect:(input,selection,time,hints)=>assignmentRefreshResult(input,time,{...hints,sourceCourseId:selection[0]??''})},
+    calendar:{availability:'available',evidenceMode:'verified',collect:(input,selection,time)=>calendarRefreshResult(input,selection,time)},
+    material:{availability:'available',evidenceMode:'verified',collect:(input,selection,time)=>materialRefreshResult(input,selection,time)},
     submission:{...unavailable,evidenceMode:'verified'},
     quiz:{availability:'available',evidenceMode:'verified',collect:(input,_selection,time,hints)=>quizRefreshResult(input,time,hints)}};
 }
