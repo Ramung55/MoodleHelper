@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
-import { acquire, dispositionName, looksLikeHtml, runTransfer, sanitizeFilename, type Descriptor, type DownloadDelta, type LeaseRequester, type Transfer } from "../extension/src/material-transfer";
+import { acquire, dispositionName, isPdf, runTransfer, sanitizeFilename, type Descriptor, type DownloadDelta, type LeaseRequester, type Transfer } from "../extension/src/material-transfer";
 import { openTransferPage } from "../extension/src/dashboard-bridge";
 
 // Authorized synthetic fixture transport only: injected in-process, never a page/query toggle.
 const URL_OK = "https://moodle.sdu.edu.kz/pluginfile.php/42/mod_resource/content/3/lecture-1.pdf";
 const desc = (over: Partial<Descriptor> = {}): Descriptor => ({ transferId: "t1", generation: 1, attemptId: "a1", materialId: "m-pdf", url: URL_OK, format: "pdf", suggestedName: "Lecture 1", maxBytes: 1024, timeoutMs: 1000, ...over });
 const PDF = new TextEncoder().encode("%PDF-1.7\n1 0 obj\n%%EOF");
-const LOGIN = new TextEncoder().encode("<!doctype html><html><form id=login>Log in</form></html>");
+// The login page is recognised only by #20's <body id="page-login-index">, never by its text.
+const LOGIN = new TextEncoder().encode('<!doctype html><html><body id="page-login-index" class="lang-ru"><form id=login>Log in</form></body></html>');
 function res(body: Uint8Array | null, init: { status?: number; type?: string; headers?: Record<string, string>; url?: string; redirected?: boolean } = {}) {
   const r = new Response(body, { status: init.status ?? 200, headers: { "content-type": init.type ?? "application/pdf", ...(init.headers ?? {}) } });
   Object.defineProperty(r, "url", { value: init.url ?? URL_OK });
@@ -26,9 +27,9 @@ describe("#41 bounded acquisition", () => {
     expect(init).toMatchObject({ method: "GET", credentials: "include", redirect: "follow", cache: "no-store", referrerPolicy: "no-referrer" });
     expect(init!.headers).toBeUndefined();
   });
-  it("login HTML with 200 and PDF disguise yields sign-in guidance, never a file", async () => {
+  it("login HTML (body#page-login-index) yields sign-in guidance; a PDF-typed non-%PDF- body is unsupported, never a file", async () => {
     expect(await run(res(LOGIN, { type: "text/html" }))).toEqual({ ok: false, reason: "sign_in_required" });
-    expect(await run(res(LOGIN, { headers: { "content-disposition": 'attachment; filename="lecture.pdf"' } }))).toEqual({ ok: false, reason: "sign_in_required" });
+    expect(await run(res(LOGIN, { headers: { "content-disposition": 'attachment; filename="lecture.pdf"' } }))).toEqual({ ok: false, reason: "unsupported_type" });
     expect(await run(res(LOGIN, { type: "text/html", redirected: true, url: "https://moodle.sdu.edu.kz/login/index.php" }))).toEqual({ ok: false, reason: "sign_in_required" });
     expect(await run(res(PDF, { status: 401 }))).toEqual({ ok: false, reason: "sign_in_required" });
   });
@@ -78,8 +79,8 @@ describe("#41 safe filenames", () => {
   it("parses bounded dispositions only", () => {
     expect(dispositionName('attachment; filename="a.pdf"')).toBe("a.pdf");
     expect(dispositionName("x".repeat(2000))).toBeUndefined();
-    expect(looksLikeHtml(PDF)).toBe(false);
-    expect(looksLikeHtml(new TextEncoder().encode("\uFEFF  <html>"))).toBe(true);
+    expect(isPdf(PDF)).toBe(true);
+    expect(isPdf(new TextEncoder().encode("﻿  <html>"))).toBe(false);
   });
 });
 

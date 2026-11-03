@@ -28,7 +28,7 @@ export const ACTIVE: TransferState[] = ["queued", "validating", "saving"];
 export const isActive = (t?: MaterialTransfer) => !!t && ACTIVE.includes(t.state);
 
 /** Texts the #41 pilot groomed (2026-11-02). */
-export const BUSY_TEXT = "Moodle is busy. Try again later. Nothing was saved.";
+export const NETWORK_TEXT = "Moodle could not be reached, or sent the request to another site. Nothing was saved.";
 export const NOT_A_FILE_TEXT = "This resource opens as a Moodle page, not a file. Open it in Moodle.";
 /** The backend's answer to a repeated click while a transfer of that material is active. */
 export const ALREADY_IN_PROGRESS = "This download is already in progress.";
@@ -36,8 +36,9 @@ const REASON: Record<TransferReason, string> = {
   sign_in_required: "Moodle returned a login page instead of the file. Sign in to SDU Moodle in Chrome, then retry. Nothing was saved.",
   forbidden: "Moodle refused access to this file. Nothing was saved.",
   not_found: "Moodle no longer has this file. Nothing was saved.",
-  // 429/503 and network errors share the reason `network`; neither is retried automatically.
-  network: BUSY_TEXT,
+  // The record keeps only the reason, and `network` also covers plain network errors and
+  // off-origin redirects, so the busy text (429/503) is shown only on the transfer page, which saw the status.
+  network: NETWORK_TEXT,
   unsupported_type: "Moodle did not return a valid PDF. Nothing was saved.",
   too_large: "The file is larger than the 20 MiB limit. Nothing was saved.",
   timeout: "Moodle did not answer in time. Nothing was saved. Try again later.",

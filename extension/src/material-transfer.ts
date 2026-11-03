@@ -74,14 +74,6 @@ export function dispositionName(header: string | null): string | undefined {
 }
 
 const ascii = (bytes: Uint8Array, n: number) => Array.from(bytes.subarray(0, n), (b) => String.fromCharCode(b)).join("");
-/** Login/HTML bodies are rejected regardless of status, name or declared type. */
-export function looksLikeHtml(bytes: Uint8Array): boolean {
-  let start = 0;
-  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) start = 3;
-  while (start < bytes.length && [0x20, 0x09, 0x0a, 0x0d].includes(bytes[start]!)) start++;
-  const head = ascii(bytes.subarray(start), 512).toLowerCase();
-  return head.startsWith("<") || (!head.startsWith("%pdf-") && /<html|<!doctype|<form|login/.test(head));
-}
 export const isPdf = (bytes: Uint8Array) => ascii(bytes, 5) === "%PDF-";
 
 export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
@@ -219,10 +211,10 @@ export async function acquire(d: Descriptor, deps: AcquireDeps): Promise<Acquire
       if (access.status === "signed_out") return { ok: false, reason: "sign_in_required" };
       // A resource that stays on its view.php page (or any other Moodle page) is not a file.
       if (kind !== "file") return { ok: false, reason: "not_a_file" };
-      return { ok: false, reason: "sign_in_required" }; // HTML in place of a file is never saved
+      // HTML on pluginfile.php that #20's check did not classify as signed out is not a PDF; never saved.
+      return { ok: false, reason: "unsupported_type" };
     }
     if (kind !== "file") return await fail(response, type.startsWith("text/") ? "not_a_file" : "unsupported_type");
-    if (type.startsWith("text/")) return await fail(response, "sign_in_required");
     if (type !== "application/pdf") return await fail(response, "unsupported_type");
     const declared = response.headers.get("content-length");
     const total = declared && /^\d{1,12}$/.test(declared) ? Number(declared) : null;
@@ -249,7 +241,8 @@ export async function acquire(d: Descriptor, deps: AcquireDeps): Promise<Acquire
     let at = 0;
     for (const c of chunks) { bytes.set(c, at); at += c.byteLength; }
     if (size === 0) return { ok: false, reason: "unsupported_type" };
-    if (looksLikeHtml(bytes)) return { ok: false, reason: "sign_in_required" };
+    // Sign-in is classified only by #20's access check above (final URL, status, <body> id),
+    // never from body text: any application/pdf body not starting %PDF- is unsupported_type.
     if (!isPdf(bytes)) return { ok: false, reason: "unsupported_type" };
     // The name comes from the final response's Content-Disposition or the stored metadata,
     // always through the sanitizer; the final URL path is never used.

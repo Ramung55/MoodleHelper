@@ -31,13 +31,16 @@ describe("#41 transfer labels", () => {
     expect(transferLabel(base({ state: "cancelled", reason: "cancelled_by_user" })).text).toContain("Nothing is available offline");
     expect(transferLabel(base({ state: "interrupted", reason: "page_closed" })).canRetry).toBe(true);
   });
-  it("#41 pilot texts: sign-in, not a file and busy; the old combined redirect text is gone", () => {
+  it("#41 pilot texts: sign-in and not a file; the old combined redirect text is gone", () => {
     expect(transferLabel(base({ state: "failed", reason: "sign_in_required" })).text)
       .toBe("Download failed. Moodle returned a login page instead of the file. Sign in to SDU Moodle in Chrome, then retry. Nothing was saved.");
     expect(transferLabel(base({ state: "failed", reason: "not_a_file" })).text)
       .toBe("Download failed. This resource opens as a Moodle page, not a file. Open it in Moodle.");
+    // `network` also covers plain network errors and off-origin redirects: the record cannot tell
+    // them from 429/503, so the busy text is shown only on the transfer page that saw the status.
     expect(transferLabel(base({ state: "failed", reason: "network" })).text)
-      .toBe("Download failed. Moodle is busy. Try again later. Nothing was saved.");
+      .toBe("Download failed. Moodle could not be reached, or sent the request to another site. Nothing was saved.");
+    expect(transferLabel(base({ state: "failed", reason: "network" })).text).not.toContain("Moodle is busy");
     const reasons = ["sign_in_required", "forbidden", "not_found", "network", "unsupported_type", "too_large", "timeout", "not_a_file", "download_interrupted", "page_closed", "outcome_unknown"] as const;
     for (const reason of reasons) {
       for (const state of ["failed", "interrupted"] as const) {
@@ -102,8 +105,8 @@ describe("#41 explicit download control", () => {
     await waitFor(() => expect(toast.info).toHaveBeenCalledWith("This download is already in progress."));
     expect(await screen.findByRole("button", { name: "Downloading…" })).toBeDisabled();
   });
-  it("shows the not-a-file, busy and sign-in outcomes in the materials view", async () => {
-    for (const [reason, text] of [["not_a_file", "opens as a Moodle page, not a file"], ["network", "Moodle is busy. Try again later."], ["sign_in_required", "Sign in to SDU Moodle in Chrome, then retry."]] as const) {
+  it("shows the not-a-file, network and sign-in outcomes in the materials view", async () => {
+    for (const [reason, text] of [["not_a_file", "opens as a Moodle page, not a file"], ["network", "Moodle could not be reached, or sent the request to another site."], ["sign_in_required", "Sign in to SDU Moodle in Chrome, then retry."]] as const) {
       mount({ startMaterialDownload: vi.fn(), listMaterialDownloads: vi.fn(async () => ({ transfers: [base({ state: "failed", reason })] })), cancelMaterialDownload: vi.fn() });
       expect((await screen.findByTestId("transfer-status")).textContent).toContain(text);
       expect(screen.getByRole("button", { name: "Download again" })).toBeEnabled();

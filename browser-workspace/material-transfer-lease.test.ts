@@ -135,6 +135,22 @@ describe("#41 final-URL classification with observed fixtures (AC1, AC3)", () =>
     expect(await get(() => reply(PDF, { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }))).toEqual({ ok: false, reason: "unsupported_type" });
     expect(await get(() => reply("PK\u0003\u0004 not a pdf"))).toEqual({ ok: false, reason: "unsupported_type" });
   });
+  it("QA probes: sign-in is never matched from body text; non-PDF answers on pluginfile.php are unsupported_type", async () => {
+    // application/pdf, HTTP 200, final URL on pluginfile.php, body not starting %PDF-
+    for (const body of ["hello world", "<!doctype html><p>x", "Please login first", "<html><form id=login>login</form></html>"]) {
+      expect(await get(() => reply(body, { url: FILE }))).toEqual({ ok: false, reason: "unsupported_type" });
+    }
+    // text/html on pluginfile.php that is not the login page (no body#page-login-index)
+    const resourcePage = '<!doctype html><html><body id="page-mod-resource-view" class="lang-ru"><p>Please login first</p></body></html>';
+    expect(await get(() => reply(resourcePage, { url: FILE, type: "text/html; charset=utf-8" }))).toEqual({ ok: false, reason: "unsupported_type" });
+    expect(await get(() => reply("<!doctype html><p>x", { url: FILE, type: "text/html" }))).toEqual({ ok: false, reason: "unsupported_type" });
+    // any other non-PDF type on pluginfile.php, including text/plain with login words
+    expect(await get(() => reply("Please login first", { url: FILE, type: "text/plain" }))).toEqual({ ok: false, reason: "unsupported_type" });
+    expect(await get(() => reply(PDF, { url: FILE, type: "application/octet-stream" }))).toEqual({ ok: false, reason: "unsupported_type" });
+    // the access-check signals still give sign-in, whatever the body says
+    expect(await get(() => reply("hello world", { url: ORIGIN + "/login/index.php", type: "text/html" }))).toEqual({ ok: false, reason: "sign_in_required" });
+    expect(await get(() => reply("%PDF-1.7", { url: FILE, status: 401 }))).toEqual({ ok: false, reason: "sign_in_required" });
+  });
   it("a redirect that ends off https://moodle.sdu.edu.kz is refused before its body is read", async () => {
     for (const url of ["https://evil.example/pluginfile.php/1/mod_resource/content/1/a.pdf", "http://moodle.sdu.edu.kz/pluginfile.php/1/mod_resource/content/1/a.pdf", "https://moodle.sdu.edu.kz:8443/pluginfile.php/1/mod_resource/content/1/a.pdf"]) {
       const log: Ev[] = [];
@@ -150,6 +166,9 @@ describe("#41 final-URL classification with observed fixtures (AC1, AC3)", () =>
       expect(calls).toBe(1);
     }
     expect(BUSY_TEXT).toBe("Moodle is busy. Try again later. Nothing was saved.");
+    // the busy text is only for 429/503; a plain network error or off-origin redirect keeps its own text
+    expect(REASON_TEXT.network).not.toBe(BUSY_TEXT);
+    expect(REASON_TEXT.network).not.toContain("busy");
   });
   it("the old combined redirect text is gone; sign-in text names SDU Moodle", () => {
     expect(Object.values(REASON_TEXT).join(" ")).not.toMatch(/unreachable or redirected|redirected the request|often an expired login/);
