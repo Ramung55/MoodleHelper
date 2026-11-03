@@ -21,6 +21,7 @@ import type {
   AiAvailability,
   ImportResult,
 } from "./adapter";
+import type { MaterialDownloads } from "@/domain/material-transfer";
 export { APPROVED_ORIGINS };
 export const isApprovedOrigin = approved;
 /** #82: a run reads up to 5 Moodle requests, each paced, retried and limited to 30 s. */
@@ -277,6 +278,28 @@ export async function checkSduSignIn(): Promise<SignInResult> {
   } finally {
     client.dispose();
   }
+}
+/**
+ * #41 owner live check: the default HTTP adapter has no transfer operations, and only the
+ * extension worker opens the transfer tab for a queued transfer. When live sync is available the
+ * Materials page sends each transfer operation through a fresh bridge session, as Sync all does.
+ */
+export function bridgeMaterialDownloads(open: () => BridgeClient = () => new BridgeClient()): MaterialDownloads {
+  const through = async <T>(call: (client: BridgeClient) => Promise<T>): Promise<T> => {
+    const client = open();
+    try {
+      await client.connect();
+      return await call(client);
+    } finally {
+      client.dispose();
+    }
+  };
+  return {
+    startMaterialDownload: (datasetId, materialId, idempotencyKey) => through((c) => c.startMaterialDownload(datasetId, materialId, idempotencyKey)),
+    listMaterialDownloads: () => through((c) => c.listMaterialDownloads()),
+    materialDownload: (transferId) => through((c) => c.materialDownload(transferId)),
+    cancelMaterialDownload: (transferId) => through((c) => c.cancelMaterialDownload(transferId)),
+  };
 }
 /** #20/#46: Sync all through a fresh bridge session, so the worker starts the queued scan at once. */
 export async function syncAllThroughExtension(onProgress: (s: Snapshot) => void): Promise<Snapshot> {

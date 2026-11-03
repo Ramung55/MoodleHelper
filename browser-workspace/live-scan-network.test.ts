@@ -23,6 +23,7 @@ import {BACKEND} from '../extension/src/dashboard-bridge';
 import {formatInstant} from '../shared/src/full-sync';
 import {JSDOM} from '../frontend/node_modules/jsdom/lib/api.js';
 import {buildMaterialLibrary} from '../frontend/src/domain/material-library';
+import {downloadable} from '../frontend/src/domain/material-transfer';
 
 const root = path.resolve(import.meta.dirname, '..');
 const python = path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
@@ -170,11 +171,12 @@ const observedSite = (url: string): Reply => {
 /** The installed extension, with fake Chrome events and an in-process offscreen document. */
 function install(backend: Backend, clock: {now: number}, moodleFetch: typeof fetch, extra: Record<string, unknown> = {}) {
   const alarms: ((alarm: {name: string}) => void)[] = [], startup: (() => void)[] = [], messages: any[] = [], offscreen: any[] = [];
-  const created: unknown[] = [];
+  const created: unknown[] = [], tabs: unknown[] = [];
   const runtime: any = {id: 'live-scan-test', getURL: (p: string) => `chrome-extension://live-scan-test/${p}`,
     onMessage: {addListener: (f: any) => messages.push(f)}, onStartup: {addListener: (f: any) => startup.push(f)}, onInstalled: {addListener: () => {}},
     sendMessage: (message: unknown, callback: (reply: unknown) => void) => { for (const listener of offscreen) listener(message, {id: 'live-scan-test'}, callback); }};
   const chrome: any = {runtime, alarms: {create: () => {}, clear: () => {}, onAlarm: {addListener: (f: any) => alarms.push(f)}},
+    tabs: {create: (o: unknown, cb?: (tab: {id: number}) => void) => { tabs.push(o); cb?.({id: 41}); }},
     permissions: {contains: (_: unknown, cb: (allowed: boolean) => void) => cb(true)},
     offscreen: {createDocument: async (options: unknown) => { created.push(options); installOffscreen({id: 'live-scan-test', onMessage: {addListener: (f: any) => offscreen.push(f)}}); }}};
   /** Every backend request of the worker and its bridge (method and path). */
@@ -187,14 +189,14 @@ function install(backend: Backend, clock: {now: number}, moodleFetch: typeof fet
   const worker = installExtension(chrome, {base: backend.base, fetcher,
     liveScan: {moodleFetch, now: () => clock.now, wait: async (ms: number) => { clock.now += ms; await pause(0); }, ...extra}});
   let request = 0;
-  const bridge = async (tab: number, operation: string) => {
+  const bridge = async (tab: number, operation: string, payload: unknown = {}) => {
     const sender = {id: 'live-scan-test', frameId: 0, tab: {id: tab}, documentId: `document-${tab}`, url: 'http://127.0.0.1:5173/'};
     const send = (message: any) => new Promise<any>(resolve => { messages[0](message, sender, resolve); });
     const common = {source: 'moodle-helper-web', type: 'request', version: '1', clientId: `tab-${tab}`};
     const hello = await send({...common, requestId: `r-${++request}`, operation: 'hello', payload: {}});
-    return send({...common, requestId: `r-${++request}`, operation, sessionId: hello.result.sessionId, payload: {}});
+    return send({...common, requestId: `r-${++request}`, operation, sessionId: hello.result.sessionId, payload});
   };
-  return {worker, created, requests, alarm: () => alarms[0]!({name: 'moodle-helper-mock-queue'}), startup: () => startup[0]!(), bridge};
+  return {worker, created, tabs, requests, alarm: () => alarms[0]!({name: 'moodle-helper-mock-queue'}), startup: () => startup[0]!(), bridge};
 }
 
 function spacing(starts: {at: number}[]) {
@@ -330,6 +332,38 @@ it('#46: the real dataset reports the verified collection mode the dashboard rea
   expect(run.status).toBe('completed');
   expect(run.courseIds).toEqual([ids['9001']]);
   expect(site.starts().map(e => e.url)).toContain(courseUrl('9001'));
+  app.worker.dispose();
+}, 60000);
+
+it('#41 owner live check: a scanned PDF resource is offered the download and one bridged click queues its transfer', async () => {
+  const backend = new Backend('download'); await backend.start();
+  const ids = await backend.seed(['9001']);
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  const site = moodle(clock, observedSite);
+  const app = install(backend, clock, site.fetcher);
+  expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
+  expect((await backend.settled(1))[0].status).toBe('completed');
+  const snapshot = await backend.get('/api/snapshot');
+  expect(snapshot.materials).toEqual([]);
+  // The Materials page offers the control from the scanned records only: the PDF and PPTX
+  // resources, never the links (#85 also never offers an unknown type).
+  const library = buildMaterialLibrary(snapshot).filter(i => i.courseId === ids['9001']);
+  expect(library.filter(downloadable).map(i => [i.type, i.destination?.href]).sort()).toEqual([
+    ['pdf', `${ORIGIN}/mod/resource/view.php?id=990104`], ['pptx', `${ORIGIN}/mod/resource/view.php?id=990105`]]);
+  const pdf = library.find(i => i.type === 'pdf')!;
+  // One explicit click: the dashboard's bridged start with the scanned record's id.
+  const {datasetId} = await backend.get('/api/local-context');
+  const before = site.starts().length;
+  const started = await app.bridge(2, 'startMaterialDownload', {datasetId, materialId: pdf.recordId, idempotencyKey: 'live-check-click'});
+  expect(started.ok).toBe(true);
+  expect(started.result).toMatchObject({supported: true, transfer: {state: 'queued', materialId: pdf.recordId}});
+  const transferId = started.result.transfer.transferId as string;
+  expect(app.tabs).toEqual([{url: `chrome-extension://live-scan-test/transfer.html#${transferId}`, active: true}]);
+  // The backend resolved the scanned record in verified mode to its exact view.php?id=<cmid>.
+  expect((await backend.get('/api/collection-context')).mode).toBe('verified');
+  const descriptor = await (await backend.write('POST', `/api/material-downloads/${transferId}/descriptor`)).json();
+  expect(descriptor).toMatchObject({url: `${ORIGIN}/mod/resource/view.php?id=990104`, format: 'pdf', materialId: pdf.recordId});
+  expect(site.starts().length).toBe(before); // Registering a transfer makes no Moodle request.
   app.worker.dispose();
 }, 60000);
 

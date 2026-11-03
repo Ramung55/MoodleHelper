@@ -7,6 +7,7 @@ import { CourseTag, EmptyState, PageHeader } from "@/components/mh/bits";
 import { useApp } from "@/lib/app-store";
 import { ALREADY_IN_PROGRESS, downloadable, isActive, supportsDownloads, transferLabel, type MaterialDownloads, type MaterialTransfer } from "@/domain/material-transfer";
 import { currentDataset } from "@/services/local-documents";
+import { bridgeMaterialDownloads } from "@/services/extension-adapter";
 import { LIBRARY_TYPES, TYPE_LABEL, attemptReasons, buildMaterialLibrary, filterLibrary, latestMaterialAttempts, type LibraryItem, type LibraryType } from "@/domain/material-library";
 
 export const Route = createFileRoute("/materials")({
@@ -84,7 +85,7 @@ export function TransferStatus({ t, onCancel }: { t: MaterialTransfer; onCancel:
 }
 
 export function Materials() {
-  const { snap, adapter, setSnap, error, retryLoad } = useApp();
+  const { snap, adapter, conn, setSnap, error, retryLoad } = useApp();
   const s = snap!;
   const [q, setQ] = useState("");
   const [type, setType] = useState<"" | LibraryType>("");
@@ -98,7 +99,10 @@ export function Materials() {
   const synthetic = receipts.some((r) => r.evidenceMode === "synthetic");
   const incomplete = [...attempts.values()].filter((r) => r.outcome !== "ok");
   const filtered = !!q.trim() || !!type;
-  const downloadsApi = supportsDownloads(adapter) ? adapter : null;
+  // #41: the default HTTP adapter has no transfer operations; with live sync the bridge carries them.
+  const liveSync = !!conn?.liveSync;
+  const downloadsApi = useMemo<MaterialDownloads | null>(
+    () => supportsDownloads(adapter) ? adapter : liveSync ? bridgeMaterialDownloads() : null, [adapter, liveSync]);
   const transfers = useTransfers(downloadsApi);
 
   return (
