@@ -16,6 +16,8 @@ import {
   type SignInResult,
   type Request,
   type Reply,
+  errors,
+  type ErrorCode,
 } from "../../shared/src/bridge";
 
 export const BACKEND = "http://127.0.0.1:8000";
@@ -70,6 +72,39 @@ export function trustedSender(sender: Sender, runtimeId: string): boolean {
     (sender.tab?.url === undefined || origin(sender.tab.url) === o)
   );
 }
+/** #86: the only operations the extension popup may ask the worker for. */
+export const POPUP_OPERATIONS = ["syncAll", "checkMoodleSignIn"] as const;
+export type PopupOperation = (typeof POPUP_OPERATIONS)[number];
+export type PopupReply = { ok: true; result: any } | { ok: false; error: { code: ErrorCode; message: string } };
+const popupError = (code: ErrorCode): PopupReply => ({ ok: false, error: { code, message: errors[code] } });
+/**
+ * #86: this extension's own popup page, and nothing else. The dashboard channel's
+ * `trustedSender` needs a tab and stays unchanged; the popup has no tab. A hash or
+ * query on popup.html is allowed. Tabs, content scripts, dashboard pages and other
+ * extensions all fail here.
+ */
+export function popupSender(sender: Sender, runtimeId: string, popupUrl: string | undefined): boolean {
+  if (!popupUrl || sender.id !== runtimeId || sender.tab !== undefined || typeof sender.url !== "string") return false;
+  if (sender.url.split(/[?#]/, 1)[0] !== popupUrl) return false;
+  return sender.origin === undefined || popupUrl.startsWith(sender.origin + "/");
+}
+/** #86: the closed popup message `{source, operation}`; anything else gets no reply. */
+export function popupRequest(message: unknown): message is { source: "moodle-helper-popup"; operation: PopupOperation } {
+  return closed(message, ["source", "operation"]) && message.source === "moodle-helper-popup" &&
+    (POPUP_OPERATIONS as readonly unknown[]).includes(message.operation);
+}
+const BRIDGE_ERRORS = [
+  "VALIDATION",
+  "RECONNECT_REQUIRED",
+  "TIMEOUT",
+  "INVALID_RESPONSE",
+  "TOO_LARGE",
+  "SYNC_UNAVAILABLE",
+  "SYNC_NO_COURSES",
+  "SYNC_UNLINKED_COURSE",
+  "SYNC_ALREADY_RUNNING",
+  "REVIEW_CONFLICT",
+];
 /** Internal worker only. No external listener, cookies, Moodle fetch or caller-selected target. */
 export function createWorker(options: {
   runtimeId: string;
@@ -280,25 +315,52 @@ export function createWorker(options: {
     } catch (e) {
       return rejection(
         r,
-        typeof e === "string" &&
-          [
-            "VALIDATION",
-            "RECONNECT_REQUIRED",
-            "TIMEOUT",
-            "INVALID_RESPONSE",
-            "TOO_LARGE",
-            "SYNC_UNAVAILABLE",
-            "SYNC_NO_COURSES",
-            "SYNC_UNLINKED_COURSE",
-            "SYNC_ALREADY_RUNNING",
-            "REVIEW_CONFLICT",
-          ].includes(e)
+        typeof e === "string" && BRIDGE_ERRORS.includes(e)
           ? (e as any)
           : "BACKEND_UNAVAILABLE",
       );
     }
   }
-  return async function handle(
+  /**
+   * #86 popup channel. Sync all reads a fresh binding and sends one POST /api/sync
+   * through the same fetchJson mapping as the dashboard (fixed 409s, 503
+   * SYNC_UNAVAILABLE, RECONNECT_REQUIRED), and a 200 reaches the same onResult hook.
+   * The sign-in check is the #46 probe, which is already single-flight.
+   */
+  async function popup(operation: PopupOperation): Promise<PopupReply> {
+    try {
+      if (!(await options.grant())) return popupError("PERMISSION_DENIED");
+    } catch {
+      return popupError("PERMISSION_DENIED");
+    }
+    try {
+      if (operation === "checkMoodleSignIn") {
+        const outcome = options.checkMoodleSignIn
+          ? await options.checkMoodleSignIn()
+          : { signal: null, checkedAt: new Date(now()).toISOString() };
+        return validResult(operation, outcome) ? { ok: true, result: outcome } : popupError("INVALID_RESPONSE");
+      }
+      const context = await fetchJson("/api/bridge-context", { headers: { Accept: "application/json" } });
+      if (
+        !closed(context, ["version", "binding"]) ||
+        context.version !== "1" ||
+        typeof context.binding !== "string" ||
+        !/^[0-9a-f]{32}$/.test(context.binding)
+      )
+        return popupError("INVALID_RESPONSE");
+      const result = await fetchJson("/api/sync", {
+        method: "POST",
+        headers: { Accept: "application/json", "X-Moodle-Helper-Bridge-Binding": context.binding },
+      });
+      if (!validResult("syncAll", result)) return popupError("INVALID_RESPONSE");
+      options.onResult?.("syncAll", result);
+      const reply: PopupReply = { ok: true, result };
+      return fits(reply) ? reply : popupError("TOO_LARGE");
+    } catch (e) {
+      return popupError(typeof e === "string" && BRIDGE_ERRORS.includes(e) ? (e as ErrorCode) : "BACKEND_UNAVAILABLE");
+    }
+  }
+  return Object.assign(async function handle(
     message: unknown,
     sender: Sender,
   ): Promise<Reply | null> {
@@ -372,7 +434,7 @@ export function createWorker(options: {
       entry.at = now();
     });
     return entry.reply;
-  };
+  }, { popup });
 }
 const opened = new Set<string>();
 const transferTabs = new Map<string, number>();
@@ -422,7 +484,15 @@ export function installWorker(chromeApi: {
       openTransferPage(chromeApi, operation, result);
     },
   });
+  // #86: the popup page has no tab, so it can never pass trustedSender. It gets its own
+  // closed two-operation channel, checked against this extension's popup.html URL.
+  const popupUrl = chromeApi.runtime.getURL?.("popup.html");
   chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (popupSender(sender, chromeApi.runtime.id, popupUrl)) {
+      if (!popupRequest(message)) return;
+      void handler.popup(message.operation).then((reply) => sendResponse(reply as any));
+      return true;
+    }
     if (!trustedSender(sender, chromeApi.runtime.id)) return;
     void handler(message, sender).then((reply) => {
       if (reply) sendResponse(reply);

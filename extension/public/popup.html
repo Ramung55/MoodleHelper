@@ -3,21 +3,42 @@
   <head>
     <meta charset="utf-8">
     <title>Moodle Helper</title>
-    <style>html { width: 340px; } body { margin: 0; padding: 16px; font: 14px system-ui; } button { margin: 4px; } li { margin: 4px 0; }</style>
+    <style>html { width: 340px; } body { margin: 0; padding: 16px; font: 14px system-ui; } h1 { font-size: 18px; margin: 0 0 8px; } h2 { font-size: 14px; margin: 12px 0 4px; } p { margin: 4px 0; } button { margin: 4px; } li { margin: 4px 0; } code { font-size: 12px; overflow-wrap: anywhere; }</style>
   </head>
   <body>
-    <h1>Mock scan progress</h1>
-    <p>Demonstration only. This does not contact Moodle or refresh saved data.</p>
-    <p id="full-sync">No successful full sync yet.</p>
-    <div id="freshness"></div><div id="status" aria-live="polite">Connecting…</div>
-    <button id="start">Start mock run</button><button id="cancel">Cancel mock run</button><button id="reconnect">Reconnect</button>
-    <details><summary>Mock examples</summary>
-      <p>Example — Partial: some courses are incomplete. Retry the mock run.</p>
-      <p>Example — Failed: a mock job failed. Retry the mock run.</p>
-      <p>Example — Cancelled: start another mock run.</p>
-      <button id="example-retry">Retry a mock run</button>
-      <p>Example — Signed out: <a href="https://moodle.sdu.edu.kz/login/index.php" target="_blank" rel="noreferrer">Sign in to SDU Moodle</a>, then retry when live scanning is available. This does not describe your current session.</p>
-    </details>
+    <h1>Moodle Helper</h1>
+    <p id="connection" aria-live="polite">Connecting…</p>
+    <div id="unreachable" hidden>
+      <p>Can't reach the local backend.</p>
+      <p>Start it with: <code>uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000</code></p>
+    </div>
+    <div id="real" hidden>
+      <p id="sign-in">Moodle sign-in not checked</p>
+      <div id="sync-notes"></div>
+      <p id="sync-progress" hidden></p>
+      <p id="sync-result" aria-live="polite" hidden></p>
+      <button id="sync-all" disabled>Sync all</button>
+    </div>
+    <div id="saved" hidden>
+      <p id="full-sync">No successful full sync yet.</p>
+      <details id="details"><summary>Details</summary><div id="freshness"></div></details>
+      <button id="open-dashboard">Open dashboard</button>
+    </div>
+    <section id="demo" hidden>
+      <h2>Demo data — mock scan progress</h2>
+      <p>Demonstration only. This does not contact Moodle or refresh saved data.</p>
+      <div id="status" aria-live="polite"></div>
+      <button id="start">Start mock run</button><button id="cancel">Cancel mock run</button>
+      <details><summary>Mock examples</summary>
+        <p>Example — Partial: some courses are incomplete. Retry the mock run.</p>
+        <p>Example — Failed: a mock job failed. Retry the mock run.</p>
+        <p>Example — Cancelled: start another mock run.</p>
+        <button id="example-retry">Retry a mock run</button>
+        <p>Example — Signed out: <a href="https://moodle.sdu.edu.kz/login/index.php" target="_blank" rel="noreferrer">Sign in to SDU Moodle</a>, then retry when live scanning is available. This does not describe your current session.</p>
+      </details>
+    </section>
+    <button id="reconnect">Reconnect</button>
+    <p id="checked" aria-live="polite" hidden></p>
     <script src="popup.js"></script>
   </body>
 </html>

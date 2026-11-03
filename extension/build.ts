@@ -1,6 +1,19 @@
 import { mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
+/** #86 D3: the popup's Open dashboard target. The default build always uses Pages. */
+export const PAGES_DASHBOARD = "https://ramung55.github.io/MoodleHelper/";
+export const DASHBOARD_URLS = ["http://127.0.0.1:5173/", "http://localhost:5173/", PAGES_DASHBOARD] as const;
+export function dashboardUrl(value: string | undefined): string {
+  if (value === undefined || value === "") return PAGES_DASHBOARD;
+  if (!(DASHBOARD_URLS as readonly string[]).includes(value))
+    throw new Error(`MOODLE_HELPER_DASHBOARD_URL must be one of ${DASHBOARD_URLS.join(", ")}`);
+  return value;
+}
+
+export async function build() {
+// Checked before anything is removed: an unapproved value fails the build and leaves dist alone.
+const dashboard = dashboardUrl(process.env.MOODLE_HELPER_DASHBOARD_URL);
 // Resolve from this file, never the caller's working directory or an argument.
 const output = new URL("./dist/", import.meta.url);
 await rm(output, { recursive: true, force: true });
@@ -20,6 +33,7 @@ try {
       format,
       outdir: fileURLToPath(output),
       naming: name,
+      define: { __MOODLE_HELPER_DASHBOARD_URL__: JSON.stringify(dashboard) },
     });
     if (!result.success) throw new AggregateError(result.logs, `Failed ${entry} build`);
   }
@@ -37,3 +51,6 @@ try {
   await rm(output, { recursive: true, force: true });
   throw error;
 }
+}
+
+if (import.meta.main) await build();

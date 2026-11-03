@@ -93,7 +93,8 @@ describe("emitted Chrome shell", () => {
   it("ships the local mock progress popup with a fixed sign-in link", async () => {
     const html = await readFile(new URL("popup.html", dist), "utf8");
     expect(html).toMatch(/<title>Moodle Helper<\/title>/);
-    expect(html).toMatch(/Mock scan progress/);
+    expect(html).toMatch(/<h1>Moodle Helper<\/h1>/);
+    expect(html).toMatch(/Demo data — mock scan progress/);
     expect(html).toMatch(/src="popup.js"/);
     expect(html).toMatch(/href="https:\/\/moodle.sdu.edu.kz\/login\/index.php"/);
     expect(html).not.toMatch(/\bon\w+\s*=/i);

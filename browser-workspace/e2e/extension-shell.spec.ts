@@ -66,7 +66,7 @@ test("AC1 unpacked build loads, worker runs, popup page opens without errors, wo
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await page.goto(`chrome-extension://${session.extensionId}/popup.html`);
   await expect(page).toHaveTitle("Moodle Helper");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mock scan progress");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Moodle Helper");
   await expect(page.locator("#status")).not.toHaveText("Connecting…");
   await testInfo.attach("popup-page", { body: await page.screenshot(), contentType: "image/png" });
   expect(errors, "popup page errors").toEqual([]);
@@ -82,7 +82,7 @@ test("AC1 unpacked build loads, worker runs, popup page opens without errors, wo
   await watcher.detach();
   await dashboard.close();
   await page.reload(); // reopen the popup page
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mock scan progress");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Moodle Helper");
   expect(errors).toEqual([]);
   await page.close();
 });
@@ -146,7 +146,7 @@ test("AC4 reload restarts the shell without new grants or non-local traffic", as
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`chrome-extension://${session.extensionId}/popup.html`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mock scan progress");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Moodle Helper");
   expect(errors).toEqual([]);
   testInfo.annotations.push({ type: "fonts-blocked", description: String(session.blockedDesignAssets.length) });
   assertNoUnexpectedTraffic(session);

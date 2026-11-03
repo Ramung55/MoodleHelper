@@ -618,7 +618,9 @@ async function popupText(backend: Backend) {
   const popup = installPopup(doc, ((url: any, init: any) => fetch(String(url).replace(BACKEND, backend.base), init)) as typeof fetch, dom.window.localStorage);
   try {
     for (let i = 0; i < 200 && !doc.getElementById('freshness')!.textContent; i++) await pause(25);
-    return {full: doc.getElementById('full-sync')!.textContent!, text: doc.body.textContent!};
+    const text = doc.body.textContent!;
+    expect(text).not.toMatch(/mock/i);
+    return {full: doc.getElementById('full-sync')!.textContent!, text};
   } finally { popup.dispose(); dom.window.close(); }
 }
 
