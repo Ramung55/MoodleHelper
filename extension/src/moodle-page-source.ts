@@ -13,9 +13,13 @@
  * - Reading stops after 1 MiB; non-HTML content is cancelled unread and recorded
  *   as unsupported. Page bodies, cookies and tokens are never stored or logged:
  *   the HTML text goes only to the analyzer (the offscreen document).
+ * - #20 AC4: each response is classified here first, from `response.url`, its status,
+ *   content type and the `<body>` id and classes of the very text that was read
+ *   (`responseAccess`). Only an accessible page is sent to the offscreen analysis, and
+ *   that reply can only narrow access, never make a login page accessible.
  */
 import {detectObservedMoodleAccess, type MoodleAccessResult} from './moodle-access';
-import {observedRoute, type AccessChecker, type AnalysisRequest, type AnalysisResult, type Analyzer} from './moodle-page-analysis';
+import {observedRoute, responseAccess, type AccessChecker, type AnalysisRequest, type AnalysisResult, type Analyzer} from './moodle-page-analysis';
 import {OFFSCREEN_PATH, OFFSCREEN_TARGET, type OffscreenMessage, type OffscreenReply} from './offscreen';
 import {pageRoute} from './page-refresh';
 import type {ScanEnvelope, ScanRequest, ScanResponse, ScanSource, StartContext} from './scan-coordinator';
@@ -174,10 +178,18 @@ export function createMoodlePageSource(options:{fetcher?:typeof fetch;analyze:An
       const route=observedRoute(url,context.sourceCourseId);
       if(!got.html||got.truncated||!route)
         return {...base,links:[],...(route?{access:detectObservedMoodleAccess(input,route)}:{})};
+      // #20 AC4: classify this response here, from its own final URL, status and <body> id
+      // and classes, before any analysis. A login page (or any page that is not accessible)
+      // is never sent to the offscreen document, so no analysis reply can make it accessible.
+      const own=responseAccess(input,got.html,route);
+      if(own.status!=='accessible')return {...base,links:[],access:own};
       const request:AnalysisRequest={envelope:input,html:got.html,sourceCourseId:context.sourceCourseId,collectors:context.collectors,observedAt,
         ...(context.title?{title:context.title}:{})};
       const analysis:AnalysisResult=await options.analyze(request);
-      return {...base,access:analysis.access,links:analysis.links,titles:analysis.titles,collected:analysis.collected};
+      if(!analysis?.access)throw Error('Analysis failed.');
+      // The analysis may only narrow access: anything but its own accessible verdict wins.
+      if(analysis.access.status!=='accessible')return {...base,links:[],access:analysis.access};
+      return {...base,access:own,links:analysis.links,titles:analysis.titles,collected:analysis.collected};
     })();
     return {completion,termination,abort(){external=true;controller.abort();}};
   }};

@@ -40,12 +40,24 @@ export interface AccessRequest {
 export type AccessChecker=(request:AccessRequest)=>Promise<MoodleAccessResult>;
 const TOKEN=/^[A-Za-z0-9_-]{1,128}$/;
 /** The `<body>` id and classes of an HTML text; nothing else of the page is kept. */
-export function reducedBody(html:string):AccessRequest['body'] {
+export function reducedBody(html:string,limit=64):AccessRequest['body'] {
   const tag=/<body\b([^>]*)>/i.exec(html)?.[1]??'';
   const attribute=(name:string)=>new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,'i').exec(tag);
   const id=attribute('id'), classes=attribute('class');
   const idValue=id?.[1]??id?.[2]??'';
-  return {id:TOKEN.test(idValue)?idValue:'',classes:(classes?.[1]??classes?.[2]??'').split(/\s+/).filter(c=>TOKEN.test(c)).slice(0,64)};
+  return {id:TOKEN.test(idValue)?idValue:'',classes:(classes?.[1]??classes?.[2]??'').split(/\s+/).filter(c=>TOKEN.test(c)).slice(0,limit)};
+}
+/**
+ * #20 AC4 worker-side check of the very response that was read: the observed access check
+ * on its final URL (`response.url`), status, content type and `<body>` id and classes, with
+ * no DOM (the service worker has none; the check reads nothing else of the document). The
+ * scan uses it before and independently of the offscreen analysis, like #82 discovery and
+ * the #46 probe do: a login page is `signed_out` here whatever an analysis reply says.
+ */
+export function responseAccess(envelope:Omit<ScanEnvelope,'document'>,html:string,route:ObservedRoute):MoodleAccessResult {
+  const body=reducedBody(html,512), classes=new Set(body.classes);
+  const document={body:{id:body.id,classList:{contains:(name:string)=>classes.has(name)}}} as unknown as Document;
+  return detectObservedMoodleAccess({...envelope,document},route);
 }
 /** Runs where a DOM exists (the offscreen document): #20's observed check on a body-only document. */
 export function checkMoodleAccess(request:AccessRequest,options:{parse?:(html:string)=>Document}={}):MoodleAccessResult {

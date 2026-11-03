@@ -19,6 +19,7 @@ import {afterAll, beforeAll, expect, it} from 'vitest';
 import {installExtension} from '../extension/src/index';
 import {installOffscreen} from '../extension/src/offscreen';
 import {installPopup} from '../extension/src/popup';
+import {analyzeMoodlePage, type AnalysisRequest, type AnalysisResult} from '../extension/src/moodle-page-analysis';
 import {BACKEND} from '../extension/src/dashboard-bridge';
 import {formatInstant} from '../shared/src/full-sync';
 import {JSDOM} from '../frontend/node_modules/jsdom/lib/api.js';
@@ -536,6 +537,69 @@ it('AC4: a login redirect mid-scan fails the job and every unstarted job without
   expect(site.starts()).toHaveLength(2);
   app.worker.dispose();
 }, 60000);
+
+it('AC4 owner live check: a Sync all after sign-out is classified from the response that was read, never from a reused analysis', async () => {
+  const backend = new Backend('signed-out-after'); await backend.start();
+  const ids = await backend.seed(['9001', '9002', '9003']);
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  let signedOut = false;
+  // Signed out, SDU answers each tracked page with the observed login page: the redirect to
+  // /login/index.php, or the login page served at the requested URL itself (body#page-login-index).
+  const site = moodle(clock, url => !signedOut ? observedSite(url)
+    : url.includes('/course/') ? {status: 200, body: html['login-page.html']!}
+    : {status: 200, body: html['login-page.html']!, finalUrl: `${ORIGIN}/login/index.php`});
+  // The offscreen analysis, but after sign-out it answers a page of a course it analyzed before
+  // with that earlier result: a stale or reused analysis reply must not turn a login page into
+  // accessible page evidence.
+  const earlier = new Map<string, AnalysisResult>();
+  const analyzed: string[] = [];
+  let reuse = false;
+  const analyze = async (request: AnalysisRequest) => {
+    analyzed.push(request.envelope.requestedUrl);
+    const key = `${request.sourceCourseId} ${request.envelope.requestedUrl}`;
+    if (reuse && earlier.has(key)) return earlier.get(key)!;
+    const result = await analyzeMoodlePage(request);
+    earlier.set(key, result);
+    return result;
+  };
+  const app = install(backend, clock, site.fetcher, {analyze});
+  expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
+  // The one-minute alarm keeps waking the worker, as in Chrome, until the run settles.
+  const settled = async (count: number) => {
+    const alarm = setInterval(() => app.alarm(), 500);
+    try { return await backend.settled(count); } finally { clearInterval(alarm); }
+  };
+  const [signedIn] = await settled(1);
+  expect(signedIn.status).toBe('completed');
+  const firstRequests = site.starts().length;
+  // The owner signs out of SDU Moodle, then clicks Sync all again.
+  signedOut = true; reuse = true; analyzed.length = 0;
+  await pause(1100);
+  expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
+  const run = (await settled(2)).at(-1);
+  expect(run.status).toBe('failed');
+  expect(run.jobs.map((j: any) => [j.state, j.errorCode])).toEqual([['failed', 'signed_out'], ['failed', 'signed_out'], ['failed', 'signed_out']]);
+  // Exactly one Moodle request after sign-out: the first course page. The login page is never analyzed.
+  const after = site.starts().slice(firstRequests).map(e => e.url);
+  expect(after).toHaveLength(1);
+  expect(after[0]).toMatch(/course\/view\.php\?id=900[123]$/);
+  expect(analyzed).toEqual([]);
+  const scanned = /id=(\d+)$/.exec(after[0]!)![1]!;
+  for (const course of ['9001', '9002', '9003']) {
+    const job = run.jobs.find((j: any) => j.courseId === ids[course]);
+    const readback = await backend.pages(job.id);
+    expect(readback.signInGuidance).toBe(SIGN_IN);
+    expect(readback.pages.some((p: any) => p.outcome === 'ok')).toBe(false);
+    if (course === scanned) expect(readback.pages.find((p: any) => p.pageUrl === after[0])).toMatchObject({outcome: 'signed_out', reasons: ['signed_out']});
+    else expect(readback).toMatchObject({pages: [], incompleteReasons: ['signed_out']});
+  }
+  const snapshot = await backend.get('/api/snapshot');
+  for (const course of ['9001', '9002', '9003'])
+    expect(snapshot.sync.find((s: any) => s.courseId === ids[course])).toMatchObject({status: 'failed', error: SIGN_IN});
+  for (let minute = 0; minute < 3; minute++) { clock.now += 60_000; app.alarm(); app.startup(); await pause(150); }
+  expect(site.starts().length).toBe(firstRequests + 1);
+  app.worker.dispose();
+}, 120000);
 
 /** #21 AC2: TEST FIXTURE page set with every page type checked and complete; no live collector yields this yet (#83). */
 function allCompletePages(source: string) {

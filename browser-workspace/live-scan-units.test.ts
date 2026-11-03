@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {expect, it} from 'vitest';
 import {detectMoodleAccess, detectObservedMoodleAccess} from '../extension/src/moodle-access';
-import {activityLinks, analyzeMoodlePage} from '../extension/src/moodle-page-analysis';
+import {activityLinks, analyzeMoodlePage, responseAccess} from '../extension/src/moodle-page-analysis';
 import {createMoodlePageSource, liveRouteAllowed, MAX_BODY_BYTES, offscreenAnalyzer} from '../extension/src/moodle-page-source';
 import {installOffscreen} from '../extension/src/offscreen';
 import {liveRegistry, quizRefreshResult} from '../extension/src/page-refresh';
@@ -44,6 +44,26 @@ it('classifies observed SDU pages into the existing #10 access states', async ()
   expect(activityLinks(page)).toEqual(['forum/view.php?id=990108', 'assign/view.php?id=990101', 'assign/view.php?id=990102', 'quiz/view.php?id=990103',
     'quiz/view.php?id=990109', 'resource/view.php?id=990104', 'resource/view.php?id=990105', 'url/view.php?id=990106', 'page/view.php?id=990107']
     .map(tail => 'https://moodle.sdu.edu.kz/mod/' + tail));
+});
+
+it('#20 AC4: the worker classifies the response it read from its final URL and body markers, with no DOM, as the offscreen check does', async () => {
+  const text = (name: string) => readFile(path.join(fixtures, name), 'utf8');
+  const [page, view, login, missing] = await Promise.all(['course-page.html', 'quiz-finished.html', 'login-page.html', 'not-found.html'].map(text));
+  const route = {kind: 'course', courseId: '9001'} as const, quizRoute = {kind: 'quiz', cmid: '990103', courseId: '9001'} as const;
+  const both = (html: string, input: any, r: any = route) => {
+    const own = responseAccess(input, html, r);
+    expect(own).toEqual(detectObservedMoodleAccess({...input, document: parse(html)}, r));
+    return own.status;
+  };
+  expect(both(page, envelope(course, 200))).toBe('accessible');
+  expect(both(view, envelope(quiz, 200), quizRoute)).toBe('accessible');
+  expect(both(login, envelope(course, 200))).toBe('signed_out'); // the login page served at the course URL
+  expect(both(login, envelope(course, 200, undefined, 'https://moodle.sdu.edu.kz/login/index.php'))).toBe('signed_out');
+  expect(both(page, envelope(course, 200, undefined, 'https://moodle.sdu.edu.kz/login/index.php'))).toBe('signed_out'); // final URL alone
+  expect(both(missing, envelope(course, 404))).toBe('unsupported');
+  // A long real <body> class list keeps the course markers (no 64-class cap here).
+  const padded = page.replace(/<body([^>]*)class="/, `<body$1class="${Array.from({length: 80}, (_, i) => `pad-${i}`).join(' ')} `);
+  expect(both(padded, envelope(course, 200))).toBe('accessible');
 });
 
 it('maps the #14 quiz parser to the QuizRefreshResult wire shape without inventing facts', async () => {
