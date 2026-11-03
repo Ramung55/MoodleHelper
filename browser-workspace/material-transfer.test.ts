@@ -85,7 +85,9 @@ describe("#41 safe filenames", () => {
   });
 });
 
-function harness(opts: { body?: Uint8Array; type?: string; cancelAt?: "validating" | "saving"; chrome?: "complete" | "interrupted" | "user_cancel" | "none" | "already"; backendDown?: boolean; descriptor?: Descriptor } = {}) {
+function harness(opts: { body?: Uint8Array; type?: string; cancelAt?: "validating" | "saving"; chrome?: "complete" | "interrupted" | "user_cancel" | "none" | "already"; backendDown?: boolean; descriptor?: Descriptor;
+  /** Close the transfer tab during saving: Chrome's USER_CANCELED arrives before or after pagehide. */
+  closeDuringSaving?: "event_first" | "pagehide_first" } = {}) {
   const reports: any[] = [];
   let transfer: Transfer = { transferId: "t1", generation: 1, materialId: "m-pdf", state: "queued", cancelRequested: false };
   const listeners = new Set<(d: DownloadDelta) => void>();
@@ -103,6 +105,8 @@ function harness(opts: { body?: Uint8Array; type?: string; cancelAt?: "validatin
       if (b.state === "saving" && opts.chrome === "complete") setTimeout(() => emit({ id: 9, state: { current: "complete" } }), 5);
       if (b.state === "saving" && opts.chrome === "interrupted") setTimeout(() => emit({ id: 9, state: { current: "interrupted" }, error: { current: "NETWORK_FAILED" } }), 5);
       if (b.state === "saving" && opts.chrome === "user_cancel") setTimeout(() => { emit({ id: 8, state: { current: "complete" } }); emit({ id: 9, state: { current: "interrupted" }, error: { current: "USER_CANCELED" } }); }, 5);
+      if (b.state === "saving" && opts.closeDuringSaving === "event_first") setTimeout(() => { emit({ id: 9, state: { current: "interrupted" }, error: { current: "USER_CANCELED" } }); closed.abort(); }, 5);
+      if (b.state === "saving" && opts.closeDuringSaving === "pagehide_first") setTimeout(() => closed.abort(), 5);
       return transfer;
     },
   };
@@ -145,17 +149,44 @@ describe("#41 transfer state machine", () => {
     expect(v.message).toContain("Sign in to SDU Moodle in Chrome");
   });
   it("Chrome interruption and user cancel are distinct, unrelated IDs ignored", async () => {
-    expect((await harness({ chrome: "interrupted" }).go()).phase).toBe("interrupted");
+    const i = harness({ chrome: "interrupted" });
+    expect((await i.go()).phase).toBe("interrupted");
+    expect(i.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "download_interrupted" });
+    // A Chrome-side USER_CANCELED without the dashboard's Cancel is an interruption, not a user cancel.
     const h = harness({ chrome: "user_cancel" });
-    expect((await h.go()).phase).toBe("cancelled");
-    expect(h.reports.at(-1)).toMatchObject({ state: "cancelled", reason: "cancelled_by_user" });
+    expect((await h.go()).phase).toBe("interrupted");
+    expect(h.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "download_interrupted", downloadId: 9 });
+    expect(h.reports.some((r) => r.reason === "cancelled_by_user")).toBe(false);
   });
   it("cancel during saving cancels only the owned download ID", async () => {
     const h = harness({ cancelAt: "saving", chrome: "none" });
     const v = await h.go();
     expect(h.cancelled).toEqual([9]);
     expect(v.phase).toBe("cancelled");
+    expect(h.reports.at(-1)).toMatchObject({ state: "cancelled", reason: "cancelled_by_user", downloadId: 9 });
     expect(h.revoked).toEqual(["blob:1"]);
+  });
+  it("explicit Cancel during validating ends cancelled_by_user", async () => {
+    const h = harness({ cancelAt: "validating", chrome: "none" });
+    const v = await h.go();
+    expect(v.phase).toBe("cancelled");
+    expect(h.reports.at(-1)).toMatchObject({ state: "cancelled", reason: "cancelled_by_user" });
+  });
+  it("closing the tab during saving (Chrome reports USER_CANCELED first) ends interrupted/page_closed", async () => {
+    const h = harness({ closeDuringSaving: "event_first" });
+    const v = await h.go();
+    expect(v.phase).toBe("interrupted");
+    expect(h.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "page_closed", downloadId: 9 });
+    expect(h.reports.some((r) => r.state === "cancelled" || r.reason === "cancelled_by_user")).toBe(false);
+    expect(h.revoked).toEqual(["blob:1"]);
+  });
+  it("closing the tab during saving (pagehide first) ends interrupted/page_closed without waiting on Chrome", async () => {
+    const h = harness({ closeDuringSaving: "pagehide_first" });
+    const v = await h.go();
+    expect(v.phase).toBe("interrupted");
+    expect(h.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "page_closed", downloadId: 9 });
+    expect(h.cancelled).toEqual([9]);
+    expect(h.reports.some((r) => r.reason === "cancelled_by_user")).toBe(false);
   });
   it("page close before dispatch creates no download and reports interrupted", async () => {
     const h = harness({ chrome: "none" });

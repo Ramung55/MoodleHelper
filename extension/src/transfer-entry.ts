@@ -21,12 +21,16 @@ const downloads: DownloadsApi = {
   search: (q) => call<any[]>((cb) => chrome.downloads.search(q, cb)),
   onChanged: chrome.downloads.onChanged,
 };
+let binding: string | undefined;
 async function backend(path: string, method = "GET", body?: unknown, keepalive = false) {
-  const context = await (await fetch(BACKEND + "/api/bridge-context", { credentials: "omit", redirect: "error" })).json();
+  // While the tab is closing, the last known binding is reused so the outcome goes out as one
+  // keepalive request; a refused reply drops it and the next try rereads the context.
+  const known = keepalive ? binding : undefined;
+  binding = known ?? String((await (await fetch(BACKEND + "/api/bridge-context", { credentials: "omit", redirect: "error" })).json()).binding);
   const r = await fetch(BACKEND + path, { method, credentials: "omit", redirect: "error", keepalive,
-    headers: { Accept: "application/json", "X-Moodle-Helper-Bridge-Binding": String(context.binding), ...(body ? { "Content-Type": "application/json" } : {}) },
+    headers: { Accept: "application/json", "X-Moodle-Helper-Bridge-Binding": binding, ...(body ? { "Content-Type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}) });
-  if (!r.ok) throw new Error("backend " + r.status);
+  if (!r.ok) { if (known) binding = undefined; throw new Error("backend " + r.status); }
   return r.json();
 }
 const id = location.hash.slice(1);

@@ -390,6 +390,10 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
   let attemptId = "";
   let downloadId: number | undefined;
   let finished = false;
+  // Only the dashboard's explicit Cancel (the backend's cancelRequested) is a user cancel.
+  // A closed transfer tab or a Chrome-side stop (even one Chrome labels USER_CANCELED, as it
+  // does when the closing page takes its Blob with it) is an interruption, never cancelled_by_user.
+  let cancelClicked = false;
   const user = new AbortController();
   const stop = () => user.abort();
   deps.closed.addEventListener("abort", stop);
@@ -414,7 +418,7 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
     return view({ phase: "unrecorded", message: "Download outcome not yet recorded. " + message, ...(downloadId !== undefined ? { downloadId } : {}) });
   };
   const poll = setInterval(() => {
-    void api.read(transferId).then((t) => { if (t.cancelRequested) user.abort(); }).catch(() => {});
+    void api.read(transferId).then((t) => { if (t.cancelRequested) { cancelClicked = true; user.abort(); } }).catch(() => {});
   }, deps.pollMs ?? 1000);
   try {
     let d: Descriptor;
@@ -427,22 +431,34 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
       ...(deps.parseHtml ? { parseHtml: deps.parseHtml } : {}),
       onProgress: (bytes, total) => view({ phase: "validating", message: "Reading from Moodle…", bytes, total }) });
     if (!got.ok) {
+      if (got.reason === "cancelled_by_user" && cancelClicked) return await end("cancelled", "cancelled_by_user");
       if (deps.closed.aborted) return await end(got.reason === "cancelled_by_user" ? "interrupted" : "failed", "page_closed");
-      if (got.reason === "cancelled_by_user") return await end("cancelled", "cancelled_by_user");
+      if (got.reason === "cancelled_by_user") return await end("interrupted", "page_closed");
       // Worker restart: the lease port dropped, the fetch was aborted, nothing was saved.
       if (got.leaseLost) return await end("interrupted", "download_interrupted", LEASE_LOST_TEXT);
       // 429/503: reason stays `network`; the record carries networkDetail "busy" for the dashboard.
       if (got.busy) return await end("failed", got.reason, BUSY_TEXT, "busy");
       return await end("failed", got.reason);
     }
-    if (user.signal.aborted) return await end(deps.closed.aborted ? "interrupted" : "cancelled", deps.closed.aborted ? "page_closed" : "cancelled_by_user");
+    if (user.signal.aborted) return await end(cancelClicked ? "cancelled" : "interrupted", cancelClicked ? "cancelled_by_user" : "page_closed");
     blobUrl = deps.blobs.create(got.blob);
-    let resolveTerminal!: (s: { state: "complete" } | { state: "interrupted" | "cancelled"; error?: string }) => void;
-    const terminal = new Promise<{ state: "complete" } | { state: "interrupted" | "cancelled"; error?: string }>((r) => { resolveTerminal = r; });
+    type Terminal = { state: "complete" } | { state: "interrupted"; error?: string };
+    let resolveTerminal!: (s: Terminal) => void;
+    const terminal = new Promise<Terminal>((r) => { resolveTerminal = r; });
     const listener = (delta: DownloadDelta) => {
       if (downloadId === undefined || delta.id !== downloadId) return; // only our own known download
       if (delta.state?.current === "complete") resolveTerminal({ state: "complete" });
-      else if (delta.state?.current === "interrupted") resolveTerminal({ state: delta.error?.current === "USER_CANCELED" ? "cancelled" : "interrupted", error: delta.error?.current });
+      else if (delta.state?.current === "interrupted") resolveTerminal({ state: "interrupted", ...(delta.error?.current ? { error: delta.error.current } : {}) });
+    };
+    // A Chrome-side stop: cancelled only if the dashboard's Cancel was pressed (seen now or by one
+    // last read), page_closed if the tab is going away, otherwise download_interrupted.
+    const chromeStopped = async (): Promise<View> => {
+      if (!cancelClicked && !deps.closed.aborted) {
+        const t = await api.read(transferId).catch(() => null);
+        if (t?.cancelRequested) cancelClicked = true;
+      }
+      if (cancelClicked) return await end("cancelled", "cancelled_by_user");
+      return await end("interrupted", deps.closed.aborted ? "page_closed" : "download_interrupted");
     };
     downloads.onChanged.addListener(listener);
     try {
@@ -451,17 +467,26 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
       view({ phase: "saving", message: "Chrome is saving the file…", filename: got.filename, downloadId, bytes: got.size, total: got.size });
       const known = (await downloads.search({ id: downloadId }).catch(() => []))[0];
       if (known?.state === "complete") resolveTerminal({ state: "complete" });
-      else if (known?.state === "interrupted") resolveTerminal({ state: known.error === "USER_CANCELED" ? "cancelled" : "interrupted", error: known.error });
-      const cancelled = new Promise<"cancel">((r) => user.signal.addEventListener("abort", () => r("cancel"), { once: true }));
-      const first = await Promise.race([terminal, cancelled]);
-      if (first === "cancel") {
+      else if (known?.state === "interrupted") resolveTerminal({ state: "interrupted", ...(known.error ? { error: known.error } : {}) });
+      const stopped = new Promise<"stop">((r) => {
+        if (user.signal.aborted) r("stop");
+        else user.signal.addEventListener("abort", () => r("stop"), { once: true });
+      });
+      const first = await Promise.race([terminal, stopped]);
+      if (first === "stop" && !cancelClicked) {
+        // The tab is closing: record the interruption first, while the page can still send it
+        // (keepalive), and do not wait on Chrome; the download is stopped without awaiting it.
+        void downloads.cancel(downloadId).catch(() => {});
+        return await end("interrupted", "page_closed");
+      }
+      if (first === "stop") {
         await downloads.cancel(downloadId).catch(() => {});
         const after = await Promise.race([terminal, new Promise<null>((r) => setTimeout(() => r(null), 5000))]);
         if (after?.state === "complete") return await end("complete");
-        return await end(deps.closed.aborted ? "interrupted" : "cancelled", after ? (deps.closed.aborted ? "page_closed" : "cancelled_by_user") : "outcome_unknown");
+        return await end("cancelled", after ? "cancelled_by_user" : "outcome_unknown");
       }
       if (first.state === "complete") return await end("complete");
-      return await end(first.state, first.state === "cancelled" ? "cancelled_by_user" : "download_interrupted");
+      return await chromeStopped();
     } finally {
       downloads.onChanged.removeListener(listener);
     }
