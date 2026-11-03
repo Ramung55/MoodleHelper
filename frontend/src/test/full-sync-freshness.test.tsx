@@ -80,15 +80,14 @@ const labels=(text:string, page=true)=>{
   expect(text).not.toContain(NONE);
 };
 
-it('Overview card and dashboard panel show full sync and failed attempt; the panel adds the page refresh, each with its own time', async ()=>{
+it('Overview card and dashboard panel each show full sync, page refresh and failed attempt with their own times', async ()=>{
   const snapshot=threeTimes();
   mock.useApp.mockReturnValue({snap:snapshot,conn:{state:'disconnected',message:'Real dataset.',extensionDetected:false},views:[],weeks:[],currentWeek:null,syncAll:vi.fn(),syncing:false});
   mock.connect.mockResolvedValue({}); mock.current.mockResolvedValue({courseIds:snapshot.settings.trackedCourseIds});
   render(<Overview/>);
   const card=screen.getByText('Successful full sync').closest('a')!;
   expect(within(card).getByText('05/03/2028, 10:00:00 (UTC)')).toBeInTheDocument();
-  // The card summarises the sync entries; the panel beside it adds the latest page refresh.
-  labels(card.textContent!,false);
+  labels(card.textContent!);
   labels(screen.getByRole('region',{name:'Mock scan progress'}).textContent!);
 });
 

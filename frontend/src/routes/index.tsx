@@ -81,6 +81,7 @@ export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAtt
         </Card>
         <Card to="/settings" title="Successful full sync" value={freshness.value}>
           <p>{freshness.fullSync}</p>
+          <p>{freshness.pageRefresh}</p>
           {freshness.courses.map((line) => <p key={line}>{line}</p>)}
         </Card>
         <Card to="/alerts" title="Unread alerts" value={s.alerts.filter((a) => !a.read).length} />

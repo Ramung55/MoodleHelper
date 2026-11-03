@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { buildDemoSnapshot } from '@/services/fixtures';
 import { MockProgress } from '@/components/mh/MockProgress';
 import { installPopup } from '../../../extension/src/popup';
@@ -40,7 +40,11 @@ it('overview and dashboard render scoped synthetic full sync, page receipt and f
   mock.connect.mockResolvedValue({}); mock.current.mockResolvedValue({courseIds:evidence.courseIds,lastFailedRun:{...run,status:'failed'}});
   const view=render(<Overview fullSyncAttestation={evidence}/>);
   expect(screen.getAllByText(/Synthetic example — successful full sync:.*01\/01\/2024/)).toHaveLength(2);
-  expect(screen.getByText(/Latest page refresh: 2024-02-02T02:00:00Z.*supplied_pages_only.*synthetic/)).toBeInTheDocument();
+  // The Overview card and the progress panel each show the page refresh once (#21 AC2).
+  const pageRefresh=/Latest page refresh: 2024-02-02T02:00:00Z.*supplied_pages_only.*synthetic/;
+  expect(within(screen.getByRole('region',{name:'Mock scan progress'})).getByText(pageRefresh)).toBeInTheDocument();
+  expect(within(screen.getByText('Successful full sync').closest('a')!).getByText(pageRefresh)).toBeInTheDocument();
+  expect(screen.getAllByText(pageRefresh)).toHaveLength(2);
   await screen.findByText(/Last failed mock attempt started:.*1970/);
   view.rerender(<Overview fullSyncAttestation={{...evidence,courseIds:['different']}}/>);
   expect(screen.getAllByText(/No successful full sync yet/)).toHaveLength(2);
