@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
 vi.mock("@/services", () => ({ getAdapter: () => state.adapter }));
 vi.mock("@/services/extension-adapter", () => ({
   detectExtension: async () => false,
+  checkSduSignIn: vi.fn(async () => { throw new Error("The fresh-bridge probe is not used in these tests."); }),
   BridgeClient: class { connect = state.bridge.connect; currentMockRun = state.bridge.currentMockRun; startMockRun = state.bridge.startMockRun; cancelMockRun = state.bridge.cancelMockRun; dispose() {} },
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
@@ -50,6 +51,7 @@ beforeEach(() => {
     syncAll: vi.fn(), saveAlerts: vi.fn(),
     aiAvailability: vi.fn(async () => ({ available: false, reason: "No provider is configured." })),
     restoreContext: vi.fn(async () => ({ ...context })),
+    checkMoodleSignIn: vi.fn(async () => ({ signal: null, checkedAt: "2028-03-05T10:00:00.000Z" })),
   };
 });
 afterEach(cleanup);
@@ -188,5 +190,76 @@ describe("onboarding journey (mocked fixtures)", () => {
     expect(await screen.findByText(/Optional setup\. Your saved data is kept/)).toBeVisible();
     expect(state.adapter.setTrackedCourses).not.toHaveBeenCalled();
     expect(state.adapter.updateSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("#46 AC1 sign-in probe (mocked bridge)", () => {
+  const signedOut = { state: "signed_out", source: "sdu_session_probe", context: "my_courses" } as const;
+  const signedIn = { state: "signed_in", source: "sdu_session_probe", context: "my_courses" } as const;
+  const real = () => { state.adapter.connection = vi.fn(async () => ({ state: "connected", message: "Real dataset", extensionDetected: true })); };
+  const reply = (signal: unknown) => ({ signal, checkedAt: "2028-03-05T10:00:00.000Z" });
+
+  it("probes once when the sign-in step is shown and once per Check again; re-renders and step changes do not probe", async () => {
+    real();
+    state.adapter.checkMoodleSignIn.mockResolvedValue(reply(null));
+    mount(async () => ready);
+    expect(await screen.findByRole("heading", { name: "Extension & Moodle connection" })).toBeVisible();
+    await waitFor(() => expect(state.adapter.checkMoodleSignIn).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Moodle sign-in status not verified; open Moodle/check connection.", { exact: false })).toBeVisible();
+    expect(screen.queryByText(/signed out/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Choose tracked courses/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Extension & Moodle connection/ }));
+    await screen.findByRole("button", { name: "Check again" });
+    expect(state.adapter.checkMoodleSignIn).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(state.adapter.checkMoodleSignIn).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled());
+    expect(state.adapter.checkMoodleSignIn).toHaveBeenCalledTimes(2);
+  });
+
+  it("never probes in the demo dataset or with the extension not ready", async () => {
+    const demo = mount(async () => ready);
+    fireEvent.click(await screen.findByRole("button", { name: /Extension & Moodle connection/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled());
+    expect(screen.getByText(/not verified; open Moodle\/check connection/)).toBeVisible();
+    demo.unmount();
+    real();
+    mount(missing);
+    expect(await screen.findByText(/Extension missing\./)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await screen.findByText(/Extension missing\./);
+    expect(state.adapter.checkMoodleSignIn).not.toHaveBeenCalled();
+  });
+
+  it("signed out shows the fixed login link and no credential fields", async () => {
+    real();
+    state.adapter.checkMoodleSignIn.mockResolvedValue(reply(signedOut));
+    mount(async () => ready);
+    expect(await screen.findByText(/Moodle reported you are signed out/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open SDU Moodle sign-in" })).toHaveAttribute("href", "https://moodle.sdu.edu.kz/login/index.php");
+    expect(document.querySelector("input")).toBeNull();
+    expect(screen.getByRole("button", { name: /Extension & Moodle connection/ })).toHaveTextContent("Not finished");
+    expect(screen.getByRole("button", { name: "Continue locally" })).toBeVisible();
+  });
+
+  it("signed in completes the step; a failed probe keeps 'not verified'", async () => {
+    real();
+    state.adapter.checkMoodleSignIn.mockResolvedValueOnce(reply(signedIn)).mockRejectedValueOnce(new BridgeError("TIMEOUT"));
+    mount(async () => ready);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Extension & Moodle connection/ })).toHaveTextContent("Done"));
+    fireEvent.click(screen.getByRole("button", { name: /Extension & Moodle connection/ }));
+    expect(await screen.findByText(/Moodle access confirmed/)).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Open SDU Moodle sign-in" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(await screen.findByText(/Moodle sign-in status not verified; open Moodle\/check connection\./)).toBeVisible();
+    expect(screen.queryByText(/signed out/i)).toBeNull();
+  });
+
+  it("the install text links the pilot guide _docs/pilot-49.md", async () => {
+    mount();
+    const link = await screen.findByRole("link", { name: "_docs/pilot-49.md" });
+    expect(link.getAttribute("href")).toMatch(/_docs\/pilot-49\.md$/);
+    expect(screen.queryByText(/README/)).toBeNull();
   });
 });

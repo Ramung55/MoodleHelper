@@ -6,6 +6,7 @@ import {
   requestError,
   validReply,
   type DiscoveryResult,
+  type SignInResult,
   type LocalOperation,
   type Request,
   type Operation,
@@ -24,6 +25,8 @@ export { APPROVED_ORIGINS };
 export const isApprovedOrigin = approved;
 /** #82: a run reads up to 5 Moodle requests, each paced, retried and limited to 30 s. */
 export const DISCOVERY_DEADLINE_MS = 300_000;
+/** #46: one paced GET that may wait behind a running scan and be retried twice. */
+export const SIGN_IN_DEADLINE_MS = 300_000;
 
 type Pending = {
   request: Request;
@@ -41,7 +44,7 @@ export class BridgeClient implements MoodleHelperAdapter {
   private listener: (e: MessageEvent) => void;
   constructor(
     win: Window | undefined = typeof window === "undefined" ? undefined : window,
-    private deadlines: { hello: number; operation: number; discovery?: number } = { hello: 800, operation: 10000 },
+    private deadlines: { hello: number; operation: number; discovery?: number; signIn?: number } = { hello: 800, operation: 10000 },
   ) {
     this.window = win;
     this.clientId = crypto.randomUUID();
@@ -136,7 +139,8 @@ export class BridgeClient implements MoodleHelperAdapter {
           this.invalidate();
         },
         operation === "hello" ? this.deadlines.hello
-          : operation === "discoverCourses" ? this.deadlines.discovery ?? DISCOVERY_DEADLINE_MS : this.deadlines.operation,
+          : operation === "discoverCourses" ? this.deadlines.discovery ?? DISCOVERY_DEADLINE_MS
+          : operation === "checkMoodleSignIn" ? this.deadlines.signIn ?? SIGN_IN_DEADLINE_MS : this.deadlines.operation,
       );
       this.pending.set(request.requestId, { request, resolve, reject, timer });
       try {
@@ -162,6 +166,10 @@ export class BridgeClient implements MoodleHelperAdapter {
   /** #82 worker-local "Find my SDU courses" run; the reply is closed and never holds the sesskey. */
   discoverCourses(): Promise<DiscoveryResult> {
     return this.send("discoverCourses", {});
+  }
+  /** #46 worker-local read-only sign-in probe; the closed reply is {signal, checkedAt}. */
+  checkMoodleSignIn(): Promise<SignInResult> {
+    return this.send("checkMoodleSignIn", {});
   }
   ingestCourseDiscovery(observations: RawCourseObservation[]): Promise<Snapshot> {
     return this.send("ingestCourseDiscovery", { observations });
@@ -256,6 +264,16 @@ export async function discoverSduCourses(): Promise<DiscoveryResult> {
   try {
     await client.connect();
     return await client.discoverCourses();
+  } finally {
+    client.dispose();
+  }
+}
+/** #46: one sign-in probe through a fresh bridge session, beside the default HTTP adapter. */
+export async function checkSduSignIn(): Promise<SignInResult> {
+  const client = new BridgeClient();
+  try {
+    await client.connect();
+    return await client.checkMoodleSignIn();
   } finally {
     client.dispose();
   }

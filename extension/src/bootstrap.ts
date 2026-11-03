@@ -1,6 +1,6 @@
 /** Shared installed background bootstrap. Optional dependencies are in-process test seams only. */
 import {installWorker} from './dashboard-bridge';
-import {DISCOVERY_MESSAGES, type DiscoveryResult} from '../../shared/src/bridge';
+import {DISCOVERY_MESSAGES, type DiscoveryResult, type SignInResult} from '../../shared/src/bridge';
 import {installCollectionWorker} from './collection-repository';
 import {installQueueWorker} from './queue';
 import {installReminderWorker} from './reminders';
@@ -10,11 +10,13 @@ export function installExtension(chrome:ChromeApi, options:Parameters<typeof ins
   // Bound below, before any message can arrive: a 200 from Sync all wakes the scan worker at once.
   let wakeScan:()=>void=()=>{};
   let discover:()=>Promise<DiscoveryResult>=async()=>({message:DISCOVERY_MESSAGES.failed});
-  installWorker(chrome,{onSyncStarted:()=>wakeScan(),discoverCourses:()=>discover(),...(options.fetcher?{fetcher:options.fetcher}:{})});
+  let signIn:()=>Promise<SignInResult>=async()=>({signal:null,checkedAt:new Date().toISOString()});
+  installWorker(chrome,{onSyncStarted:()=>wakeScan(),discoverCourses:()=>discover(),checkMoodleSignIn:()=>signIn(),...(options.fetcher?{fetcher:options.fetcher}:{})});
   installCollectionWorker(chrome);
   const queue=installQueueWorker(chrome,options);
   wakeScan=()=>{void queue.wakeScan();};
   discover=()=>queue.discoverCourses();
+  signIn=()=>queue.checkMoodleSignIn();
   // Registered after the queue listeners; reminder alarms use separate fixed names.
   installReminderWorker(chrome,{...(options.base?{base:options.base}:{}),...(options.fetcher?{fetcher:options.fetcher}:{})});
   return queue;

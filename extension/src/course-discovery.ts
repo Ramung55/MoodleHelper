@@ -39,9 +39,72 @@ export type CourseDiscoveryOptions = {
   /** In-process test seams only. */
   moodleFetch?:typeof fetch; requestLimitMs?:number; backendTimeoutMs?:number;
 };
-type Outcome = {kind:'response';value:Extract<DiscoveryResponse,{networkFailure:false}>}|{kind:'failed'};
+export type Outcome = {kind:'response';value:Extract<DiscoveryResponse,{networkFailure:false}>}|{kind:'failed'};
+export type PacedOptions = Pick<CourseDiscoveryOptions,'authority'|'now'|'wait'|'moodleFetch'|'requestLimitMs'>;
 class Stop { constructor(readonly reply:{message:DiscoveryMessage}) {} }
 const stop = (message:keyof typeof DISCOVERY_MESSAGES) => new Stop({message:DISCOVERY_MESSAGES[message]});
+
+/**
+ * One Moodle discovery-route request under #20's request authority: acquire, start, release
+ * no earlier than start + 1000 ms; 503/429 retried at most twice (#20 policy). Shared with the
+ * #46 sign-in probe, so both use the same pacing and the worker's one authority.
+ */
+export async function pacedDiscoveryRequest(options:PacedOptions, request:DiscoveryRequest):Promise<Outcome> {
+  for (let attempt = 1; ; attempt++) {
+    let token:string|undefined;
+    const since = options.now();
+    while (!token) {
+      const reservation = await options.authority.acquire(options.now());
+      if (typeof reservation === 'string') token = reservation;
+      else if (reservation && typeof reservation === 'object') token = reservation.token;
+      else if (reservation === 'exhausted' || !(options.now() - since < ACQUIRE_LIMIT_MS)) return {kind:'failed'};
+      else await options.wait(100);
+    }
+    let handle:ReturnType<typeof startDiscoveryRequest>;
+    try {
+      handle = startDiscoveryRequest(request, {...(options.moodleFetch ? {fetcher:options.moodleFetch} : {}),
+        ...(options.requestLimitMs ? {requestLimitMs:options.requestLimitMs} : {})});
+    } catch {
+      await options.authority.releaseAfterTermination(token, 0);
+      return {kind:'failed'};
+    }
+    const startedAt = options.now();
+    let value:DiscoveryResponse|undefined;
+    try { value = await handle.completion; } catch { /* failed below */ }
+    let settled = false;
+    try { settled = await handle.termination; } catch { /* fail closed */ }
+    // An unsettled fetch keeps the authority held (fail closed).
+    if (!settled) return {kind:'failed'};
+    const retry = !!value && !value.networkFailure && (value.status === 503 || value.status === 429);
+    const failedAt = options.now();
+    const retryAfter = retry && !value!.networkFailure ? value!.retryAfter : undefined;
+    const serverDeadline = retryAfter !== undefined ? retryAfterDeadline(failedAt, retryAfter) : 0;
+    const decision = retry ? scanRetryDecision(failedAt, attempt, retryAfter) : undefined;
+    const deadline = Math.max(startedAt + 1000, serverDeadline ?? 0, decision?.kind === 'retry' ? decision.notBefore : 0);
+    if (!await options.authority.releaseAfterTermination(token, deadline)) return {kind:'failed'};
+    if (!value || value.networkFailure) return {kind:'failed'};
+    if (retry) {
+      if (decision?.kind !== 'retry' || serverDeadline === undefined || deadline > failedAt + 86_400_000) return {kind:'failed'};
+      await options.wait(Math.max(0, deadline - options.now()));
+      continue;
+    }
+    return {kind:'response', value};
+  }
+}
+
+/**
+ * The reduced envelope for #20's observed access check: the URLs without any query that
+ * could hold a sesskey, the status, the content type and the `<body>` id and classes.
+ * The page text itself never leaves the worker.
+ */
+export function discoveryAccessRequest(value:Extract<DiscoveryResponse,{networkFailure:false}>, route:AccessRequest['route']):AccessRequest {
+  // The service URL carries the sesskey: neither URL is sent with its query.
+  const requestedUrl = route === 'my-courses' ? MY_COURSES_URL : SERVICE_URL;
+  const final = new URL(value.finalUrl);
+  const finalUrl = route === 'my-courses' && final.pathname === '/my/courses.php' ? value.finalUrl : final.origin + final.pathname;
+  return {route, body:reducedBody(value.text),
+    envelope:{requestedUrl, finalUrl, httpStatus:value.status, networkFailure:false, ...(value.contentType !== undefined ? {contentType:value.contentType} : {})}};
+}
 
 export function createCourseDiscovery(options:CourseDiscoveryOptions) {
   const fetcher:typeof fetch = (input, init) => options.fetcher(input, init);
@@ -61,60 +124,12 @@ export function createCourseDiscovery(options:CourseDiscoveryOptions) {
     } finally { clearTimeout(timer); }
   }
 
-  /** One Moodle request under the authority; 503/429 retried at most twice (#20 policy). */
-  async function paced(request:DiscoveryRequest):Promise<Outcome> {
-    for (let attempt = 1; ; attempt++) {
-      let token:string|undefined;
-      const since = options.now();
-      while (!token) {
-        const reservation = await options.authority.acquire(options.now());
-        if (typeof reservation === 'string') token = reservation;
-        else if (reservation && typeof reservation === 'object') token = reservation.token;
-        else if (reservation === 'exhausted' || !(options.now() - since < ACQUIRE_LIMIT_MS)) return {kind:'failed'};
-        else await options.wait(100);
-      }
-      let handle:ReturnType<typeof startDiscoveryRequest>;
-      try {
-        handle = startDiscoveryRequest(request, {...(options.moodleFetch ? {fetcher:options.moodleFetch} : {}),
-          ...(options.requestLimitMs ? {requestLimitMs:options.requestLimitMs} : {})});
-      } catch {
-        await options.authority.releaseAfterTermination(token, 0);
-        return {kind:'failed'};
-      }
-      const startedAt = options.now();
-      let value:DiscoveryResponse|undefined;
-      try { value = await handle.completion; } catch { /* failed below */ }
-      let settled = false;
-      try { settled = await handle.termination; } catch { /* fail closed */ }
-      // An unsettled fetch keeps the authority held (fail closed).
-      if (!settled) return {kind:'failed'};
-      const retry = !!value && !value.networkFailure && (value.status === 503 || value.status === 429);
-      const failedAt = options.now();
-      const retryAfter = retry && !value!.networkFailure ? value!.retryAfter : undefined;
-      const serverDeadline = retryAfter !== undefined ? retryAfterDeadline(failedAt, retryAfter) : 0;
-      const decision = retry ? scanRetryDecision(failedAt, attempt, retryAfter) : undefined;
-      const deadline = Math.max(startedAt + 1000, serverDeadline ?? 0, decision?.kind === 'retry' ? decision.notBefore : 0);
-      if (!await options.authority.releaseAfterTermination(token, deadline)) return {kind:'failed'};
-      if (!value || value.networkFailure) return {kind:'failed'};
-      if (retry) {
-        if (decision?.kind !== 'retry' || serverDeadline === undefined || deadline > failedAt + 86_400_000) return {kind:'failed'};
-        await options.wait(Math.max(0, deadline - options.now()));
-        continue;
-      }
-      return {kind:'response', value};
-    }
-  }
-
   /** #20's observed access check, in the offscreen document, on a reduced envelope only. */
   async function access(value:Extract<DiscoveryResponse,{networkFailure:false}>, route:AccessRequest['route']) {
-    // The service URL carries the sesskey: neither URL is sent with its query.
-    const requestedUrl = route === 'my-courses' ? MY_COURSES_URL : SERVICE_URL;
-    const final = new URL(value.finalUrl);
-    const finalUrl = route === 'my-courses' && final.pathname === '/my/courses.php' ? value.finalUrl : final.origin + final.pathname;
-    const request:AccessRequest = {route, body:reducedBody(value.text),
-      envelope:{requestedUrl, finalUrl, httpStatus:value.status, networkFailure:false, ...(value.contentType !== undefined ? {contentType:value.contentType} : {})}};
-    try { return await options.access(request); } catch { throw stop('failed'); }
+    try { return await options.access(discoveryAccessRequest(value, route)); } catch { throw stop('failed'); }
   }
+
+  const paced = (request:DiscoveryRequest) => pacedDiscoveryRequest(options, request);
 
   async function run():Promise<DiscoveryResult> {
     try {

@@ -68,7 +68,7 @@ export function check(schema: any, value: any): boolean {
  * SDU Moodle and ingests them through /api/courses/discovery itself. Its closed
  * reply is {snapshot, found, coverage} or exactly one of the fixed messages.
  */
-export const LOCAL_OPERATIONS = ["discoverCourses"] as const;
+export const LOCAL_OPERATIONS = ["discoverCourses", "checkMoodleSignIn"] as const;
 export type LocalOperation = (typeof LOCAL_OPERATIONS)[number];
 export const DISCOVERY_MESSAGES = {
   signedOut: "Sign in to SDU Moodle to continue.",
@@ -77,6 +77,16 @@ export const DISCOVERY_MESSAGES = {
 } as const;
 export type DiscoveryMessage = (typeof DISCOVERY_MESSAGES)[keyof typeof DISCOVERY_MESSAGES];
 export type DiscoveryResult = {snapshot:any;found:number;coverage:"complete"|"partial"} | {message:DiscoveryMessage};
+/**
+ * #46 worker-local read-only sign-in probe: one paced `GET /my/courses.php` through #20's
+ * request authority, classified only from the final URL, the status and the `<body>` id.
+ * Closed reply `{signal, checkedAt}`; `signal` is null when nothing trusted was observed
+ * (demo dataset, network error, timeout, 403, 5xx, non-HTML, an oversized body, another path).
+ */
+export const SIGN_IN_PROBE = { source: "sdu_session_probe", context: "my_courses" } as const;
+export type SignInSignal = { state: "signed_in" | "signed_out"; source: typeof SIGN_IN_PROBE.source; context: typeof SIGN_IN_PROBE.context };
+export type SignInResult = { signal: SignInSignal | null; checkedAt: string };
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 /** At most 4 pages of 24 courses are read. */
 export const MAX_DISCOVERED = 96;
 const local = (op: unknown): op is LocalOperation => (LOCAL_OPERATIONS as readonly unknown[]).includes(op);
@@ -107,6 +117,12 @@ export function validResult(op: Operation | "hello" | LocalOperation, value: unk
     if (object(v) && Object.hasOwn(v,"message")) return closed(v,["message"]) && (Object.values(DISCOVERY_MESSAGES) as unknown[]).includes(v.message);
     return closed(v,["snapshot","found","coverage"]) && Number.isInteger(v.found) && v.found >= 0 && v.found <= MAX_DISCOVERED &&
       ["complete","partial"].includes(v.coverage) && check({$ref:"#/components/schemas/Snapshot"},v.snapshot);
+  }
+  if (op === "checkMoodleSignIn") {
+    const v: any = value;
+    if (!closed(v,["signal","checkedAt"]) || typeof v.checkedAt !== "string" || !INSTANT.test(v.checkedAt) || !Number.isFinite(Date.parse(v.checkedAt))) return false;
+    return v.signal === null || (closed(v.signal,["state","source","context"]) && ["signed_in","signed_out"].includes(v.signal.state) &&
+      v.signal.source === SIGN_IN_PROBE.source && v.signal.context === SIGN_IN_PROBE.context);
   }
   if (op !== "hello") return check(catalog[op].result,value);
   return closed(value,["version","workerGeneration","sessionId","backend","localRepository","moodleCollection"]) && value.version === "1" && idValid(value.workerGeneration) && idValid(value.sessionId) && ["ready","unavailable"].includes(value.backend) && value.localRepository === value.backend && value.moodleCollection === "unavailable";

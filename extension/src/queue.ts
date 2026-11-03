@@ -6,6 +6,7 @@ import {createMoodleRequestAuthority, createTransferLeaseHost, type LeasePort} f
 import {liveRegistry} from './page-refresh';
 import type {AccessChecker, Analyzer} from './moodle-page-analysis';
 import {createCourseDiscovery} from './course-discovery';
+import {createSignInProbe} from './moodle-sign-in-probe';
 type Job = { id:string; courseId:string };
 type Claim = { job:Job; token:string; generation:number; expiresAt:number };
 type ClaimReply = { unfinished:boolean; claim?:Claim };
@@ -107,6 +108,9 @@ export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Para
   // #82: runs only when the bridge discoverCourses operation (an explicit click) asks.
   const discovery=createCourseDiscovery({base,fetcher,authority,access:liveScan.access??offscreen.access,now,wait,
     ...(liveScan.moodleFetch?{moodleFetch:liveScan.moodleFetch}:{}),...(liveScan.requestLimitMs?{requestLimitMs:liveScan.requestLimitMs}:{})});
+  // #46: the onboarding sign-in probe; one GET /my/courses.php through the same authority.
+  const signIn=createSignInProbe({base,fetcher,authority,access:liveScan.access??offscreen.access,now,wait,
+    ...(liveScan.moodleFetch?{moodleFetch:liveScan.moodleFetch}:{}),...(liveScan.requestLimitMs?{requestLimitMs:liveScan.requestLimitMs}:{})});
   // #41: the transfer page's file fetch takes a lease from the same authority, so a
   // download, a scan and course discovery never overlap their Moodle requests.
   if(chrome.runtime.onConnect&&chrome.runtime.id&&chrome.runtime.getURL){
@@ -119,5 +123,5 @@ export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Para
   chrome.runtime.onStartup.addListener(()=>{void wake();});
   chrome.runtime.onInstalled.addListener(()=>{void wake();});
   void wake();
-  return {...service,wake,wakeScan:()=>scan.wake(),discoverCourses:()=>discovery.discover(),dispose(){service.dispose();scan.dispose();}};
+  return {...service,wake,wakeScan:()=>scan.wake(),discoverCourses:()=>discovery.discover(),checkMoodleSignIn:()=>signIn.check(),dispose(){service.dispose();scan.dispose();}};
 }

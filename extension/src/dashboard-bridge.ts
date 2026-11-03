@@ -13,6 +13,7 @@ import {
   validReply,
   validResult,
   type DiscoveryResult,
+  type SignInResult,
   type Request,
   type Reply,
 } from "../../shared/src/bridge";
@@ -81,6 +82,8 @@ export function createWorker(options: {
   onResult?: (operation: string, result: any) => void;
   /** #82 worker-local course discovery; its reply never contains the sesskey. */
   discoverCourses?: () => Promise<DiscoveryResult>;
+  /** #46 worker-local read-only sign-in probe; its reply holds only the closed signal. */
+  checkMoodleSignIn?: () => Promise<SignInResult>;
 }) {
   const fetcher = options.fetcher || fetch;
   const now = options.now || Date.now;
@@ -228,14 +231,17 @@ export function createWorker(options: {
         session.clientId !== r.clientId
       )
         return rejection(r, "RECONNECT_REQUIRED");
-      if (r.operation === "discoverCourses") {
-        // Worker-local, like hello: no backend path of its own. The run itself
-        // reads Moodle and writes /api/courses/discovery; concurrent callers share it.
+      if (r.operation === "discoverCourses" || r.operation === "checkMoodleSignIn") {
+        // Worker-local, like hello: no backend path of its own. Discovery reads Moodle and
+        // writes /api/courses/discovery; the #46 probe only reads /my/courses.php.
+        // Concurrent callers share one run.
         session.inFlight++;
         session.lastUsed = now();
         let outcome: unknown;
         try {
-          outcome = options.discoverCourses ? await options.discoverCourses() : { message: DISCOVERY_MESSAGES.failed };
+          outcome = r.operation === "discoverCourses"
+            ? (options.discoverCourses ? await options.discoverCourses() : { message: DISCOVERY_MESSAGES.failed })
+            : (options.checkMoodleSignIn ? await options.checkMoodleSignIn() : { signal: null, checkedAt: new Date(now()).toISOString() });
         } finally {
           session.inFlight--;
           session.lastUsed = now();
@@ -396,12 +402,13 @@ export function installWorker(chromeApi: {
       cb: (allowed: boolean) => void,
     ) => void;
   };
-}, options: { onSyncStarted?: () => void; fetcher?: typeof fetch; discoverCourses?: () => Promise<DiscoveryResult> } = {}) {
+}, options: { onSyncStarted?: () => void; fetcher?: typeof fetch; discoverCourses?: () => Promise<DiscoveryResult>; checkMoodleSignIn?: () => Promise<SignInResult> } = {}) {
   const handler = createWorker({
     runtimeId: chromeApi.runtime.id,
     // In-process test seam only; the installed extension uses the global fetch.
     ...(options.fetcher ? { fetcher: options.fetcher } : {}),
     ...(options.discoverCourses ? { discoverCourses: options.discoverCourses } : {}),
+    ...(options.checkMoodleSignIn ? { checkMoodleSignIn: options.checkMoodleSignIn } : {}),
     grant: () =>
       new Promise((resolve) =>
         chromeApi.permissions.contains(

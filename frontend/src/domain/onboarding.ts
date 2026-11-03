@@ -65,14 +65,19 @@ export function parseHint(raw: string | null): Hint {
 export const hintKey = (scope: { datasetId: string; epoch: number }) => `mh-onboarding:${scope.datasetId}:${scope.epoch}`;
 
 export type StepState = "done" | "choice" | "blocked" | "todo";
-export type Facts = { snap: Snapshot; extension: ExtensionStatus; liveSync: "unavailable" | "ready"; hint: Hint };
+/**
+ * `signIn` is the #46 probe's state, passed only in the real dataset: there the connection
+ * step is done only when the extension is ready AND the probe confirmed sign-in. Without it
+ * (demo dataset) an extension that is ready completes the step, as before.
+ */
+export type Facts = { snap: Snapshot; extension: ExtensionStatus; liveSync: "unavailable" | "ready"; hint: Hint; signIn?: "signed_in" | "signed_out" | "unverified" };
 
 /** Derive each step's state; data contradicting a hint wins (a hint never proves success). */
-export function deriveSteps({ snap, extension, liveSync, hint }: Facts): Record<StepId, StepState> {
+export function deriveSteps({ snap, extension, liveSync, hint, signIn }: Facts): Record<StepId, StepState> {
   const choice = (id: StepId): StepState | null => (hint.choices[id] ? "choice" : null);
   const sync = snap.settings.trackedCourseIds.length && snap.sync.some((s) => snap.settings.trackedCourseIds.includes(s.courseId) && s.status === "ok" && s.lastSuccessAt && liveSync === "ready");
   return {
-    connection: extension.kind === "ready" ? "done" : choice("connection") ?? "todo",
+    connection: extension.kind === "ready" && (signIn === undefined || signIn === "signed_in") ? "done" : choice("connection") ?? "todo",
     courses: snap.settings.trackedCourseIds.length ? "done" : "todo",
     sync: sync ? "done" : choice("sync") ?? (liveSync === "unavailable" ? "blocked" : "todo"),
     calendar: snap.settings.teachingCalendar ? "done" : "todo",

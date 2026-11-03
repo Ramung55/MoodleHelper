@@ -2,14 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/lib/app-store";
-import { BridgeClient } from "@/services/extension-adapter";
+import { BridgeClient, checkSduSignIn } from "@/services/extension-adapter";
 import type { AiAvailability } from "@/services/adapter";
 import { TrackedCourses } from "@/routes/settings";
 import { TeachingCalendarSettings } from "@/components/mh/TeachingCalendarSettings";
 import { ReminderSettingsPanel } from "@/components/mh/ReminderSettings";
 import { MockProgress } from "@/components/mh/MockProgress";
 import { cn } from "@/lib/utils";
-import { APPROVED_ORIGINS, BridgeError } from "../../../../shared/src/bridge";
+import { APPROVED_ORIGINS, BridgeError, type SignInResult } from "../../../../shared/src/bridge";
 import {
   classifyHandshake, deriveSteps, emptyHint, hintKey, moodleSignIn, MOODLE_LOGIN_URL, parseHint, resumeStep, STEP_IDS,
   withChoice, withVisit, type Choice, type ExtensionStatus, type Hint, type MoodleAccessSignal, type StepId, type StepState,
@@ -26,6 +26,8 @@ const TITLES: Record<StepId, string> = {
 const LABEL: Record<StepState, string> = { done: "Done", choice: "Skipped / chosen", blocked: "Unavailable", todo: "Not finished" };
 
 type Scope = { datasetId: string; epoch: number } | null;
+/** The local build and load-unpacked steps (#49 pilot guide). */
+export const PILOT_GUIDE_URL = "https://github.com/Ramung55/MoodleHelper/blob/main/_docs/pilot-49.md";
 
 function readStore(key: string): string | null { try { return window.localStorage.getItem(key); } catch { return null; } }
 function writeStore(key: string, value: string) { try { window.localStorage.setItem(key, value); } catch { /* hint only */ } }
@@ -38,8 +40,13 @@ export async function probeExtension(make: () => Pick<BridgeClient, "connect" | 
   finally { client.dispose(); }
 }
 
-export function Onboarding({ probe = probeExtension, moodleAccess = null }: { probe?: () => Promise<ExtensionStatus>; moodleAccess?: MoodleAccessSignal | null }) {
-  const { snap, adapter } = useApp();
+export function Onboarding({ probe = probeExtension, moodleAccess = null, signInProbe }: {
+  probe?: () => Promise<ExtensionStatus>;
+  moodleAccess?: MoodleAccessSignal | null;
+  /** #46 read-only sign-in probe; defaults to the extension's `checkMoodleSignIn`. */
+  signInProbe?: () => Promise<SignInResult>;
+}) {
+  const { snap, adapter, conn } = useApp();
   const [extension, setExtension] = useState<ExtensionStatus>({ kind: "checking" });
   const [scope, setScope] = useState<Scope>(null);
   const [hint, setHint] = useState<Hint>(emptyHint);
@@ -47,8 +54,34 @@ export function Onboarding({ probe = probeExtension, moodleAccess = null }: { pr
   const [ai, setAi] = useState<AiAvailability | null>(null);
   const scopeRef = useRef<string | null>(null);
 
-  const check = useCallback(async () => { setExtension({ kind: "checking" }); setExtension(await probe()); }, [probe]);
-  useEffect(() => { void check(); }, [check]);
+  // #46: the sign-in signal comes only from the extension's probe (never persisted).
+  const [signal, setSignal] = useState<MoodleAccessSignal | null>(moodleAccess);
+  const [signInChecking, setSignInChecking] = useState(false);
+  const probed = useRef(false);
+  const realData = !!conn && conn.state !== "demo";
+  const askSignIn = useCallback(async () => {
+    setSignInChecking(true);
+    try {
+      const result = await (signInProbe ? signInProbe() : adapter.checkMoodleSignIn ? adapter.checkMoodleSignIn() : checkSduSignIn());
+      setSignal(result.signal);
+    } catch { setSignal(null); }
+    finally { setSignInChecking(false); }
+  }, [signInProbe, adapter]);
+
+  useEffect(() => {
+    let alive = true;
+    setExtension({ kind: "checking" });
+    void probe().then((status) => alive && setExtension(status));
+    return () => { alive = false; };
+  }, [probe]);
+  /** Check again: the extension handshake, then (real dataset, extension ready) one sign-in probe. */
+  const check = useCallback(async () => {
+    probed.current = true;
+    setExtension({ kind: "checking" });
+    const status = await probe();
+    setExtension(status);
+    if (status.kind === "ready" && realData) await askSignIn();
+  }, [probe, realData, askSignIn]);
   useEffect(() => {
     let alive = true;
     void adapter.aiAvailability().then((v) => alive && setAi(v)).catch(() => alive && setAi({ available: false, reason: "External AI is unavailable. No text is sent." }));
@@ -82,15 +115,23 @@ export function Onboarding({ probe = probeExtension, moodleAccess = null }: { pr
     setHint((h) => { const next = update(h); if (started) writeStore(started, JSON.stringify(next)); return next; });
   }, [adapter]);
 
-  if (!snap) return null;
+  const signIn = moodleSignIn(signal);
   const liveSync = extension.kind === "ready" && extension.moodleCollection === "ready" ? "ready" : "unavailable";
-  const states = deriveSteps({ snap, extension, liveSync, hint });
-  const next = resumeStep(states);
+  const states = snap ? deriveSteps({ snap, extension, liveSync, hint, ...(realData ? { signIn: signIn.kind } : {}) }) : null;
+  const next = states ? resumeStep(states) : null;
   const current = active ?? next ?? "privacy";
+  // Once when the sign-in step is shown (real dataset, extension ready); re-renders never probe again.
+  const probeNow = !!snap && current === "connection" && extension.kind === "ready" && realData;
+  useEffect(() => {
+    if (!probeNow || probed.current) return;
+    probed.current = true;
+    void askSignIn();
+  }, [probeNow, askSignIn]);
+
+  if (!snap || !states) return null;
   const choose = (id: StepId, c: Choice) => { void record((h) => withChoice(h, id, c)); setActive(null); };
   const open = (id: StepId) => { setActive(id); void record((h) => withVisit(h, id)); };
   const empty = !snap.courses.length && !snap.assessments.length;
-  const signIn = moodleSignIn(moodleAccess);
 
   return <div className="space-y-4">
     <p className="text-sm text-muted-foreground">{empty
@@ -115,15 +156,15 @@ export function Onboarding({ probe = probeExtension, moodleAccess = null }: { pr
             : extension.kind === "ready" ? `Extension connected. Local repository ready. Moodle collection is ${extension.moodleCollection}.`
             : `${{ missing: "Extension missing.", incompatible: "Extension incompatible.", unavailable: "Extension unavailable.", backend_unavailable: "Local backend unavailable." }[extension.kind]} ${extension.message}`}</p>
           {(extension.kind === "missing" || extension.kind === "incompatible") && <div className="text-sm text-muted-foreground">
-            <p>To install (never automatic): build with <code>bun run --cwd extension build</code>, open <code>chrome://extensions</code>, enable Developer mode, choose Load unpacked and select <code>extension/dist</code> (see the README local build guide). Use Chrome 109 or newer.</p>
+            <p>To install (never automatic): build with <code>bun run --cwd extension build</code>, open <code>chrome://extensions</code>, enable Developer mode, choose Load unpacked and select <code>extension/dist</code> (steps in <a className="underline" href={PILOT_GUIDE_URL} target="_blank" rel="noopener noreferrer"><code>_docs/pilot-49.md</code></a>). Use Chrome 109 or newer.</p>
             <p>Open the dashboard only on {APPROVED_ORIGINS.join(" or ")} and allow local site access, then reconnect.</p>
           </div>}
-          <p className="text-sm">{signIn.message}{" "}
+          <p role="status" className="text-sm">{signInChecking ? "Checking Moodle sign-in…" : signIn.message}{" "}
             {signIn.kind !== "signed_in" && <a className="underline" href={MOODLE_LOGIN_URL} target="_blank" rel="noopener noreferrer">Open SDU Moodle sign-in</a>}</p>
           <p className="text-xs text-muted-foreground">An installed extension does not prove you are signed in. Moodle Helper never asks for your Moodle password, cookies or tokens.</p>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={extension.kind === "checking"} onClick={() => void check()}>Check again</Button>
-            {extension.kind !== "ready" && <Button variant="ghost" onClick={() => choose("connection", "skipped")}>Continue locally</Button>}
+            <Button variant="outline" disabled={extension.kind === "checking" || signInChecking} onClick={() => void check()}>Check again</Button>
+            {states.connection !== "done" && <Button variant="ghost" onClick={() => choose("connection", "skipped")}>Continue locally</Button>}
           </div>
         </>}
 
