@@ -33,6 +33,7 @@ FIXTURES = ROOT / '_docs/architecture/ai-contract-eval-fixtures.json'
 RESULTS = ROOT / '_docs/architecture/ai-contract-eval-results.json'
 COST_CAP_USD = 0.0  # free plan/tier: any nonzero price table stops the run
 GROQ_SPACING_SECONDS = 21
+MAX_REJECTED_OUTPUT = 8192
 
 
 def judge(expect: dict, text: str, proposals: list[dict]) -> list[str]:
@@ -80,7 +81,11 @@ def setup(provider_name: str, env, opener=None):
 async def main(argv=None, env=None, results: Path = RESULTS, sleep=asyncio.sleep, opener=None) -> int:
     args = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     args.add_argument('--provider', choices=('groq', 'gemini'), default='groq')
-    provider_name = args.parse_args(argv).provider
+    args.add_argument('--cases', help='comma-separated fixture ids for a diagnostic rerun (default: all 7)')
+    args.add_argument('--out', type=Path, help='results file (default: ai-contract-eval-results.json)')
+    options = args.parse_args(argv)
+    provider_name = options.provider
+    results = options.out or results
     env = os.environ if env is None else env
     key_name = 'GROQ_API_KEY' if provider_name == 'groq' else 'GEMINI_API_KEY'
     if not env.get(key_name):
@@ -89,8 +94,10 @@ async def main(argv=None, env=None, results: Path = RESULTS, sleep=asyncio.sleep
     data = json.loads(FIXTURES.read_text(encoding='utf-8'))
     provider, config, model, labels = setup(provider_name, env, opener)
     prices = config.prices
+    wanted = set(options.cases.split(',')) if options.cases else None
+    cases = [c for c in data['cases'] if wanted is None or c['id'] in wanted]
     spent, rows = 0.0, []
-    for index, case in enumerate(data['cases']):
+    for index, case in enumerate(cases):
         if spent + prices.worst_case() > COST_CAP_USD + 1e-12:
             print(f'stopped before {case["id"]}: cost cap {COST_CAP_USD} USD')
             break
@@ -99,6 +106,7 @@ async def main(argv=None, env=None, results: Path = RESULTS, sleep=asyncio.sleep
         excerpt = {'id': 'ex-0', 'documentDigest': '0' * 64, 'locationId': 'loc-0', 'text': case['text']}
         request = {'requestId': case['id'], 'excerpts': [excerpt], 'context': data['context']}
         row = {'id': case['id'], 'lang': case['lang']}
+        raw = None
         try:
             raw = await asyncio.wait_for(provider.extract(request, max_output_tokens=MAX_OUTPUT_TOKENS), 30)
             proposals = validate_output(raw, [excerpt])
@@ -107,6 +115,11 @@ async def main(argv=None, env=None, results: Path = RESULTS, sleep=asyncio.sleep
         except (AiFailure, ProviderError) as failure:
             status = getattr(failure, 'http_status', None)
             row.update(outcome='fail', failed=[failure.code + (f':{status}' if status else '')])
+            if getattr(failure, 'rule', None):
+                row['rejectedRule'] = failure.rule
+            if isinstance(raw, bytes):
+                # The fixtures are synthetic and nonprivate, so a rejected model answer is kept as evidence.
+                row['rejectedOutput'] = raw[:MAX_REJECTED_OUTPUT].decode('utf-8', errors='replace')
         except asyncio.TimeoutError:
             row.update(outcome='fail', failed=['timeout'])
         except Exception as error:  # noqa: BLE001 - recorded by class name and HTTP code/status only, never the message

@@ -287,3 +287,43 @@ def test_groq_key_name_is_absent_from_browser_sources():
         for path in (ROOT / folder).rglob('*.ts*'):
             text = path.read_text(encoding='utf-8', errors='ignore')
             assert 'GROQ_API_KEY' not in text and 'api.groq.com' not in text, path
+
+
+AMBIGUOUS = 'Essay deadline: 03/04/2027.'
+
+
+def ambiguous_answer(**date):
+    return json.dumps({'proposals': [{'title': 'Essay', 'type': 'assignment', 'date': date or {'precision': 'none', 'value': None},
+                                      'uncertain': True, 'uncertaintyReason': 'ambiguous_order', 'week': None,
+                                      'evidence': [{'excerptId': 'ex-0', 'start': 16, 'end': 26}]}]}).encode()
+
+
+def test_legitimate_uncertain_ambiguous_answer_passes_schema_and_validator():
+    from backend.ai_gateway import GROQ_SCHEMA, validate_output
+    excerpt = [{'id': 'ex-0', 'locationId': 'loc-0', 'text': AMBIGUOUS}]
+    accepted = validate_output(ambiguous_answer(), excerpt)
+    assert accepted[0]['date'] == {'precision': 'none'} and accepted[0]['uncertaintyReason'] == 'ambiguous_order'
+    assert None in GROQ_SCHEMA['properties']['proposals']['items']['properties']['uncertaintyReason']['enum']
+
+
+@pytest.mark.parametrize('date, rule', [
+    ({'precision': 'date', 'value': None}, 'date_value_for_precision'),  # "date" without a value is not a date
+    ({'precision': 'none', 'value': '2027-03-04'}, 'date_value_for_precision'),  # a guessed order is an invented date
+])
+def test_validator_names_the_failed_rule_without_exposing_it(date, rule):
+    from backend.ai_gateway import AiFailure, validate_output
+    with pytest.raises(AiFailure) as error:
+        validate_output(ambiguous_answer(**date), [{'id': 'ex-0', 'locationId': 'loc-0', 'text': AMBIGUOUS}])
+    assert error.value.code == 'invalid_output' and error.value.rule == rule and rule not in json.dumps(error.value.body())
+
+
+def test_eval_runner_diagnostic_rerun_records_rejected_rule_and_output(tmp_path):
+    opener = FakeOpener(envelope(ambiguous_answer(precision='date', value=None).decode()))
+    out = tmp_path / 'diag.json'
+    code = asyncio.run(run_ai_eval.main(['--cases', 'ambiguous-order', '--out', str(out)], env={'GROQ_API_KEY': KEY},
+                                        results=tmp_path / 'untouched.json', opener=opener))
+    assert code == 0 and not (tmp_path / 'untouched.json').exists() and len(opener.calls) == 1
+    row = json.loads(out.read_text(encoding='utf-8'))['cases'][0]
+    assert row['id'] == 'ambiguous-order' and row['failed'] == ['invalid_output'] and row['rejectedRule'] == 'date_value_for_precision'
+    assert json.loads(row['rejectedOutput'])['proposals'][0]['date'] == {'precision': 'date', 'value': None}
+    assert KEY not in out.read_text(encoding='utf-8')

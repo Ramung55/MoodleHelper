@@ -48,4 +48,4 @@ Localhost only, with the existing origin/binding checks. The binding and consent
 
 ## Not verified
 
-A real Groq call has not been made from this repository: the provider is tested against a fake HTTP layer only. EN/RU quality is unmeasured until the owner runs `uv run python tools/run_ai_eval.py` with their key (#42 AC1).
+Automated tests use a fake HTTP layer only. The owner's one real run of the 7 synthetic fixtures (2026-11-03, `groq:openai/gpt-oss-120b`, 5/7, 0 USD) is summarized in `ai-contract.md` section 3; it is not a quality guarantee for real syllabi.

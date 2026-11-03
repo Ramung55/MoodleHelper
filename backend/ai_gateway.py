@@ -92,11 +92,13 @@ FAILURES = {
 
 
 class AiFailure(Exception):
-    def __init__(self, code: str, request_id: str | None = None, retry_after: int | None = None):
+    def __init__(self, code: str, request_id: str | None = None, retry_after: int | None = None, rule: str | None = None):
         super().__init__(code)
         self.code = code
         self.request_id = request_id
         self.retry_after = retry_after
+        # Fixed name of the validation rule that failed, for the eval runner only; never logged or returned.
+        self.rule = rule
 
     @property
     def status(self) -> int:
@@ -303,27 +305,27 @@ def validate_output(raw: dict | bytes, excerpts: list[dict]) -> list[dict]:
     """Closed output validation. Any defect rejects the whole result (fail closed)."""
     if isinstance(raw, (bytes, bytearray)):
         if len(raw) > MAX_OUTPUT_BYTES:
-            raise AiFailure('invalid_output')
+            raise AiFailure('invalid_output', rule='output_too_large')
         try:
             raw = json.loads(raw)
         except (ValueError, UnicodeError, RecursionError):
-            raise AiFailure('invalid_output') from None
+            raise AiFailure('invalid_output', rule='not_json') from None
     try:
         encoded = json.dumps(raw, allow_nan=False)
     except (TypeError, ValueError, RecursionError):
-        raise AiFailure('invalid_output') from None
+        raise AiFailure('invalid_output', rule='not_serializable') from None
     if len(encoded.encode('utf-8')) > MAX_OUTPUT_BYTES or depth(raw) > MAX_OUTPUT_DEPTH:
-        raise AiFailure('invalid_output')
+        raise AiFailure('invalid_output', rule='output_too_large')
     if not isinstance(raw, dict) or set(raw) != {'proposals'} or not isinstance(raw['proposals'], list) or len(raw['proposals']) > MAX_PROPOSALS:
-        raise AiFailure('invalid_output')
+        raise AiFailure('invalid_output', rule='not_proposals_object')
     by_id = {e['id']: e for e in excerpts}
     accepted = []
     for item in raw['proposals']:
         if not isinstance(item, dict):
-            raise AiFailure('invalid_output')
+            raise AiFailure('invalid_output', rule='proposal_not_object')
         # The gateway, not the model, sets confirmed=false and location provenance.
         if 'confirmed' in item or any(not isinstance(ev, dict) or 'locationId' in ev for ev in item.get('evidence', []) if isinstance(item.get('evidence'), list)):
-            raise AiFailure('invalid_output')
+            raise AiFailure('invalid_output', rule='model_set_gateway_field')
         candidate = dict(item, confirmed=False)
         if isinstance(item.get('evidence'), list):
             candidate['evidence'] = [dict(ev, locationId=by_id[ev['excerptId']]['locationId']) if isinstance(ev, dict) and ev.get('excerptId') in by_id else ev for ev in item['evidence']]
@@ -335,11 +337,11 @@ def validate_output(raw: dict | bytes, excerpts: list[dict]) -> list[dict]:
         try:
             proposal = s.AiProposal.model_validate(candidate)
         except (ValidationError, ValueError):
-            raise AiFailure('invalid_output') from None
+            raise AiFailure('invalid_output', rule='schema') from None
         for ev in proposal.evidence:
             excerpt = by_id.get(ev.excerptId)
             if excerpt is None or ev.end <= ev.start or ev.end > utf16_length(excerpt['text']):
-                raise AiFailure('invalid_output')
+                raise AiFailure('invalid_output', rule='evidence_offsets')
         value, precision = proposal.date.value, proposal.date.precision
         try:
             if precision == 'date':
@@ -357,13 +359,13 @@ def validate_output(raw: dict | bytes, excerpts: list[dict]) -> list[dict]:
             elif value is not None:
                 raise ValueError  # week/none never carry an invented calendar value
         except ValueError:
-            raise AiFailure('invalid_output') from None
+            raise AiFailure('invalid_output', rule='date_value_for_precision') from None
         if precision == 'week' and proposal.week is None:
-            raise AiFailure('invalid_output')
+            raise AiFailure('invalid_output', rule='week_missing')
         if precision in ('week', 'none', 'month') and not proposal.uncertain:
-            raise AiFailure('invalid_output')
+            raise AiFailure('invalid_output', rule='precision_requires_uncertain')
         if proposal.uncertain != (proposal.uncertaintyReason is not None):
-            raise AiFailure('invalid_output')
+            raise AiFailure('invalid_output', rule='uncertainty_reason_mismatch')
         accepted.append(proposal.model_dump(exclude_none=True))
     return accepted
 
