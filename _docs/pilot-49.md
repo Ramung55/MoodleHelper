@@ -59,8 +59,8 @@ until Pages has deployed that same commit; then rebuild with
 
 | Recorded 2026-11-03 | Commit | Pages run |
 |---|---|---|
-| Pages build used for the AC3 check (2026-11-03) | `b26c8aa` | deployed |
-| Later fixes, up to `5575841` (local, unpushed) | the `commit` in `build-info.json` | **pending**: needs the owner-approved push |
+| Pages build used for the AC3 check (2026-11-03) | `b26c8aa` | 41569710195 |
+| Later commits, up to HEAD (local, unpushed) | the `commit` in `build-info.json` | **pending**: not yet deployed; needs the owner-approved push |
 
 A release check should use an extension zip and a Pages deploy from the **same commit**:
 compare `build-info.json` `commit` with the Pages run's head SHA. The 2026-11-03 owner
@@ -167,8 +167,8 @@ with every route prerendered. Output is `frontend/.output/public/`:
   runs on pushes to `codex/backend-in-memory` (allowed in the `github-pages` environment),
   runs `bun install --frozen-lockfile` and `bun run build:pages` in `frontend/` and publishes
   `frontend/.output/public/`. The deploy live during the owner's 2026-11-03 checks was
-  built from **`b26c8aa`** (the earlier run 41520591494 at `35067a2` succeeded on
-  2026-11-02). Later fixes, up to `5575841`, are local and unpushed, so the live site does
+  built from **`b26c8aa`** by run **41569710195** (the earlier run 41520591494 at `35067a2` succeeded on
+  2026-11-02). Later commits, up to HEAD, are local and unpushed, so the live site does
   not yet include them.
 - **Pending (owner):** approve the push that redeploys Pages from the packaged commit, then
   record the new run id here and in `build-info.json` (`--pages-run-id`). Agents do not push
@@ -194,7 +194,7 @@ unpacked and the local backend running. Results:
 - Prerequisite found: the extension's Chrome **Site access** was restricted and had to
   include `ramung55.github.io` before the page could detect the extension. The owner set
   it, and it is now step 3 of the install guide (§2).
-- The dashboard was the Pages build from **`b26c8aa`**. Later fixes (up to `5575841`) are not
+- The dashboard was the Pages build from **`b26c8aa`** (run 41569710195). Later commits, up to HEAD, are not
   yet deployed, so the hosted dashboard does not include them.
 
 ## 4. Privacy summary
@@ -210,8 +210,10 @@ unpacked and the local backend running. Results:
   (submitted, not submitted, draft, reopened or unknown), its wording, source link and
   observed time, with the latest attempt kept separate from the last confirmed status and a
   stale flag, in the backend Snapshot's collection layer. No grades or submission text are
-  stored. Sync all now dispatches the submission collector on assignment pages (#20, closed);
-  the stored submission records were not separately checked in the owner's Chrome.
+  stored. Submission status is **not collected live yet**: the storage and retention from #81
+  exist, but the live submission collector is unavailable (live scans record every
+  submission row as `unavailable` / `collector_unavailable`), so in practice nothing is
+  stored.
 - **Downloaded files (#41, #85):** a Download file click saves the file through Chrome's download
   manager into your normal downloads folder. Moodle Helper keeps only a transfer record
   (`material_transfers`) and the material's `downloadedAt`. Erase removes those records but
@@ -302,8 +304,8 @@ Still open:
   needs the owner's own DevTools and is pending.
 - [#46](https://github.com/Ramung55/MoodleHelper/issues/46) first-run onboarding: owner
   Chrome steps 2–9 passed at full width. Step 1 (extension off) and the 400 px check are
-  pending. On the real dataset the dashboard banner and Settings still describe live sync
-  as demo ("Sync all courses (demo)") although a real scan runs.
+  pending. The "(demo)" sync label on the real dataset was fixed in `75ba36e` and confirmed
+  by the owner's re-check.
 - [#49](https://github.com/Ramung55/MoodleHelper/issues/49) this pilot package.
 - [#42](https://github.com/Ramung55/MoodleHelper/issues/42),
   [#44](https://github.com/Ramung55/MoodleHelper/issues/44) cloud AI: deferred by the owner
@@ -318,7 +320,7 @@ Still open:
   `extension/src/reminders.ts`), not the Pages dashboard.
 - The extension popup's header still reads "Demonstration only…" on the real dataset (seen
   in the owner's Chrome, 2026-11-03).
-- The live Pages deploy (`b26c8aa`) is behind the later fixes (up to `5575841`) until the
+- The live Pages deploy (`b26c8aa`, run 41569710195) is behind the later commits up to HEAD until the
   owner approves the push (§1, §3).
 
 Tested: backend pytest suite, frontend vitest, extension vitest, the #47 fixture Chromium
