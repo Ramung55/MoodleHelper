@@ -37,11 +37,13 @@ function PreviewShell({ state }: { state: ShellState }) {
 }
 
 function ConnectedShell() {
-  const { snap, conn, error, adapter, retryLoad } = useApp();
+  const { snap, conn, error, adapter, retryLoad, detecting } = useApp();
+  // #87 QA: while the extension check runs, say so instead of "Extension not connected".
+  const checking = detecting && !!conn && conn.state !== "demo";
   return <ShellFrame state={error ? "error" : !snap ? "loading" : undefined}
     error={error ?? undefined} retry={retryLoad}
-    notice={shellNotice(conn)}
-    connection={conn?.extensionDetected ? "Extension detected" : "Extension not connected"}
+    notice={checking ? "Checking for the extension…" : shellNotice(conn)}
+    connection={detecting && conn ? "Checking extension…" : conn?.extensionDetected ? "Extension detected" : "Extension not connected"}
     storage={adapter.storage === "backend" ? "Data stays in your local backend." : "Data stays in this browser."}
     unread={snap?.alerts.filter((a) => !a.read).length}
     pending={snap?.candidates.filter((c) => c.status === "pending").length}>

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { displayDate as formatDate, dueState, redactUnsafeLinks, safeSourceHref, sourceFreshness } from "@/domain/deadline-display";
+import { displayDate as formatDate, dueState, redactUnsafeLinks, safeSourceHref, shortMappingReason, sourceFreshness } from "@/domain/deadline-display";
 import { LocalEvidenceView } from "./LocalEvidenceView";
 import { resolveAssessmentId } from "@/domain/assessments";
 import { useApp } from "@/lib/app-store";
@@ -123,7 +123,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
               <section>
                 <h3 className="mb-2 text-sm font-semibold">Deadline</h3>
                 <p className="font-mono text-lg font-semibold">{formatDate(v.date, tz)}</p>
-                {v.date.kind === "week" && <p>{v.teachingMapping.resolved ? friendlyRange(v.teachingMapping.start, v.teachingMapping.end, tz) : v.teachingMapping.reason}</p>}
+                {v.date.kind === "week" && (v.teachingMapping.resolved ? <p>{friendlyRange(v.teachingMapping.start, v.teachingMapping.end, tz)}</p> : <><p>{shortMappingReason(v.teachingMapping.reason)}</p><Details><p>{v.teachingMapping.reason}</p></Details></>)}
                 {v.week && <p className="text-xs text-muted-foreground">Teaching week {v.week}</p>}
                 {due && <p className={due.kind === "overdue" ? "text-sm font-semibold text-destructive" : "text-sm text-muted-foreground"}>{due.label}</p>}
                 {fresh && <p className={fresh.stale ? "text-sm text-warning-foreground" : "text-xs text-muted-foreground"}>{fresh.label}</p>}

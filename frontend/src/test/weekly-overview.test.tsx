@@ -49,7 +49,9 @@ describe("planner route", () => {
     expect(week1).toHaveTextContent(friendlyRange("2027-01-04", "2027-01-10"));
     expect(within(week1).getByText("Weighted estimate")).toBeInTheDocument();
     expect(week1).toHaveTextContent("Counted in total only: submitted in Moodle");
-    expect(week1).toHaveTextContent('Moodle status "draft" takes precedence');
+    // #87 QA: plain words instead of the raw status (was 'Moodle status "draft" takes precedence').
+    expect(week1).toHaveTextContent("Counts as outstanding: Moodle shows a draft, even if you marked it done.");
+    expect(week1).not.toHaveTextContent('Moodle status "');
     const links = within(week1).getAllByRole("link").filter((l) => l.getAttribute("href")?.includes("id="));
     expect(links.length).toBeGreaterThan(0);
     expect(within(week1).queryByText(/j-hidden/)).toBeNull();

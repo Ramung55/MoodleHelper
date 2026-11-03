@@ -9,7 +9,8 @@ export const WORKLOAD_DEFAULTS = { weights: { exam: 3, assignment: 2, quiz: 1, o
 export function contributionReason(v: AssessmentView): string {
   const status = v.a.submission?.status;
   if (v.outstanding) {
-    if (v.needsAttention) return `Counts as outstanding: Moodle status "${status?.replace("_", " ")}" takes precedence over personal completion.`;
+    // #87: plain words instead of the raw Moodle status value.
+    if (v.needsAttention) return `Counts as outstanding: Moodle shows ${status === "draft" ? "a draft" : status === "reopened" ? "a resubmission request" : "it not submitted"}, even if you marked it done.`;
     return "Counts as outstanding: not submitted or marked complete.";
   }
   if (status === "submitted") return "Counted in total only: submitted in Moodle, not outstanding.";

@@ -303,4 +303,27 @@ describe("Deadlines submission chip (D1, AC5)", () => {
     expect(row).not.toHaveTextContent(/Moodle: /);
     expect(row).toHaveTextContent("Teaching calendar not set.");
   });
+
+  it("AC6: a Deadlines row shows its exact date in the configured timezone (Asia/Almaty)", async () => {
+    const s = snapshot();
+    s.settings.timezone = "Asia/Almaty";
+    const a = s.assessments.find((x) => x.id === "a4")!;
+    a.sources = a.sources.map((src) => ({ ...src, date: { kind: "exact", iso: "2026-11-04T09:05:00Z", tz: "UTC" } }));
+    mocks.adapter.load.mockResolvedValue(s);
+    mocks.detect.mockResolvedValue(false);
+    const view = viewAll(s.assessments, s.overlays, s.settings, s).find((v) => v.a.id === "a4")!;
+    function Rows() {
+      const { snap } = useApp();
+      return snap ? <AssessmentRow v={view} onOpen={() => undefined} /> : null;
+    }
+    render(
+      <AppProvider>
+        <Rows />
+      </AppProvider>,
+    );
+    const row = await screen.findByRole("button", { name: new RegExp(view.title) });
+    // 09:05 UTC is 14:05 in Asia/Almaty (UTC+5); the test runner is not in Asia/Almaty.
+    expect(row).toHaveTextContent(/4 Nov( 2026)?, 14:05/);
+    expect(row).not.toHaveTextContent(/2026-11-04T/);
+  });
 });

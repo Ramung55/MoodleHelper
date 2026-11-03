@@ -64,7 +64,7 @@ export function Onboarding({ probe = probeExtension, moodleAccess = null, signIn
   /** #46 read-only sign-in probe; defaults to the extension's `checkMoodleSignIn`. */
   signInProbe?: () => Promise<SignInResult>;
 }) {
-  const { snap, adapter, conn, syncAll, setSnap } = useApp();
+  const { snap, adapter, conn, syncAll, setSnap, detecting } = useApp();
   const [extension, setExtension] = useState<ExtensionStatus>({ kind: "checking" });
   const [scope, setScope] = useState<Scope>(null);
   const [hint, setHint] = useState<Hint>(emptyHint);
@@ -234,7 +234,7 @@ export function Onboarding({ probe = probeExtension, moodleAccess = null, signIn
           {liveSync === "ready" && !!snap.settings.trackedCourseIds.length && !initialSyncComplete(snap) && (
             selectedSyncing || syncView.running
               ? <p role="status" className="text-sm">A sync is running. Its progress is shown below.</p>
-              : <Button disabled={syncView.pending} onClick={() => void startSync()}>{syncView.pending ? "Starting…" : "Start initial sync"}</Button>)}
+              : <Button disabled={syncView.pending || detecting} onClick={() => void startSync()}>{detecting ? "Checking…" : syncView.pending ? "Starting…" : "Start initial sync"}</Button>)}
           {syncView.error && <p role="alert" className="text-sm text-destructive">{syncView.error}</p>}
           {realData
             ? <>

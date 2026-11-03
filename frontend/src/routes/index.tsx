@@ -89,7 +89,7 @@ export function Overview({fullSyncAttestation}:{fullSyncAttestation?:FullSyncAtt
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {overdue > 0 && (
           <Card to="/deadlines" search={{ status: "outstanding" }} title="Overdue" value={overdue} tone="bad">
-            Past their due date and not marked done.
+            Past their due date and still outstanding.
           </Card>
         )}
         {weeksUnknown ? <>
