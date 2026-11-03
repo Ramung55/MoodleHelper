@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { buildDemoSnapshot } from '@/services/fixtures';
 import { installPopup, type PopupEnvironment } from '../../../extension/src/popup';
+import type { PopupOperation } from '../../../extension/src/dashboard-bridge';
 import { errors, SIGN_IN_PROBE } from '../../../shared/src/bridge';
 
 // vitest runs from frontend/; the packaged popup page is the DOM under test.
@@ -39,7 +40,7 @@ const signal = (value: 'signed_in' | 'signed_out' | null) => ({ ok: true, result
 function environment(replies: Partial<Record<'syncAll' | 'checkMoodleSignIn', () => unknown>> = {}) {
   const sent: string[] = [], opened: string[] = [];
   const env: PopupEnvironment = {
-    send: vi.fn(async (operation) => { sent.push(operation); return (replies[operation] ?? (() => signal('signed_in')))(); }),
+    send: vi.fn(async (operation: PopupOperation) => { sent.push(operation); return (replies[operation] ?? (() => signal('signed_in')))(); }),
     openTab: (url) => { opened.push(url); },
     now: () => new Date(2028, 2, 5, 9, 7),
   };
@@ -91,7 +92,7 @@ it('AC1/D6: signed out shows the Sign in link; a not-checked probe falls back to
 
 it('AC2: Sync all sends one worker request on a double click, then shows started, syncing and the updated headline', async () => {
   let release: (value: unknown) => void = () => {};
-  const syncing = (id: string) => ({ courseId: id, status: 'syncing', coverage: 'none', progress: 0 });
+  const syncing = (id: string) => ({ courseId: id, status: 'syncing' as const, coverage: 'none' as const, progress: 0 });
   const { popup, sent, state, requests } = (() => { const opened = open({ sync: [] }, { syncAll: () => new Promise(resolve => { release = resolve; }) }); return { ...opened, requests: opened.state.requests }; })();
   await popup.ready;
   expect(document.getElementById('full-sync')!.textContent).toBe('No successful full sync yet.');
@@ -99,7 +100,7 @@ it('AC2: Sync all sends one worker request on a double click, then shows started
   click('sync-all'); click('sync-all');
   expect(sent.filter(op => op === 'syncAll')).toHaveLength(1);
   expect((document.getElementById('sync-all') as HTMLButtonElement).disabled).toBe(true);
-  const queued = structuredClone(state.snapshot); queued.sync = [syncing('c-csc'), { courseId: 'c-math', status: 'ok', coverage: 'full', lastSuccessAt: FULL, progress: 100 }];
+  const queued = structuredClone(state.snapshot); queued.sync = [syncing('c-csc'), { courseId: 'c-math', status: 'ok' as const, coverage: 'full' as const, lastSuccessAt: FULL, progress: 100 }];
   release({ ok: true, result: queued });
   await vi.advanceTimersByTimeAsync(0);
   expect(document.getElementById('sync-result')!.textContent).toBe('Sync started.');
