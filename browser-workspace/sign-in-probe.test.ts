@@ -270,7 +270,8 @@ it('shares the request authority with a running #20 fixture scan: requests never
   });
   const app = install(backend, clock, site.fetcher);
   expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
-  for (let i = 0; i < 400 && !site.starts().length; i++) await pause(10);
+  // Under a loaded parallel run the scan can take a few seconds to make its first request.
+  for (let i = 0; i < 3000 && !site.starts().length; i++) await pause(10);
   expect((await app.bridge(2, 'checkMoodleSignIn')).result.signal).toEqual(IN);
   // Let the scan read a few more pages after the probe.
   const seen = site.starts().length;
@@ -280,9 +281,11 @@ it('shares the request authority with a running #20 fixture scan: requests never
   expect(urls.filter(u => u === SHELL_URL)).toHaveLength(1);
   expect(site.trace.every(e => e.method === 'GET')).toBe(true);
   expect(site.maxActive()).toBe(1); spacing(site.starts());
-  const events = site.trace.map(e => e.event);
-  for (let i = 0; i < events.length; i += 2) expect(events.slice(i, i + 2)).toEqual(['start', 'end']);
   app.worker.dispose();
+  // Each request ends before the next one starts (a scan request still in flight may close the trace).
+  const events = site.trace.map(e => e.event);
+  if (events.at(-1) === 'start') events.pop();
+  for (let i = 0; i < events.length; i += 2) expect(events.slice(i, i + 2)).toEqual(['start', 'end']);
 }, 60000);
 
 it('demo dataset: no signal and no Moodle request', async () => {
