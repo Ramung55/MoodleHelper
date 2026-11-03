@@ -49,6 +49,10 @@ export interface ScanOptions {
 }
 /** Longest wait for the request authority before a page fails as request_failed. */
 export const ACQUIRE_LIMIT_MS=10*60*1000;
+/** #83: the one observed calendar page, requested once per course job when its collector is available. */
+const UPCOMING_CALENDAR='https://moodle.sdu.edu.kz/calendar/view.php?view=upcoming';
+/** Material module pages (file and link targets) are never requested by the live scan: material is read from the course page. */
+const materialModule=(kind:string)=>kind==='resource'||kind==='url'||kind==='folder';
 const collectorsFor=(kind:string):Collector[]=>kind==='assign'?['assignment','submission']:kind==='quiz'?['quiz']:kind==='calendar'?['calendar']:['material'];
 const pageTypeFor=(kind:string)=>kind==='assign'?'assignment':kind==='resource'||kind==='url'||kind==='folder'?'material':kind;
 
@@ -61,6 +65,8 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
   const add=(page:Page)=>{pages.push(page);page.reasons.forEach(r=>reasons.add(r));};
   const failure=(pageType:string,reason:Reason,outcome:Page['outcome'],url?:string)=>add({pageType,scope:'unknown',outcome,coverage:'none',reasons:[reason],observedAt:new Date(options.now()).toISOString(),...(url?{pageUrl:url}:{})});
   const check=async()=>{try{return !options.signal?.aborted && await options.valid();}catch{return false;}};
+  // Course-card titles back the quiz (#14) and assignment (#83) titles: their view-page title was not recorded.
+  const titled=(route:{kind:string;id?:string})=>(route.kind==='quiz'||route.kind==='assign')&&titles.has(route.id!);
   const accessOf=(value:ScanResponse)=>value.access??detectMoodleAccess(value.input as MoodleAccessInput);
   let stopped: 'signed_out'|'request_failed'|'invalid_context'|undefined;
   while(pending.length && pages.length<maxPages && !stopped) {
@@ -91,7 +97,7 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
       if(typeof reservation!=='string')attempt=reservation.failures+1;
       if(!await check()) { await options.authority.releaseAfterTermination(token,0,requestKey);stopped='invalid_context';break; }
       let request:ScanRequest;
-      try {request=options.source.start(next.url,{sourceCourseId:options.sourceCourseId,collectors:available,...(route.kind==='quiz'&&titles.has(route.id!)?{title:titles.get(route.id!)!}:{})});}
+      try {request=options.source.start(next.url,{sourceCourseId:options.sourceCourseId,collectors:available,...(titled(route)?{title:titles.get(route.id!)!}:{})});}
       catch{await options.authority.releaseAfterTermination(token,0,requestKey);stopped='request_failed';break;}
       // Capture after start: delaying between the SQLite reservation and the
       // actual request must never shorten spacing to the following request.
@@ -136,7 +142,7 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
       let collected:CollectorResult|undefined;
       try {
         collected=response.collected?response.collected[collector]
-          :await adapter.collect(response.input as MoodleAccessInput,[options.sourceCourseId],observedAt,route.kind==='quiz'&&titles.has(route.id!)?{title:titles.get(route.id!)!}:{});
+          :await adapter.collect(response.input as MoodleAccessInput,[options.sourceCourseId],observedAt,titled(route)?{title:titles.get(route.id!)!}:{});
       } catch {collected=undefined;}
       if(!collected||collected.kind!==collector){failure(pageType,'request_failed','failed',next.url);continue;}
       // An empty listing alone is not proof that the whole section was seen.
@@ -154,6 +160,13 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
         continue;
       }
       if(seen.has(link) || pending.some(item=>item.url===link))continue;
+      if(strict && materialModule(linked.kind)){
+        // #83: resource, URL and folder pages are recorded without a request; the course page's material collector lists them.
+        seen.add(link);
+        if(pages.length<maxPages)add({pageType:'material',scope:'unknown',outcome:'unavailable',coverage:'none',reasons:['unsupported_page','collector_unavailable'],observedAt,pageUrl:link});
+        else reasons.add('limit_reached');
+        continue;
+      }
       if(strict && linked.kind!=='course' && !collectorsFor(linked.kind).some(c=>registry[c].availability==='available')){
         // Discovered, but no collector can use it: recorded without a request.
         seen.add(link);
@@ -165,6 +178,11 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
       }
       if(next.depth>=maxDepth || pending.length+seen.size>=maxPages)reasons.add('limit_reached');
       else pending.push({url:link,depth:next.depth+1});
+    }
+    // #83: the upcoming calendar lists every course; each course job requests it once and keeps its own course's events.
+    if(strict && route.kind==='course' && registry.calendar.availability==='available' && !seen.has(UPCOMING_CALENDAR) && !pending.some(item=>item.url===UPCOMING_CALENDAR)){
+      if(next.depth>=maxDepth || pending.length+seen.size>=maxPages)reasons.add('limit_reached');
+      else pending.push({url:UPCOMING_CALENDAR,depth:next.depth+1});
     }
   }
   if(pending.length||pages.length>=maxPages)reasons.add('limit_reached');

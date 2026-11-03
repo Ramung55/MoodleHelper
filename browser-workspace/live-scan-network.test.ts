@@ -33,7 +33,8 @@ const releaseHangs: (() => void)[] = [];
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'live-scan-'));
   html = {};
-  for (const name of ['course-page.html', 'quiz-finished.html', 'not-found.html', 'login-page.html'])
+  for (const name of ['course-page.html', 'quiz-finished.html', 'not-found.html', 'login-page.html', 'assign-submitted.html',
+    'assign-not-submitted.html', 'calendar-upcoming.html'])
     html[name] = await readFile(path.join(fixtures, name), 'utf8');
   const login = JSON.parse(await readFile(path.join(fixtures, 'login-redirect-course.json'), 'utf8'));
   expect(login.response).toMatchObject({status: 200, finalPath: '/login/index.php'});
@@ -53,9 +54,19 @@ function coursePage(course: string, change: (page: string) => string = page => p
 function quizPage(course: string, cmid: string) {
   return html['quiz-finished.html']!.replace('cmid-990103', `cmid-${cmid}`).replace('course-9001', `course-${course}`);
 }
+/** #83: the observed assignment pages (990101 submitted, 990102 not submitted), renumbered for other courses. */
+function assignPage(course: string, cmid: string) {
+  const page = html[cmid.endsWith('01') ? 'assign-submitted.html' : 'assign-not-submitted.html']!;
+  return page.replace(/cmid-9901(\d\d)/, `cmid-${cmid}`).replace('course-9001', `course-${course}`);
+}
 const quizzes = (course: string) => [`990${course.slice(-1)}03`, `990${course.slice(-1)}09`];
+const assignments = (course: string) => [`990${course.slice(-1)}01`, `990${course.slice(-1)}02`];
 const courseUrl = (course: string) => `${ORIGIN}/course/view.php?id=${course}`;
 const quizUrl = (cmid: string) => `${ORIGIN}/mod/quiz/view.php?id=${cmid}`;
+const assignUrl = (cmid: string) => `${ORIGIN}/mod/assign/view.php?id=${cmid}`;
+const CALENDAR = `${ORIGIN}/calendar/view.php?view=upcoming`;
+/** Every Moodle request of one course job: course page, assignments, quizzes and the upcoming calendar. */
+const jobUrls = (course: string) => [courseUrl(course), ...assignments(course).map(assignUrl), ...quizzes(course).map(quizUrl), CALENDAR];
 
 class Backend {
   child?: ChildProcess; base = ''; port = 0; db: string; clock?: string;
@@ -145,6 +156,9 @@ const observedSite = (url: string): Reply => {
   if (course) return ok(coursePage(course));
   const cmid = /mod\/quiz\/view\.php\?id=(\d+)$/.exec(url)?.[1];
   if (cmid) return ok(quizPage(`900${cmid.slice(3, 4)}`, cmid));
+  const assign = /mod\/assign\/view\.php\?id=(\d+)$/.exec(url)?.[1];
+  if (assign) return ok(assignPage(`900${assign.slice(3, 4)}`, assign));
+  if (url === CALENDAR) return ok(html['calendar-upcoming.html']!);
   throw Error('Unexpected Moodle request ' + url);
 };
 
@@ -199,31 +213,47 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
     expect(run.jobs.map((j: any) => j.courseId).sort()).toEqual([ids['9001'], ids['9002']].sort());
   }
   expect(runs[0].jobs.map((j: any) => j.id).sort()).toEqual(runs[1].jobs.map((j: any) => j.id).sort());
-  // Only the selected course pages and the quiz pages discovered on them, each once.
+  // Only the selected course pages, the assignment and quiz pages discovered on them, each once,
+  // and the upcoming calendar once per course job (#83).
   const urls = site.starts().map(e => e.url);
-  expect([...urls].sort()).toEqual([courseUrl('9001'), courseUrl('9002'), ...['9001', '9002'].flatMap(c => quizzes(c).map(quizUrl))].sort());
-  expect(urls.some(u => u.includes('9003') || /pluginfile|mod\/(assign|resource|url|forum|page|folder)\//.test(u))).toBe(false);
+  expect([...urls].sort()).toEqual([...jobUrls('9001'), ...jobUrls('9002')].sort());
+  expect(urls.filter(u => u === CALENDAR)).toHaveLength(2);
+  expect(urls.some(u => u.includes('9003') || /pluginfile|mod\/(resource|url|forum|page|folder)\/|action=/.test(u))).toBe(false);
   expect(site.maxActive()).toBe(1);
   spacing(site.starts());
   expect(first.created).toEqual([{url: 'chrome-extension://live-scan-test/offscreen.html', reasons: ['DOM_PARSER'], justification: expect.any(String)}]);
   // AC2: page evidence per job, before and after a backend restart.
   const readback = async () => Object.fromEntries(await Promise.all(runs[0].jobs.map(async (j: any) => [j.courseId, await backend.pages(j.id)])));
   const before = await readback();
+  const requestedAt = (url: string) => new Date(site.starts().find(e => e.url === url)!.at).toISOString();
+  const calendarTimes: string[] = [];
   for (const course of ['9001', '9002']) {
     const {pages, incompleteReasons} = before[ids[course]!];
     const by = (type: string) => pages.filter((p: any) => p.pageType === type);
-    expect(by('course')).toEqual([expect.objectContaining({outcome: 'unavailable', coverage: 'none', reasons: ['collector_unavailable'], pageUrl: courseUrl(course)})]);
+    const n = course.slice(-1);
+    // #83 AC4: material is the course-page row with the material collector; checked means ok or partial
+    // with a collector and the observedAt of its own request.
+    expect(by('course')).toEqual([expect.objectContaining({collector: 'material', outcome: 'partial', coverage: 'partial', scope: 'supplied_pages_only',
+      reasons: ['undiscovered'], pageUrl: courseUrl(course), observedAt: requestedAt(courseUrl(course))})]);
+    expect(by('assignment').map((p: any) => [p.pageUrl, p.collector, p.outcome, p.coverage, p.reasons])).toEqual(assignments(course).map(cm => [assignUrl(cm), 'assignment', 'ok', 'complete', []]));
     expect(by('quiz').map((p: any) => [p.pageUrl, p.outcome, p.coverage, p.reasons])).toEqual(quizzes(course).map(cm => [quizUrl(cm), 'ok', 'complete', []]));
-    for (const page of by('quiz')) // observedAt is the time of that request
-      expect(page.observedAt).toBe(new Date(site.starts().find(e => e.url === page.pageUrl)!.at).toISOString());
-    for (const type of ['assignment', 'submission', 'material'])
-      expect(by(type).every((p: any) => p.outcome === 'unavailable' && p.reasons.includes('collector_unavailable') && p.coverage === 'none')).toBe(true);
-    expect(by('assignment')).toHaveLength(2); expect(by('material')).toHaveLength(3);
+    for (const page of [...by('quiz'), ...by('assignment')]) // observedAt is the time of that request
+      expect(page.observedAt).toBe(requestedAt(page.pageUrl));
+    const [calendar] = by('calendar');
+    expect(by('calendar')).toHaveLength(1);
+    expect(calendar).toMatchObject({collector: 'calendar', outcome: 'partial', coverage: 'partial', scope: 'supplied_ranges_only', reasons: ['undiscovered'], pageUrl: CALENDAR});
+    calendarTimes.push(calendar.observedAt);
+    // Submission stays collector_unavailable (#16), on each assignment page.
+    expect(by('submission').map((p: any) => [p.pageUrl, p.outcome, p.reasons])).toEqual(assignments(course).map(cm => [assignUrl(cm), 'unavailable', ['collector_unavailable']]));
+    // Resource and URL pages are recorded without a request.
+    expect(by('material').map((p: any) => [p.pageUrl, p.outcome, p.coverage, p.reasons])).toEqual(
+      [`resource/view.php?id=990${n}04`, `resource/view.php?id=990${n}05`, `url/view.php?id=990${n}06`].map(tail => [`${ORIGIN}/mod/${tail}`, 'unavailable', 'none', ['unsupported_page', 'collector_unavailable']]));
     expect(by('unsupported')).toHaveLength(2);
-    expect(by('calendar')).toEqual([{pageType: 'calendar', scope: 'unknown', outcome: 'undiscovered', coverage: 'none', reasons: ['undiscovered', 'collector_unavailable'], ordinal: expect.any(Number)}]);
-    expect(pages.every((p: any) => p.pageType === 'quiz' || p.coverage !== 'complete')).toBe(true);
+    expect(pages.every((p: any) => ['quiz', 'assignment'].includes(p.pageType) || p.coverage !== 'complete')).toBe(true);
     expect(incompleteReasons).toEqual(expect.arrayContaining(['collector_unavailable', 'undiscovered', 'unsupported_page']));
   }
+  // Each course job's calendar row carries the time of its own calendar request.
+  expect(calendarTimes.sort()).toEqual(site.starts().filter(e => e.url === CALENDAR).map(e => new Date(e.at).toISOString()).sort());
   const snapshot = await backend.get('/api/snapshot');
   for (const course of ['9001', '9002']) {
     const entry = snapshot.sync.find((s: any) => s.courseId === ids[course]);
@@ -233,6 +263,17 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
   expect(snapshot.sync.some((s: any) => s.courseId === ids['9003'])).toBe(false);
   expect(snapshot.assessments.filter((a: any) => a.type === 'quiz').map((a: any) => a.title).sort())
     .toEqual(['Fictional Recap Quiz', 'Fictional Recap Quiz', 'Fictional Warm-up Quiz', 'Fictional Warm-up Quiz']);
+  // #83: the scanned courses' assignments show their real due dates from the assignment pages.
+  const due = (iso: string) => ({kind: 'exact', iso, tz: 'Asia/Almaty'});
+  for (const course of ['9001', '9002']) {
+    const moodle = snapshot.assessments.filter((a: any) => a.courseId === ids[course] && a.type === 'assignment' && a.sources.some((s: any) => s.source === 'moodle'));
+    expect(moodle.map((a: any) => [a.title, a.sources.find((s: any) => s.source === 'moodle').date]).sort()).toEqual([
+      ['Fictional Essay Outline', due('2028-03-08T23:59:00+05:00')], ['Fictional Lab Report', due('2028-03-07T14:30:00+05:00')]]);
+  }
+  const records = snapshot.collection.records;
+  expect(records.filter((r: any) => r.kind === 'calendar').map((r: any) => r.observations[0].activity.sourceCourseModuleId).sort()).toEqual(['990102', '990201']);
+  expect(records.filter((r: any) => r.kind === 'material').map((r: any) => [r.observations[0].sourceCourseModuleId, r.observations[0].kind]).sort()).toEqual(
+    [['990104', 'file'], ['990105', 'file'], ['990106', 'link'], ['990204', 'file'], ['990205', 'file'], ['990206', 'link']]);
   expect(snapshot.collection.refreshes.every((r: any) => r.evidenceMode === 'verified')).toBe(true);
   await backend.stop(); await backend.start();
   expect(await readback()).toEqual(before);
@@ -243,8 +284,8 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
   expect((await backend.write('POST', '/api/sync')).status).toBe(200);
   second.alarm();
   await backend.settled(3);
-  const after = site.starts().slice(6);
-  expect(after).toHaveLength(6);
+  const after = site.starts().slice(12);
+  expect(after).toHaveLength(12);
   expect(after[0]!.at - lastStart).toBeGreaterThanOrEqual(1000);
   spacing(site.starts()); expect(site.maxActive()).toBe(1);
   second.worker.dispose();
@@ -267,7 +308,7 @@ it('AC2/AC4: forbidden, missing, non-topics and truncated pages are requested on
   const [run] = await backend.settled(1);
   expect(run.jobs.every((j: any) => j.state === 'completed')).toBe(true);
   const urls = site.starts().map(e => e.url);
-  expect([...urls].sort()).toEqual([courseUrl('9001'), courseUrl('9002'), courseUrl('9003'), quizUrl('990103'), quizUrl('990109')].sort());
+  expect([...urls].sort()).toEqual([...jobUrls('9001'), courseUrl('9002'), courseUrl('9003')].sort());
   const job = (course: string) => run.jobs.find((j: any) => j.courseId === ids[course]).id;
   const first = (await backend.pages(job('9001'))).pages;
   expect(first.find((p: any) => p.pageUrl === quizUrl('990103'))).toMatchObject({pageType: 'quiz', outcome: 'forbidden', coverage: 'none', reasons: ['forbidden']});
@@ -388,7 +429,7 @@ it('AC4: a login redirect mid-scan fails the job and every unstarted job without
   const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
   let signedOut = false;
   const site = moodle(clock, url => {
-    if (signedOut || url.includes('/mod/quiz/')) {
+    if (signedOut || url.includes('/mod/')) {
       signedOut = true;
       return {status: 200, body: html['login-page.html']!, finalUrl: `${ORIGIN}/login/index.php`};
     }
@@ -400,10 +441,10 @@ it('AC4: a login redirect mid-scan fails the job and every unstarted job without
   const [run] = await backend.settled(1);
   expect(run.status).toBe('failed');
   expect(run.jobs.every((j: any) => j.state === 'failed' && j.errorCode === 'signed_out')).toBe(true);
-  // One course page, then the first quiz page reached the login page; nothing for the other course.
+  // One course page, then the first activity (assignment) page reached the login page; nothing for the other course.
   const urls = site.starts().map(e => e.url);
   expect(urls).toHaveLength(2);
-  expect(urls[1]).toMatch(/mod\/quiz\/view\.php/);
+  expect(urls[1]).toMatch(/mod\/assign\/view\.php/);
   const scanned = urls[0] === courseUrl('9001') ? '9001' : '9002', other = scanned === '9001' ? '9002' : '9001';
   expect(urls.some(u => u === courseUrl(other))).toBe(false);
   const job = (course: string) => run.jobs.find((j: any) => j.courseId === ids[course]).id;
