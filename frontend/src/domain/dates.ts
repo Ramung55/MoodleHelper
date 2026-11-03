@@ -112,26 +112,60 @@ export function compareSubmicro(a: string, b: string): number {
   return x === y ? 0 : x < y ? -1 : 1;
 }
 
+/** A valid IANA zone, or UTC. */
+function safeZone(tz: string): string {
+  try { new Intl.DateTimeFormat("en-GB", { timeZone: tz }); return tz; } catch { return "UTC"; }
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function yearIn(ms: number, tz: string): number {
+  return Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, year: "numeric" }).format(ms));
+}
+
+/**
+ * #87 shared friendly formatter for an instant: `4 Nov, 14:05` in the configured timezone,
+ * `4 Nov 2025, 14:05` outside the current year. Invalid input yields "Date unavailable".
+ */
+export function friendlyInstant(value: string | number, tz: string, now: number = Date.now()): string {
+  const ms = typeof value === "number" ? value : Date.parse(value);
+  if (!Number.isFinite(ms)) return "Date unavailable";
+  const zone = safeZone(tz);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: zone, year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(ms).map((p) => [p.type, p.value]));
+  const year = Number(parts["year"]);
+  const day = `${Number(parts["day"])} ${MONTHS[Number(parts["month"]) - 1]}${year !== yearIn(now, zone) ? ` ${year}` : ""}`;
+  return `${day}, ${parts["hour"]}:${parts["minute"]}`;
+}
+
+/** #87 friendly calendar day (`4 Nov`, or `4 Nov 2025` outside the current year) for a `YYYY-MM-DD` value. */
+export function friendlyDay(ymd: string, tz = "UTC", now: number = Date.now()): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return ymd;
+  const year = Number(m[1]);
+  return `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}${year !== yearIn(now, safeZone(tz)) ? ` ${year}` : ""}`;
+}
+
+/** #87 friendly day range: `9–15 Mar`, `28 Feb – 6 Mar`, with the year only outside the current one. */
+export function friendlyRange(start: string, end: string, tz = "UTC", now: number = Date.now()): string {
+  const a = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start), b = /^(\d{4})-(\d{2})-(\d{2})$/.exec(end);
+  if (!a || !b) return `${start} – ${end}`;
+  if (a[1] === b[1] && a[2] === b[2]) {
+    const tail = friendlyDay(end, tz, now);
+    return `${Number(a[3])}–${tail}`;
+  }
+  return `${friendlyDay(start, tz, now)} – ${friendlyDay(end, tz, now)}`;
+}
+
 export function formatDate(d: DateValue, tz: string): string {
   switch (d.kind) {
     case "exact":
-      return new Intl.DateTimeFormat("en-GB", {
-        timeZone: tz,
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(new Date(d.iso));
+      // Throws on an invalid instant like the former Intl formatter; displayDate guards that.
+      if (!Number.isFinite(Date.parse(d.iso))) throw new RangeError("Invalid time value");
+      return friendlyInstant(d.iso, tz);
     case "date":
-      return (
-        new Intl.DateTimeFormat("en-GB", {
-          timeZone: "UTC",
-          weekday: "short",
-          day: "numeric",
-          month: "short",
-        }).format(new Date(parseYmd(d.date))) + " (no time)"
-      );
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date)) throw new RangeError("Invalid time value");
+      return `${friendlyDay(d.date, tz)} (no time)`;
     case "week":
       return `Week ${d.week} (no exact date)`;
     case "unknown":

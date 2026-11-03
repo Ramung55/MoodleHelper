@@ -1,5 +1,5 @@
 import type { AssessmentView } from "./assessments";
-import { formatDate } from "./dates";
+import { formatDate, friendlyInstant } from "./dates";
 import type { DateValue, Snapshot } from "./types";
 
 /** Read-only SDU Moodle origin used by ingestion (backend/identity.py MOODLE_ORIGIN). */
@@ -84,7 +84,7 @@ export function dueState(v: Pick<AssessmentView, "date" | "teachingMapping" | "o
 
 function fmtInstant(iso: string | undefined, tz: string): string | null {
   if (!iso || !Number.isFinite(Date.parse(iso)) || !validTimeZone(tz)) return null;
-  return new Date(iso).toLocaleString("en-GB", { timeZone: tz, day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return friendlyInstant(iso, tz); // #87 shared friendly formatter
 }
 
 export type Freshness = { stale: boolean; label: string };
@@ -115,18 +115,18 @@ export function sourceFreshness(v: AssessmentView, snap: Snapshot, tz: string): 
   const reread = Number.isFinite(started) && Date.parse(last!) >= started;
   if (sync && (sync.status === "failed" || sync.status === "partial") && !reread) {
     const ok = fmtInstant(sync.lastSuccessAt, tz);
-    return { stale: true, label: `Stale — last observed ${lastText}; latest sync ${sync.status}${ok ? `, last successful sync ${ok}` : ", no successful sync recorded"}` };
+    return { stale: true, label: `Stale — last observed ${lastText}; latest sync ${sync.status === "partial" ? "incomplete" : sync.status}${ok ? `, last successful sync ${ok}` : ", no successful sync recorded"}` };
   }
   if (!sync || sync.status === "never") return { stale: false, label: `Last observed ${lastText}; freshness unknown` };
   return { stale: false, label: `Last observed ${lastText}` };
 }
 
-export type Group = { key: string; label: string; detail?: string | undefined; order: number };
+export type Group = { key: string; label: string; detail?: string | undefined; order: number; range?: { start: string; end: string } | undefined };
 
 /** Week grouping uses the resolved #30 interval; everything else is an explicit unresolved category. */
 export function weekGroup(v: AssessmentView): Group {
   if (invalidDate(v.date)) return { key: "invalid", label: "Invalid date", order: Infinity };
-  if (v.teachingMapping.resolved) return { key: `w${v.teachingMapping.week}`, label: `Week ${v.teachingMapping.week}`, detail: `${v.teachingMapping.start} – ${v.teachingMapping.end}`, order: v.teachingMapping.week };
+  if (v.teachingMapping.resolved) return { key: `w${v.teachingMapping.week}`, label: `Week ${v.teachingMapping.week}`, detail: `${v.teachingMapping.start} – ${v.teachingMapping.end}`, range: { start: v.teachingMapping.start, end: v.teachingMapping.end }, order: v.teachingMapping.week };
   if (v.date.kind === "unknown") return { key: "unknown", label: "No date", order: 1e9 + 1 };
   return { key: "unresolved", label: "Unresolved week", detail: "Teaching calendar does not map these dates", order: 1e9 };
 }
@@ -146,7 +146,7 @@ export function dayGroup(v: AssessmentView, tz: string): Group {
   }
   if (d.kind === "week") {
     const m = v.teachingMapping;
-    return { key: `w${d.week}`, label: `Week ${d.week} · no exact day`, detail: m.resolved ? `${m.start} – ${m.end}` : undefined, order: m.resolved ? Date.parse(`${m.start}T00:00:00Z`) + 2 : 1e15 + d.week };
+    return { key: `w${d.week}`, label: `Week ${d.week} · no exact day`, detail: m.resolved ? `${m.start} – ${m.end}` : undefined, range: m.resolved ? { start: m.start, end: m.end } : undefined, order: m.resolved ? Date.parse(`${m.start}T00:00:00Z`) + 2 : 1e15 + d.week };
   }
   return { key: "unknown", label: "Date unknown", order: 1e16 };
 }
@@ -164,4 +164,11 @@ export function matchStatus(v: AssessmentView, st?: string): boolean {
     case "done": return v.completed || v.a.submission?.status === "submitted";
     default: return true;
   }
+}
+
+/** #87 D2: one short sentence for an unresolved teaching-week mapping. */
+export function shortMappingReason(reason: string): string {
+  if (/^Teaching calendar is not configured/.test(reason)) return "Teaching calendar not set.";
+  const first = /^[^.]*\./.exec(reason)?.[0] ?? reason;
+  return first.split(";")[0]!.replace(/[,;]\s*$/, "").replace(/([^.])$/, "$1.");
 }

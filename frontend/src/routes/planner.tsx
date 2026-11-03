@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertTriangle } from "lucide-react";
-import { PageHeader, TYPE_LABEL } from "@/components/mh/bits";
-import { formatDate } from "@/domain/dates";
+import { Details, PageHeader, TYPE_LABEL } from "@/components/mh/bits";
+import { formatDate, friendlyRange } from "@/domain/dates";
 import { mapTeachingWeek } from "@/domain/teaching-weeks";
 import { weightOf } from "@/domain/workload";
 import { busyReasons, contributionReason, precisionLabel, unallocatedReason } from "@/domain/weekly-overview";
 import { useApp } from "@/lib/app-store";
+import { shortMappingReason } from "@/domain/deadline-display";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/planner")({
@@ -29,11 +30,15 @@ function Planner() {
     <>
       <PageHeader
         title="Weekly planner"
-        sub={`Weights: exam ${s.weights.exam}, assignment ${s.weights.assignment}, quiz ${s.weights.quiz}, other ${s.weights.other}. Warning above ${s.thresholds.maxOutstanding} outstanding or weighted estimate ${s.thresholds.maxWeighted}. Weighted scores are estimates, not study hours.`}
+        sub={`Busy week: more than ${s.thresholds.maxOutstanding} due or estimate above ${s.thresholds.maxWeighted}.`}
       />
+      {/* #37 AC2/AC5: weights and the estimate note stay one click away, editable in Settings. */}
+      <Details className="-mt-4 mb-4">
+        <p>Weights: exam {s.weights.exam}, assignment {s.weights.assignment}, quiz {s.weights.quiz}, other {s.weights.other}. Weighted scores are estimates, not study hours.</p>
+        <p><Link to="/settings" className="text-primary underline">Edit weights in Settings</Link></p>
+      </Details>
       {workloadError && <p role="alert" className="mb-4 text-destructive">{workloadError} <Link to="/settings" className="underline">Review workload weights</Link></p>}
-      {!workloadError && calendarMissing && <p role="status" className="mb-4 rounded-lg border bg-card p-4 text-sm">Teaching calendar not configured. No teaching weeks can be resolved, so every assessment is listed as unallocated. <Link to="/settings" className="underline">Configure the teaching calendar in Settings</Link></p>}
-      {!workloadError && !calendarMissing && resolvedWeeks.length === 0 && <p role="status" className="mb-4 rounded-lg border bg-card p-4 text-sm">Teaching calendar unresolved: no teaching weeks could be mapped. <Link to="/settings" className="underline">Review the teaching calendar in Settings</Link></p>}
+      {!workloadError && (calendarMissing || resolvedWeeks.length === 0) && <p role="status" className="mb-4 rounded-lg border bg-card p-4 text-sm">Set your teaching calendar to see weeks. <Link to="/settings" hash="teaching-calendar" className="text-primary underline">Set calendar</Link></p>}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {resolvedWeeks.map((w) => {
           const r = mapTeachingWeek(w.week, s.teachingCalendar);
@@ -45,7 +50,7 @@ function Planner() {
                 <h2 id={`week-${w.week}-h`} className="font-display text-lg font-semibold">
                   <Link to="/deadlines" search={{ week: w.week }} className="hover:underline">Week {w.week}{w.week === currentWeek && " · now"}</Link>
                 </h2>
-                <span className="text-xs text-muted-foreground">{r.start} – {r.end}</span>
+                <span className="text-xs text-muted-foreground">{friendlyRange(r.start, r.end, s.timezone)}</span>
               </div>
               <dl className="mt-2 grid grid-cols-3 gap-2 text-center">
                 <div><dt className="text-xs text-muted-foreground">Total</dt><dd className="font-mono text-lg">{w.total}</dd></div>
@@ -75,14 +80,14 @@ function Planner() {
       <section className="mt-8" aria-labelledby="unallocated-h">
         <h2 id="unallocated-h" className="mb-2 text-xl font-semibold">Unallocated</h2>
         {unallocatedSummary && <p className="mb-2 text-sm">{unallocatedSummary.total} total · {unallocatedSummary.outstanding} outstanding · weighted estimate {unallocatedSummary.weighted}</p>}
-        <p className="mb-2 text-sm text-muted-foreground">Missing or unresolved teaching calendar, undated events, breaks and dates outside the semester are not counted in a teaching week.</p>
+        <p className="mb-2 text-sm text-muted-foreground">Items with no teaching week: no calendar, no date, a break, or outside the semester.</p>
         <ul className="divide-y rounded-lg border bg-card">
           {unallocated.length === 0 && <li className="p-4 text-sm text-muted-foreground">{workloadError ? "Totals unavailable until the workload error is resolved." : "Nothing unallocated."}</li>}
           {unallocated.map((v) => (
             <li key={v.a.id} className="flex flex-wrap justify-between gap-2 p-3 text-sm">
               <span><Link to="/deadlines" search={{ id: v.a.id }} className="font-medium break-words hover:underline">{v.title}</Link>
                 <span className="block text-xs text-muted-foreground">{TYPE_LABEL[v.a.type]} · {v.outstanding ? `outstanding, +${weightOf(v, s)} est.` : "not outstanding"}</span></span>
-              <span className="text-muted-foreground">{v.date.kind === "unknown" ? "Date unknown" : formatDate(v.date, s.timezone)} <span className="block text-xs">Precision: {precisionLabel(v)} · Reason: {unallocatedReason(v)}</span></span>
+              <span className="text-muted-foreground">{v.date.kind === "unknown" ? "Date unknown" : formatDate(v.date, s.timezone)} <span className="block text-xs">Precision: {precisionLabel(v)} · Reason: {shortMappingReason(unallocatedReason(v))}</span></span>
             </li>
           ))}
         </ul>

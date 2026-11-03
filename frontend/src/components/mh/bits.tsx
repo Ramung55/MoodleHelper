@@ -24,8 +24,9 @@ const SUB: Record<SubmissionStatus, { label: string; cls: string }> = {
   unknown: { label: "Status unknown", cls: "bg-muted text-muted-foreground border border-dashed border-border" },
 };
 
+/** #87 D1: no chip when no submission was observed; an observed `unknown` keeps its own label (#35 AC3). */
 export function SubmissionBadge({ status }: { status?: SubmissionStatus | undefined }) {
-  if (!status) return <Badge variant="outline">No Moodle status</Badge>;
+  if (!status) return null;
   const s = SUB[status];
   return <Badge className={cn("border-transparent", s.cls)}>Moodle: {s.label}</Badge>;
 }
@@ -39,6 +40,19 @@ export function PageHeader({ title, sub, actions }: { title: string; sub?: React
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
     </header>
+  );
+}
+
+/**
+ * #87 guideline rule 4: the one disclosure for text an acceptance criterion needs but a
+ * student rarely does. Closed by default, keyboard reachable (native summary).
+ */
+export function Details({ summary = "Details", open, className, children }: { summary?: ReactNode; open?: boolean | undefined; className?: string | undefined; children: ReactNode }) {
+  return (
+    <details open={open} className={cn("mt-2 text-xs text-muted-foreground", className)}>
+      <summary className="cursor-pointer select-none font-medium text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{summary}</summary>
+      <div className="mt-1 space-y-1 break-words [overflow-wrap:anywhere]">{children}</div>
+    </details>
   );
 }
 

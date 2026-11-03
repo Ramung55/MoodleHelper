@@ -6,6 +6,7 @@ import { useApp } from "@/lib/app-store";
 import { cn } from "@/lib/utils";
 import { EmptyState, PageHeader } from "./bits";
 import type { ShellState } from "@/lib/shell-preview";
+import { shellNotice } from "@/domain/live-sync";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
@@ -39,7 +40,7 @@ function ConnectedShell() {
   const { snap, conn, error, adapter, retryLoad } = useApp();
   return <ShellFrame state={error ? "error" : !snap ? "loading" : undefined}
     error={error ?? undefined} retry={retryLoad}
-    notice={conn?.message ?? "Connecting to local backend…"}
+    notice={shellNotice(conn)}
     connection={conn?.extensionDetected ? "Extension detected" : "Extension not connected"}
     storage={adapter.storage === "backend" ? "Data stays in your local backend." : "Data stays in this browser."}
     unread={snap?.alerts.filter((a) => !a.read).length}
@@ -123,7 +124,7 @@ function ShellFrame({ state, preview, notice, connection, storage, retry, exit, 
             </div>
           ) : page && state === "empty" ? <EmptyState title={`No ${page.label.toLowerCase()} data yet`}>No data is present in this preview. Exit preview to load your local backend data.</EmptyState> : page && state === "loading" ? (
             <div role="status" className="space-y-3" aria-busy="true" aria-label={`Loading ${page.label}`}>
-              <p className="sr-only">Loading {page.label}…</p>
+              <p className="text-sm text-muted-foreground">Loading…</p>
               {[0, 1, 2].map((i) => (
                 <div key={i} className="h-20 animate-pulse rounded-lg bg-muted" />
               ))}

@@ -9,6 +9,7 @@ import { AssessmentRow } from "@/components/mh/AssessmentRow";
 import { AssessmentSheet } from "@/components/mh/AssessmentSheet";
 import { DateInput } from "@/components/mh/DateInput";
 import { EmptyState, PageHeader, TYPE_LABEL } from "@/components/mh/bits";
+import { friendlyRange } from "@/domain/dates";
 import type { AssessmentView } from "@/domain/assessments";
 import { dayGroup, matchStatus, STATUS_FILTERS, weekGroup, type Group } from "@/domain/deadline-display";
 import type { AssessmentType, DateValue } from "@/domain/types";
@@ -50,6 +51,9 @@ function Deadlines() {
   const set = (p: Partial<Search>) => nav({ search: (old) => ({ ...old, ...p }) });
   return <DeadlineList search={search} set={set} />;
 }
+
+/** #87 guideline 6: the timezone is named once per page, only when it differs from the browser's. */
+const browserZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } };
 
 export function DeadlineList({ search, set }: { search: Search; set: (p: Partial<Search>) => void }) {
   const { snap, views } = useApp();
@@ -110,6 +114,7 @@ export function DeadlineList({ search, set }: { search: Search; set: (p: Partial
         {filtered && <Button variant="ghost" size="sm" onClick={reset}>Reset filters</Button>}
       </div>
 
+      {browserZone() !== tz && <p className="-mt-4 mb-4 text-xs text-muted-foreground">Times are shown in {tz}.</p>}
       {list.length === 0 ? (
         unknownCourse ? (
           <EmptyState title="This course filter is not available">The course in the link is not tracked or no longer exists. <Button variant="link" className="h-auto p-0" onClick={reset}>Reset filters</Button></EmptyState>
@@ -122,7 +127,7 @@ export function DeadlineList({ search, set }: { search: Search; set: (p: Partial
         <div className="space-y-8">
           {ordered.map(({ g, items }) => (
             <section key={g.key} aria-label={`${g.label} (${items.length})`}>
-              <h2 className="mb-2 text-lg font-semibold">{g.label}{g.detail && <span className="ml-2 text-sm font-normal text-muted-foreground">{g.detail}</span>}</h2>
+              <h2 className="mb-2 text-lg font-semibold">{g.label}{(g.range || (g.detail && !g.detail.startsWith("Exact time"))) && <span className="ml-2 text-sm font-normal text-muted-foreground">{g.range ? friendlyRange(g.range.start, g.range.end, tz) : g.detail}</span>}</h2>
               <div className="space-y-2">{items.map((v) => <AssessmentRow key={v.a.id} v={v} now={now} onOpen={(id) => set({ id })} />)}</div>
             </section>
           ))}

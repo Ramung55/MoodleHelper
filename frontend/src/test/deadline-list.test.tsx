@@ -174,7 +174,8 @@ describe("freshness after a live scan (#21)", () => {
   it("stays stale when a later partial scan did not read the source again, or when the latest scan failed", () => {
     const partial = setupScan("partial", "2028-03-06T10:00:00Z", "2028-03-05T10:02:00Z");
     expect(partial.stale).toBe(true);
-    expect(partial.label).toMatch(/latest sync partial/);
+    // #87 guideline 3: plain words instead of the `partial` enum (was /latest sync partial/).
+    expect(partial.label).toMatch(/latest sync incomplete/);
     expect(setupScan("failed", "2028-03-05T10:00:00Z", "2028-03-05T10:02:00Z").stale).toBe(true);
     // No recorded scan start (demo or older entries): the existing partial rule applies.
     expect(setupScan("partial", undefined, "2028-03-05T10:02:00Z").stale).toBe(true);

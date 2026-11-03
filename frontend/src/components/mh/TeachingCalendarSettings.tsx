@@ -18,7 +18,7 @@ export function TeachingCalendarSettings() {
   const error = teachingCalendarError(calendar), slots = error ? [] : teachingSlots(calendar), ranges = error ? [] : teachingRanges(calendar);
   const edit = (fn: (value: TeachingCalendar) => TeachingCalendar) => { dirty.current = true; setDraft(fn); };
   const reset = () => { dirty.current = false; setDraft(saved ? structuredClone(saved) : empty()); setExcluded(saved?.excludedWeekStarts.join(", ") ?? ""); setFailure(""); };
-  return <section data-testid="teaching-calendar" className="min-w-0 max-w-full rounded-lg border bg-card p-4 sm:p-5"><h2 className="mb-3 text-lg font-semibold">Explicit teaching calendar</h2>
+  return <section id="teaching-calendar" data-testid="teaching-calendar" className="scroll-mt-16 min-w-0 max-w-full rounded-lg border bg-card p-4 sm:p-5"><h2 className="mb-3 text-lg font-semibold">Explicit teaching calendar</h2>
     <p className="mb-2 text-sm">{saved ? `Saved calendar: ${saved.startDate}–${saved.endDate}, ${saved.timezone}.` : "Teaching calendar not configured. Legacy/sample semester fields do not establish a teaching-week map."}</p>
     <p className="mb-3 text-xs text-muted-foreground">Enter both inclusive boundaries as complete seven-day baseline slots, at most 60 calendar slots and 30 baseline teaching weeks. Full exclusions pause counting. Partial holidays annotate days without shifting numbering; explicitly confirm preserve or leave numbering unresolved. An explicit override changes only its named week, never its neighbors. These are your settings, not observed institutional numbering.</p>
     <form noValidate className="min-w-0" onSubmit={async (event) => {

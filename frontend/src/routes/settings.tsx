@@ -8,13 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { CourseTag, PageHeader } from "@/components/mh/bits";
+import { CourseTag, Details, PageHeader } from "@/components/mh/bits";
+import { MockProgress } from "@/components/mh/MockProgress";
 import { dispatchDownload, prepareBackup, previewRestore, readBackupFile, type PreparedBackup, type RestorePreview } from "@/domain/backup";
 import { currentDataset } from "@/services/local-documents";
 import { EraseOutcomeUnknown, RestoreOutcomeUnknown, type AiAvailability, type DataContext, type EraseCleanup, type RestoreContext } from "@/services/adapter";
 import { beginErase, finishDashboardCleanup } from "@/services/local-erase";
 import { useApp } from "@/lib/app-store";
-import { syncAllLabel } from "@/domain/live-sync";
+import { syncButtonLabel } from "@/domain/live-sync";
 import { BridgeClient } from "@/services/extension-adapter";
 import { BridgeError } from "../../../shared/src/bridge";
 import { TeachingCalendarSettings } from "@/components/mh/TeachingCalendarSettings";
@@ -197,7 +198,7 @@ export function EraseLocalData() {
 }
 
 function SettingsPage() {
-  const { snap, run, adapter, conn, syncAll, syncing, setSnap } = useApp();
+  const { snap, run, adapter, conn, syncAll, syncing, detecting, setSnap } = useApp();
   const s = snap!;
   const st = s.settings;
   const [preview, setPreview] = useState<RestorePreview | null>(null);
@@ -294,7 +295,9 @@ function SettingsPage() {
             ))}
           </ul>
           {s.sync.filter((c) => c.error).map((c) => <p key={c.courseId} className="text-xs text-destructive">{s.courses.find((x) => x.id === c.courseId)?.code}: {c.error}</p>)}
-          <Button className="mt-3" onClick={syncAll} disabled={syncing}>{syncing ? "Syncing…" : syncAllLabel(conn)}</Button>
+          <Button className="mt-3" onClick={syncAll} disabled={syncing || detecting}>{syncButtonLabel(conn, syncing, detecting)}</Button>
+          {/* #87 O4: in the real dataset the mock panel (#21 AC1) lives here instead of on Overview. */}
+          {!!conn && conn.state !== "demo" && <Details summary="Demo: mock scan progress"><MockProgress snapshot={s} realData /></Details>}
         </Section>
 
         <TeachingCalendarSettings />

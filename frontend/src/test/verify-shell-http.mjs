@@ -25,7 +25,7 @@ for (const [origin, dev] of [[development, true], [production, false]]) {
         if (preview && state === "error") { assert.match(html, /role="alert"/); assert.match(html, />Retry<\/button>/); }
         if (preview && state === "empty") assert.match(html, /No data is present/);
         if (!preview || state === "loading") assert.match(html, /aria-busy="true"/);
-        if (!preview) assert.match(html, /Connecting to local backend/);
+        if (!preview) assert.match(html, /Loading…/); // #87 S2 (was "Connecting to local backend…")
         if (!dev) {
           assert.doesNotMatch(html, /Development preview\.|Exit preview|simulated error|No data is present/);
           const script = html.match(/<script[^>]*src="([^"]+)"/);

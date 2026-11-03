@@ -1,12 +1,13 @@
 // #21 AC2: a real full-sync time comes only from the verified Snapshot sync entries of the real
 // dataset, and stays distinct from the latest page refresh and the last failed scan attempt.
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { buildDemoSnapshot } from '@/services/fixtures';
 import type { Snapshot } from '@/domain/types';
 import { installPopup } from '../../../extension/src/popup';
 import { syncFreshness } from '../../../shared/src/full-sync';
 import { Overview } from '@/routes/index';
+import { MockProgress } from '@/components/mh/MockProgress';
 
 const mock = vi.hoisted(()=>({ current:vi.fn(), connect:vi.fn(), useApp:vi.fn() }));
 vi.mock('@/services/extension-adapter',()=>({BridgeClient:class {connect=mock.connect; currentMockRun=mock.current; startMockRun=vi.fn(); cancelMockRun=vi.fn(); dispose(){} }}));
@@ -85,9 +86,16 @@ it('Overview card and dashboard panel each show full sync, page refresh and fail
   mock.useApp.mockReturnValue({snap:snapshot,conn:{state:'disconnected',message:'Real dataset.',extensionDetected:false},views:[],weeks:[],currentWeek:null,syncAll:vi.fn(),syncing:false});
   mock.connect.mockResolvedValue({}); mock.current.mockResolvedValue({courseIds:snapshot.settings.trackedCourseIds});
   render(<Overview/>);
-  const card=screen.getByText('Successful full sync').closest('a')!;
-  expect(within(card).getByText('05/03/2028, 10:00:00 (UTC)')).toBeInTheDocument();
+  // #87 O1: the card is titled "Last full sync" with a friendly value; the #21 lines stay verbatim under Details.
+  const card=screen.getByRole('region',{name:'Last full sync'});
+  expect(within(card).getByText('5 Mar 2028, 10:00')).toBeInTheDocument();
+  fireEvent.click(within(card).getByText('Details'));
+  expect(card.querySelector('details')!.open).toBe(true);
   labels(card.textContent!);
+  // #87 O4: in the real dataset the mock panel is not on Overview; Settings → Details renders the same panel.
+  expect(screen.queryByRole('region',{name:'Mock scan progress'})).toBeNull();
+  cleanup();
+  render(<MockProgress snapshot={snapshot} realData/>);
   labels(screen.getByRole('region',{name:'Mock scan progress'}).textContent!);
 });
 

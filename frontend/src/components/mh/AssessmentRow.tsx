@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle2, Clock, EyeOff, GitCompare, History, Pencil, User } from "lucide-react";
 import type { AssessmentView } from "@/domain/assessments";
-import { displayDate, dueState, sourceFreshness } from "@/domain/deadline-display";
+import { displayDate, dueState, shortMappingReason, sourceFreshness } from "@/domain/deadline-display";
+import { friendlyRange } from "@/domain/dates";
 import { useApp } from "@/lib/app-store";
 import { cn } from "@/lib/utils";
 import { COURSE_BORDER, CourseTag, SubmissionBadge, TYPE_LABEL } from "./bits";
@@ -49,7 +50,7 @@ export function AssessmentRow({ v, onOpen, now = new Date() }: { v: AssessmentVi
       </div>
       <div className="flex flex-col items-start gap-1 sm:items-end">
         <span className="font-mono text-sm font-semibold text-foreground">{displayDate(v.date, tz)}</span>
-        {v.date.kind === "week" && <span className="text-xs text-muted-foreground">{v.teachingMapping.resolved ? `${v.teachingMapping.start} – ${v.teachingMapping.end} · ${v.teachingMapping.timezone}` : v.teachingMapping.reason}</span>}
+        {v.date.kind === "week" && <span className="text-xs text-muted-foreground">{v.teachingMapping.resolved ? `Week ${v.date.week} · ${friendlyRange(v.teachingMapping.start, v.teachingMapping.end, tz)}` : shortMappingReason(v.teachingMapping.reason)}</span>}
         {!v.a.personal && <SubmissionBadge status={v.a.submission?.status} />}
       </div>
     </button>

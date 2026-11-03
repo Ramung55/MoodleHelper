@@ -7,7 +7,8 @@ import { displayDate as formatDate, dueState, redactUnsafeLinks, safeSourceHref,
 import { LocalEvidenceView } from "./LocalEvidenceView";
 import { resolveAssessmentId } from "@/domain/assessments";
 import { useApp } from "@/lib/app-store";
-import { CourseTag, SubmissionBadge, TYPE_LABEL } from "./bits";
+import { CourseTag, Details, SubmissionBadge, TYPE_LABEL } from "./bits";
+import { friendlyInstant, friendlyRange } from "@/domain/dates";
 import { DateInput } from "./DateInput";
 import type { DateValue, DeadlineAssertion } from "@/domain/types";
 import type { OverlayPatch } from "@/services/adapter";
@@ -122,11 +123,11 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
               <section>
                 <h3 className="mb-2 text-sm font-semibold">Deadline</h3>
                 <p className="font-mono text-lg font-semibold">{formatDate(v.date, tz)}</p>
-                {v.date.kind === "week" && <p>{v.teachingMapping.resolved ? `${v.teachingMapping.start} – ${v.teachingMapping.end} · ${v.teachingMapping.timezone}` : v.teachingMapping.reason}</p>}
+                {v.date.kind === "week" && <p>{v.teachingMapping.resolved ? friendlyRange(v.teachingMapping.start, v.teachingMapping.end, tz) : v.teachingMapping.reason}</p>}
                 {v.week && <p className="text-xs text-muted-foreground">Teaching week {v.week}</p>}
                 {due && <p className={due.kind === "overdue" ? "text-sm font-semibold text-destructive" : "text-sm text-muted-foreground"}>{due.label}</p>}
                 {fresh && <p className={fresh.stale ? "text-sm text-warning-foreground" : "text-xs text-muted-foreground"}>{fresh.label}</p>}
-                {v.a.availableFrom && <p className="text-xs text-muted-foreground">Opens {Number.isFinite(Date.parse(v.a.availableFrom)) ? new Date(v.a.availableFrom).toLocaleString("en-GB", { timeZone: tz }) : "date unavailable"}</p>}
+                {v.a.availableFrom && <p className="text-xs text-muted-foreground">Opens {Number.isFinite(Date.parse(v.a.availableFrom)) ? friendlyInstant(v.a.availableFrom, tz) : "date unavailable"}</p>}
                 {v.conflict && (
                   <div className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
                     <p className="font-semibold text-destructive">{v.conflict.comparison === "incomparable" ? "Sources have different date precision" : "Sources disagree"} — {hasDateOverride ? "your date is shown; Moodle is the latest source date" : "Moodle date is used"}</p>
@@ -139,17 +140,25 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                     <p className="font-semibold text-destructive">The source date changed after you edited it</p>
                     <p className="text-xs font-semibold uppercase text-destructive">Needs review</p>
                     <p>When you edited (previous baseline): {formatDate(v.overrideDisagreement.was, tz)}</p>
-                    <p>Source now{v.sourceKind ? ` (${v.sourceKind})` : ""}: {formatDate(v.overrideDisagreement.now, tz)}</p>
+                    <p>Source now{v.sourceKind ? ` (${v.sourceKind === "moodle" ? "Moodle" : "Syllabus"})` : ""}: {formatDate(v.overrideDisagreement.now, tz)}</p>
                     <p>Your date: {formatDate(v.date, tz)}</p>
                   </div>
                 )}
                 {changes.map((c) => (
-                  <p key={c.id} className="mt-2 text-sm text-muted-foreground">
-                    {c.sourceKind === "syllabus" ? "Syllabus" : c.sourceId ? "Moodle" : "Source (unattributed)"} changed: {historyDate(c.from, tz)} → {historyDate(c.to, tz)}
-                    {c.sourceUrl && <> · <SourceLink url={c.sourceUrl} label="Source of this change" /></>}
-                    {c.sourceDocumentId && <> · {snap.documents.find((d) => d.id === c.sourceDocumentId)?.name ?? "Document unavailable"}</>}
-                    {c.sourceObservedAt && <> · Observed {c.sourceObservedAt}</>} · Detected {c.detectedAt}
-                  </p>
+                  <div key={c.id} className="mt-2 text-sm text-muted-foreground">
+                    <p>
+                      {c.sourceKind === "syllabus" ? "Syllabus" : c.sourceId ? "Moodle" : "Source (unattributed)"} changed: {c.from.kind === "removed" ? "Removed" : formatDate(c.from, tz)} → {c.to.kind === "removed" ? "Removed" : formatDate(c.to, tz)}
+                      {c.sourceUrl && <> · <SourceLink url={c.sourceUrl} label="Source of this change" /></>}
+                      {c.sourceDocumentId && <> · {snap.documents.find((d) => d.id === c.sourceDocumentId)?.name ?? "Document unavailable"}</>}
+                      {c.sourceObservedAt && <> · Observed {friendlyInstant(c.sourceObservedAt, tz)}</>}
+                      {Number.isFinite(Date.parse(c.detectedAt)) && <> · Detected {friendlyInstant(c.detectedAt, tz)}</>}
+                    </p>
+                    {/* #87: exact recorded values stay one click away. */}
+                    <Details>
+                      <p>{historyDate(c.from, tz)} → {historyDate(c.to, tz)}</p>
+                      <p>{c.sourceObservedAt && <>Observed {c.sourceObservedAt} · </>}Detected {c.detectedAt}</p>
+                    </Details>
+                  </div>
                 ))}
               </section>
 
@@ -176,20 +185,20 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                   {!v.a.submission && <p className="mt-1 text-sm text-muted-foreground">Moodle submission status unknown — not observed yet. This is not treated as overdue or not submitted.</p>}
                   <p className="mt-1 text-xs text-muted-foreground">Independent of your personal check{v.completed ? " (you marked this done)" : ""}.</p>
                   {v.a.submission?.evidence && <p className="mt-1 text-sm text-muted-foreground">“{v.a.submission.evidence}”</p>}
-                  {v.a.submission && <p className="text-xs text-muted-foreground">Observed {Number.isFinite(Date.parse(v.a.submission.observedAt)) ? new Date(v.a.submission.observedAt).toLocaleString("en-GB", { timeZone: tz }) : "time unknown"}</p>}
+                  {v.a.submission && <p className="text-xs text-muted-foreground">Observed {Number.isFinite(Date.parse(v.a.submission.observedAt)) ? friendlyInstant(v.a.submission.observedAt, tz) : "time unknown"}</p>}
                 </section>
               )}
 
               <section>
                 <h3 className="mb-2 text-sm font-semibold">Sources & evidence</h3>
-                <p className="mb-2 text-xs text-muted-foreground">Raw source observations as recorded; the effective date above may come from a newer accepted observation or your override.</p>
+                <p className="mb-2 text-xs text-muted-foreground">What each source recorded; the date above can come from a newer source or your own change.</p>
                 {v.a.sources.length === 0 && <p className="text-sm text-muted-foreground">No source evidence recorded.</p>}
                 <ul className="space-y-2">
                   {v.a.sources.map((s, i) => (
                     <li key={i} className="rounded-md border bg-muted/40 p-3 text-sm">
                       <p className="font-medium">{s.source === "moodle" ? "Moodle" : s.source === "syllabus" ? "Syllabus" : "Personal"} · {formatDate(s.date, tz)}</p>
-                      <p className="text-xs text-muted-foreground">Observed {Number.isFinite(Date.parse(s.observedAt)) ? new Date(s.observedAt).toLocaleString("en-GB", { timeZone: tz }) : "time unknown"}</p>
-                      {s.localEvidence ? <LocalEvidenceView reference={s.localEvidence} /> : <>{s.excerpt && <p className="text-muted-foreground">“{s.excerpt}”</p>}{s.location && <p className="text-xs text-muted-foreground">{s.location}</p>}</>}
+                      <p className="text-xs text-muted-foreground">Observed {Number.isFinite(Date.parse(s.observedAt)) ? friendlyInstant(s.observedAt, tz) : "time unknown"}</p>
+                      {s.localEvidence ? <LocalEvidenceView reference={s.localEvidence} /> : <>{s.excerpt && <p className="text-muted-foreground">“{s.excerpt}”</p>}{s.location && <Details><p>{s.location}</p></Details>}</>}
                       {s.url && <SourceLink url={s.url} label="Open source in Moodle" />}
                     </li>
                   ))}

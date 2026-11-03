@@ -7,6 +7,7 @@ import { routeTree } from "@/routeTree.gen";
 import type { Snapshot } from "@/domain/types";
 import { busyReasons, draftFrom, validateDraft, WORKLOAD_DEFAULTS } from "@/domain/weekly-overview";
 import { buildDemoSnapshot } from "@/services/fixtures";
+import { friendlyRange } from "@/domain/dates";
 import { workloadFixture } from "./workload-fixture";
 
 const mocks = vi.hoisted(() => ({ load: vi.fn(), connection: vi.fn() }));
@@ -44,7 +45,8 @@ describe("planner route", () => {
     mount("/planner");
     // #69: the file's first (cold) full-app render plus data load overran the default 1s wait under per-core CPU load.
     const week1 = await screen.findByRole("region", { name: /^Week 1/ }, { timeout: 5_000 });
-    expect(week1).toHaveTextContent("2027-01-04 – 2027-01-10");
+    // #87 guideline 6: the week interval uses the shared friendly formatter (was "2027-01-04 – 2027-01-10").
+    expect(week1).toHaveTextContent(friendlyRange("2027-01-04", "2027-01-10"));
     expect(within(week1).getByText("Weighted estimate")).toBeInTheDocument();
     expect(week1).toHaveTextContent("Counted in total only: submitted in Moodle");
     expect(week1).toHaveTextContent('Moodle status "draft" takes precedence');
@@ -67,8 +69,9 @@ describe("planner route", () => {
   it("says the calendar is not configured instead of fabricating weeks", async () => {
     snap = buildDemoSnapshot(); snap.changes = []; snap.settings.reminders.enabled = false; delete snap.settings.teachingCalendar;
     mount("/planner");
-    expect(await screen.findByText(/Teaching calendar not configured/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Configure the teaching calendar in Settings/ })).toHaveAttribute("href", "/settings");
+    // #87 P2: one line and a "Set calendar" link to Settings → Teaching calendar.
+    expect(await screen.findByText(/Set your teaching calendar to see weeks\./)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Set calendar" })).toHaveAttribute("href", "/settings#teaching-calendar");
     await waitFor(() => expect(screen.queryByRole("region", { name: /^Week \d/ })).toBeNull());
   });
 });

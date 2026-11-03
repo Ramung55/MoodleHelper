@@ -43,7 +43,8 @@ it('overview and dashboard render scoped synthetic full sync, page receipt and f
   // The Overview card and the progress panel each show the page refresh once (#21 AC2).
   const pageRefresh=/Latest page refresh: 2024-02-02T02:00:00Z.*supplied_pages_only.*synthetic/;
   expect(within(screen.getByRole('region',{name:'Mock scan progress'})).getByText(pageRefresh)).toBeInTheDocument();
-  expect(within(screen.getByText('Successful full sync').closest('a')!).getByText(pageRefresh)).toBeInTheDocument();
+  // #87 O1: the Overview card is now "Last full sync"; its #21 lines sit under Details.
+  expect(within(screen.getByRole('region',{name:'Last full sync'})).getByText(pageRefresh)).toBeInTheDocument();
   expect(screen.getAllByText(pageRefresh)).toHaveLength(2);
   await screen.findByText(/Last failed mock attempt started:.*1970/);
   view.rerender(<Overview fullSyncAttestation={{...evidence,courseIds:['different']}}/>);

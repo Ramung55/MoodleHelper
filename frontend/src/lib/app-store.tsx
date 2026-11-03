@@ -30,6 +30,8 @@ interface AppState {
   workloadError: string | null;
   currentWeek: number | null;
   syncing: boolean;
+  /** #87 S2: extension detection and collection mode are still pending; Sync all is disabled (`Checking…`). */
+  detecting: boolean;
   retryLoad: () => void;
   run: (fn: (a: MoodleHelperAdapter) => Promise<Snapshot>) => Promise<boolean>;
   selectionPending: boolean;
@@ -51,6 +53,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [conn, setConn] = useState<ConnectionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [detecting, setDetecting] = useState(true);
   const [selectionPending, setSelectionPending] = useState(false);
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const selectionBusy = useRef(false);
@@ -71,14 +74,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([adapter.load(), adapter.connection(), detectExtension()])
-      .then(async ([s, c, detected]) => {
-        // #46: only the real dataset with the extension asks the backend for its collection mode.
-        const mode = detected && c.state !== "demo" && adapter.collectionMode ? await adapter.collectionMode().catch(() => undefined) : undefined;
+    setDetecting(true);
+    // #87 S2: the saved data renders as soon as load() and connection() resolve; extension
+    // detection and the collection mode finish afterwards. Until then Sync all is disabled
+    // (`detecting`), so a click cannot take the non-extension path (#20/#46 worker wake).
+    const detection = detectExtension().catch(() => false);
+    Promise.all([adapter.load(), adapter.connection()])
+      .then(async ([s, c]) => {
         if (!alive) return;
         setError(null);
         setSnap(s);
+        setConn(c);
+        const detected = await detection;
+        // #46: only the real dataset with the extension asks the backend for its collection mode.
+        const mode = detected && c.state !== "demo" && adapter.collectionMode ? await adapter.collectionMode().catch(() => undefined) : undefined;
+        if (!alive) return;
         setConn(connectionWithExtension(c, detected, mode));
+        setDetecting(false);
       })
       .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not load local data"));
     // #56: resume an interrupted browser cleanup for the current erase epoch; never seeds or syncs.
@@ -128,6 +140,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // whose bridge wakes the scan worker after the 200 instead of waiting for its next alarm.
   const throughExtension = !!conn?.liveSync && adapter.kind !== "extension";
   const syncAll = useCallback(async (): Promise<SyncOutcome> => {
+    // #87 S2: nothing is sent before extension detection finishes.
+    if (detecting) return { ok: false, message: "Checking…" };
     setSyncing(true);
     try {
       const s = await enqueue(() => throughExtension ? syncAllThroughExtension(setSnap) : adapter.syncAll(setSnap));
@@ -148,7 +162,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false);
     }
-  }, [adapter, enqueue, throughExtension]);
+  }, [adapter, enqueue, throughExtension, detecting]);
 
   const [discovery, setDiscovery] = useState<{ pending: boolean; status: string | null; error: string | null }>({ pending: false, status: null, error: null });
   const discoveryBusy = useRef(false);
@@ -193,7 +207,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (fresh.length) void run((a) => a.saveAlerts([...fresh, ...snap.alerts]));
   }, [snap, derived, run]);
 
-  return <Ctx.Provider value={{ adapter, snap, conn, error, syncing, retryLoad, run, syncAll, setSnap, selectionPending, selectionError, saveCourseSelection, retryCourseSelection,
+  return <Ctx.Provider value={{ adapter, snap, conn, error, syncing, detecting, retryLoad, run, syncAll, setSnap, selectionPending, selectionError, saveCourseSelection, retryCourseSelection,
     discovery: { available: discoveryAvailable, ...discovery }, discoverCourses, ...derived }}>{children}</Ctx.Provider>;
 }
 
