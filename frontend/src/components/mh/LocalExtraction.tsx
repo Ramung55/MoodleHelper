@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,12 +13,19 @@ import type { TeachingCalendar, Snapshot } from "@/domain/types";
 import { routeLocalProposals } from "@/services/route-local-syllabus";
 import { AiFallback } from "./AiFallback";
 import { unresolvedMentions } from "@/services/ai-fallback";
+import { EXTRACTION_SETTINGS, deleteStoredExtraction, loadStoredExtraction, saveStoredExtraction, type StoredAiProposals, type StoredDateContext, type StoredExtraction } from "@/services/local-extraction-store";
+import type { LocalFence } from "@/services/local-erase";
 
-/** Result and preview URLs live only for this visible, dataset-bound row. */
+/**
+ * Preview URLs live only for this visible, dataset-bound row. The extraction, mentions, interpreted dates and
+ * validated AI proposals are kept with the document in this browser (#44 row 10) and restored on reload.
+ */
 export function LocalExtraction({ document: association, teachingCalendar, commitRoute }: { document: LocalAssociation; teachingCalendar?: TeachingCalendar | undefined; commitRoute?: ((work: () => Promise<Snapshot>) => Promise<boolean>) | undefined }) {
   const [result, setResult] = useState<Exclude<Extraction, { format: "ocr" }>>();
   const [mentions, setMentions] = useState<AssessmentMention[]>();
   const [parsedDates, setParsedDates] = useState<ParsedAssessmentMention[]>();
+  const [interpretedContext, setInterpretedContext] = useState<StoredDateContext>();
+  const [ai, setAi] = useState<StoredAiProposals>();
   const [dateOrder, setDateOrder] = useState("");
   const [sourceTimezone, setSourceTimezone] = useState("");
   const [semesterStart, setSemesterStart] = useState("");
@@ -42,11 +49,16 @@ export function LocalExtraction({ document: association, teachingCalendar, commi
     association.digest,
   ]);
   const [stateKey, setStateKey] = useState(associationKey);
+  const [hydratedKey, setHydratedKey] = useState<string>();
+  const fence = useRef<LocalFence | undefined>(undefined);
+  const saves = useRef<Promise<unknown>>(Promise.resolve());
   if (stateKey !== associationKey) {
     setStateKey(associationKey);
     setResult(undefined);
     setMentions(undefined);
     setParsedDates(undefined);
+    setInterpretedContext(undefined);
+    setAi(undefined);
     setDateOrder("");
     setSourceTimezone("");
     setSemesterStart("");
@@ -68,6 +80,37 @@ export function LocalExtraction({ document: association, teachingCalendar, commi
       revoke();
     };
   }, [associationKey]);
+  // #44 row 10: restore this document's stored results once per association, unless the student already acted.
+  // Only a record for this exact dataset, course, SHA-256 and settings, whose document is still stored, is restored.
+  useEffect(() => {
+    let live = true; const attempt = generation.current;
+    fence.current = undefined;
+    void loadStoredExtraction(association).then((loaded) => {
+      if (!live || loaded.kind === "unavailable") return;
+      fence.current = loaded.fence;
+      if (loaded.kind === "restored" && attempt === generation.current) {
+        const { record } = loaded;
+        setResult(record.result); setMentions(record.mentions); setParsedDates(record.parsedDates);
+        setInterpretedContext(record.context); setAi(record.ai);
+        if (record.context) { setDateOrder(record.context.dateOrder); setSourceTimezone(record.context.sourceTimezone); setSemesterStart(record.context.semesterStart); setSemesterEnd(record.context.semesterEnd); }
+        setStatus(`Restored from this browser: the local extraction${record.mentions ? `, ${record.mentions.length} possible assessments and their evidence` : ""}${record.ai ? ` and ${record.ai.records.length} AI proposals` : ""}. All remain unconfirmed; nothing was sent.`);
+      }
+      setHydratedKey(associationKey);
+    });
+    return () => { live = false; };
+  }, [associationKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Interpretations and AI proposals belong to the interpreted dates they were made from.
+  useEffect(() => { if (!parsedDates) setAi(undefined); }, [parsedDates]);
+  // Keep the shown results in browser storage, fenced by the erase epoch read at load; clearing them removes the record.
+  const hydrated = hydratedKey === associationKey;
+  useEffect(() => {
+    const guard = fence.current;
+    if (!hydrated || !guard) return;
+    const target = { datasetId: association.datasetId, courseId: association.courseId, digest: association.digest };
+    const record: StoredExtraction | undefined = result && { ...target, settings: EXTRACTION_SETTINGS, savedAt: new Date().toISOString(), result,
+      mentions, parsedDates: mentions ? parsedDates : undefined, context: mentions && parsedDates ? interpretedContext : undefined, ai: mentions && parsedDates ? ai : undefined };
+    saves.current = saves.current.then(() => record ? saveStoredExtraction(record, guard) : deleteStoredExtraction(target, guard)).catch(() => undefined);
+  }, [hydrated, result, mentions, parsedDates, interpretedContext, ai]); // eslint-disable-line react-hooks/exhaustive-deps
   const extract = async () => {
     if (controller.current) return;
     const abort = new AbortController(); controller.current = abort;
@@ -134,7 +177,7 @@ export function LocalExtraction({ document: association, teachingCalendar, commi
       }
       if (await currentDataset() !== association.datasetId) throw new Error("The dataset changed. Reconnect before date interpretation.");
       if (!valid()) return;
-      setParsedDates(parsed); setStatus("Date proposals are ready for inspection. All remain unconfirmed; unresolved wording needs review.");
+      setParsedDates(parsed); setInterpretedContext({ dateOrder, sourceTimezone, semesterStart, semesterEnd }); setStatus("Date proposals are ready for inspection. All remain unconfirmed; unresolved wording needs review.");
     } catch (error) {
       if (attempt === generation.current) { setParsedDates(undefined); setMentions(undefined); setResult(undefined); setStatus(`Date interpretation failed: ${error instanceof Error ? error.message : "Retry extraction."}`); }
     } finally { if (attempt === generation.current) { controller.current = undefined; setPending(false); } }
@@ -171,7 +214,7 @@ export function LocalExtraction({ document: association, teachingCalendar, commi
     {pending && <><Button size="sm" variant="ghost" onClick={() => { controller.current?.abort(); if (routing.current) setStatus("Routing cancelled. An in-flight backend outcome may already be committed; retry the same stored proposals to reconcile."); else { setResult(undefined); setMentions(undefined); setParsedDates(undefined); setStatus("Extraction cancelled. No complete result was saved."); } }}>{routing.current ? "Cancel routing" : "Cancel extraction"}</Button><Progress value={progress} aria-label={`Extracting text from ${association.name}`} /></>}
     {status && <p role="status">{status}</p>}
     {result && <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Current extraction preview · SHA-256 {result.digest}. Reopening this preview requires extraction again; explicit routing retains originals and audit separately in this browser.</p>
+      <p className="text-xs text-muted-foreground">Current extraction preview · SHA-256 {result.digest}. Kept with the imported document in this browser and restored after a reload; erasing local data removes it. Explicit routing retains originals and audit separately in this browser.</p>
       <Button size="sm" variant="outline" disabled={pending} onClick={() => void findMentions()}>Find assessments</Button>
       {mentions && <section className="space-y-2"><h3 className="font-semibold">Possible assessments · unconfirmed</h3>
         {commitRoute && <div className="rounded border p-2 text-xs"><p>Explicit routing retains original text, dates, location and audit in this browser. Only derived title/type/date and opaque identifiers/policy facts go to the local backend. Files, excerpts, raw date wording and geometry are never sent. Clear explicit evidence may add one backend event; uncertainty and all OCR require review.</p><Button size="sm" variant="outline" disabled={pending || !parsedDates || !mentions.length} onClick={() => void route()}>Retain evidence and route proposals</Button></div>}
@@ -182,7 +225,7 @@ export function LocalExtraction({ document: association, teachingCalendar, commi
           <div className="flex flex-wrap gap-2"><label className="text-xs">Explicit semester start<Input type="date" aria-label="Explicit semester start" value={semesterStart} onChange={(event) => { setSemesterStart(event.target.value); setParsedDates(undefined); }} /></label><label className="text-xs">Explicit semester end<Input type="date" aria-label="Explicit semester end" value={semesterEnd} onChange={(event) => { setSemesterEnd(event.target.value); setParsedDates(undefined); }} /></label></div>
           <Button size="sm" variant="outline" onClick={() => void interpretDates()}>Interpret explicit dates</Button>
         </fieldset>
-        {parsedDates && (() => { const unresolved = unresolvedMentions(mentions, parsedDates); return unresolved.length > 0 && <AiFallback key={`${association.datasetId}/${association.courseId}/${association.digest}`} document={association} mentions={unresolved} commitRoute={commitRoute} context={{ ...(dateOrder ? { dateOrder: dateOrder as "DMY" | "MDY" } : {}), ...(/^[A-Za-z0-9_+/-]{1,64}$/.test(sourceTimezone.trim()) ? { timezone: sourceTimezone.trim() } : {}), ...(semesterStart || semesterEnd ? { explicitSemesterBounds: { ...(semesterStart ? { start: semesterStart } : {}), ...(semesterEnd ? { end: semesterEnd } : {}) } } : {}) }} />; })()}
+        {parsedDates && (() => { const unresolved = unresolvedMentions(mentions, parsedDates); return unresolved.length > 0 && <AiFallback key={`${association.datasetId}/${association.courseId}/${association.digest}`} document={association} mentions={unresolved} commitRoute={commitRoute} restored={ai} onResult={setAi} context={{ ...(dateOrder ? { dateOrder: dateOrder as "DMY" | "MDY" } : {}), ...(/^[A-Za-z0-9_+/-]{1,64}$/.test(sourceTimezone.trim()) ? { timezone: sourceTimezone.trim() } : {}), ...(semesterStart || semesterEnd ? { explicitSemesterBounds: { ...(semesterStart ? { start: semesterStart } : {}), ...(semesterEnd ? { end: semesterEnd } : {}) } } : {}) }} />; })()}
         {mentions.length === 0 && <p>No supported assessment keywords were found.</p>}
         {mentions.map((mention) => <details key={mention.id} className="rounded border p-2"><summary className="cursor-pointer">{mention.title} · {mention.type} · Unconfirmed</summary>
           {(() => { const week = parseTeachingWeek(mention, teachingCalendar); return week.expressions.length > 0 && <p>Teaching week preview: {week.mapping.resolved ? `Week ${week.mapping.week}: ${week.mapping.start} – ${week.mapping.end} · ${week.mapping.timezone} (no exact due date)` : week.mapping.reason}</p>; })()}

@@ -11,7 +11,7 @@ import { captureLocalFence, guardTransaction, StaleLocalWrite, type LocalFence }
 export function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (!globalThis.indexedDB) { reject(new Error("Browser storage is unavailable.")); return; }
-    const open = indexedDB.open(DB_NAME, 4);
+    const open = indexedDB.open(DB_NAME, 5);
     open.onupgradeneeded = () => {
       if (!open.result.objectStoreNames.contains("blobs")) open.result.createObjectStore("blobs", { keyPath: ["datasetId", "digest"] });
       if (!open.result.objectStoreNames.contains("associations")) open.result.createObjectStore("associations", { keyPath: ["datasetId", "courseId", "digest"] });
@@ -19,6 +19,8 @@ export function database(): Promise<IDBDatabase> {
       // #56 minimal per-dataset erase tombstone {datasetId, epoch, eraseId}; no student content.
       if (!open.result.objectStoreNames.contains("lifecycle")) open.result.createObjectStore("lifecycle", { keyPath: "datasetId" });
       if (!open.result.objectStoreNames.contains("evidence")) open.result.createObjectStore("evidence", { keyPath: ["datasetId", "courseId", "digest", "mentionId", "pipelineVersion"] });
+      // #44 row 10: extraction results per document SHA-256 and extraction settings; erased with the document.
+      if (!open.result.objectStoreNames.contains("extractions")) open.result.createObjectStore("extractions", { keyPath: ["datasetId", "courseId", "digest", "settings"] });
     };
     open.onerror = () => reject(new Error("Could not open browser storage."));
     open.onblocked = () => reject(new Error("Browser storage is blocked by another tab."));

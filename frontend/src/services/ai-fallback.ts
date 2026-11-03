@@ -166,7 +166,7 @@ export async function validateAiResponse(preview: FrozenPreview, response: AiExt
 }
 
 /** Retain AI originals locally, then hand metadata-only proposals to #31 (always review). */
-export async function routeAiRecords(preview: FrozenPreview, records: LocalEvidenceRecord[], signal: AbortSignal, client: { routeLocalSyllabus(input: LocalSyllabusInput, signal?: AbortSignal): Promise<LocalSyllabusResult> }, dataset: () => Promise<string | undefined> = () => currentDataset(signal)): Promise<LocalSyllabusResult> {
+export async function routeAiRecords(preview: Pick<FrozenPreview, "datasetId" | "association">, records: LocalEvidenceRecord[], signal: AbortSignal, client: { routeLocalSyllabus(input: LocalSyllabusInput, signal?: AbortSignal): Promise<LocalSyllabusResult> }, dataset: () => Promise<string | undefined> = () => currentDataset(signal)): Promise<LocalSyllabusResult> {
   const check = async () => { signal.throwIfAborted(); if (await dataset() !== preview.datasetId) throw new Error("The dataset changed. AI results were not routed."); };
   await check();
   const stored = await retainLocalEvidence(records, signal); await check();

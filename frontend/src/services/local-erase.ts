@@ -8,7 +8,7 @@
 import { database } from "./local-documents";
 import type { DataContext, EraseCleanup, MoodleHelperAdapter } from "./adapter";
 
-export const CONTENT_STORES = ["blobs", "associations", "jobs", "evidence"] as const;
+export const CONTENT_STORES = ["blobs", "associations", "jobs", "evidence", "extractions"] as const;
 export const LIFECYCLE_STORE = "lifecycle";
 export type LocalTombstone = { datasetId: string; epoch: number; eraseId: string };
 export type LocalFence = { datasetId: string; epoch: number; generation: number };

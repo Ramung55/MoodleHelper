@@ -28,7 +28,7 @@ export type Backup = z.infer<typeof Backup>;
 export const BACKUP_NOTE = "Structured records, settings and personal changes only. Original document files and downloaded files are not included.";
 export const BACKUP_EXCLUSIONS = [
   "Original PDF/DOCX file bytes",
-  "Session-local extracted or OCR text kept outside the structured records",
+  "Extracted or OCR text, found mentions, interpreted dates and AI proposals kept in this browser outside the structured records",
   "Material files downloaded to your disk",
   "Credentials, provider keys, bridge tokens and Moodle account identifiers",
 ];

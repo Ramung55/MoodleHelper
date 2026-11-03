@@ -4,7 +4,7 @@ import { saveLocalDocument } from "@/services/local-documents";
 import type { MoodleHelperAdapter } from "@/services/adapter";
 
 const A = "12345678-1234-4123-8123-123456789abc", B = "87654321-4321-4321-8321-cba987654321";
-const keyPaths: Record<string, string[] | string> = { blobs: ["datasetId", "digest"], associations: ["datasetId", "courseId", "digest"], jobs: ["datasetId", "owner", "id"], evidence: ["datasetId", "courseId", "digest", "mentionId", "pipelineVersion"], lifecycle: "datasetId" };
+const keyPaths: Record<string, string[] | string> = { blobs: ["datasetId", "digest"], associations: ["datasetId", "courseId", "digest"], jobs: ["datasetId", "owner", "id"], evidence: ["datasetId", "courseId", "digest", "mentionId", "pipelineVersion"], extractions: ["datasetId", "courseId", "digest", "settings"], lifecycle: "datasetId" };
 type Row = Record<string, unknown>;
 let stores: Record<string, Map<string, Row>>;
 let failNextClear = false;
@@ -47,6 +47,8 @@ beforeEach(() => {
     stores["associations"]!.set(JSON.stringify([id, "c", "d1"]), { datasetId: id, courseId: "c", digest: "d1" });
     stores["jobs"]!.set(JSON.stringify([id, "o", "j"]), { datasetId: id, owner: "o", id: "j" });
     stores["evidence"]!.set(JSON.stringify([id, "c", "d1", "m", 1]), { datasetId: id });
+    // #44 row 10: stored extraction results (text, mentions, AI proposals) are erased with the document.
+    stores["extractions"]!.set(JSON.stringify([id, "c", "d1", "s"]), { datasetId: id, courseId: "c", digest: "d1", settings: "s" });
   }
   vi.stubGlobal("indexedDB", fakeIndexedDb());
   vi.stubGlobal("IDBKeyRange", { bound: (lower: unknown[], upper: unknown[]) => ({ lower, upper }) });
@@ -54,13 +56,13 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const count = (id: string) => ["blobs", "associations", "jobs", "evidence"].reduce((n, s) => n + [...stores[s]!.values()].filter((r) => r["datasetId"] === id).length, 0);
+const count = (id: string) => ["blobs", "associations", "jobs", "evidence", "extractions"].reduce((n, s) => n + [...stores[s]!.values()].filter((r) => r["datasetId"] === id).length, 0);
 
 describe("#56 browser-local erase", () => {
   it("clears only this dataset's key ranges and keeps a minimal tombstone", async () => {
     await clearLocalDataset({ datasetId: A, epoch: 2, eraseId: "e".repeat(32) });
     expect(count(A)).toBe(0);
-    expect(count(B)).toBe(4);
+    expect(count(B)).toBe(5);
     expect([...stores["lifecycle"]!.values()]).toEqual([{ datasetId: A, epoch: 2, eraseId: "e".repeat(32) }]);
   });
 
@@ -70,7 +72,7 @@ describe("#56 browser-local erase", () => {
     expect(stores["lifecycle"]!.get(JSON.stringify(A))).toMatchObject({ epoch: 5 });
     failNextClear = true;
     await expect(clearLocalDataset({ datasetId: B, epoch: 1, eraseId: "c".repeat(32) })).rejects.toThrow(/Retry cleanup/);
-    expect(count(B)).toBe(4);
+    expect(count(B)).toBe(5);
   });
 
   it("rejects a document commit whose fence was captured before the erase (no resurrection)", async () => {
@@ -96,10 +98,10 @@ describe("#56 browser-local erase", () => {
     const adapter = { acknowledgeErase, dataContext: vi.fn(async () => ({ datasetId: A, epoch: 1, revision: 2, lifecycle: "cleanup_pending" as const, erasure: { eraseId: "e".repeat(32), cleanup: cleanup("pending") } })) } as unknown as MoodleHelperAdapter;
     const resumed = await resumeEraseCleanup(adapter);
     expect(acknowledgeErase).toHaveBeenCalledWith("e".repeat(32), "dashboard", "complete");
-    expect(resumed?.cleanup.dashboard).toBe("complete"); expect(count(A)).toBe(0); expect(count(B)).toBe(4);
+    expect(resumed?.cleanup.dashboard).toBe("complete"); expect(count(A)).toBe(0); expect(count(B)).toBe(5);
     failNextClear = true;
     const failed = await finishDashboardCleanup(adapter, { eraseId: "e".repeat(32), datasetId: B, epoch: 1 });
     expect(acknowledgeErase).toHaveBeenLastCalledWith("e".repeat(32), "dashboard", "failed");
-    expect(failed.error).toMatch(/Retry cleanup/); expect(count(B)).toBe(4);
+    expect(failed.error).toMatch(/Retry cleanup/); expect(count(B)).toBe(5);
   });
 });
