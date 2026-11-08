@@ -46,6 +46,7 @@ import { BridgeError, DISCOVERY_MESSAGES } from "../../../shared/src/bridge";
 import { TeachingCalendarSettings } from "@/components/mh/TeachingCalendarSettings";
 import { WorkloadWeights } from "@/components/mh/WorkloadWeights";
 import { ReminderDetails, ReminderSettingsPanel } from "@/components/mh/ReminderSettings";
+import { ThemeSettings } from "@/components/mh/Theme";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -637,6 +638,7 @@ function SettingsPage() {
     <>
       <PageHeader title="Settings" />
       <div className="grid gap-4 lg:grid-cols-2">
+        <ThemeSettings />
         <TrackedCourses />
 
         <Section title="Connection & sync">

@@ -3,7 +3,13 @@
   <head>
     <meta charset="utf-8">
     <title>Moodle Helper</title>
-    <style>html { width: 340px; } body { margin: 0; padding: 16px; font: 14px system-ui; } h1 { font-size: 18px; margin: 0 0 8px; } h2 { font-size: 14px; margin: 12px 0 4px; } p { margin: 4px 0; } button { margin: 4px; } li { margin: 4px 0; } code { font-size: 12px; overflow-wrap: anywhere; }</style>
+    <style>
+      :root { --popup-background: oklch(1 0 0); --popup-foreground: oklch(0 0 0); --popup-link: oklch(0.45 0.25 264); --popup-button: oklch(0.94 0 0); --popup-border: oklch(0.52 0 0); --popup-focus: oklch(0.45 0.2 264); color-scheme: light; }
+      @media (prefers-color-scheme: dark) { :root { --popup-background: oklch(0.19 0.014 165); --popup-foreground: oklch(0.94 0.01 85); --popup-link: oklch(0.8 0.1 240); --popup-button: oklch(0.32 0.02 165); --popup-border: oklch(0.7 0.02 165); --popup-focus: oklch(0.8 0.1 165); color-scheme: dark; } }
+      html { width: 340px; background: var(--popup-background); color: var(--popup-foreground); }
+      body { margin: 0; padding: 16px; font: 14px system-ui; } a { color: var(--popup-link); }
+      h1 { font-size: 18px; margin: 0 0 8px; } h2 { font-size: 14px; margin: 12px 0 4px; } p { margin: 4px 0; } button { margin: 4px; background: var(--popup-button); color: var(--popup-foreground); border: 1px solid var(--popup-border); } :focus-visible { outline: 2px solid var(--popup-focus); outline-offset: 2px; } li { margin: 4px 0; } code { font-size: 12px; overflow-wrap: anywhere; }
+    </style>
   </head>
   <body>
     <h1>Moodle Helper</h1>

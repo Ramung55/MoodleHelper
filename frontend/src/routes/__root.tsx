@@ -15,6 +15,7 @@ import { AppProvider } from "@/lib/app-store";
 import { AppShell } from "@/components/mh/AppShell";
 import { Toaster } from "@/components/ui/sonner";
 import { shellPreview, shellSearch } from "@/lib/shell-preview";
+import { THEME_BOOTSTRAP, ThemeController } from "@/components/mh/Theme";
 
 function NotFoundComponent() {
   return (
@@ -94,11 +95,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
         <HeadContent />
       </head>
       <body>
+        <ThemeController />
         {children}
         <Scripts />
       </body>

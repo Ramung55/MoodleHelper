@@ -191,7 +191,7 @@ export function TransferStatus({
   return (
     <div
       data-testid="transfer-status"
-      className={`mt-1 text-xs ${l.tone === "destructive" ? "text-destructive" : l.tone === "warning" ? "text-warning-foreground" : "text-muted-foreground"}`}
+      className={`mt-1 text-xs ${l.tone === "destructive" ? "text-destructive" : l.tone === "warning" ? "text-warning-text" : "text-muted-foreground"}`}
     >
       <span aria-live="polite">{l.text}</span>
       {l.progress &&
@@ -392,7 +392,7 @@ export function Materials() {
                                   </span>
                                 )}
                                 {m.stale ? (
-                                  <span className="ml-2 text-xs text-warning-foreground">
+                                  <span className="ml-2 text-xs text-warning-text">
                                     Stale: last checked {seen ?? "at an unknown time"}
                                   </span>
                                 ) : (
@@ -401,7 +401,7 @@ export function Materials() {
                                   </span>
                                 )}
                                 {failed && (
-                                  <span className="ml-2 text-xs text-warning-foreground">
+                                  <span className="ml-2 text-xs text-warning-text">
                                     Latest refresh attempt{" "}
                                     {fmt(failed.observedAt, s.settings.timezone)} did not complete
                                     {attemptReasons(failed).length
@@ -410,7 +410,7 @@ export function Materials() {
                                   </span>
                                 )}
                                 {m.warnings.map((w) => (
-                                  <span key={w} className="ml-2 text-xs text-warning-foreground">
+                                  <span key={w} className="ml-2 text-xs text-warning-text">
                                     {w}
                                   </span>
                                 ))}
