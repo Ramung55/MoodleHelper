@@ -1,0 +1,185 @@
+{
+  "label": "groq:openai/gpt-oss-120b run of the #42 nonprivate fixtures",
+  "provider": "groq",
+  "model": "openai/gpt-oss-120b",
+  "tier": "free",
+  "reasoningEffort": "low",
+  "ranAt": "2026-11-03T18:28:19+00:00",
+  "fixturesVersion": "ai-extract.v1",
+  "priceTable": "groq-free-2026-11-03",
+  "totalCostUsd": 0.0,
+  "passed": 5,
+  "cases": [
+    {
+      "id": "en-explicit",
+      "lang": "en",
+      "outcome": "pass",
+      "failed": [],
+      "proposals": [
+        {
+          "title": "Lab report 2",
+          "type": "assignment",
+          "date": {
+            "value": "2026-11-14T23:59",
+            "precision": "datetime"
+          },
+          "uncertain": false,
+          "confirmed": false,
+          "evidence": [
+            {
+              "excerptId": "ex-0",
+              "locationId": "loc-0",
+              "start": 20,
+              "end": 45
+            }
+          ]
+        }
+      ],
+      "inputTokens": 632,
+      "outputTokens": 403,
+      "costUsd": 0.0
+    },
+    {
+      "id": "ru-month",
+      "lang": "ru",
+      "outcome": "fail",
+      "failed": [
+        "type"
+      ],
+      "proposals": [
+        {
+          "title": "Контрольная работа 1",
+          "type": "assignment",
+          "date": {
+            "value": "2026-12-05",
+            "precision": "date"
+          },
+          "uncertain": false,
+          "confirmed": false,
+          "evidence": [
+            {
+              "excerptId": "ex-0",
+              "locationId": "loc-0",
+              "start": 32,
+              "end": 48
+            }
+          ]
+        }
+      ],
+      "inputTokens": 630,
+      "outputTokens": 420,
+      "costUsd": 0.0
+    },
+    {
+      "id": "ambiguous-order",
+      "lang": "en",
+      "outcome": "fail",
+      "failed": [
+        "invalid_output"
+      ],
+      "inputTokens": 625,
+      "outputTokens": 353,
+      "costUsd": 0.0
+    },
+    {
+      "id": "relative-week",
+      "lang": "en",
+      "outcome": "pass",
+      "failed": [],
+      "proposals": [
+        {
+          "title": "Midterm exam",
+          "type": "exam",
+          "date": {
+            "precision": "week"
+          },
+          "uncertain": true,
+          "uncertaintyReason": "relative_week",
+          "week": 6,
+          "confirmed": false,
+          "evidence": [
+            {
+              "excerptId": "ex-0",
+              "locationId": "loc-0",
+              "start": 0,
+              "end": 23
+            }
+          ]
+        }
+      ],
+      "inputTokens": 622,
+      "outputTokens": 328,
+      "costUsd": 0.0
+    },
+    {
+      "id": "missing-year",
+      "lang": "ru",
+      "outcome": "pass",
+      "failed": [],
+      "proposals": [
+        {
+          "title": "Project submission",
+          "type": "assignment",
+          "date": {
+            "value": "2026-11-20",
+            "precision": "date"
+          },
+          "uncertain": true,
+          "uncertaintyReason": "missing_year",
+          "week": 12,
+          "confirmed": false,
+          "evidence": [
+            {
+              "excerptId": "ex-0",
+              "locationId": "loc-0",
+              "start": 16,
+              "end": 25
+            }
+          ]
+        }
+      ],
+      "inputTokens": 623,
+      "outputTokens": 681,
+      "costUsd": 0.0
+    },
+    {
+      "id": "adversarial",
+      "lang": "en",
+      "outcome": "pass",
+      "failed": [],
+      "proposals": [
+        {
+          "title": "Quiz 3",
+          "type": "quiz",
+          "date": {
+            "value": "2026-10-02",
+            "precision": "date"
+          },
+          "uncertain": false,
+          "confirmed": false,
+          "evidence": [
+            {
+              "excerptId": "ex-0",
+              "locationId": "loc-0",
+              "start": 63,
+              "end": 86
+            }
+          ]
+        }
+      ],
+      "inputTokens": 635,
+      "outputTokens": 542,
+      "costUsd": 0.0
+    },
+    {
+      "id": "no-date",
+      "lang": "en",
+      "outcome": "pass",
+      "failed": [],
+      "proposals": [],
+      "inputTokens": 618,
+      "outputTokens": 33,
+      "costUsd": 0.0
+    }
+  ]
+}

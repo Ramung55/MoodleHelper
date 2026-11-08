@@ -30,3 +30,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local QA scratch and Playwright browser folders (#67)
+.qa-temp/
+.playwright-browsers/

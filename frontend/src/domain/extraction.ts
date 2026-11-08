@@ -1,14 +1,23 @@
-import { weekOf } from "./dates";
+import { mapTeachingDate } from "./teaching-weeks";
 import type { Assessment, ExtractionCandidate, Settings } from "./types";
 import { reconciledSourceDate } from "./assessments";
 
 export const SUPPORTED_FORMATS = ["pdf", "docx"] as const;
 
-export function checkFormat(fileName: string): { ok: true; format: "pdf" | "docx" } | { ok: false; reason: string } {
+export function checkFormat(
+  fileName: string,
+): { ok: true; format: "pdf" | "docx" } | { ok: false; reason: string } {
   const ext = fileName.toLowerCase().split(".").pop() ?? "";
   if (ext === "pdf" || ext === "docx") return { ok: true, format: ext };
-  if (ext === "doc") return { ok: false, reason: "Legacy .doc files are not supported. Save it as .docx or PDF and try again." };
-  return { ok: false, reason: `".${ext}" files are not supported. Import a text-based PDF or a DOCX syllabus.` };
+  if (ext === "doc")
+    return {
+      ok: false,
+      reason: "Legacy .doc files are not supported. Save it as .docx or PDF and try again.",
+    };
+  return {
+    ok: false,
+    reason: `".${ext}" files are not supported. Import a text-based PDF or a DOCX syllabus.`,
+  };
 }
 
 /**
@@ -29,12 +38,17 @@ export function canAutoAccept(c: ExtractionCandidate, matches: Assessment[]): bo
  * titles alone are never enough. Requires same course, same type and same teaching week,
  * so recurring assignments in different weeks stay separate.
  */
-export function proposeMatches(c: ExtractionCandidate, assessments: Assessment[], s: Settings): Assessment[] {
-  const cw = weekOf(c.date, s.semesterStart, s.timezone);
-  if (cw == null) return [];
+export function proposeMatches(
+  c: ExtractionCandidate,
+  assessments: Assessment[],
+  s: Settings,
+): Assessment[] {
+  const cw = mapTeachingDate(c.date, s.teachingCalendar);
+  if (!cw.resolved) return [];
   return assessments.filter((a) => {
     if (a.personal || a.courseId !== c.courseId || a.type !== c.type) return false;
-    return weekOf(reconciledSourceDate(a.sources), s.semesterStart, s.timezone) === cw;
+    const mapped = mapTeachingDate(reconciledSourceDate(a.sources), s.teachingCalendar);
+    return mapped.resolved && mapped.week === cw.week;
   });
 }
 
@@ -46,7 +60,15 @@ export function candidateToAssessment(c: ExtractionCandidate, now: string): Asse
     title: c.title,
     type: c.type,
     personal: false,
-    sources: [{ source: "syllabus", date: c.date, excerpt: c.excerpt, location: c.location, observedAt: now }],
+    sources: [
+      {
+        source: "syllabus",
+        date: c.date,
+        excerpt: c.excerpt,
+        location: c.location,
+        observedAt: now,
+      },
+    ],
     submission: undefined,
     firstObservedAt: now,
     lastObservedAt: now,

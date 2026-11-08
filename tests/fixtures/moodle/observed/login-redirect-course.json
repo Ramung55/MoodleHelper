@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/course/view.php?id=9001",
+    "credentials": "omit"
+  },
+  "response": {
+    "redirected": true,
+    "status": 200,
+    "finalPath": "/login/index.php",
+    "contentType": null
+  }
+}

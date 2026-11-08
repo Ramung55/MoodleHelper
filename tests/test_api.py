@@ -1,4 +1,5 @@
 from copy import deepcopy
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -39,6 +40,41 @@ def test_personal_crud_and_source_separation(client):
 def test_unique_personal_ids(client):
     ids = [client.post("/api/personal-events", json=event()).json()["assessments"][-1]["id"] for _ in range(4)]
     assert len(set(ids)) == 4
+
+
+@pytest.mark.parametrize("id", ["folder/item", "folder/100% ?# Пример", "", "/leading//trailing/"])
+def test_encoded_identifiers_reach_all_identifier_routes(client, id):
+    """Restored identifiers are arbitrary strings, not single URL segments."""
+    data = client.post("/api/personal-events", json=event()).json()
+    data["assessments"][-1]["id"] = id
+    data["candidates"][0]["id"] = id
+    data["materials"][0].update(id=id, accessible=True)
+    assert client.put("/api/snapshot", json=data).status_code == 200
+    encoded = quote(id, safe="")
+
+    patched = client.patch(f"/api/assessments/{encoded}/overlay", json={"completed": True})
+    assert patched.status_code == 200
+    assert next(o for o in patched.json()["overlays"] if o["assessmentId"] == id)["completed"] is True
+    reviewed = client.post(f"/api/candidates/{encoded}/review", json={"kind": "reject"})
+    assert reviewed.status_code == 200
+    assert next(c for c in reviewed.json()["candidates"] if c["id"] == id)["status"] == "rejected"
+    downloaded = client.post(f"/api/materials/{encoded}/download")
+    assert downloaded.status_code == 200
+    assert "Chrome extension" in downloaded.json()["message"]
+    deleted = client.delete(f"/api/personal-events/{encoded}")
+    assert deleted.status_code == 200
+    assert all(a["id"] != id for a in deleted.json()["assessments"])
+    assert all(o["assessmentId"] != id for o in deleted.json()["overlays"])
+
+
+def test_missing_encoded_identifiers_preserve_no_op_outcomes(client):
+    before = snapshot(client)
+    assert client.post("/api/candidates/missing%2Fencoded/review", json={"kind": "confirm"}).json() == before
+    assert client.delete("/api/personal-events/missing%2Fencoded").json() == before
+    outcome = client.post("/api/materials/missing%2Fencoded/download")
+    assert outcome.status_code == 200
+    assert outcome.json()["snapshot"] == before
+    assert outcome.json()["supported"] is False
 
 
 def test_overlay_baseline_priority_and_omission(client):
@@ -166,9 +202,16 @@ def test_confirm_attach_reject_and_missing_review(client):
     merged = next(a for a in attached["assessments"] if a["id"] == "a2")
     assert merged["sources"][:-1] == original["sources"]
     assert merged["sources"][-1]["source"] == "syllabus"
-    rejected = client.post("/api/candidates/k1/review", json={"kind": "reject"}).json()
-    assert rejected["candidates"][0]["status"] == "rejected"
-    assert rejected["assessments"] == attached["assessments"]
+    stale = client.post("/api/candidates/k1/review", json={"kind": "reject"})
+    assert stale.status_code == 409 and "different decision" in stale.json()['message']
+    assert snapshot(client) == attached
+    assert client.post("/api/candidates/k1/review", json={"kind": "confirm"}).json() == attached
+    imported = client.post('/api/documents/import', json={'courseId':'c-csc','fileName':'fictional.pdf'}).json()['snapshot']
+    candidate = imported['candidates'][-1]
+    rejected = client.post(f"/api/candidates/{candidate['id']}/review", json={"kind": "reject"}).json()
+    assert rejected['candidates'][-1]['status'] == 'rejected'
+    assert rejected['assessments'] == attached['assessments']
+    assert client.post(f"/api/candidates/{candidate['id']}/review", json={"kind": "reject"}).json() == rejected
     assert client.post("/api/candidates/missing/review", json={"kind": "confirm"}).json() == rejected
 
 
@@ -273,7 +316,7 @@ def test_app_and_store_instances_are_independent_and_return_copies(client):
     original["courses"].clear()
     assert store.read()["courses"]
     client.delete("/api/local-data")
-    with TestClient(create_app()) as other:
+    with TestClient(create_app(InMemoryStore())) as other:
         assert snapshot(other)["courses"]
     with TestClient(create_app(store)) as injected:
         assert snapshot(injected) == store.read()

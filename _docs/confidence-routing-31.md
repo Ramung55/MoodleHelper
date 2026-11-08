@@ -1,0 +1,35 @@
+# Conservative local-syllabus routing (#31)
+
+After Extract text → Find assessments → Interpret explicit dates, choose **Retain evidence and route proposals**. The browser atomically stores the original mention, excerpt, raw schedule wording, date proposals, week precision, document location/geometry and policy audit before submitting metadata. Failure or quota rejection prevents submission. Accepted events belong exclusively to the backend Snapshot; browser evidence is not a second assessment database.
+
+Only derived title/type/DateValue, known detector-dictionary language, opaque SHA-256 digest/location/mention/version references and closed policy facts enter the same-origin localhost API. No bytes, inspected filename, original excerpt/raw date wording, HTML or geometry are sent. The backend labels the registered document using format/digest, with mocked=false. Source/candidate references resolve the original record in this browser/profile and dataset. Empty legacy excerpt/rawDateText fields in metadata-only candidates are not presented as source evidence. Unknown language is explicit unknown, never invented en/ru. Legacy filename mock import and review behavior remain unchanged.
+
+## Decision table
+
+| Source/policy condition | Route | Precision |
+|---|---|---|
+| Complete supported extraction, retained original, valid location present in actual extraction, available associated Blob, verified context, one explicit unambiguous calendar-valid date/year, known dictionary language, no uncertainty | Auto | Written date stays date-only; no midnight added |
+| Same clear conditions with a resolved explicit instant and actual #29 timezone provenance | Auto | Actual instant; timezone context retained locally |
+| Incomplete/image-only extraction, missing original/location, unavailable source or unverified context | Review | Original proposal retained |
+| Multiple mentions/dates, numeric-locale ambiguity, inferred year, contradictory source facts, grading-policy/heading-only wording, unresolved timezone/date | Review | Unknown/uncertain remains unknown/uncertain |
+| Possible existing same-course/type/source-title relation or explicit conflicting-match assertion | Review | No title-based merge or automatic source association |
+| Any OCR-derived proposal, including high numeric confidence | Review | Low quality, synthetic or missing provenance gets a specific reason |
+| Explicit week with current configured #30/#52 resolved range | Review | `{kind:'week',week:N}` plus derived preview, never an exact deadline |
+| Week with missing/stale/unresolved mapping | Review | Week stays week; mapping_unresolved |
+| Unchanged immutable identity already routed/reviewed | Retained | Prior candidate decision and registered event remain unchanged |
+
+Numeric confidence cannot grant auto acceptance. Legacy numeric fields represent this deterministic routing result only and local UI does not present them as calibrated confidence. Closed policy facts assert what the local pipeline observed, not authentication or server verification of PDF/DOCX contents. Backend reruns the table and checks server-owned calendar ranges for fresh week routes, regardless of a stale browser mappingResolved flag. Precise explicit dates/instants do not require an invented teaching-week assignment. A possible title relation only withholds automatic acceptance; it never merges records (#33 owns matching).
+
+## Contract and identity
+
+`POST /api/local-syllabus/route` requires current X-Moodle-Helper-Bridge-Binding from /api/bridge-context and a datasetId precondition equal to the startup-selected persistent store ID. Missing/stale process binding or dataset mismatch returns409. Query/body namespace selectors are rejected. The request is bounded to1MiB and1000 proposals, titles1..512 characters, opaque IDs1..128, lowercase SHA-256 digests and the known pipeline version local-syllabus-1. New DTOs, nested dates and facts reject unknown fields/null; legacy Snapshot DTO permissiveness is unchanged. Unsupported pipeline versions reject before work; a new revision policy is required before another version may create events.
+
+Backend-generated durable IDs depend on trusted namespace/course/document digest/mention identity. Each transaction registers the actual document, candidate, optional event and immutable routing receipt together. Same identity plus changed metadata/location/facts returns409; conflicting duplicate mention IDs reject the entire batch. Whole-transaction storage failure503 preserves prior state. Two tabs serialize through existing memory/SQLite transaction authority. A direct replay preserves corrected/confirmed/rejected/auto status, never overwrites review or creates another event. No arbitrary client backend ID is accepted, no new full-Snapshot write path exists, and this route is deliberately absent from Chrome transport.
+
+Original evidence is keyed by `[datasetId,courseId,digest,mentionId,pipelineVersion]` in the existing browser IndexedDB (v3). Original title/date proposals and policy are immutable by fingerprint; corrections do not overwrite them. Receipt/audit attachment is separate. Array batch retention is atomic; collisions, quota/context/cancel failures fail closed. Uncertain HTTP outcomes remain pending locally and reconcile via authoritative server receipts/replay under the same identity. Reloads do not assign new random IDs. A source Blob/association can disappear while retained original evidence stays readable; this is clearly labelled. Fresh verification is blocked when a previously required source disappears, while registered receipts can still reconcile without another POST.
+
+Cancellation/context-generation checks fence every result publication and final context await. If an in-flight backend transaction already committed, cancellation does not claim to undo it: retry the same stored proposals to reconcile. Source excerpts, geometry and immutable original proposals never leave browser storage in that recovery flow. A backup without local originals may show honest unavailable evidence rather than fabricated text.
+
+## Verification boundary
+
+Tests exercise actual bilingual DOCX extraction→#28 detector→#29 date/#30/#52 week interpretation→local retention→real HttpAdapter/FastAPI/SQLite. They assert two clear auto events, week-valued review, metadata-only network bodies, correction/restart retention, source deletion and immutable collisions. Backend tests cover all policy facts, current/stale calendar, missing binding, invalid dates, duplicate conflicts, two-tab once-only routing and SQL failure after update with rollback. Mounted tests cover late cancellation without unmount, context replacement/rejection and normal completion. Repository quota/race/reopen checks use an explicitly labelled transactional IndexedDB event shim; they do not establish native browser/profile restart durability. No live Moodle/native browser-session verification is claimed here. #32 retains ownership of the complete human queue/correction experience.
