@@ -38,17 +38,25 @@ function bus(): BroadcastChannel | undefined {
 
 /** Abortable local render/OCR/import work registers here so erase can stop it. */
 export function registerLocalWork(controller: AbortController): () => void {
-  bus(); work.add(controller);
-  return () => { work.delete(controller); };
+  bus();
+  work.add(controller);
+  return () => {
+    work.delete(controller);
+  };
 }
 
 /** Called when this or another tab erases; stale callbacks must re-load before showing data. */
 export function onLocalInvalidation(listener: () => void): () => void {
-  bus(); listeners.add(listener);
-  return () => { listeners.delete(listener); };
+  bus();
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
-export function localGeneration() { return generation; }
+export function localGeneration() {
+  return generation;
+}
 
 /** Stop accepting new local actions in this and cooperative tabs. Does not clear anything. */
 export function beginErase() {
@@ -69,8 +77,15 @@ function readTombstone(db: IDBDatabase, datasetId: string): Promise<LocalTombsto
 export async function captureLocalFence(datasetId: string): Promise<LocalFence> {
   const captured = generation;
   const db = await database();
-  try { return { datasetId, epoch: (await readTombstone(db, datasetId))?.epoch ?? 0, generation: captured }; }
-  finally { db.close(); }
+  try {
+    return {
+      datasetId,
+      epoch: (await readTombstone(db, datasetId))?.epoch ?? 0,
+      generation: captured,
+    };
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -81,14 +96,27 @@ export function guardTransaction(tx: IDBTransaction, fence: LocalFence): () => b
   let stale = generation !== fence.generation;
   const request = tx.objectStore(LIFECYCLE_STORE).get(fence.datasetId);
   request.onsuccess = () => {
-    if (((request.result as LocalTombstone | undefined)?.epoch ?? 0) !== fence.epoch || generation !== fence.generation) stale = true;
-    if (stale) { try { tx.abort(); } catch { /* finished */ } }
+    if (
+      ((request.result as LocalTombstone | undefined)?.epoch ?? 0) !== fence.epoch ||
+      generation !== fence.generation
+    )
+      stale = true;
+    if (stale) {
+      try {
+        tx.abort();
+      } catch {
+        /* finished */
+      }
+    }
   };
   return () => stale || generation !== fence.generation;
 }
 
 export class StaleLocalWrite extends Error {
-  constructor() { super("Local data was deleted while this action was running. Nothing was saved."); this.name = "StaleLocalWrite"; }
+  constructor() {
+    super("Local data was deleted while this action was running. Nothing was saved.");
+    this.name = "StaleLocalWrite";
+  }
 }
 
 /** One readwrite transaction: delete only this dataset's key ranges and write the tombstone. */
@@ -102,41 +130,77 @@ export async function clearLocalDataset(tombstone: LocalTombstone): Promise<void
       for (const name of CONTENT_STORES) tx.objectStore(name).delete(range);
       for (const name of CONTENT_STORES) {
         const count = tx.objectStore(name).count(range);
-        count.onsuccess = () => { remaining += count.result; };
+        count.onsuccess = () => {
+          remaining += count.result;
+        };
       }
-      const lifecycle = tx.objectStore(LIFECYCLE_STORE), previous = lifecycle.get(tombstone.datasetId);
+      const lifecycle = tx.objectStore(LIFECYCLE_STORE),
+        previous = lifecycle.get(tombstone.datasetId);
       previous.onsuccess = () => {
         // Monotonic: never lower an epoch written by a later erase in another tab.
         const old = previous.result as LocalTombstone | undefined;
         if (!old || old.epoch <= tombstone.epoch) lifecycle.put(tombstone);
       };
-      tx.oncomplete = () => remaining === 0 ? resolve() : reject(new Error("Browser storage still holds data for this dataset."));
-      tx.onabort = () => reject(new Error("Could not clear browser storage for this dataset. Retry cleanup."));
+      tx.oncomplete = () =>
+        remaining === 0
+          ? resolve()
+          : reject(new Error("Browser storage still holds data for this dataset."));
+      tx.onabort = () =>
+        reject(new Error("Could not clear browser storage for this dataset. Retry cleanup."));
     });
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 }
 
 export type EraseOutcome = { cleanup: EraseCleanup; error?: string };
 
 /** After the backend tombstone: clear browser stores, broadcast and acknowledge. Retry-safe. */
-export async function finishDashboardCleanup(adapter: MoodleHelperAdapter, erasure: { eraseId: string; datasetId: string; epoch: number }): Promise<EraseOutcome> {
-  let state: "complete" | "failed" = "complete", error: string | undefined;
-  try { await clearLocalDataset({ datasetId: erasure.datasetId, epoch: erasure.epoch, eraseId: erasure.eraseId }); }
-  catch (e) { state = "failed"; error = e instanceof Error ? e.message : "Browser cleanup failed."; }
+export async function finishDashboardCleanup(
+  adapter: MoodleHelperAdapter,
+  erasure: { eraseId: string; datasetId: string; epoch: number },
+): Promise<EraseOutcome> {
+  let state: "complete" | "failed" = "complete",
+    error: string | undefined;
+  try {
+    await clearLocalDataset({
+      datasetId: erasure.datasetId,
+      epoch: erasure.epoch,
+      eraseId: erasure.eraseId,
+    });
+  } catch (e) {
+    state = "failed";
+    error = e instanceof Error ? e.message : "Browser cleanup failed.";
+  }
   invalidateLocal();
   bus()?.postMessage({ type: "erased" });
   try {
     const status = await adapter.acknowledgeErase!(erasure.eraseId, "dashboard", state);
     return { cleanup: status.cleanup, ...(error ? { error } : {}) };
   } catch (e) {
-    return { cleanup: { backend: "complete", dashboard: state === "complete" ? "pending" : "failed", extension: "pending" }, error: error ?? (e instanceof Error ? e.message : "Could not record browser cleanup. Retry.") };
+    return {
+      cleanup: {
+        backend: "complete",
+        dashboard: state === "complete" ? "pending" : "failed",
+        extension: "pending",
+      },
+      error: error ?? (e instanceof Error ? e.message : "Could not record browser cleanup. Retry."),
+    };
   }
 }
 
 /** On reopen: an interrupted cleanup for the current epoch resumes; never seeds or syncs. */
-export async function resumeEraseCleanup(adapter: MoodleHelperAdapter, context?: DataContext): Promise<EraseOutcome | undefined> {
+export async function resumeEraseCleanup(
+  adapter: MoodleHelperAdapter,
+  context?: DataContext,
+): Promise<EraseOutcome | undefined> {
   if (!adapter.dataContext || !adapter.acknowledgeErase) return undefined;
-  const current = context ?? await adapter.dataContext();
-  if (!current.erasure || current.erasure.cleanup.dashboard === "complete") return current.erasure ? { cleanup: current.erasure.cleanup } : undefined;
-  return finishDashboardCleanup(adapter, { eraseId: current.erasure.eraseId, datasetId: current.datasetId, epoch: current.epoch });
+  const current = context ?? (await adapter.dataContext());
+  if (!current.erasure || current.erasure.cleanup.dashboard === "complete")
+    return current.erasure ? { cleanup: current.erasure.cleanup } : undefined;
+  return finishDashboardCleanup(adapter, {
+    eraseId: current.erasure.eraseId,
+    datasetId: current.datasetId,
+    epoch: current.epoch,
+  });
 }

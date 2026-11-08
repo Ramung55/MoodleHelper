@@ -218,7 +218,7 @@ describe("LocalOcr state belongs to one document (#72)", () => {
       // Waits for the held run's progress to render.
       await screen.findByText(/Selected 2 · completed 1/);
       expect(seen()).toEqual({
-        rows: ["scan.pdf · original page 1 · recognized · incomplete job"],
+        rows: ["scan.pdf · original page 1 · Text found · incomplete job"],
         progress: true,
         statuses: ["Opening selected local pages for OCR…"],
         cancel: true,
@@ -252,7 +252,7 @@ describe("LocalOcr state belongs to one document (#72)", () => {
     // Waits for the completed run to render.
     await screen.findByText(/Selected-page OCR finished/);
     expect(seen()).toMatchObject({
-      rows: ["scan.pdf · original page 1 · recognized"],
+      rows: ["scan.pdf · original page 1 · Text found"],
       selection: "1, 3",
     });
     rerender({ document: B });
@@ -344,7 +344,7 @@ describe("LocalOcr state belongs to one document (#72)", () => {
         expect.any(Function),
       );
       expect(seen()).toMatchObject({
-        rows: ["scan.pdf · original page 1 · recognized"],
+        rows: ["scan.pdf · original page 1 · Text found"],
         cancel: false,
         disabled: false,
       });
@@ -392,7 +392,7 @@ describe("LocalOcr state belongs to one document (#72)", () => {
       expect.any(AbortSignal),
       expect.any(Function),
     );
-    expect(screen.getByText(/renamed.pdf · original page 1 · recognized/)).toBeVisible();
+    expect(screen.getByText(/renamed.pdf · original page 1 · Text found/)).toBeVisible();
     rerender({
       document: B,
       onCommit: () => {
@@ -475,7 +475,7 @@ describe("LocalOcr state belongs to one document (#72)", () => {
       resolve(complete);
     });
     expect(screen.getByText(/Selected-page OCR finished/)).toBeVisible();
-    expect(screen.getByText(/renamed.pdf · original page 1 · recognized$/)).toBeVisible();
+    expect(screen.getByText(/renamed.pdf · original page 1 · Text found$/)).toBeVisible();
   });
 
   it("starts fresh when switching A -> B -> A", async () => {

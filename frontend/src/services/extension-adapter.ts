@@ -22,6 +22,7 @@ import type {
   ImportResult,
 } from "./adapter";
 import type { MaterialDownloads } from "@/domain/material-transfer";
+import type { Current, MockRun } from "../../../shared/src/mock-progress";
 export { APPROVED_ORIGINS };
 export const isApprovedOrigin = approved;
 /** #82: a run reads up to 5 Moodle requests, each paced, retried and limited to 30 s. */
@@ -31,7 +32,7 @@ export const SIGN_IN_DEADLINE_MS = 300_000;
 
 type Pending = {
   request: Request;
-  resolve: (v: any) => void;
+  resolve: (v: unknown) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -45,7 +46,10 @@ export class BridgeClient implements MoodleHelperAdapter {
   private listener: (e: MessageEvent) => void;
   constructor(
     win: Window | undefined = typeof window === "undefined" ? undefined : window,
-    private deadlines: { hello: number; operation: number; discovery?: number; signIn?: number } = { hello: 800, operation: 10000 },
+    private deadlines: { hello: number; operation: number; discovery?: number; signIn?: number } = {
+      hello: 800,
+      operation: 10000,
+    },
   ) {
     this.window = win;
     this.clientId = crypto.randomUUID();
@@ -82,7 +86,7 @@ export class BridgeClient implements MoodleHelperAdapter {
     };
     win?.addEventListener("message", this.listener);
   }
-  private finish(id: string, error: Error | null, result?: any) {
+  private finish(id: string, error: Error | null, result?: unknown) {
     const item = this.pending.get(id);
     if (!item) return;
     clearTimeout(item.timer);
@@ -100,7 +104,14 @@ export class BridgeClient implements MoodleHelperAdapter {
   }
   async connect() {
     this.invalidate();
-    const result = await this.send("hello", {});
+    const result = await this.send<{
+      sessionId: string;
+      version: "1";
+      workerGeneration: string;
+      backend: "ready" | "unavailable";
+      localRepository: "ready" | "unavailable";
+      moodleCollection: "unavailable";
+    }>("hello", {});
     this.sessionId = result.sessionId;
     return result as {
       version: "1";
@@ -111,7 +122,7 @@ export class BridgeClient implements MoodleHelperAdapter {
       moodleCollection: "unavailable";
     };
   }
-  private send(operation: Operation | "hello" | LocalOperation, payload: any): Promise<any> {
+  private send<T>(operation: Operation | "hello" | LocalOperation, payload: unknown): Promise<T> {
     const win = this.window;
     if (!win || win.top !== win || !approved(win.location.origin))
       return Promise.reject(new BridgeError("PERMISSION_DENIED"));
@@ -139,11 +150,20 @@ export class BridgeClient implements MoodleHelperAdapter {
           );
           this.invalidate();
         },
-        operation === "hello" ? this.deadlines.hello
-          : operation === "discoverCourses" ? this.deadlines.discovery ?? DISCOVERY_DEADLINE_MS
-          : operation === "checkMoodleSignIn" ? this.deadlines.signIn ?? SIGN_IN_DEADLINE_MS : this.deadlines.operation,
+        operation === "hello"
+          ? this.deadlines.hello
+          : operation === "discoverCourses"
+            ? (this.deadlines.discovery ?? DISCOVERY_DEADLINE_MS)
+            : operation === "checkMoodleSignIn"
+              ? (this.deadlines.signIn ?? SIGN_IN_DEADLINE_MS)
+              : this.deadlines.operation,
       );
-      this.pending.set(request.requestId, { request, resolve, reject, timer });
+      this.pending.set(request.requestId, {
+        request,
+        resolve: (value) => resolve(value as T),
+        reject,
+        timer,
+      });
       try {
         win.postMessage(request, win.location.origin);
       } catch {
@@ -158,9 +178,15 @@ export class BridgeClient implements MoodleHelperAdapter {
   load(): Promise<Snapshot> {
     return this.send("load", {});
   }
-  currentMockRun() { return this.send("currentMockRun", {}); }
-  startMockRun(idempotencyKey: string) { return this.send("startMockRun", { idempotencyKey }); }
-  cancelMockRun(id: string) { return this.send("cancelMockRun", { id }); }
+  currentMockRun(): Promise<Current> {
+    return this.send("currentMockRun", {});
+  }
+  startMockRun(idempotencyKey: string): Promise<MockRun> {
+    return this.send("startMockRun", { idempotencyKey });
+  }
+  cancelMockRun(id: string): Promise<MockRun> {
+    return this.send("cancelMockRun", { id });
+  }
   replaceAll(snapshot: Snapshot): Promise<Snapshot> {
     return this.send("replaceAll", snapshot);
   }
@@ -195,7 +221,12 @@ export class BridgeClient implements MoodleHelperAdapter {
     onProgress(s);
     return s;
   }
-  async importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void, contentDigest?: string) {
+  async importDocument(
+    courseId: string,
+    fileName: string,
+    onProgress: (s: Snapshot) => void,
+    contentDigest?: string,
+  ) {
     const r: { snapshot: Snapshot; result: ImportResult } = await this.send("importDocument", {
       courseId,
       fileName,
@@ -210,10 +241,31 @@ export class BridgeClient implements MoodleHelperAdapter {
   async proposeReconciliation(left: string, right: string): Promise<Snapshot> {
     return this.send("proposeReconciliationPair", { left, right });
   }
-  async previewSyllabusRevision(sourceId: string, candidateId: string) { return this.send("previewSyllabusRevision", {sourceId, candidateId}); }
-  async confirmSyllabusRevision(decision: import("@/domain/types").SyllabusRevisionDecision): Promise<Snapshot> { return this.send("confirmSyllabusRevision", decision); }
-  async decideReconciliation(pairId: string, fingerprint: string, reviewRevision: string, kind: "confirm" | "reject", choices: Record<string, string>): Promise<Snapshot> {
-    return this.send("decideReconciliationPair", { pairId, fingerprint, reviewRevision, kind, choices });
+  async previewSyllabusRevision(
+    sourceId: string,
+    candidateId: string,
+  ): Promise<import("@/domain/types").SyllabusRevisionPreview> {
+    return this.send("previewSyllabusRevision", { sourceId, candidateId });
+  }
+  async confirmSyllabusRevision(
+    decision: import("@/domain/types").SyllabusRevisionDecision,
+  ): Promise<Snapshot> {
+    return this.send("confirmSyllabusRevision", decision);
+  }
+  async decideReconciliation(
+    pairId: string,
+    fingerprint: string,
+    reviewRevision: string,
+    kind: "confirm" | "reject",
+    choices: Record<string, string>,
+  ): Promise<Snapshot> {
+    return this.send("decideReconciliationPair", {
+      pairId,
+      fingerprint,
+      reviewRevision,
+      kind,
+      choices,
+    });
   }
   downloadMaterial(
     id: string,
@@ -221,16 +273,26 @@ export class BridgeClient implements MoodleHelperAdapter {
     return this.send("downloadMaterial", { id });
   }
   /** #41 explicit single-file transfer metadata; the extension opens its own transfer tab. */
-  startMaterialDownload(datasetId: string, materialId: string, idempotencyKey: string): Promise<import("@/domain/material-transfer").MaterialDownloadStartResult> {
+  startMaterialDownload(
+    datasetId: string,
+    materialId: string,
+    idempotencyKey: string,
+  ): Promise<import("@/domain/material-transfer").MaterialDownloadStartResult> {
     return this.send("startMaterialDownload", { datasetId, materialId, idempotencyKey });
   }
-  listMaterialDownloads(): Promise<{ transfers: import("@/domain/material-transfer").MaterialTransfer[] }> {
+  listMaterialDownloads(): Promise<{
+    transfers: import("@/domain/material-transfer").MaterialTransfer[];
+  }> {
     return this.send("listMaterialDownloads", {});
   }
-  materialDownload(transferId: string): Promise<import("@/domain/material-transfer").MaterialTransfer> {
+  materialDownload(
+    transferId: string,
+  ): Promise<import("@/domain/material-transfer").MaterialTransfer> {
     return this.send("materialDownload", { id: transferId });
   }
-  cancelMaterialDownload(transferId: string): Promise<import("@/domain/material-transfer").MaterialTransfer> {
+  cancelMaterialDownload(
+    transferId: string,
+  ): Promise<import("@/domain/material-transfer").MaterialTransfer> {
     return this.send("cancelMaterialDownload", { id: transferId });
   }
   saveAlerts(alerts: Snapshot["alerts"]): Promise<Snapshot> {
@@ -284,7 +346,9 @@ export async function checkSduSignIn(): Promise<SignInResult> {
  * extension worker opens the transfer tab for a queued transfer. When live sync is available the
  * Materials page sends each transfer operation through a fresh bridge session, as Sync all does.
  */
-export function bridgeMaterialDownloads(open: () => BridgeClient = () => new BridgeClient()): MaterialDownloads {
+export function bridgeMaterialDownloads(
+  open: () => BridgeClient = () => new BridgeClient(),
+): MaterialDownloads {
   const through = async <T>(call: (client: BridgeClient) => Promise<T>): Promise<T> => {
     const client = open();
     try {
@@ -295,14 +359,17 @@ export function bridgeMaterialDownloads(open: () => BridgeClient = () => new Bri
     }
   };
   return {
-    startMaterialDownload: (datasetId, materialId, idempotencyKey) => through((c) => c.startMaterialDownload(datasetId, materialId, idempotencyKey)),
+    startMaterialDownload: (datasetId, materialId, idempotencyKey) =>
+      through((c) => c.startMaterialDownload(datasetId, materialId, idempotencyKey)),
     listMaterialDownloads: () => through((c) => c.listMaterialDownloads()),
     materialDownload: (transferId) => through((c) => c.materialDownload(transferId)),
     cancelMaterialDownload: (transferId) => through((c) => c.cancelMaterialDownload(transferId)),
   };
 }
 /** #20/#46: Sync all through a fresh bridge session, so the worker starts the queued scan at once. */
-export async function syncAllThroughExtension(onProgress: (s: Snapshot) => void): Promise<Snapshot> {
+export async function syncAllThroughExtension(
+  onProgress: (s: Snapshot) => void,
+): Promise<Snapshot> {
   const client = new BridgeClient();
   try {
     await client.connect();

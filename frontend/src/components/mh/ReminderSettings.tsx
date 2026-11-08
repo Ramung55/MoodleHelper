@@ -3,7 +3,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useApp } from "@/lib/app-store";
-import { REMINDER_DEFAULTS, REMINDER_MAX_HOURS, type ReminderPlan, type Settings } from "@/domain/types";
+import { friendlyInstant } from "@/domain/dates";
+import { Details } from "./bits";
+import {
+  REMINDER_DEFAULTS,
+  REMINDER_MAX_HOURS,
+  type ReminderPlan,
+  type Settings,
+} from "@/domain/types";
 
 const CLOCK = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/;
 const REASONS: Record<string, string> = {
@@ -21,10 +28,12 @@ const REASONS: Record<string, string> = {
 
 /** Validate a reminders patch; undefined means OK. Invalid values are never saved or clamped. */
 export function reminderError(r: Settings["reminders"]): string | undefined {
-  if (!Number.isFinite(r.hoursBefore) || r.hoursBefore < 0 || r.hoursBefore > REMINDER_MAX_HOURS) return `Hours before must be 0–${REMINDER_MAX_HOURS}.`;
+  if (!Number.isFinite(r.hoursBefore) || r.hoursBefore < 0 || r.hoursBefore > REMINDER_MAX_HOURS)
+    return `Hours before must be 0–${REMINDER_MAX_HOURS}.`;
   const lead = r.busyWeekLeadDays ?? REMINDER_DEFAULTS.busyWeekLeadDays;
   if (!Number.isInteger(lead) || lead < 0 || lead > 30) return "Busy-week lead must be 0–30 days.";
-  for (const v of [r.dateOnlyLocalTime, r.busyWeekLocalTime]) if (v !== undefined && !CLOCK.test(v)) return "Times must be HH:mm.";
+  for (const v of [r.dateOnlyLocalTime, r.busyWeekLocalTime])
+    if (v !== undefined && !CLOCK.test(v)) return "Times must be HH:mm.";
   return undefined;
 }
 
@@ -34,12 +43,29 @@ export function ReminderSettingsPanel() {
   const [plan, setPlan] = useState<ReminderPlan | null>(null);
   const [planNote, setPlanNote] = useState("Loading reminder preview…");
   const r = snap?.settings.reminders;
+  const tz = snap?.settings.timezone ?? "UTC";
   useEffect(() => {
     let alive = true;
-    if (!adapter?.reminderPlan) { setPlanNote("Reminder schedule preview needs the local backend."); return; }
-    adapter.reminderPlan().then((p) => { if (alive) { setPlan(p); setPlanNote(""); } })
-      .catch(() => alive && setPlanNote("Reminder schedule preview is unavailable. Start the backend and reload."));
-    return () => { alive = false; };
+    if (!adapter?.reminderPlan) {
+      setPlanNote("Reminder schedule preview needs the local backend.");
+      return;
+    }
+    adapter
+      .reminderPlan()
+      .then((p) => {
+        if (alive) {
+          setPlan(p);
+          setPlanNote("");
+        }
+      })
+      .catch(
+        () =>
+          alive &&
+          setPlanNote("Reminder schedule preview is unavailable. Start the backend and reload."),
+      );
+    return () => {
+      alive = false;
+    };
   }, [adapter, r]);
   if (!r) return null;
   const save = (patch: Partial<Settings["reminders"]>) => {
@@ -49,22 +75,121 @@ export function ReminderSettingsPanel() {
     if (!message) void run((a) => a.updateSettings({ reminders: next }));
   };
   const scheduled = plan?.items.filter((i) => i.status === "scheduled") ?? [];
-  return <div className="space-y-3 text-sm">
-    <label className="flex items-center justify-between">Reminders on <Switch checked={r.enabled} onCheckedChange={(v) => save({ enabled: v })} /></label>
-    <label className="flex items-center justify-between">Busy-week warnings <Switch checked={r.busyWeek} onCheckedChange={(v) => save({ busyWeek: v })} /></label>
-    <div className="flex items-center justify-between gap-2"><Label htmlFor="hb">Remind this many hours before exact deadlines</Label><Input id="hb" type="number" min={0} max={REMINDER_MAX_HOURS} className="w-24" defaultValue={r.hoursBefore} key={`hb${r.hoursBefore}`} onBlur={(e) => save({ hoursBefore: Number(e.target.value) })} /></div>
-    <p className="text-xs text-muted-foreground">Saved: {r.hoursBefore} h (default {REMINDER_DEFAULTS.hoursBefore} h).</p>
-    <div className="flex items-center justify-between gap-2"><Label htmlFor="dot">Date-only reminder time (day before)</Label><Input id="dot" type="time" className="w-28" defaultValue={r.dateOnlyLocalTime ?? REMINDER_DEFAULTS.dateOnlyLocalTime} key={`dot${r.dateOnlyLocalTime}`} onBlur={(e) => save({ dateOnlyLocalTime: e.target.value })} /></div>
-    <div className="flex items-center justify-between gap-2"><Label htmlFor="bwl">Busy-week warning days ahead</Label><Input id="bwl" type="number" min={0} max={30} className="w-24" defaultValue={r.busyWeekLeadDays ?? REMINDER_DEFAULTS.busyWeekLeadDays} key={`bwl${r.busyWeekLeadDays}`} onBlur={(e) => save({ busyWeekLeadDays: Number(e.target.value) })} /></div>
-    <div className="flex items-center justify-between gap-2"><Label htmlFor="bwt">Busy-week warning time</Label><Input id="bwt" type="time" className="w-28" defaultValue={r.busyWeekLocalTime ?? REMINDER_DEFAULTS.busyWeekLocalTime} key={`bwt${r.busyWeekLocalTime}`} onBlur={(e) => save({ busyWeekLocalTime: e.target.value })} /></div>
-    {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-    <div aria-label="Reminder preview" className="rounded border p-2 text-xs">
-      {planNote ? <p>{planNote}</p> : <>
-        {plan!.reasons.map((x) => <p key={x}>{REASONS[x] ?? x}</p>)}
-        <p>{scheduled.length} reminder{scheduled.length === 1 ? "" : "s"} scheduled{plan!.nextWakeAt ? `; next at ${new Date(plan!.nextWakeAt).toLocaleString()}` : ""}.</p>
-        <ul className="mt-1 space-y-0.5">{plan!.items.slice(0, 5).map((i) => <li key={i.id}>{i.label}{i.dueAt ? ` — ${new Date(i.dueAt).toLocaleString()}` : ""}{i.reason ? ` (${REASONS[i.reason] ?? i.reason})` : ""}</li>)}</ul>
-      </>}
+  return (
+    <div className="space-y-3 text-sm">
+      <label className="flex items-center justify-between">
+        Reminders on <Switch checked={r.enabled} onCheckedChange={(v) => save({ enabled: v })} />
+      </label>
+      <label className="flex items-center justify-between">
+        Busy-week warnings{" "}
+        <Switch checked={r.busyWeek} onCheckedChange={(v) => save({ busyWeek: v })} />
+      </label>
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="hb">Remind this many hours before exact deadlines</Label>
+        <Input
+          id="hb"
+          type="number"
+          min={0}
+          max={REMINDER_MAX_HOURS}
+          className="w-24"
+          defaultValue={r.hoursBefore}
+          key={`hb${r.hoursBefore}`}
+          onBlur={(e) => save({ hoursBefore: Number(e.target.value) })}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="dot">Date-only reminder time (day before)</Label>
+        <Input
+          id="dot"
+          type="time"
+          className="w-28"
+          defaultValue={r.dateOnlyLocalTime ?? REMINDER_DEFAULTS.dateOnlyLocalTime}
+          key={`dot${r.dateOnlyLocalTime}`}
+          onBlur={(e) => save({ dateOnlyLocalTime: e.target.value })}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="bwl">Busy-week warning days ahead</Label>
+        <Input
+          id="bwl"
+          type="number"
+          min={0}
+          max={30}
+          className="w-24"
+          defaultValue={r.busyWeekLeadDays ?? REMINDER_DEFAULTS.busyWeekLeadDays}
+          key={`bwl${r.busyWeekLeadDays}`}
+          onBlur={(e) => save({ busyWeekLeadDays: Number(e.target.value) })}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="bwt">Busy-week warning time</Label>
+        <Input
+          id="bwt"
+          type="time"
+          className="w-28"
+          defaultValue={r.busyWeekLocalTime ?? REMINDER_DEFAULTS.busyWeekLocalTime}
+          key={`bwt${r.busyWeekLocalTime}`}
+          onBlur={(e) => save({ busyWeekLocalTime: e.target.value })}
+        />
+      </div>
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+      <div aria-label="Reminder preview" className="rounded border p-2 text-xs">
+        {planNote ? (
+          <p>{planNote}</p>
+        ) : (
+          <>
+            {plan!.reasons.map((x) => (
+              <p key={x}>{REASONS[x] ?? x}</p>
+            ))}
+            <p>
+              {scheduled.length} reminder{scheduled.length === 1 ? "" : "s"} scheduled
+              {plan!.nextWakeAt ? `; next at ${friendlyInstant(plan!.nextWakeAt, tz)}` : ""}.
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {plan!.items.slice(0, 5).map((i) => (
+                <li key={i.id}>
+                  {i.label}
+                  {i.dueAt ? ` — ${friendlyInstant(i.dueAt, tz)}` : ""}
+                  {i.reason ? ` (${REASONS[i.reason] ?? i.reason})` : ""}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
     </div>
-    <p className="text-xs text-muted-foreground">Reminders are scheduled by the local backend and woken by the extension. Nothing fires while Chrome is closed or the backend is stopped; missed reminders are combined into one catch-up later.</p>
-  </div>;
+  );
+}
+
+/**
+ * #87 T4: the browser-permission guidance and the backend/extension internals. Open by default once a
+ * notification was denied, so the enablement guidance (#39 AC3) is visible where it matters.
+ */
+export function ReminderDetails() {
+  const { snap } = useApp();
+  const denied = !!snap?.alerts.some((a) => a.delivery?.state === "denied");
+  return (
+    <Details open={denied || undefined}>
+      <p>
+        If notifications are blocked, allow them for Moodle Helper in Chrome
+        (chrome://settings/content/notifications) or your system settings, then reconnect; the
+        dashboard never asks repeatedly. Every alert is also kept on the Alerts page.
+      </p>
+      <p>
+        Reminders are scheduled by the local backend and woken by the extension. Nothing fires while
+        Chrome is closed or the backend is stopped; missed reminders are combined into one catch-up
+        later.
+      </p>
+      {snap && (
+        <p>
+          Hours before exact deadlines: saved {snap.settings.reminders.hoursBefore} h (default{" "}
+          {REMINDER_DEFAULTS.hoursBefore} h).
+        </p>
+      )}
+    </Details>
+  );
 }

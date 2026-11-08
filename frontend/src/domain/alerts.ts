@@ -21,13 +21,19 @@ export function eligibleAlerts(
   const push = (a: Omit<Alert, "id" | "createdAt" | "read">) => {
     if (seen.has(a.deliveryKey)) return;
     seen.add(a.deliveryKey);
-    out.push({ ...a, id: `al-${a.deliveryKey}`, createdAt: new Date(now).toISOString(), read: false });
+    out.push({
+      ...a,
+      id: `al-${a.deliveryKey}`,
+      createdAt: new Date(now).toISOString(),
+      read: false,
+    });
   };
 
   for (const v of views) {
     if (!v.outstanding || v.hidden) continue;
     if (v.date.kind !== "exact" && v.date.kind !== "date") continue;
-    const due = v.date.kind === "exact" ? Date.parse(v.date.iso) : Date.parse(`${v.date.date}T23:59:00Z`);
+    const due =
+      v.date.kind === "exact" ? Date.parse(v.date.iso) : Date.parse(`${v.date.date}T23:59:00Z`);
     const hours = (due - now) / 3_600_000;
     if (hours > 0 && hours <= s.reminders.hoursBefore) {
       push({
@@ -74,10 +80,26 @@ export function describeAssertion(value: DeadlineChange["from"] | undefined): st
     let zone = value.tz || "UTC";
     let parts: Intl.DateTimeFormatPart[];
     try {
-      parts = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+      parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: zone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(at);
     } catch {
       zone = "UTC";
-      parts = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+      parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "UTC",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(at);
     }
     const p = (t: string) => parts.find((x) => x.type === t)?.value ?? "";
     return `${p("year")}-${p("month")}-${p("day")} ${p("hour")}:${p("minute")} ${zone}`;
@@ -86,16 +108,15 @@ export function describeAssertion(value: DeadlineChange["from"] | undefined): st
 }
 
 export type AlertDestination =
-  | { to: "/deadlines"; id: string }
-  | { to: "/planner" }
-  | { to: "/alerts" };
+  { to: "/deadlines"; id: string } | { to: "/planner" } | { to: "/alerts" };
 
 /** Closed destination resolver shared by in-dashboard clicks and the extension worker mapping. */
 export function alertDestination(alert: Alert, resolve: (id: string) => string): AlertDestination {
   const ctx = alert.context;
   const target = ctx?.assessmentId ?? alert.assessmentId;
   if (ctx?.destination === "week") return { to: "/planner" };
-  if ((!ctx || ctx.destination === "assessment") && target) return { to: "/deadlines", id: resolve(target) };
+  if ((!ctx || ctx.destination === "assessment") && target)
+    return { to: "/deadlines", id: resolve(target) };
   return { to: "/alerts" };
 }
 
@@ -106,15 +127,25 @@ export function deliveryLabel(alert: Alert): string | null {
   const d = alert.delivery;
   if (!d) return null;
   switch (d.state) {
-    case "pending": return "Browser notification pending (Chrome extension)";
-    case "issued": return "Browser notification outcome unknown";
-    case "shown": return "Sent to Chrome notifications";
-    case "denied": return DELIVERY_DISABLED_TEXT;
-    case "failed": return "Browser notification failed; alert kept here";
-    case "unknown": return "Browser notification outcome unknown";
+    case "pending":
+      return "Browser notification pending (Chrome extension)";
+    case "issued":
+      return "Browser notification outcome unknown";
+    case "shown":
+      return "Sent to Chrome notifications";
+    case "denied":
+      return DELIVERY_DISABLED_TEXT;
+    case "failed":
+      return "Browser notification failed; alert kept here";
+    case "unknown":
+      return "Browser notification outcome unknown";
     default:
-      return d.errorCode === "disabled" ? "Notifications are off; dashboard only"
-        : d.errorCode === "ineligible" ? "Hidden or done; dashboard only"
-        : d.errorCode === "stale" ? "Missed while Chrome was closed; dashboard only" : "Dashboard only";
+      return d.errorCode === "disabled"
+        ? "Notifications are off; dashboard only"
+        : d.errorCode === "ineligible"
+          ? "Hidden or done; dashboard only"
+          : d.errorCode === "stale"
+            ? "Missed while Chrome was closed; dashboard only"
+            : "Dashboard only";
   }
 }

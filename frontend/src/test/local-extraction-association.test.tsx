@@ -87,8 +87,12 @@ beforeEach(() => {
   mock.read.mockResolvedValue(new Blob(["pdf"]));
   mock.context.mockResolvedValue("dataset");
   mock.extract.mockResolvedValue(pages);
-  mock.detect.mockImplementation((...args: Parameters<NonNullable<typeof mock.actual.detect>>) => mock.actual.detect!(...args));
-  mock.parse.mockImplementation((...args: Parameters<NonNullable<typeof mock.actual.parse>>) => mock.actual.parse!(...args));
+  mock.detect.mockImplementation((...args: Parameters<NonNullable<typeof mock.actual.detect>>) =>
+    mock.actual.detect!(...args),
+  );
+  mock.parse.mockImplementation((...args: Parameters<NonNullable<typeof mock.actual.parse>>) =>
+    mock.actual.parse!(...args),
+  );
   mock.ocr.mockResolvedValue({
     selectedPages: [1],
     pages: [
@@ -516,7 +520,7 @@ describe("LocalExtraction state belongs to one association (#71)", () => {
     fireEvent.click(screen.getByText("Start selected-page OCR"));
     // Waits for the OCR result on the first PDF.
     await screen.findByText(/Selected-page OCR finished/);
-    expect(screen.getByText(/source.pdf · original page 1 · recognized/)).toBeVisible();
+    expect(screen.getByText(/source.pdf · original page 1 · Text found/)).toBeVisible();
     rerender({ document: { ...A, digest: "re-imported" } });
     // Right after the prop change, without waiting.
     expect(screen.getByLabelText("OCR original pages")).toHaveValue("");

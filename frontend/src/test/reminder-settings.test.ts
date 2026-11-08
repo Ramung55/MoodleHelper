@@ -18,13 +18,39 @@ describe("#38 reminder settings", () => {
     expect(reminderError({ ...base, busyWeekLeadDays: 31 })).toMatch(/0–30/);
     expect(reminderError({ ...base, dateOnlyLocalTime: "24:00" })).toMatch(/HH:mm/);
     const settings = buildDemoSnapshot().settings;
-    expect(() => Settings.parse({ ...settings, reminders: { ...base, busyWeekLocalTime: "9:00" } })).toThrow();
-    expect(() => Settings.parse({ ...settings, reminders: { ...base, busyWeekLeadDays: 1.5 } })).toThrow();
+    expect(() =>
+      Settings.parse({ ...settings, reminders: { ...base, busyWeekLocalTime: "9:00" } }),
+    ).toThrow();
+    expect(() =>
+      Settings.parse({ ...settings, reminders: { ...base, busyWeekLeadDays: 1.5 } }),
+    ).toThrow();
   });
   it("parses a backend plan DTO and rejects unknown kinds", () => {
-    const plan = { datasetId: "d", generation: "g-1", serverTime: "2027-02-10T12:00:00Z", enabled: true, reasons: [], nextWakeAt: "2027-02-11T18:00:00Z",
-      items: [{ id: "rd-1", deliveryKey: "rk-1", kind: "deadline", assessmentId: "a1", precision: "date", status: "scheduled", dueAt: "2027-02-11T04:00:00Z", localTime: "2027-02-11T09:00", timezone: "Asia/Almaty", label: "Reminder for date-only event; deadline time unknown" }] };
+    const plan = {
+      datasetId: "d",
+      generation: "g-1",
+      serverTime: "2027-02-10T12:00:00Z",
+      enabled: true,
+      reasons: [],
+      nextWakeAt: "2027-02-11T18:00:00Z",
+      items: [
+        {
+          id: "rd-1",
+          deliveryKey: "rk-1",
+          kind: "deadline",
+          assessmentId: "a1",
+          precision: "date",
+          status: "scheduled",
+          dueAt: "2027-02-11T04:00:00Z",
+          localTime: "2027-02-11T09:00",
+          timezone: "Asia/Almaty",
+          label: "Reminder for date-only event; deadline time unknown",
+        },
+      ],
+    };
     expect(ReminderPlan.parse(plan).items).toHaveLength(1);
-    expect(() => ReminderPlan.parse({ ...plan, items: [{ ...plan.items[0], kind: "email" }] })).toThrow();
+    expect(() =>
+      ReminderPlan.parse({ ...plan, items: [{ ...plan.items[0], kind: "email" }] }),
+    ).toThrow();
   });
 });

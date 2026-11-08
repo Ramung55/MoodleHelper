@@ -18,38 +18,123 @@ const mock = vi.hoisted(() => ({ extract: vi.fn() }));
 vi.mock("@/services/extract-pdf", () => ({ extractPdf: mock.extract }));
 
 const datasetId = "12345678-1234-4123-8123-123456789abc";
-const digest = "c".repeat(64), otherDigest = "d".repeat(64);
-const association: LocalAssociation = { datasetId, courseId: "c-csc", digest, name: "syllabus.pdf", size: 3, source: "Local selection", createdAt: "now" };
-const pages = [{ page: 2, width: 500, height: 400, status: "text", rows: [{ text: "Задание 1 29 октября", items: [{ text: "Задание 1 29 октября", page: 2, transform: [12, 0, 0, 12, 40, 290], width: 100, height: 12 }] }] }];
-const info: AvailableAi = { available: true, provider: "Local mock; no external provider", retention: "Mock demonstration; stays local.", mode: "mock", policyVersion: "mock-policy-1", destination: "mock",
-  limits: { maxExcerpts: 8, maxExcerptBytes: 2000, maxBodyBytes: 16384, timeoutSeconds: 30, monthlyCapUsd: 0, perRequestReserveUsd: 0, simulatedCost: true } };
+const digest = "c".repeat(64),
+  otherDigest = "d".repeat(64);
+const association: LocalAssociation = {
+  datasetId,
+  courseId: "c-csc",
+  digest,
+  name: "syllabus.pdf",
+  size: 3,
+  source: "Local selection",
+  createdAt: "now",
+};
+const pages = [
+  {
+    page: 2,
+    width: 500,
+    height: 400,
+    status: "text",
+    rows: [
+      {
+        text: "Задание 1 29 октября",
+        items: [
+          {
+            text: "Задание 1 29 октября",
+            page: 2,
+            transform: [12, 0, 0, 12, 40, 290],
+            width: 100,
+            height: 12,
+          },
+        ],
+      },
+    ],
+  },
+];
+const info: AvailableAi = {
+  available: true,
+  provider: "Local mock; no external provider",
+  retention: "Mock demonstration; stays local.",
+  mode: "mock",
+  policyVersion: "mock-policy-1",
+  destination: "mock",
+  limits: {
+    maxExcerpts: 8,
+    maxExcerptBytes: 2000,
+    maxBodyBytes: 16384,
+    timeoutSeconds: 30,
+    monthlyCapUsd: 0,
+    perRequestReserveUsd: 0,
+    simulatedCost: true,
+  },
+};
 let storage: ReturnType<typeof indexedDbFixture>, calls: string[];
 
 beforeEach(async () => {
-  vi.resetAllMocks(); mock.extract.mockResolvedValue(pages); calls = [];
+  vi.resetAllMocks();
+  mock.extract.mockResolvedValue(pages);
+  calls = [];
   storage = indexedDbFixture();
-  vi.stubGlobal("indexedDB", storage.indexedDB); vi.stubGlobal("IDBKeyRange", storage.IDBKeyRange);
-  vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("Blob", NodeBlob);
+  vi.stubGlobal("indexedDB", storage.indexedDB);
+  vi.stubGlobal("IDBKeyRange", storage.IDBKeyRange);
+  vi.stubGlobal("crypto", webcrypto);
+  vi.stubGlobal("Blob", NodeBlob);
   // The local backend only: dataset identity and the mock AI gateway. No live provider is reachable.
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
-    calls.push(url);
-    if (url.endsWith("/api/local-context")) return new Response(JSON.stringify({ datasetId }));
-    if (url.endsWith("/api/ai/availability")) return new Response(JSON.stringify(info));
-    if (url.endsWith("/api/bridge-context")) return new Response(JSON.stringify({ version: "1", binding: "b" }));
-    if (url.endsWith("/api/ai/extract")) {
-      const body = JSON.parse(String(init.body)) as { requestId: string; excerpts: { id: string; locationId: string }[] };
-      const excerpt = body.excerpts[0]!;
-      return new Response(JSON.stringify({ version: "ai-extract.v1", requestId: body.requestId, mode: "mock", policyVersion: "mock-policy-1", status: "ok",
-        proposals: [{ title: "Задание 1 (AI)", type: "assignment", date: { value: "2026-10-29", precision: "date" }, uncertain: true, uncertaintyReason: "missing_year", confirmed: false, evidence: [{ excerptId: excerpt.id, locationId: excerpt.locationId, start: 0, end: 9 }] }] }));
-    }
-    throw new Error(`unexpected ${url}`);
-  }));
-  for (const d of [digest, otherDigest]) await saveLocalDocument({ ...association, digest: d }, new NodeBlob([d]) as unknown as Blob, [], new AbortController().signal);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit = {}) => {
+      calls.push(url);
+      if (url.endsWith("/api/local-context")) return new Response(JSON.stringify({ datasetId }));
+      if (url.endsWith("/api/ai/availability")) return new Response(JSON.stringify(info));
+      if (url.endsWith("/api/bridge-context"))
+        return new Response(JSON.stringify({ version: "1", binding: "b" }));
+      if (url.endsWith("/api/ai/extract")) {
+        const body = JSON.parse(String(init.body)) as {
+          requestId: string;
+          excerpts: { id: string; locationId: string }[];
+        };
+        const excerpt = body.excerpts[0]!;
+        return new Response(
+          JSON.stringify({
+            version: "ai-extract.v1",
+            requestId: body.requestId,
+            mode: "mock",
+            policyVersion: "mock-policy-1",
+            status: "ok",
+            proposals: [
+              {
+                title: "Задание 1 (AI)",
+                type: "assignment",
+                date: { value: "2026-10-29", precision: "date" },
+                uncertain: true,
+                uncertaintyReason: "missing_year",
+                confirmed: false,
+                evidence: [
+                  { excerptId: excerpt.id, locationId: excerpt.locationId, start: 0, end: 9 },
+                ],
+              },
+            ],
+          }),
+        );
+      }
+      throw new Error(`unexpected ${url}`);
+    }),
+  );
+  for (const d of [digest, otherDigest])
+    await saveLocalDocument(
+      { ...association, digest: d },
+      new NodeBlob([d]) as unknown as Blob,
+      [],
+      new AbortController().signal,
+    );
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const rows = () => storage.controls.rows("extractions");
-const aiExtracts = () => calls.filter(url => url.endsWith("/api/ai/extract")).length;
+const aiExtracts = () => calls.filter((url) => url.endsWith("/api/ai/extract")).length;
 
 /** Steps 1–9 in short: extract, find, interpret, then one mock AI proposal. */
 async function extractFindInterpretAndAskAi() {
@@ -73,8 +158,14 @@ it("restores the extraction, mentions, evidence and unconfirmed AI proposals aft
   const view = await extractFindInterpretAndAskAi();
   expect(aiExtracts()).toBe(1);
   const stored = rows()[0]!;
-  expect(stored).toMatchObject({ datasetId, courseId: "c-csc", digest, settings: EXTRACTION_SETTINGS });
-  expect(stored.mentions).toHaveLength(1); expect(stored.parsedDates).toHaveLength(1);
+  expect(stored).toMatchObject({
+    datasetId,
+    courseId: "c-csc",
+    digest,
+    settings: EXTRACTION_SETTINGS,
+  });
+  expect(stored.mentions).toHaveLength(1);
+  expect(stored.parsedDates).toHaveLength(1);
   view.unmount();
 
   // Reload: a fresh mount over the same browser store.
@@ -83,34 +174,41 @@ it("restores the extraction, mentions, evidence and unconfirmed AI proposals aft
   expect(screen.getByText("Задание 1 29 октября", { selector: "summary" })).toBeVisible();
   expect(screen.getByText("Possible assessments · unconfirmed")).toBeVisible();
   fireEvent.click(screen.getByText("Задание 1 · assignment · Unconfirmed"));
-  expect(screen.getByText(/^Original mention offsets \d+–\d+; source pdf_row; SHA-256 c{64}$/)).toBeVisible();
+  expect(
+    screen.getByText(/^Original mention offsets \d+–\d+; source pdf_row; SHA-256 c{64}$/),
+  ).toBeVisible();
   expect(screen.getByText("Original date expression: 29 октября")).toBeInTheDocument();
   const restored = screen.getByLabelText("Restored AI proposals");
   expect(restored).toHaveTextContent("1 AI proposals restored from this browser");
-  expect(restored).toHaveTextContent("All are unconfirmed and require review. No AI request was resent or resumed.");
+  expect(restored).toHaveTextContent("All need your review.");
   expect(restored).toHaveTextContent("Задание 1 (AI) · assignment · 2026-10-29");
   // Nothing was re-extracted, re-sent or resumed.
   expect(mock.extract).toHaveBeenCalledOnce();
   expect(aiExtracts()).toBe(1);
   expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
   expect(screen.queryByText(/Waiting for the gateway/)).toBeNull();
-  expect(rows()[0]!.ai.records.every((record: { state: string }) => record.state === "pending")).toBe(true);
+  expect(
+    rows()[0]!.ai!.records.every((record: { state: string }) => record.state === "pending"),
+  ).toBe(true);
 });
 
 it("never restores a record whose document SHA-256 differs, and drops it", async () => {
-  const view = await extractFindInterpretAndAskAi(); view.unmount();
+  const view = await extractFindInterpretAndAskAi();
+  view.unmount();
   // A different document (other SHA-256) shows nothing from the first one.
   render(<LocalExtraction document={{ ...association, digest: otherDigest }} />);
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
   expect(screen.queryByText(/Restored from this browser/)).toBeNull();
   expect(screen.queryByText("Задание 1 29 октября")).toBeNull();
   cleanup();
   // A stale record filed under the other document but holding the first document's results is refused and removed.
-  const first = rows().find(row => row.digest === digest)!;
+  const first = rows().find((row) => row.digest === digest)!;
   await saveStoredExtraction({ ...first, digest: otherDigest }, await captureLocalFence(datasetId));
-  expect(rows().filter(row => row.digest === otherDigest)).toHaveLength(1);
+  expect(rows().filter((row) => row.digest === otherDigest)).toHaveLength(1);
   render(<LocalExtraction document={{ ...association, digest: otherDigest }} />);
-  await waitFor(() => expect(rows().filter(row => row.digest === otherDigest)).toHaveLength(0));
+  await waitFor(() => expect(rows().filter((row) => row.digest === otherDigest)).toHaveLength(0));
   expect(screen.queryByText(/Restored from this browser/)).toBeNull();
   expect(screen.queryByText("Possible assessments · unconfirmed")).toBeNull();
 });
@@ -123,11 +221,15 @@ it("erase removes the stored results, nothing is restored afterwards, and a moun
   // A later change in the still-mounted view is fenced by the erase epoch.
   fireEvent.click(screen.getByRole("button", { name: "Interpret explicit dates" }));
   await screen.findByText(/Date proposals are ready/);
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
   expect(rows()).toHaveLength(0);
   cleanup();
   render(<LocalExtraction document={association} />);
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
   expect(screen.queryByText(/Restored from this browser/)).toBeNull();
   expect(screen.queryByText("Задание 1 29 октября")).toBeNull();
 });

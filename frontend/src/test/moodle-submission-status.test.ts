@@ -8,7 +8,11 @@ import {
   type SubmissionStatusObservation,
   type SubmissionStatusResult,
 } from "../../../extension/src/moodle-submission-status";
-import { disabledRegistry, liveRegistry, syntheticFixtureRegistry } from "../../../extension/src/page-refresh";
+import {
+  disabledRegistry,
+  liveRegistry,
+  syntheticFixtureRegistry,
+} from "../../../extension/src/page-refresh";
 import { SubmissionStatus } from "../domain/types";
 
 const origin = "https://moodle.sdu.edu.kz";

@@ -1,6 +1,17 @@
 import type { RawCourseObservation } from "@/domain/types";
-import type { AssessmentType, ConnectionState, DateValue, Overlay, Settings, Snapshot } from "@/domain/types";
-import type { LocalReviewContext, SyllabusRevisionDecision, SyllabusRevisionPreview } from "@/domain/types";
+import type {
+  AssessmentType,
+  ConnectionState,
+  DateValue,
+  Overlay,
+  Settings,
+  Snapshot,
+} from "@/domain/types";
+import type {
+  LocalReviewContext,
+  SyllabusRevisionDecision,
+  SyllabusRevisionPreview,
+} from "@/domain/types";
 
 export interface ConnectionInfo {
   state: ConnectionState;
@@ -31,7 +42,8 @@ export type ReviewDecision = (
 
 export type ImportResult = { ok: true } | { ok: false; reason: string };
 
-export type AiAvailability = { available: false; reason: string } | { available: true; provider: string; retention: string };
+export type AiAvailability =
+  { available: false; reason: string } | { available: true; provider: string; retention: string };
 
 /** Omission retains values; explicit undefined/null override keys request clearing. */
 export type OverlayPatch = Partial<Pick<Overlay, "hidden" | "completed">> & {
@@ -63,14 +75,27 @@ export interface MoodleHelperAdapter {
 
   syncAll(onProgress: (s: Snapshot) => void): Promise<Snapshot>;
 
-  importDocument(courseId: string, fileName: string, onProgress: (s: Snapshot) => void, contentDigest?: string): Promise<{ snapshot: Snapshot; result: ImportResult }>;
+  importDocument(
+    courseId: string,
+    fileName: string,
+    onProgress: (s: Snapshot) => void,
+    contentDigest?: string,
+  ): Promise<{ snapshot: Snapshot; result: ImportResult }>;
   review(candidateId: string, decision: ReviewDecision): Promise<Snapshot>;
   proposeReconciliation(left: string, right: string): Promise<Snapshot>;
-  decideReconciliation(pairId: string, fingerprint: string, reviewRevision: string, kind: "confirm" | "reject", choices: Record<string, string>): Promise<Snapshot>;
+  decideReconciliation(
+    pairId: string,
+    fingerprint: string,
+    reviewRevision: string,
+    kind: "confirm" | "reject",
+    choices: Record<string, string>,
+  ): Promise<Snapshot>;
   previewSyllabusRevision(sourceId: string, candidateId: string): Promise<SyllabusRevisionPreview>;
   confirmSyllabusRevision(decision: SyllabusRevisionDecision): Promise<Snapshot>;
 
-  downloadMaterial(id: string): Promise<{ snapshot: Snapshot; supported: boolean; message: string }>;
+  downloadMaterial(
+    id: string,
+  ): Promise<{ snapshot: Snapshot; supported: boolean; message: string }>;
 
   saveAlerts(alerts: Snapshot["alerts"]): Promise<Snapshot>;
   /** #39 narrow idempotent mark-read/delete; never overwrites concurrently appended alerts or delivery state. */
@@ -97,24 +122,77 @@ export interface MoodleHelperAdapter {
   /** #56 confirmed full erasure; HTTP-only. Throws EraseOutcomeUnknown when a commit may have happened. */
   eraseLocalData?(request: EraseRequest): Promise<EraseResult>;
   eraseStatus?(eraseId: string): Promise<EraseStatus>;
-  acknowledgeErase?(eraseId: string, component: "dashboard", state: "complete" | "failed"): Promise<EraseStatus>;
+  acknowledgeErase?(
+    eraseId: string,
+    component: "dashboard",
+    state: "complete" | "failed",
+  ): Promise<EraseStatus>;
 }
 
 export type CleanupState = "pending" | "complete" | "failed";
-export type EraseCleanup = { backend: "complete"; dashboard: CleanupState; extension: CleanupState };
-export type DataContext = { datasetId: string; epoch: number; revision: number; lifecycle: "active" | "cleanup_pending" | "complete"; erasure?: { eraseId: string; cleanup: EraseCleanup } | undefined };
-export type EraseRequest = { idempotencyKey: string; expectedDatasetId: string; expectedEpoch: number; expectedRevision: number };
-export type EraseResult = { eraseId: string; datasetId: string; epoch: number; revision: number; snapshot: Snapshot; cleanup: EraseCleanup };
-export type EraseStatus = { eraseId: string; datasetId: string; epoch: number; current: boolean; cleanup: EraseCleanup };
+export type EraseCleanup = {
+  backend: "complete";
+  dashboard: CleanupState;
+  extension: CleanupState;
+};
+export type DataContext = {
+  datasetId: string;
+  epoch: number;
+  revision: number;
+  lifecycle: "active" | "cleanup_pending" | "complete";
+  erasure?: { eraseId: string; cleanup: EraseCleanup } | undefined;
+};
+export type EraseRequest = {
+  idempotencyKey: string;
+  expectedDatasetId: string;
+  expectedEpoch: number;
+  expectedRevision: number;
+};
+export type EraseResult = {
+  eraseId: string;
+  datasetId: string;
+  epoch: number;
+  revision: number;
+  snapshot: Snapshot;
+  cleanup: EraseCleanup;
+};
+export type EraseStatus = {
+  eraseId: string;
+  datasetId: string;
+  epoch: number;
+  current: boolean;
+  cleanup: EraseCleanup;
+};
 /** Network loss after sending: the erase may have committed; retry the same key to read the receipt. */
 export class EraseOutcomeUnknown extends Error {
-  constructor() { super("Deletion outcome unknown; checking the receipt."); this.name = "EraseOutcomeUnknown"; }
+  constructor() {
+    super("Deletion outcome unknown; checking the receipt.");
+    this.name = "EraseOutcomeUnknown";
+  }
 }
 
 export type RestoreContext = { datasetId: string; epoch: number; revision: number };
-export type RestoreRequest = { idempotencyKey: string; expectedDatasetId: string; expectedEpoch: number; expectedRevision: number; backup: unknown };
-export type RestoreResult = { snapshot: Snapshot; datasetId: string; epoch: number; revision: number; restoreId: string; remindersRebuilt: boolean; reminderGeneration: string; replayed: boolean };
+export type RestoreRequest = {
+  idempotencyKey: string;
+  expectedDatasetId: string;
+  expectedEpoch: number;
+  expectedRevision: number;
+  backup: unknown;
+};
+export type RestoreResult = {
+  snapshot: Snapshot;
+  datasetId: string;
+  epoch: number;
+  revision: number;
+  restoreId: string;
+  remindersRebuilt: boolean;
+  reminderGeneration: string;
+  replayed: boolean;
+};
 /** Network loss or unreadable response after sending: the restore may or may not have committed. */
 export class RestoreOutcomeUnknown extends Error {
-  constructor() { super("Restore outcome unknown; checking receipt."); this.name = "RestoreOutcomeUnknown"; }
+  constructor() {
+    super("Restore outcome unknown; checking receipt.");
+    this.name = "RestoreOutcomeUnknown";
+  }
 }

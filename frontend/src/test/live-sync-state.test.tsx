@@ -9,7 +9,16 @@ import { Overview } from "@/routes/index";
 
 /** #46 owner Chrome check: the dashboard reports live sync availability and routes real Sync all through the bridge. */
 const mocks = vi.hoisted(() => ({
-  adapter: { kind: "demo", storage: "backend", load: vi.fn(), connection: vi.fn(), collectionMode: vi.fn(), syncAll: vi.fn(), aiAvailability: vi.fn(), saveAlerts: vi.fn() },
+  adapter: {
+    kind: "demo",
+    storage: "backend",
+    load: vi.fn(),
+    connection: vi.fn(),
+    collectionMode: vi.fn(),
+    syncAll: vi.fn(),
+    aiAvailability: vi.fn(),
+    saveAlerts: vi.fn(),
+  },
   detect: vi.fn(),
   bridgeSync: vi.fn(),
   connect: vi.fn(),
@@ -20,17 +29,30 @@ vi.mock("@/services/extension-adapter", () => ({
   detectExtension: () => mocks.detect(),
   syncAllThroughExtension: (onProgress: unknown) => mocks.bridgeSync(onProgress),
   discoverSduCourses: vi.fn(),
-  BridgeClient: class { connect = mocks.connect; dispose = vi.fn(); },
+  BridgeClient: class {
+    connect = mocks.connect;
+    dispose = vi.fn();
+  },
 }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
 vi.mock("@tanstack/react-router", async (orig) => ({
   ...(await orig<typeof import("@tanstack/react-router")>()),
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
+  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
   createFileRoute: () => (options: unknown) => ({ options }),
 }));
 
-const REAL = { state: "disconnected", message: "Real dataset. Sync all scans the selected courses read-only.", extensionDetected: false } as const;
-const DEMO = { state: "demo", message: "Local fictional demo data.", extensionDetected: false } as const;
+const REAL = {
+  state: "disconnected",
+  message: "Real dataset. Sync all scans the selected courses read-only.",
+  extensionDetected: false,
+} as const;
+const DEMO = {
+  state: "demo",
+  message: "Local fictional demo data.",
+  extensionDetected: false,
+} as const;
 const data = buildDemoSnapshot();
 data.changes = [];
 data.settings.reminders = { enabled: false, hoursBefore: 24, busyWeek: false };
@@ -38,19 +60,24 @@ const Settings = SettingsRoute.options.component as ComponentType;
 
 function Probe() {
   const { conn, snap, syncAll } = useApp();
-  return <>
-    <div data-testid="message">{conn?.message ?? "loading"}</div>
-    <div data-testid="live">{String(!!conn?.liveSync)}</div>
-    {snap && <button onClick={() => void syncAll()}>Probe sync</button>}
-    {snap && <Overview />}
-    {snap && <Settings />}
-  </>;
+  return (
+    <>
+      <div data-testid="message">{conn?.message ?? "loading"}</div>
+      <div data-testid="live">{String(!!conn?.liveSync)}</div>
+      {snap && <button onClick={() => void syncAll()}>Probe sync</button>}
+      {snap && <Overview />}
+      {snap && <Settings />}
+    </>
+  );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.adapter.load.mockResolvedValue(structuredClone(data));
-  mocks.adapter.aiAvailability.mockResolvedValue({ available: false, reason: "No provider configured" });
+  mocks.adapter.aiAvailability.mockResolvedValue({
+    available: false,
+    reason: "No provider configured",
+  });
   mocks.adapter.saveAlerts.mockResolvedValue(structuredClone(data));
   mocks.adapter.syncAll.mockResolvedValue(structuredClone(data));
   mocks.bridgeSync.mockResolvedValue(structuredClone(data));
@@ -60,11 +87,26 @@ afterEach(cleanup);
 describe("live sync state (#46)", () => {
   it("derives the connection only from dataset, extension and the handshake's collection state", () => {
     expect(connectionWithExtension({ ...REAL }, false, "verified")).toEqual(REAL);
-    expect(connectionWithExtension({ ...REAL }, true, "verified")).toEqual({ ...REAL, extensionDetected: true, liveSync: true, message: EXTENSION_MESSAGES.live });
-    expect(connectionWithExtension({ ...REAL }, true, "synthetic")).toEqual({ ...REAL, extensionDetected: true });
-    expect(connectionWithExtension({ ...REAL }, true)).toEqual({ ...REAL, extensionDetected: true });
+    expect(connectionWithExtension({ ...REAL }, true, "verified")).toEqual({
+      ...REAL,
+      extensionDetected: true,
+      liveSync: true,
+      message: EXTENSION_MESSAGES.live,
+    });
+    expect(connectionWithExtension({ ...REAL }, true, "synthetic")).toEqual({
+      ...REAL,
+      extensionDetected: true,
+    });
+    expect(connectionWithExtension({ ...REAL }, true)).toEqual({
+      ...REAL,
+      extensionDetected: true,
+    });
     // Demo stays demo whatever the backend mode.
-    expect(connectionWithExtension({ ...DEMO }, true, "verified")).toEqual({ ...DEMO, extensionDetected: true, message: EXTENSION_MESSAGES.demo });
+    expect(connectionWithExtension({ ...DEMO }, true, "verified")).toEqual({
+      ...DEMO,
+      extensionDetected: true,
+      message: EXTENSION_MESSAGES.demo,
+    });
     expect(syncAllLabel(null)).toBe("Sync all courses (demo)");
     expect(syncAllLabel({ ...DEMO })).toBe("Sync all courses (demo)");
     expect(syncAllLabel({ ...REAL })).toBe("Sync all courses");
@@ -74,7 +116,11 @@ describe("live sync state (#46)", () => {
     mocks.adapter.connection.mockResolvedValue({ ...REAL });
     mocks.adapter.collectionMode.mockResolvedValue("verified");
     mocks.detect.mockResolvedValue(true);
-    render(<AppProvider><Probe /></AppProvider>);
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
     await waitFor(() => expect(screen.getByTestId("live")).toHaveTextContent("true"));
     expect(screen.getByTestId("message")).toHaveTextContent(EXTENSION_MESSAGES.live);
     expect(screen.queryByText(/not implemented|Still showing demo data|\(demo\)/)).toBeNull();
@@ -88,7 +134,11 @@ describe("live sync state (#46)", () => {
     mocks.adapter.connection.mockResolvedValue({ ...REAL });
     mocks.adapter.collectionMode.mockRejectedValue(new Error("Backend unavailable"));
     mocks.detect.mockResolvedValue(true);
-    render(<AppProvider><Probe /></AppProvider>);
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
     await screen.findByText("Probe sync");
     await waitFor(() => expect(screen.getByTestId("message")).toHaveTextContent(REAL.message));
     expect(screen.getByTestId("live")).toHaveTextContent("false");
@@ -100,7 +150,11 @@ describe("live sync state (#46)", () => {
   it("real dataset without the extension never asks for the collection mode", async () => {
     mocks.adapter.connection.mockResolvedValue({ ...REAL });
     mocks.detect.mockResolvedValue(false);
-    render(<AppProvider><Probe /></AppProvider>);
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
     await screen.findByText("Probe sync");
     expect(screen.getByTestId("live")).toHaveTextContent("false");
     expect(mocks.adapter.collectionMode).not.toHaveBeenCalled();
@@ -110,9 +164,15 @@ describe("live sync state (#46)", () => {
     mocks.adapter.connection.mockResolvedValue({ ...DEMO });
     mocks.adapter.collectionMode.mockResolvedValue("verified");
     mocks.detect.mockResolvedValue(true);
-    render(<AppProvider><Probe /></AppProvider>);
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
     await screen.findByText("Probe sync");
-    await waitFor(() => expect(screen.getByTestId("message")).toHaveTextContent(EXTENSION_MESSAGES.demo));
+    await waitFor(() =>
+      expect(screen.getByTestId("message")).toHaveTextContent(EXTENSION_MESSAGES.demo),
+    );
     expect(screen.getAllByRole("button", { name: "Sync all courses (demo)" })).toHaveLength(2);
     fireEvent.click(screen.getByText("Probe sync"));
     await waitFor(() => expect(mocks.adapter.syncAll).toHaveBeenCalledOnce());
@@ -121,10 +181,16 @@ describe("live sync state (#46)", () => {
   });
 
   it("Settings bridge check says the Moodle collection is ready when live sync is available", async () => {
-    mocks.connect.mockResolvedValue({ backend: "ready", localRepository: "ready", moodleCollection: "unavailable" });
+    mocks.connect.mockResolvedValue({
+      backend: "ready",
+      localRepository: "ready",
+      moodleCollection: "unavailable",
+    });
     render(<BridgeConnection liveSync />);
     fireEvent.click(screen.getByRole("button", { name: "Check / reconnect extension" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Moodle collection is ready"));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Moodle collection is ready"),
+    );
     expect(screen.getByRole("status")).not.toHaveTextContent("unavailable");
   });
 });

@@ -23,7 +23,10 @@ function NotFoundComponent() {
         <h1 className="text-7xl font-bold text-foreground">404</h1>
         <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
         <div className="mt-6">
-          <Link to="/" className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+          <Link
+            to="/"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
             Go to overview
           </Link>
         </div>
@@ -64,7 +67,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Moodle Helper — SDU academic planner" },
-      { name: "description", content: "Local-first planning dashboard for SDU Moodle deadlines, syllabus assessments and workload." },
+      {
+        name: "description",
+        content:
+          "Local-first planning dashboard for SDU Moodle deadlines, syllabus assessments and workload.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -105,7 +112,9 @@ function RootComponent() {
   const shellState = shellPreview(Route.useSearch().shellState);
   return (
     <QueryClientProvider client={queryClient}>
-      {shellState ? <AppShell preview={shellState} /> : (
+      {shellState ? (
+        <AppShell preview={shellState} />
+      ) : (
         <AppProvider>
           <AppShell />
           <Toaster />

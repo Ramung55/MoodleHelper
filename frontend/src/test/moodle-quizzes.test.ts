@@ -15,7 +15,10 @@ import {
 const origin = "https://moodle.sdu.edu.kz";
 const observedAt = "2026-11-01T10:15:00+05:00";
 const fixtureDir = resolve(__dirname, "../../../tests/fixtures/moodle");
-const observedQuiz = readFileSync(resolve(fixtureDir, "observed/quiz-finished.html"), "utf8");
+const observedQuiz = readFileSync(
+  resolve(fixtureDir, "observed/quiz-finished.html"),
+  "utf8",
+).replace(/\r\n/g, "\n");
 const observedCourse = readFileSync(resolve(fixtureDir, "observed/course-page.html"), "utf8");
 const observedNotFound = readFileSync(resolve(fixtureDir, "observed/not-found.html"), "utf8");
 const loginRedirect = JSON.parse(
@@ -55,7 +58,8 @@ const variantOf = (from: string, to: string, html = observedQuiz) => {
 };
 const closedRow = "<div>Closed: Saturday, 4 March 2028, 9:00 AM</div>";
 const quizInfo = /<div class="box quizinfo">[\s\S]*?<\/div>\n/;
-const attemptsList = /<div class="rui-attempts-list">[\s\S]*?<\/div>\n<\/div>\n<\/div>\n<\/div>\n<\/div>\n/;
+const attemptsList =
+  /<div class="rui-attempts-list">[\s\S]*?<\/div>\n<\/div>\n<\/div>\n<\/div>\n<\/div>\n/;
 const exhausted =
   '<div class="box quizattempt"><p class="text-start">No more attempts are allowed</p>\n<div class="continuebutton">Back to the course</div></div>\n';
 
@@ -96,7 +100,10 @@ describe("#14 verified-support registry", () => {
       (f) => f.endsWith(".ts") && f !== "moodle-quizzes.ts",
     );
     const importers = sources.filter((file) =>
-      readFileSync(resolve(__dirname, "../../../extension/src", file), "utf8").includes("moodle-quizzes"));
+      readFileSync(resolve(__dirname, "../../../extension/src", file), "utf8").includes(
+        "moodle-quizzes",
+      ),
+    );
     // page-refresh.ts holds the live registry adapter; moodle-page-analysis.ts reads course-page titles.
     expect(importers.sort()).toEqual(["moodle-page-analysis.ts", "page-refresh.ts"]);
     const content = readFileSync(resolve(__dirname, "../../../extension/src/content.ts"), "utf8");
@@ -314,15 +321,11 @@ describe("#14 course card links (only quiz view links are identity evidence)", (
       `<a data-href="/course/view.php?id=9001">x</a>${quizLink}`,
       observedCourse,
     );
-    expect(card(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe(
-      "990103",
-    );
+    expect(card(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe("990103");
   });
   it("SYNTHETIC: a second, agreeing quiz link is accepted", () => {
     const html = variantOf(quizLink, `${quizLink}icon</a>${quizLink}`, observedCourse);
-    expect(card(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe(
-      "990103",
-    );
+    expect(card(parseMoodleQuizPage(course(html), observedAt)).sourceCourseModuleId).toBe("990103");
   });
   it("SYNTHETIC: a conflicting second quiz link is an identity mismatch", () => {
     const html = variantOf(
@@ -693,7 +696,9 @@ describe("#14 live SDU markup (Addendum 4 live run, 2026-11-01)", () => {
   });
   it("SYNTHETIC: the sentence without the continue button is still accepted", () => {
     const html = variantOf('\n<div class="continuebutton">Back to the course</div>', "");
-    expect(only(parseMoodleQuizPage(input(html), observedAt)).attemptInformation.kind).toBe("known");
+    expect(only(parseMoodleQuizPage(input(html), observedAt)).attemptInformation.kind).toBe(
+      "known",
+    );
   });
   it.each([
     [

@@ -4,10 +4,12 @@
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 const out = ".output/public";
-if (!existsSync(`${out}/_shell.html`)) throw new Error("Pages build missing _shell.html; run with MOODLE_HELPER_PAGES=1.");
+if (!existsSync(`${out}/_shell.html`))
+  throw new Error("Pages build missing _shell.html; run with MOODLE_HELPER_PAGES=1.");
 for (const page of ["index.html", "deadlines/index.html", "settings/index.html"]) {
   const html = readFileSync(`${out}/${page}`, "utf8");
-  if (!html.includes('"/MoodleHelper/assets/')) throw new Error(`${page} does not load assets from /MoodleHelper/.`);
+  if (!html.includes('"/MoodleHelper/assets/'))
+    throw new Error(`${page} does not load assets from /MoodleHelper/.`);
 }
 copyFileSync(`${out}/_shell.html`, `${out}/404.html`);
 writeFileSync(`${out}/.nojekyll`, "");

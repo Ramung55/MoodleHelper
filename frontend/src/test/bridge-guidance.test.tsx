@@ -40,6 +40,6 @@ describe("Settings bridge connection guidance", () => {
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent("Moodle collection is unavailable"),
     );
-    expect(screen.getByRole("status")).toHaveTextContent("continues using the local HTTP backend");
+    expect(screen.getByRole("status")).toHaveTextContent("saved data is shown");
   });
 });

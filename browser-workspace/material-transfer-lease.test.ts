@@ -371,7 +371,7 @@ describe("#41 QA fix 2: the busy outcome reaches the dashboard label", () => {
     expect(last).toMatchObject({ state: "failed", reason: "network", networkDetail: "busy" });
     expect(p.downloads).toEqual([]);
     expect(v.message).toBe(DASHBOARD_BUSY_TEXT);
-    expect(transferLabel(recordOf(last)).text).toBe("Download failed. Moodle is busy. Try again later. Nothing was saved.");
+    expect(transferLabel(recordOf(last)).text).toBe("Download failed — Moodle is busy; try again later (nothing was saved).");
   });
   it("a generic network error: no detail, and the dashboard keeps the generic network text", async () => {
     const w = worker();
@@ -379,7 +379,7 @@ describe("#41 QA fix 2: the busy outcome reaches the dashboard label", () => {
     await p.go();
     const last = p.reports.at(-1);
     expect(last).not.toHaveProperty("networkDetail");
-    expect(transferLabel(recordOf(last)).text).toBe("Download failed. Moodle could not be reached, or sent the request to another site. Nothing was saved.");
+    expect(transferLabel(recordOf(last)).text).toBe("Download failed — Moodle could not be reached or redirected elsewhere; nothing was saved.");
   });
   it("the transfer page and the dashboard use the same busy text", () => {
     expect(DASHBOARD_BUSY_TEXT).toBe(BUSY_TEXT);

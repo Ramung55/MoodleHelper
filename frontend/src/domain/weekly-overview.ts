@@ -3,14 +3,18 @@ import type { Settings } from "./types";
 import type { WeekLoad } from "./workload";
 
 /** Documented product defaults (#37). Displayed, never applied over saved custom values. */
-export const WORKLOAD_DEFAULTS = { weights: { exam: 3, assignment: 2, quiz: 1, other: 0 }, thresholds: { maxOutstanding: 5, maxWeighted: 10 } } as const;
+export const WORKLOAD_DEFAULTS = {
+  weights: { exam: 3, assignment: 2, quiz: 1, other: 0 },
+  thresholds: { maxOutstanding: 5, maxWeighted: 10 },
+} as const;
 
 /** Inspectable reason for an item's contribution, mirroring #36 precedence (no recalculation). */
 export function contributionReason(v: AssessmentView): string {
   const status = v.a.submission?.status;
   if (v.outstanding) {
     // #87: plain words instead of the raw Moodle status value.
-    if (v.needsAttention) return `Counts as outstanding: Moodle shows ${status === "draft" ? "a draft" : status === "reopened" ? "a resubmission request" : "it not submitted"}, even if you marked it done.`;
+    if (v.needsAttention)
+      return `Counts as outstanding: Moodle shows ${status === "draft" ? "a draft" : status === "reopened" ? "a resubmission request" : "it not submitted"}, even if you marked it done.`;
     return "Counts as outstanding: not submitted or marked complete.";
   }
   if (status === "submitted") return "Counted in total only: submitted in Moodle, not outstanding.";
@@ -19,7 +23,12 @@ export function contributionReason(v: AssessmentView): string {
 }
 
 export function precisionLabel(v: AssessmentView): string {
-  const labels: Record<string, string> = { exact: "exact time", date: "date only", week: "week only", unknown: "unknown date" };
+  const labels: Record<string, string> = {
+    exact: "exact time",
+    date: "date only",
+    week: "week only",
+    unknown: "unknown date",
+  };
   return labels[v.date.kind] ?? v.date.kind;
 }
 
@@ -31,30 +40,70 @@ export function unallocatedReason(v: AssessmentView): string {
 }
 
 /** Busy iff strictly above either threshold; returns text reasons (not color alone). */
-export function busyReasons(w: Pick<WeekLoad, "outstanding" | "weighted">, t: Settings["thresholds"]): string[] {
+export function busyReasons(
+  w: Pick<WeekLoad, "outstanding" | "weighted">,
+  t: Settings["thresholds"],
+): string[] {
   const reasons: string[] = [];
-  if (w.outstanding > t.maxOutstanding) reasons.push(`${w.outstanding} outstanding is above the threshold of ${t.maxOutstanding}`);
-  if (w.weighted > t.maxWeighted) reasons.push(`weighted estimate ${w.weighted} is above the threshold of ${t.maxWeighted}`);
+  if (w.outstanding > t.maxOutstanding)
+    reasons.push(`${w.outstanding} outstanding is above the threshold of ${t.maxOutstanding}`);
+  if (w.weighted > t.maxWeighted)
+    reasons.push(`weighted estimate ${w.weighted} is above the threshold of ${t.maxWeighted}`);
   return reasons;
 }
 
-export type WorkloadDraft = { exam: string; assignment: string; quiz: string; other: string; maxOutstanding: string; maxWeighted: string };
+export type WorkloadDraft = {
+  exam: string;
+  assignment: string;
+  quiz: string;
+  other: string;
+  maxOutstanding: string;
+  maxWeighted: string;
+};
 export type WorkloadDraftErrors = Partial<Record<keyof WorkloadDraft, string>>;
 export function draftFrom(s: Pick<Settings, "weights" | "thresholds">): WorkloadDraft {
-  return { exam: String(s.weights.exam), assignment: String(s.weights.assignment), quiz: String(s.weights.quiz), other: String(s.weights.other), maxOutstanding: String(s.thresholds.maxOutstanding), maxWeighted: String(s.thresholds.maxWeighted) };
+  return {
+    exam: String(s.weights.exam),
+    assignment: String(s.weights.assignment),
+    quiz: String(s.weights.quiz),
+    other: String(s.weights.other),
+    maxOutstanding: String(s.thresholds.maxOutstanding),
+    maxWeighted: String(s.thresholds.maxWeighted),
+  };
 }
-const parse = (text: string): number | null => { const t = text.trim(); if (!t) return null; const n = Number(t); return Number.isFinite(n) ? n : null; };
+const parse = (text: string): number | null => {
+  const t = text.trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+};
 /** Validates without coercion: blank, negative, nonfinite or non-numeric text is a field error. */
-export function validateDraft(d: WorkloadDraft): { errors: WorkloadDraftErrors; value?: Pick<Settings, "weights" | "thresholds"> } {
-  const errors: WorkloadDraftErrors = {}; const n: Record<string, number> = {};
+export function validateDraft(d: WorkloadDraft): {
+  errors: WorkloadDraftErrors;
+  value?: Pick<Settings, "weights" | "thresholds">;
+} {
+  const errors: WorkloadDraftErrors = {};
+  const n: Record<string, number> = {};
   for (const key of Object.keys(d) as (keyof WorkloadDraft)[]) {
     const value = parse(d[key]);
     if (value === null) errors[key] = d[key].trim() ? "Enter a finite number." : "Required.";
     else if (value < 0) errors[key] = "Must be zero or more.";
-    else if (key === "maxOutstanding" && !Number.isInteger(value)) errors[key] = "Must be a whole number.";
+    else if (key === "maxOutstanding" && !Number.isInteger(value))
+      errors[key] = "Must be a whole number.";
     else n[key] = value;
   }
   if (Object.keys(errors).length) return { errors };
   // No field had an error, so the loop above set n[key] for every WorkloadDraft key.
-  return { errors, value: { weights: { exam: n["exam"]!, assignment: n["assignment"]!, quiz: n["quiz"]!, other: n["other"]! }, thresholds: { maxOutstanding: n["maxOutstanding"]!, maxWeighted: n["maxWeighted"]! } } };
+  return {
+    errors,
+    value: {
+      weights: {
+        exam: n["exam"]!,
+        assignment: n["assignment"]!,
+        quiz: n["quiz"]!,
+        other: n["other"]!,
+      },
+      thresholds: { maxOutstanding: n["maxOutstanding"]!, maxWeighted: n["maxWeighted"]! },
+    },
+  };
 }
