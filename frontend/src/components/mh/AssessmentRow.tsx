@@ -104,7 +104,7 @@ export function AssessmentRow({
             </span>
           )}
           {v.completed && (
-            <span className="inline-flex items-center gap-1 text-success">
+            <span className="inline-flex items-center gap-1 text-success-text">
               <CheckCircle2 className="h-3 w-3" aria-hidden />
               You marked done
             </span>
