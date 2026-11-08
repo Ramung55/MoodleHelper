@@ -144,7 +144,7 @@ function ShellFrame({
         <div className="flex h-full flex-col p-4">
           <div className="mb-6 px-2">
             <p className="font-display text-xl font-semibold">Moodle Helper</p>
-            <p className="text-xs opacity-70">SDU University · planning</p>
+            <p className="text-xs text-sidebar-muted">SDU University · planning</p>
           </div>
           <nav aria-label="Main" className="flex flex-col gap-1">
             {NAV.map(({ to, label, icon: Icon }) => (
@@ -183,7 +183,7 @@ function ShellFrame({
               <PlugZap className="h-3.5 w-3.5" aria-hidden />
               {connection}
             </p>
-            <p className="mt-1 opacity-75">{storage}</p>
+            <p className="mt-1 text-sidebar-muted">{storage}</p>
           </div>
         </div>
       </aside>

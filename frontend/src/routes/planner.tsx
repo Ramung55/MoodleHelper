@@ -110,7 +110,7 @@ function Planner() {
                 </div>
               </dl>
               {reasons.length > 0 && (
-                <p className="mt-2 flex items-start gap-1 text-sm font-medium text-warning-foreground">
+                <p className="mt-2 flex items-start gap-1 text-sm font-medium text-warning-text">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                   Busy week warning: {reasons.join("; ")}.
                 </p>

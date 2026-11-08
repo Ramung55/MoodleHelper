@@ -98,7 +98,7 @@ export function AssessmentRow({
             </span>
           )}
           {fresh?.stale && (
-            <span className="inline-flex items-center gap-1 text-warning">
+            <span className="inline-flex items-center gap-1 text-warning-text">
               <History className="h-3 w-3" aria-hidden />
               Stale source
             </span>

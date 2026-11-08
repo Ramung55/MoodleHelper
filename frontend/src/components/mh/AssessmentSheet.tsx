@@ -221,9 +221,7 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                 {fresh && (
                   <p
                     className={
-                      fresh.stale
-                        ? "text-sm text-warning-foreground"
-                        : "text-xs text-muted-foreground"
+                      fresh.stale ? "text-sm text-warning-text" : "text-xs text-muted-foreground"
                     }
                   >
                     {fresh.label}
