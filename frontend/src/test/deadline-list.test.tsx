@@ -455,11 +455,15 @@ describe("#94: live Moodle submission status after Sync all", () => {
     const { id, api } = observed("not_submitted");
     for (const completed of [true, false]) {
       render(<AssessmentSheet id={id} onClose={vi.fn()} />);
-      fireEvent.click(screen.getByRole("checkbox", { name: "I've finished this (personal check)" }));
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: "I've finished this (personal check)" }),
+      );
       await waitFor(() => expect(api.updateOverlay).toHaveBeenLastCalledWith(id, { completed }));
       cleanup();
       render(<AssessmentSheet id={id} onClose={vi.fn()} />);
-      expect(screen.getByRole("checkbox", { name: "I've finished this (personal check)" })).toHaveProperty("checked", completed);
+      expect(
+        screen.getByRole("checkbox", { name: "I've finished this (personal check)" }),
+      ).toHaveProperty("checked", completed);
       expect(screen.getByText("Moodle: Not submitted")).toBeInTheDocument();
       cleanup();
     }
@@ -468,7 +472,9 @@ describe("#94: live Moodle submission status after Sync all", () => {
     for (const status of ["submitted", "not_submitted", "reopened"] as const) {
       const { id } = observed(status, false, true);
       render(<AssessmentSheet id={id} onClose={vi.fn()} />);
-      expect(screen.getByRole("checkbox", { name: "I've finished this (personal check)" })).toHaveProperty("checked", true);
+      expect(
+        screen.getByRole("checkbox", { name: "I've finished this (personal check)" }),
+      ).toHaveProperty("checked", true);
       cleanup();
     }
   });
