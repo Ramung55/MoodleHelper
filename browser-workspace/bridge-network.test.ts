@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
-import { mkdtemp, rm, writeFile, access } from "node:fs/promises";
+import { mkdtemp, writeFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { BridgeClient } from "../frontend/src/services/extension-adapter";
@@ -22,6 +22,12 @@ import {
   validResult,
   type Request,
 } from "../shared/src/bridge";
+import {
+  CLEANUP_TIMEOUT_MS,
+  cleanUp,
+  removeTemporaryDirectory,
+  stopBackend,
+} from "./backend-cleanup";
 
 // Explicit Chrome API/window SHIM: no installed Chrome or live Moodle is observed.
 // Production client + relay + worker use real loopback FastAPI and isolated SQLite.
@@ -74,11 +80,7 @@ const python = path.join(
     : ".venv/bin/python",
 );
 async function stop() {
-  if (child && child.exitCode === null)
-    await new Promise<void>((resolve) => {
-      child.once("exit", () => resolve());
-      child.kill();
-    });
+  await stopBackend("bridge-network.test.ts", child, isolatedPort);
 }
 async function start(dataset = "demo") {
   const env = {
@@ -162,13 +164,17 @@ beforeAll(async () => {
   await start();
   setup();
 }, 30000);
-afterAll(async () => {
-  client?.dispose();
-  removeRelay?.();
-  await stop();
-  if (temporaryDirectory)
-    await rm(temporaryDirectory, { recursive: true, force: true });
-});
+afterAll(
+  () =>
+    cleanUp(
+      "bridge-network.test.ts",
+      () => client?.dispose(),
+      () => removeRelay?.(),
+      stop,
+      () => removeTemporaryDirectory(temporaryDirectory),
+    ),
+  CLEANUP_TIMEOUT_MS,
+);
 
 describe("production bridge through labeled Chrome/window shim and real SQLite network", () => {
   it('coordinates simultaneous dashboard bridge and popup handler starts against SQLite', async () => {

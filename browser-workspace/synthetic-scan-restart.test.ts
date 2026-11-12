@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import {spawn,type ChildProcess} from 'node:child_process';
 import {createServer} from 'node:net';
-import {mkdtemp,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {it,expect} from 'vitest';
 import {installExtension} from '../extension/src/index';
+import {cleanUp,removeTemporaryDirectory,stopBackend,withCleanup} from './backend-cleanup';
+
+const FILE='synthetic-scan-restart.test.ts';
 
 function installed(options:any) {
   const chrome:any={runtime:{id:'synthetic-test',onMessage:{addListener:()=>{}},onStartup:{addListener:()=>{}},onInstalled:{addListener:()=>{}}},
@@ -18,13 +21,13 @@ it('recovers a pre-commit worker interruption and does not repeat a committed sc
   const root=path.resolve(import.meta.dirname,'..'), dir=await mkdtemp(path.join(tmpdir(),'scan-restart-'));
   const python=path.join(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
   const listener=createServer();await new Promise<void>(r=>listener.listen(0,'127.0.0.1',r));const port=(listener.address() as {port:number}).port;await new Promise<void>(r=>listener.close(()=>r()));
-  const base=`http://127.0.0.1:${port}`,clock=path.join(dir,'clock');let server:ChildProcess;
+  const base=`http://127.0.0.1:${port}`,clock=path.join(dir,'clock');let server:ChildProcess|undefined;
   const pause=(ms:number)=>new Promise<void>(r=>setTimeout(r,ms));
   const startServer=async()=>{server=spawn(python,['-m','uvicorn','tests.scan_network_app:app','--host','127.0.0.1','--port',String(port)],{cwd:root,windowsHide:true,stdio:'pipe',env:{...process.env,SCAN_TEST_DATABASE:path.join(dir,'synthetic-scan.sqlite3'),SCAN_TEST_CLOCK:clock}});
     for(let i=0;i<200;i++){try{if((await fetch(base+'/api/bridge-context')).ok)return;}catch{}await pause(50);}throw Error('Synthetic server unavailable');};
-  const stopServer=async()=>{if(server&&server.exitCode===null)await new Promise<void>(r=>{server.once('exit',()=>r());server.kill();});};
+  const stopServer=()=>stopBackend(FILE,server,port);
   const workers:{dispose:()=>void}[]=[];
-  try {
+  await withCleanup(FILE,async()=>{
     await writeFile(clock,'1000');await startServer();
     const snapshot=await (await fetch(base+'/api/snapshot')).json();
     snapshot.courses[0].discovery={sourceCourseId:'101',sourceUrl:'https://moodle.sdu.edu.kz/course/view.php?id=101',title:{kind:'known',value:'Synthetic course'},termIndicators:{kind:'unknown'},currentTermStatus:'unknown'};
@@ -49,5 +52,5 @@ it('recovers a pre-commit worker interruption and does not repeat a committed sc
     await third.wake();expect(calls).toBe(1);
     const done=await (await fetch(base+'/api/scan/runs/'+run.id)).json();
     expect((await (await fetch(base+'/api/scan/jobs/'+done.jobs[0].id+'/pages')).json()).pages.length).toBeGreaterThan(0);
-  } finally {workers.forEach(w=>w.dispose());await stopServer();await rm(dir,{recursive:true,force:true});}
+  },()=>cleanUp(FILE,()=>workers.forEach(w=>w.dispose()),stopServer,()=>removeTemporaryDirectory(dir)));
 },45000);

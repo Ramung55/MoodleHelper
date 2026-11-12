@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import {spawn, execFile, type ChildProcess} from 'node:child_process';
 import {createServer} from 'node:net';
-import {mkdtemp,rm,mkdir} from 'node:fs/promises';
+import {mkdtemp,mkdir} from 'node:fs/promises';
 import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -9,10 +9,14 @@ import {beforeAll,afterAll,it,expect} from 'vitest';
 import {installExtension} from '../extension/src/index';
 import {assignment} from '../frontend/src/test/moodle-assignments-fixtures';
 import {calendarPage} from '../frontend/src/test/moodle-calendar-fixtures';
+import {CLEANUP_TIMEOUT_MS,cleanUp,removeTemporaryDirectory,stopBackend,stopBackends,withCleanup} from './backend-cleanup';
 
 const root=path.resolve(import.meta.dirname,'..');
 const python=path.join(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python');
+const FILE='synthetic-scan-network.test.ts';
 let server:ChildProcess,dir:string,base:string;
+// Every backend this file spawns, so afterAll stops any that a test did not.
+const backends:{child:ChildProcess;port:number}[]=[];
 const pause=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 function installed(options:any) {
   const alarms:((alarm:{name:string})=>void)[]=[], startup:(()=>void)[]=[];
@@ -29,6 +33,7 @@ beforeAll(async()=>{
   base=`http://127.0.0.1:${port}`;
   server=spawn(python,['-m','uvicorn','tests.collection_network_app:app','--host','127.0.0.1','--port',String(port)],
     {cwd:root,windowsHide:true,stdio:'pipe',env:{...process.env,MOODLE_HELPER_COLLECTION_TEST_DATABASE:path.join(dir,'synthetic-collection.sqlite3')}});
+  backends.push({child:server,port});
   let log='';server.stderr?.on('data',d=>log+=d);server.on('error',e=>log+=e.message);
   for(let i=0;i<200;i++){try{if((await fetch(base+'/api/bridge-context')).ok)return;}catch{}if(server.exitCode!==null)break;await pause(50);}throw Error(log);
 },30000);
@@ -40,8 +45,9 @@ it('shares one SQLite request authority across workers using different data data
   const secondBase=`http://127.0.0.1:${port}`;
   const second=spawn(python,['-m','uvicorn','tests.collection_network_app:app','--host','127.0.0.1','--port',String(port)],
     {cwd:root,windowsHide:true,stdio:'pipe',env:{...process.env,MOODLE_HELPER_COLLECTION_TEST_DATABASE:path.join(secondDir,'synthetic-collection.sqlite3')}});
+  backends.push({child:second,port});
   const workers:{dispose:()=>void}[]=[];
-  try {
+  await withCleanup(FILE,async()=>{
     let ready=false;for(let i=0;i<200;i++){try{if((await fetch(secondBase+'/api/bridge-context')).ok){ready=true;break;}}catch{}await pause(50);}expect(ready).toBe(true);
     for(const endpoint of [base,secondBase]) {
       const snapshot=await (await fetch(endpoint+'/api/snapshot')).json();
@@ -75,12 +81,9 @@ it('shares one SQLite request authority across workers using different data data
     for(let i=0;i<2;i++)expect((await (await fetch([base,secondBase][i]+'/api/scan/runs/'+runs[i].id)).json()).status).toBe('completed');
     expect(trace.map(x=>x.type)).toEqual(['start','end','start','end']);
     expect(trace[2]!.at-trace[0]!.at).toBeGreaterThanOrEqual(1000);
-  } finally {
-    workers.forEach(w=>w.dispose());
-    if(second.exitCode===null)await new Promise<void>(r=>{second.once('exit',()=>r());second.kill();});
-  }
+  },()=>cleanUp(FILE,()=>workers.forEach(w=>w.dispose()),()=>stopBackend(FILE,second,port)));
 },30000);
-afterAll(async()=>{if(server&&server.exitCode===null)await new Promise<void>(r=>{server.once('exit',()=>r());server.kill();});await rm(dir,{recursive:true,force:true});});
+afterAll(()=>cleanUp(FILE,()=>stopBackends(FILE,backends),()=>removeTemporaryDirectory(dir)),CLEANUP_TIMEOUT_MS);
 
 it('wakes the synthetic worker through HTTP and commits actual assignment parser output to SQLite',async()=>{
   const snapshot=await (await fetch(base+'/api/snapshot')).json();
