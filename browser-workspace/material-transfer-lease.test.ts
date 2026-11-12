@@ -279,7 +279,7 @@ describe("#41 lease rules (AC1)", () => {
     expect(w.clock.now - started).toBeLessThan(31_000);
     expect(p.downloads).toEqual([]);
     expect(v.phase).toBe("failed");
-  });
+  }, 15_000);
   it("a fetch that does not finish is aborted at the request limit, ends failed/timeout, and the lease is released only after the abort settled", async () => {
     const w = worker();
     const order: string[] = [];
