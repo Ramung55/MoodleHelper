@@ -11,7 +11,7 @@
  */
 import {spawn, execFile, type ChildProcess} from 'node:child_process';
 import {createServer} from 'node:net';
-import {mkdtemp, rm, writeFile, readFile, mkdir} from 'node:fs/promises';
+import {mkdtemp, writeFile, readFile, mkdir} from 'node:fs/promises';
 import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -25,6 +25,7 @@ import {formatInstant} from '../shared/src/full-sync';
 import {JSDOM} from '../frontend/node_modules/jsdom/lib/api.js';
 import {buildMaterialLibrary} from '../frontend/src/domain/material-library';
 import {downloadable} from '../frontend/src/domain/material-transfer';
+import {CLEANUP_TIMEOUT_MS, cleanUp, removeTemporaryDirectory, stopBackend, stopBackends} from './backend-cleanup';
 
 const root = path.resolve(import.meta.dirname, '..');
 const python = process.env.MH_TEST_PYTHON ?? path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
@@ -32,6 +33,7 @@ const fixtures = path.join(root, 'tests/fixtures/moodle/observed');
 const ORIGIN = 'https://moodle.sdu.edu.kz';
 const SIGN_IN = 'Sign in to SDU Moodle to continue.';
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const FILE = 'live-scan-network.test.ts';
 let dir: string;
 let html: Record<string, string>;
 const running: Backend[] = [];
@@ -46,11 +48,10 @@ beforeAll(async () => {
   const login = JSON.parse(await readFile(path.join(fixtures, 'login-redirect-course.json'), 'utf8'));
   expect(login.response).toMatchObject({status: 200, finalPath: '/login/index.php'});
 });
-afterAll(async () => {
-  releaseHangs.forEach(release => release());
-  for (const backend of running) await backend.stop();
-  await rm(dir, {recursive: true, force: true});
-});
+afterAll(() => cleanUp(FILE,
+  () => releaseHangs.forEach(release => release()),
+  () => stopBackends(FILE, running),
+  () => removeTemporaryDirectory(dir)), CLEANUP_TIMEOUT_MS);
 
 /** Observed course page for one course; other courses get their own course and module ids. */
 function coursePage(course: string, change: (page: string) => string = page => page) {
@@ -96,7 +97,7 @@ class Backend {
     for (let i = 0; i < 300; i++) { try { if ((await fetch(this.base + '/api/bridge-context')).ok) return; } catch {} if (this.child.exitCode !== null) break; await pause(50); }
     throw Error(log);
   }
-  async stop() { const child = this.child; if (child && child.exitCode === null) await new Promise<void>(r => { child.once('exit', () => r()); child.kill(); }); }
+  async stop() { await stopBackend(FILE, this.child, this.port); }
   async tick(seconds: number) { await writeFile(this.clock!, String(Number(await readFile(this.clock!, 'utf8')) + seconds)); }
   async binding() { return (await (await fetch(this.base + '/api/bridge-context')).json()).binding as string; }
   async write(method: string, route: string, body?: unknown) {

@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { beforeAll, afterAll, it, expect } from 'vitest';
 import { createQueueService } from '../extension/src/queue';
+import { CLEANUP_TIMEOUT_MS, cleanUp, removeTemporaryDirectory, stopBackend } from './backend-cleanup';
 
 // Production queue service, real HTTP and file SQLite. Executor and clock are test doubles; no live Chrome or Moodle.
 const root=path.resolve(import.meta.dirname,'..'), base='http://127.0.0.1:18765';
@@ -11,7 +12,7 @@ const python=path.join(root,process.platform==='win32'?'.venv/Scripts/python.exe
 let dir:string, child:ChildProcess;
 const pause=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 function gate(){let release!:()=>void;const promise=new Promise<void>(r=>release=r);return {promise,release};}
-async function stop(){if(child&&child.exitCode===null)await new Promise<void>(r=>{child.once('exit',()=>r());child.kill();});}
+async function stop(){await stopBackend('queue-network.test.ts',child,18765);}
 async function server(concurrency=1){
  child=spawn(python,['-m','uvicorn','tests.queue_network_app:app','--host','127.0.0.1','--port','18765'],{cwd:root,windowsHide:true,stdio:'pipe',env:{...process.env,MOODLE_HELPER_DATASET:'demo',MOODLE_HELPER_DATABASE_URL:`sqlite:///${path.join(dir,'queue.db').replaceAll('\\','/')}`,QUEUE_TEST_CLOCK:path.join(dir,'clock'),MOODLE_HELPER_QUEUE_CONCURRENCY:String(concurrency)}});
  let logs='';child.stderr?.on('data',d=>logs+=d);child.on('error',e=>logs+=e.message);
@@ -20,7 +21,7 @@ async function server(concurrency=1){
 async function read(id:string){return (await fetch(base+'/api/queue/runs/'+id)).json();}
 async function waitFor(fn:()=>boolean){for(let i=0;i<200;i++){if(fn())return;await pause(10);}throw Error('Timed out waiting for worker');}
 beforeAll(async()=>{dir=await mkdtemp(path.join(tmpdir(),'queue-network-'));await writeFile(path.join(dir,'clock'),'1000');await server();});
-afterAll(async()=>{await stop();await rm(dir,{recursive:true,force:true});});
+afterAll(()=>cleanUp('queue-network.test.ts',stop,()=>removeTemporaryDirectory(dir)),CLEANUP_TIMEOUT_MS);
 
 it('recreates production service after interruption before commit and backend restart',async()=>{
  const blocked=gate(), entered=gate(), calls:string[]=[];

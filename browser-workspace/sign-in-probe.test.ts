@@ -10,7 +10,7 @@
  */
 import {spawn, execFile, type ChildProcess} from 'node:child_process';
 import {createServer} from 'node:net';
-import {mkdtemp, rm, readFile, mkdir, readdir} from 'node:fs/promises';
+import {mkdtemp, readFile, mkdir, readdir} from 'node:fs/promises';
 import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -19,6 +19,7 @@ import {installExtension} from '../extension/src/index';
 import {installOffscreen} from '../extension/src/offscreen';
 import {createWorker} from '../extension/src/dashboard-bridge';
 import {validResult} from '../shared/src/bridge';
+import {CLEANUP_TIMEOUT_MS, cleanUp, removeTemporaryDirectory, stopBackend, stopBackends} from './backend-cleanup';
 
 const root = path.resolve(import.meta.dirname, '..');
 const python = path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
@@ -30,6 +31,7 @@ const USER = 'Invented Student Example', USER_ID = '7350001';
 const OUT = {state: 'signed_out', source: 'sdu_session_probe', context: 'my_courses'};
 const IN = {state: 'signed_in', source: 'sdu_session_probe', context: 'my_courses'};
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const FILE = 'sign-in-probe.test.ts';
 let dir: string;
 let shell: string, loginPage: string, loginRedirect: any, coursePage: string;
 const running: Backend[] = [];
@@ -45,10 +47,7 @@ beforeAll(async () => {
   expect(shell).toContain(`"sesskey":"${SESSKEY}"`);
   expect(loginPage).toMatch(/<body[^>]*id="page-login-index"[^>]*lang-ru/);
 });
-afterAll(async () => {
-  for (const backend of running) await backend.stop();
-  await rm(dir, {recursive: true, force: true}).catch(() => {});
-}, 60000);
+afterAll(() => cleanUp(FILE, () => stopBackends(FILE, running), () => removeTemporaryDirectory(dir)), CLEANUP_TIMEOUT_MS);
 afterEach(() => { vi.restoreAllMocks(); });
 
 class Backend {
@@ -71,7 +70,7 @@ class Backend {
     for (let i = 0; i < 300; i++) { try { if ((await fetch(this.base + '/api/bridge-context')).ok) return; } catch {} if (this.child.exitCode !== null) break; await pause(50); }
     throw Error(log);
   }
-  async stop() { const child = this.child; if (child && child.exitCode === null && child.signalCode === null) await new Promise<void>(r => { child.once('exit', () => r()); child.kill(); }); }
+  async stop() { await stopBackend(FILE, this.child, this.port); }
   async binding() { return (await (await fetch(this.base + '/api/bridge-context')).json()).binding as string; }
   async write(method: string, route: string, body?: unknown) {
     return fetch(this.base + route, {method, headers: {'Content-Type': 'application/json', 'X-Moodle-Helper-Bridge-Binding': await this.binding()}, ...(body === undefined ? {} : {body: JSON.stringify(body)})});

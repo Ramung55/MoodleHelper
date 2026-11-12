@@ -10,7 +10,7 @@
  */
 import {spawn, execFile, type ChildProcess} from 'node:child_process';
 import {createServer} from 'node:net';
-import {mkdtemp, rm, writeFile, readFile, mkdir, readdir} from 'node:fs/promises';
+import {mkdtemp, writeFile, readFile, mkdir, readdir} from 'node:fs/promises';
 import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -20,6 +20,7 @@ import {installOffscreen} from '../extension/src/offscreen';
 import {startDiscoveryRequest, createMoodlePageSource, ENROLLED_METHOD} from '../extension/src/moodle-page-source';
 import {leaseRequester, runTransfer, type DownloadDelta, type LeaseClientPort} from '../extension/src/material-transfer';
 import type {LeasePort} from '../extension/src/moodle-request-authority';
+import {CLEANUP_TIMEOUT_MS, cleanUp, removeTemporaryDirectory, stopBackend, stopBackends} from './backend-cleanup';
 
 const root = path.resolve(import.meta.dirname, '..');
 const python = path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
@@ -32,6 +33,7 @@ const SIGN_IN = 'Sign in to SDU Moodle to continue.';
 const FAILED = 'Could not read your SDU courses. Try again later.';
 const DEMO = 'Course discovery is not available in the demo dataset.';
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const FILE = 'course-discovery-network.test.ts';
 let dir: string;
 let shell: string, inprogress: string, loginPage: string, loginRedirect: any;
 const running: Backend[] = [];
@@ -45,10 +47,7 @@ beforeAll(async () => {
   expect(shell).toContain(`"sesskey":"${SESSKEY}"`);
   expect(loginPage).toMatch(/<body[^>]*id="page-login-index"[^>]*lang-ru|<body[^>]*lang-ru[^>]*id="page-login-index"/);
 });
-afterAll(async () => {
-  for (const backend of running) await backend.stop();
-  await rm(dir, {recursive: true, force: true});
-});
+afterAll(() => cleanUp(FILE, () => stopBackends(FILE, running), () => removeTemporaryDirectory(dir)), CLEANUP_TIMEOUT_MS);
 // Each check stops its backend at once, so the parallel suites are not slowed by idle servers.
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -74,7 +73,7 @@ class Backend {
     for (let i = 0; i < 300; i++) { try { if ((await fetch(this.base + '/api/bridge-context')).ok) return; } catch {} if (this.child.exitCode !== null) break; await pause(50); }
     throw Error(log);
   }
-  async stop() { const child = this.child; if (child && child.exitCode === null) await new Promise<void>(r => { child.once('exit', () => r()); child.kill(); }); }
+  async stop() { await stopBackend(FILE, this.child, this.port); }
   async binding() { return (await (await fetch(this.base + '/api/bridge-context')).json()).binding as string; }
   async write(method: string, route: string, body?: unknown) {
     return fetch(this.base + route, {method, headers: {'Content-Type': 'application/json', 'X-Moodle-Helper-Bridge-Binding': await this.binding()}, ...(body === undefined ? {} : {body: JSON.stringify(body)})});
