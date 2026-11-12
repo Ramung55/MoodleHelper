@@ -1,0 +1,16 @@
+{
+    admin off
+}
+
+{$SITE_DOMAIN} {
+    # Required file contains one or more username + bcrypt-hash lines.
+    # Missing or invalid credentials must prevent Caddy from starting.
+    basic_auth {
+        import /run/secrets/caddy_users
+    }
+    reverse_proxy app:8000 {
+        # The backend intentionally accepts only loopback Host values.
+        header_up Host localhost
+        header_up -Authorization
+    }
+}
