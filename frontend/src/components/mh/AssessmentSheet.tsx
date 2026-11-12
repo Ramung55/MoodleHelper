@@ -362,7 +362,9 @@ export function AssessmentSheet({ id, onClose }: { id: string | null; onClose: (
                   <h3 className="mb-2 text-sm font-semibold">Moodle submission</h3>
                   <SubmissionBadge status={v.a.submission?.status} />
                   {v.a.submissionStale && (
-                    <p className="mt-1 text-sm text-warning-text">Submission status may be out of date.</p>
+                    <p className="mt-1 text-sm text-warning-text">
+                      Submission status may be out of date.
+                    </p>
                   )}
                   {!v.a.submission && (
                     <p className="mt-1 text-sm text-muted-foreground">

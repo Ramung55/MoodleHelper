@@ -1284,7 +1284,9 @@ describe("#81 submission adapter", () => {
     },
   );
   it("uses the observed module identity without fabricating an instance id", () => {
-    const [r] = record(submissionRefreshResult(input(read("observed/assign-submitted.html"), "990101"), at));
+    const [r] = record(
+      submissionRefreshResult(input(read("observed/assign-submitted.html"), "990101"), at),
+    );
     expect(r!.sourceCourseModuleId).toBe("990101");
     expect(r).not.toHaveProperty("sourceActivityId");
     expect(r!.observation.status).toBe("submitted");
