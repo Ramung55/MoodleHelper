@@ -603,6 +603,22 @@ describe("#46 AC2 initial sync step (mocked adapter)", () => {
     expect(starts).toBe(0);
   });
 
+  it("#93: an account mismatch or unconfirmed account shows its fixed message on each affected course, with no sign-in link", async () => {
+    real();
+    saved.settings.trackedCourseIds = ["c-csc", "c-math"];
+    const mismatch =
+      "The signed-in Moodle account is not the account of this dataset. Earlier data was kept.";
+    const unconfirmed = "The Moodle account could not be confirmed. Earlier data was kept.";
+    saved.sync = [
+      entry("c-csc", { status: "failed", progress: 100, error: mismatch, lastAttemptAt: at }),
+      entry("c-math", { status: "failed", progress: 100, error: unconfirmed, lastAttemptAt: at }),
+    ];
+    await open();
+    expect(screen.getByText(`CSS 215: failed: ${mismatch}`)).toBeVisible();
+    expect(screen.getByText(`MAT 102: failed: ${unconfirmed}`)).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Open SDU Moodle sign-in" })).toBeNull();
+  });
+
   it("the step is done when every selected course has a completed entry (ok, or partial still labelled partial)", async () => {
     real();
     saved.sync = [

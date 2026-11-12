@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from backend import schemas as s
 from backend.domain_validation import validate_instant, validate_date, validate_url
-from backend.identity import MOODLE_ORIGIN as ORIGIN, validate_namespace
+from backend.identity import MOODLE_ORIGIN as ORIGIN, account_error, validate_namespace
 from backend.submission_retention import SubmissionRecord, retain_submission, _instant
 
 
@@ -105,6 +105,10 @@ class CollectionService:
         if self.provider is None and isinstance(self.store, SQLiteStore) and self.store.namespace != namespace_key():
             return 'verified'
         return 'disabled'
+
+    def account_error(self, moodle_user_id):
+        """#93: the one account check of every verified-mode merge; None when evidence may be saved."""
+        return account_error(self.store.namespace, moodle_user_id) if self._mode() == 'verified' else None
 
     def _context(self, snapshot):
         mapping = []
@@ -279,8 +283,12 @@ class CollectionService:
             entry['receipts'][collector]=(signature,deepcopy(receipt))
             return dict(snapshot=snapshot,receipt=receipt)
 
-    def _merge_refresh(self, snapshot, entry, body):
-        """Apply collector evidence within the caller-owned transaction."""
+    def _merge_refresh(self, snapshot, entry, body, moodle_user_id=None):
+        """Apply collector evidence within the caller-owned transaction.
+
+        #93: verified evidence is saved only with the dataset's own Moodle user id.
+        """
+        if self.account_error(moodle_user_id): reject()
         collector=body['collector']; result=body['result']
         page=entry['body']['pageUrl']
         current=self._context(snapshot)

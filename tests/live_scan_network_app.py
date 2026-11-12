@@ -17,6 +17,6 @@ if not path.is_absolute() or path.name != 'live-scan.sqlite3':
     raise ValueError('An isolated live scan test database is required.')
 clock = os.environ.get('LIVE_SCAN_TEST_CLOCK')
 namespace = namespace_key('moodle', origin='https://moodle.sdu.edu.kz', profile_label='live-scan-test',
-                          stable_user_id='fictional-student')
+                          stable_user_id='987650')  # #93: the invented id of observed/m-cfg-user-id.txt
 store = SQLiteStore(URL.create('sqlite', database=str(path)), namespace)
 app = create_app(store, **({'queue_clock': lambda: int(Path(clock).read_text())} if clock else {}))

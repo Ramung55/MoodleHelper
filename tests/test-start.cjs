@@ -13,13 +13,29 @@ test('rejects incomplete or demo identity and noninteractive missing identity', 
   await assert.rejects(selectIdentity({ ...complete, MOODLE_HELPER_DATASET: 'demo' }), /complete Moodle identity/);
   await assert.rejects(selectIdentity({}, { isTTY: false }), /required/);
 });
+const HINT = 'Open your profile in SDU Moodle (click your name, then Profile); the user id is the number after id= in the address bar.';
+test('rejects a stable Moodle user ID that is not the numeric Moodle user id', async () => {
+  for (const user of ['stable-user', '042', '0', '42 ', '1'.repeat(20)])
+    await assert.rejects(selectIdentity({ ...complete, MOODLE_HELPER_STABLE_USER_ID: user }),
+      error => error.message.includes('numeric Moodle user id') && error.message.includes(HINT));
+});
+test('the interactive prompt says where to find the Moodle user id', async () => {
+  const input = new PassThrough(); input.isTTY = true;
+  const output = new PassThrough(); let shown = '';
+  output.on('data', chunk => { shown += chunk; });
+  const result = selectIdentity({}, input, output);
+  setImmediate(() => { input.write('profile\n'); setImmediate(() => input.write('4242\n')); });
+  await result;
+  assert.ok(shown.includes(HINT));
+  input.destroy(); output.destroy();
+});
 test('prompts for both identity values without changing the database selection', async () => {
   const input = new PassThrough(); input.isTTY = true;
   const output = new PassThrough(); output.resume();
   const env = { MOODLE_HELPER_DATABASE_URL: 'sqlite:///existing.db' };
   const result = selectIdentity(env, input, output);
-  setImmediate(() => { input.write('profile\n'); setImmediate(() => input.write('stable-user\n')); });
-  assert.deepEqual(await result, { MOODLE_HELPER_DATABASE_URL: 'sqlite:///existing.db', MOODLE_HELPER_DATASET: 'moodle', MOODLE_HELPER_MOODLE_ORIGIN: 'https://moodle.sdu.edu.kz', MOODLE_HELPER_PROFILE_LABEL: 'profile', MOODLE_HELPER_STABLE_USER_ID: 'stable-user' });
+  setImmediate(() => { input.write('profile\n'); setImmediate(() => input.write('4242\n')); });
+  assert.deepEqual(await result, { MOODLE_HELPER_DATABASE_URL: 'sqlite:///existing.db', MOODLE_HELPER_DATASET: 'moodle', MOODLE_HELPER_MOODLE_ORIGIN: 'https://moodle.sdu.edu.kz', MOODLE_HELPER_PROFILE_LABEL: 'profile', MOODLE_HELPER_STABLE_USER_ID: '4242' });
   input.destroy(); output.destroy();
 });
 test('detects an occupied port without disturbing its owner', async () => {

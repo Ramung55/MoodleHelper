@@ -21,7 +21,9 @@ from backend.scan_queue import CLAIM_CAP, SYNC_ERRORS
 from backend.sqlite_store import SQLiteStore
 
 ORIGIN = 'https://moodle.sdu.edu.kz'
-REAL = namespace_key('moodle', origin=ORIGIN, profile_label='test', stable_user_id='synthetic-student')
+# #93: an invented decimal dataset account; every verified finish below carries it.
+ACCOUNT = '987650'
+REAL = namespace_key('moodle', origin=ORIGIN, profile_label='test', stable_user_id=ACCOUNT)
 TIME = '2028-03-05T10:00:00.000Z'
 NO_COURSES = 'Select at least one course to sync.'
 UNLINKED = 'A selected course is not linked to a Moodle course.'
@@ -112,14 +114,14 @@ def completed(claim, pages):
     reasons = sorted({r for p in pages for r in p['reasons']})
     return dict(jobId=claim['job']['id'], generation=claim['generation'], token=claim['token'],
                 selectionRevision=claim['selectionRevision'], outcome='completed', pages=pages,
-                incompleteReasons=reasons)
+                incompleteReasons=reasons, moodleUserId=ACCOUNT)
 
 
 def failed(claim, code, pages):
     reasons = sorted({r for p in pages for r in p['reasons']} | {code, 'undiscovered'})
     return dict(jobId=claim['job']['id'], generation=claim['generation'], token=claim['token'],
                 selectionRevision=claim['selectionRevision'], outcome='failed', errorCode=code, pages=pages,
-                incompleteReasons=reasons)
+                incompleteReasons=reasons, moodleUserId=ACCOUNT)
 
 
 def full_scan(source, quizzes):

@@ -4,6 +4,7 @@
  * authority and collector registry are parameters.
  */
 import {detectMoodleAccess, type MoodleAccessInput, type MoodleAccessResult} from './moodle-access';
+import {MOODLE_USER_ID} from './moodle-page-analysis';
 import {pageRoute, syntheticFixtureRegistry, type Collector, type CollectorRegistry} from './page-refresh';
 import {retryAfterDeadline, scanRetryDecision} from './scan-retry';
 import type {CollectorResult} from '../../frontend/src/domain/types';
@@ -23,6 +24,8 @@ export interface ScanResponse {
   titles?:Record<string,string>;
   /** Time of this request, when the source recorded it. */
   observedAt?:string;
+  /** #93: the signed-in Moodle user id shown in this response's text, when it shows one. */
+  moodleUserId?:string;
 }
 export type SyntheticResponse = ScanResponse;
 /** Resolve only after actual request termination; rejected/lost acknowledgement must not release. */
@@ -56,8 +59,10 @@ const materialModule=(kind:string)=>kind==='resource'||kind==='url'||kind==='fol
 const collectorsFor=(kind:string):Collector[]=>kind==='assign'?['assignment','submission']:kind==='quiz'?['quiz']:kind==='calendar'?['calendar']:['material'];
 const pageTypeFor=(kind:string)=>kind==='assign'?'assignment':kind==='resource'||kind==='url'||kind==='folder'?'material':kind;
 
-export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:'completed'|'failed';pages:Page[];incompleteReasons:Reason[];errorCode?:'signed_out'|'request_failed'|'invalid_context'}> {
+export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:'completed'|'failed';pages:Page[];incompleteReasons:Reason[];errorCode?:'signed_out'|'request_failed'|'invalid_context';moodleUserId?:string}> {
   const reasons=new Set<Reason>(), pages:Page[]=[], seen=new Set<string>(), titles=new Map<string,string>();
+  // #93: every id the job's own responses showed; the finish carries one only if they all agree.
+  const userIds=new Set<string>();
   const pending=[{url:`https://moodle.sdu.edu.kz/course/view.php?id=${options.sourceCourseId}`,depth:0}];
   const maxPages=Math.min(options.maxPages??100,100), maxDepth=Math.min(options.maxDepth??4,8), maxBytes=Math.min(options.maxBytes??1048576,1048576);
   const strict=options.registry!==undefined;
@@ -131,6 +136,7 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
     const access=accessOf(response);
     if(access.status==='signed_out'){failure(pageType,'signed_out','signed_out',next.url);stopped='signed_out';break;}
     if(response.input.requestedUrl!==next.url || response.input.finalUrl!==next.url || response.sourceCourseId!==options.sourceCourseId || !Number.isSafeInteger(response.bytes) || response.bytes<0 || response.bytes>maxBytes || !Array.isArray(response.links)){failure(pageType,'access_error','failed',next.url);continue;}
+    if(typeof response.moodleUserId==='string'&&MOODLE_USER_ID.test(response.moodleUserId))userIds.add(response.moodleUserId);
     if(access.status==='forbidden'){failure(pageType,'forbidden','forbidden',next.url);continue;}
     if(access.status!=='accessible'){failure(pageType,'access_error','failed',next.url);continue;}
     const observedAt=typeof response.observedAt==='string'?response.observedAt:new Date(options.now()).toISOString();
@@ -192,8 +198,9 @@ export async function scanSyntheticCourse(options:ScanOptions):Promise<{outcome:
     const missing:Reason[]=registry[kind].availability==='unavailable'||(!strict&&(kind==='quiz'||kind==='submission'))?['undiscovered','collector_unavailable']:['undiscovered'];
     if(!pages.some(p=>p.pageType===kind))add({pageType:kind,scope:'unknown',outcome:'undiscovered',coverage:'none',reasons:missing});
   }
-  if(stopped){reasons.add(stopped);return {outcome:'failed',pages,incompleteReasons:[...reasons],errorCode:stopped};}
-  return {outcome:'completed',pages,incompleteReasons:[...reasons]};
+  const account=userIds.size===1?{moodleUserId:[...userIds][0]!}:{};
+  if(stopped){reasons.add(stopped);return {outcome:'failed',pages,incompleteReasons:[...reasons],errorCode:stopped,...account};}
+  return {outcome:'completed',pages,incompleteReasons:[...reasons],...account};
 }
 /** The same traversal under its general name. */
 export const scanCourse = scanSyntheticCourse;

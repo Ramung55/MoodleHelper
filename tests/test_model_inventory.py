@@ -212,6 +212,22 @@ def test_discovery_input_parity(title, terms, extra, contract, contract_validato
     assert zod("CourseDiscoveryInput", value) == {"success": True, "value": value}
 
 
+@pytest.mark.parametrize("user_id,valid", [("987650", True), ("1" * 19, True), ("0", False), ("0123", False), ("1" * 20, False), ("12a", False)])
+def test_discovery_input_moodle_user_id_parity(user_id, valid, contract, contract_validator):
+    """#93: the optional signed-in user id has one pattern in OpenAPI, Pydantic and Zod."""
+    value = {"observations": [], "moodleUserId": user_id}
+    validator = __import__("jsonschema").Draft202012Validator(
+        {**contract["components"]["schemas"]["CourseDiscoveryInput"], "components": contract["components"]})
+    assert validator.is_valid(value) is valid
+    try:
+        schemas.CourseDiscoveryInput.model_validate(value)
+        pydantic_valid = True
+    except Exception:
+        pydantic_valid = False
+    assert pydantic_valid is valid
+    assert zod("CourseDiscoveryInput", value)["success"] is valid
+
+
 @pytest.mark.parametrize("patch", [
     {"title": None}, {"title": {"kind": "known"}},
     {"title": {"kind": "conflicting"}},

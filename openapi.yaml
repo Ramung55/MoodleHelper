@@ -338,7 +338,12 @@ paths:
         store namespace; no caller identity/tracking/current flag. Retain missing
         courses and all personal choices. New courses untracked with current=false,
         currentTermStatus=unknown. Reject ambiguous source mappings and deterministic
-        identity collisions atomically. No coverage claim.
+        identity collisions atomically. No coverage claim. In a real dataset (#93)
+        moodleUserId must equal the dataset's stable user id; otherwise nothing is
+        saved and the response is 409 with the message "The signed-in Moodle account
+        is not the account of this dataset. Nothing was saved." (different id) or
+        "The Moodle account could not be confirmed. Nothing was saved." (no id).
+        The demo dataset needs no id.
       security: []
       requestBody:
         required: true
@@ -4051,6 +4056,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RawCourseObservation'
+        moodleUserId:
+          type: string
+          pattern: ^[1-9][0-9]{0,18}$
+          description: '#93: the signed-in Moodle user id read from M.cfg "userId"
+            in fetched page text. Used only for the comparison with the dataset''s stable
+            user id; never stored or returned.'
       required:
       - observations
     Course:
@@ -6385,8 +6396,12 @@ components:
           - request_failed
           - invalid_context
           - claim_limit
+          - account_mismatch
+          - account_unconfirmed
           description: claim_limit is set only by the server when a scan job reached
-            its claim cap of 3 without finishing; workers cannot submit it.
+            its claim cap of 3 without finishing. account_mismatch and account_unconfirmed
+            (#93) are set only by the server when a finish carried a different or no
+            moodleUserId; nothing from it was saved. Workers cannot submit these codes.
       required:
       - id
       - courseId
@@ -6924,6 +6939,12 @@ components:
           - signed_out
           - request_failed
           - invalid_context
+        moodleUserId:
+          type: string
+          pattern: ^[1-9][0-9]{0,18}$
+          description: '#93: the signed-in Moodle user id read from M.cfg "userId"
+            in fetched page text. Used only for the comparison with the dataset''s stable
+            user id; never stored or returned.'
       required:
       - jobId
       - generation
@@ -6935,7 +6956,13 @@ components:
       description: Atomically validate claim, live demand, synthetic or verified context, selection
         and unique mapping; merge accepted source observations, store page coverage
         and finish. Stale or cancelled claims commit nothing. A completed job does
-        not assert complete course coverage.
+        not assert complete course coverage. In verified mode (#93) a moodleUserId
+        that differs from the dataset's stable user id, or a missing one on a completed
+        finish with collector results, saves nothing from the batch, fails the job with
+        account_mismatch or account_unconfirmed and fails the run's pending jobs
+        with the same code without claiming them. A failed finish, or one without
+        results, that has no moodleUserId keeps its own outcome and error code but
+        merges no collector result.
       allOf:
       - if:
           properties:

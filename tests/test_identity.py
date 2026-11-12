@@ -42,3 +42,14 @@ def test_labeled_future_collector_keys_do_not_use_titles_or_dates():
         collector_entity_key(ns, "activity", course_id="101", module_type="assign")
     with pytest.raises(ValueError, match="course_id"):
         collector_entity_key(ns, "course", course_id="")
+
+
+@pytest.mark.parametrize("user", ["student", "042", "0", "42 ", " 42", "1" * 20, "4.2"])
+def test_startup_refuses_a_moodle_dataset_with_a_non_decimal_user_id(user):
+    # #93: only the canonical numeric Moodle user id can match the signed-in account.
+    env = {"MOODLE_HELPER_DATASET": "moodle", "MOODLE_HELPER_MOODLE_ORIGIN": "https://moodle.sdu.edu.kz",
+           "MOODLE_HELPER_PROFILE_LABEL": "personal", "MOODLE_HELPER_STABLE_USER_ID": user}
+    with pytest.raises(ValueError, match=r"numeric Moodle user id.*click your name, then Profile.*number after id= in the address bar"):
+        namespace_from_environment(env)
+    assert json.loads(namespace_from_environment({**env, "MOODLE_HELPER_STABLE_USER_ID": "4242"}))[3] == "4242"
+    assert namespace_from_environment({}) == '["demo"]'

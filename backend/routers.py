@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, Request, HTTPException, Header, Path
 
 from backend import schemas as s
-from backend.services import BackendService
+from backend.services import BackendService, DiscoveryAccountRejected
 
 
 def service(request: Request) -> BackendService:
@@ -143,7 +143,9 @@ def replace_all(body: s.Snapshot, api: Service):
              operation_id="ingestCourseDiscovery", tags=["Courses"], responses={503: {"model": s.ProposedHttpError}})
 def ingest_course_discovery(body: s.CourseDiscoveryInput, api: Service):
     try:
-        return api.ingest_course_discovery([wire(observation) for observation in body.observations])
+        return api.ingest_course_discovery([wire(observation) for observation in body.observations], body.moodleUserId)
+    except DiscoveryAccountRejected as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 

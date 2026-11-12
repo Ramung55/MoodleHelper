@@ -47,6 +47,18 @@ export function reducedBody(html:string,limit=64):AccessRequest['body'] {
   const idValue=id?.[1]??id?.[2]??'';
   return {id:TOKEN.test(idValue)?idValue:'',classes:(classes?.[1]??classes?.[2]??'').split(/\s+/).filter(c=>TOKEN.test(c)).slice(0,limit)};
 }
+/** #93: only a canonical positive decimal counts as a Moodle user id. */
+export const MOODLE_USER_ID=/^[1-9][0-9]{0,18}$/;
+// #93 (compatibility report Addendum 7): the one `"userId":<number>` inside the flat inline `M.cfg = {...}`.
+const M_CFG_USER_ID=/M\.cfg\s*=\s*\{[^}]*?"userId"\s*:\s*(-?[0-9]+)\s*[,}]/;
+/**
+ * #93: the signed-in user id from the text of a Moodle page already fetched, or undefined.
+ * A missing or non-canonical value (the signed-out login page shows a guest value) counts as not read.
+ */
+export function moodleUserId(html:string):string|undefined {
+  const value=M_CFG_USER_ID.exec(html)?.[1];
+  return value!==undefined&&MOODLE_USER_ID.test(value)?value:undefined;
+}
 /**
  * #20 AC4 worker-side check of the very response that was read: the observed access check
  * on its final URL (`response.url`), status, content type and `<body>` id and classes, with

@@ -4,7 +4,8 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {expect, it} from 'vitest';
 import {detectMoodleAccess, detectObservedMoodleAccess} from '../extension/src/moodle-access';
-import {activityLinks, analyzeMoodlePage, responseAccess} from '../extension/src/moodle-page-analysis';
+import {activityLinks, analyzeMoodlePage, moodleUserId, responseAccess} from '../extension/src/moodle-page-analysis';
+import {scanCourse, type ScanResponse} from '../extension/src/scan-coordinator';
 import {createMoodlePageSource, liveRouteAllowed, MAX_BODY_BYTES, offscreenAnalyzer} from '../extension/src/moodle-page-source';
 import {installOffscreen} from '../extension/src/offscreen';
 import {liveRegistry, quizRefreshResult} from '../extension/src/page-refresh';
@@ -148,4 +149,48 @@ it('routes analysis through the offscreen document and ignores foreign messages'
   await analyzer(request);
   expect(created).toBe(1);
   await expect(offscreenAnalyzer({runtime: {}})(request)).rejects.toThrow();
+});
+
+it('#93: reads the signed-in user id only from M.cfg "userId", and only a canonical positive decimal', async () => {
+  const config = (await readFile(path.join(fixtures, 'm-cfg-user-id.txt'), 'utf8')).trim();
+  const page = (await readFile(path.join(fixtures, 'course-page.html'), 'utf8')).replace('</body>', `<script>${config}</script></body>`);
+  expect(moodleUserId(page)).toBe('987650');
+  // Observed pages without the configuration, and the signed-out guest value, are "not read".
+  expect(moodleUserId(await readFile(path.join(fixtures, 'course-page.html'), 'utf8'))).toBeUndefined();
+  for (const value of ['0', '-4', '0123', '1'.repeat(20), '"987650"'])
+    expect(moodleUserId(page.replace('"userId":987650', `"userId":${value}`))).toBeUndefined();
+  expect(moodleUserId(page.replace('"userId":987650', `"userId":${'9'.repeat(19)}`))).toBe('9'.repeat(19));
+  // A "userId" outside the M.cfg object is not the signed-in account.
+  expect(moodleUserId('<script>M.cfg = {"siteId":1};</script><div data-x=\'{"userId":4242}\'></div>')).toBeUndefined();
+});
+
+it('#93: the page source passes on the id it read, and a scan job carries one id only when every page that shows one agrees', async () => {
+  const config = (await readFile(path.join(fixtures, 'm-cfg-user-id.txt'), 'utf8')).trim();
+  const accessible = {status: 'accessible', retryable: false, reason: 'accessible', message: ''} as const;
+  const html = (await readFile(path.join(fixtures, 'course-page.html'), 'utf8')).replace('</body>', `<script>${config}</script></body>`);
+  const fetcher = (async () => { const r = new Response(html, {status: 200, headers: {'content-type': 'text/html'}}); Object.defineProperty(r, 'url', {value: course}); return r; }) as typeof fetch;
+  const analyze = async () => ({access: accessible, links: [], titles: {}, collected: {}});
+  const read = await createMoodlePageSource({fetcher, analyze, now: () => 0}).start(course, {sourceCourseId: '9001', collectors: []}).completion;
+  expect(read.moodleUserId).toBe('987650');
+  // The coordinator: a course page linking one quiz page, each showing the given id (or none).
+  const job = async (ids: [string | undefined, string | undefined]) => {
+    const urls: string[] = [];
+    const source = {start(url: string) {
+      urls.push(url);
+      const shown = ids[url === course ? 0 : 1];
+      const response: ScanResponse = {input: {requestedUrl: url, finalUrl: url, httpStatus: 200, networkFailure: false}, links: url === course ? [quiz] : [],
+        sourceCourseId: '9001', bytes: 10, access: accessible, collected: {}, ...(shown ? {moodleUserId: shown} : {})};
+      return {completion: Promise.resolve(response), termination: Promise.resolve(true), abort() {}};
+    }};
+    let now = 0;
+    const authority = {acquire: async () => 'owner', releaseAfterTermination: async () => true};
+    const result = await scanCourse({source, authority, sourceCourseId: '9001', valid: async () => true, now: () => now, wait: async ms => { now += ms; }});
+    expect(urls).toEqual([course, quiz]);
+    return result.moodleUserId;
+  };
+  expect(await job(['987650', '987650'])).toBe('987650');
+  expect(await job(['987650', undefined])).toBe('987650');
+  expect(await job(['987650', '5550001'])).toBeUndefined();
+  expect(await job([undefined, undefined])).toBeUndefined();
+  expect(await job(['0123', undefined])).toBeUndefined();
 });
