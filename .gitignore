@@ -7,6 +7,8 @@ htmlcov/
 .env
 .env.*
 !.env.example
+!.env.production.example
+.oci-secrets/
 data/
 .uv-cache/
 node_modules/
@@ -19,7 +21,14 @@ frontend/public/ocr/7.0.0/
 # Playwright fixture harness (#47): artifacts, per-run TEMP data/profiles, local browser assets
 browser-workspace/e2e/.artifacts/
 browser-workspace/e2e/.run/
+e2e/artifacts/
 frontend/.playwright-browsers/
 pilot-package/
 # Local QA scratch folders (#67)
 .qa-temp/
+# Local agent worktrees and test/cache scratch output
+.claude/worktrees/
+tmp/
+frontend/.test-temp/
+frontend/node-compile-cache/
+frontend/package-lock.json
