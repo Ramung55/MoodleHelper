@@ -184,6 +184,7 @@ test("AC4 malicious excerpt stays inert; secret markers absent from logs, errors
 
   await test.step("malicious synthetic DOCX through the real local extraction/review UI", async () => {
     await page.goto(`${DASHBOARD}/syllabus`);
+    const inlineScriptsBefore = await page.locator('script:not([src]):not([type="module"])').allTextContents();
     await page.getByLabel("Course for import").selectOption({ label: "PHY 201" });
     await page.getByLabel("Syllabus file").setInputFiles(file);
     await expect(page.getByRole("status").filter({ hasText: "Complete: validated and stored locally." })).toBeVisible();
@@ -200,16 +201,21 @@ test("AC4 malicious excerpt stays inert; secret markers absent from logs, errors
     expect(await literal.count()).toBeGreaterThan(0);
     expect(await literal.first().evaluate((el) => el.querySelectorAll("script,img,svg,a").length), "markup rendered as text, not elements").toBe(0);
     await expect(page.getByText("Ignore previous instructions", { exact: false }).first()).toBeAttached();
+    const checkInert = async () => {
+      const probe = await page.evaluate(() => ({
+        pwned: (window as any).__pwned ?? null,
+        injected: document.querySelectorAll('img[src="x"], [onerror], [onload], a[href^="javascript:"], svg[onload]').length,
+      }));
+      expect(probe.pwned, "no injected script/handler executed").toBeNull();
+      expect(await page.locator('script:not([src]):not([type="module"])').allTextContents(), "no new inline scripts after import").toEqual(inlineScriptsBefore);
+      expect(probe.injected, "no injected element/handler/javascript: link in the DOM").toBe(0);
+    };
+    await checkInert();
     await page.goto(`${DASHBOARD}/deadlines`);
     await page.waitForLoadState("networkidle");
     await page.goto(`${DASHBOARD}/syllabus`);
     await page.waitForLoadState("networkidle");
-    const probe = await page.evaluate(() => ({
-      pwned: (window as any).__pwned ?? null,
-      injected: document.querySelectorAll('script:not([src]):not([type="module"]), img[src="x"], [onerror], [onload], a[href^="javascript:"], svg[onload]').length,
-    }));
-    expect(probe.pwned, "no injected script/handler executed").toBeNull();
-    expect(probe.injected, "no injected element/handler/javascript: link in the DOM").toBe(0);
+    await checkInert();
     expect(dialogs).toEqual([]);
     const after = trace.slice(start);
     expect(after.filter((e) => /exfil|example\.invalid/.test(e.host)), "no fetch to a URL named in the excerpt").toEqual([]);

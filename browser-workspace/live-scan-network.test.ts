@@ -27,7 +27,7 @@ import {buildMaterialLibrary} from '../frontend/src/domain/material-library';
 import {downloadable} from '../frontend/src/domain/material-transfer';
 
 const root = path.resolve(import.meta.dirname, '..');
-const python = path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
+const python = process.env.MH_TEST_PYTHON ?? path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
 const fixtures = path.join(root, 'tests/fixtures/moodle/observed');
 const ORIGIN = 'https://moodle.sdu.edu.kz';
 const SIGN_IN = 'Sign in to SDU Moodle to continue.';
@@ -257,13 +257,12 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
     expect(by('calendar')).toHaveLength(1);
     expect(calendar).toMatchObject({collector: 'calendar', outcome: 'partial', coverage: 'partial', scope: 'supplied_ranges_only', reasons: ['undiscovered'], pageUrl: CALENDAR});
     calendarTimes.push(calendar.observedAt);
-    // Submission stays collector_unavailable (#16), on each assignment page.
-    expect(by('submission').map((p: any) => [p.pageUrl, p.outcome, p.reasons])).toEqual(assignments(course).map(cm => [assignUrl(cm), 'unavailable', ['collector_unavailable']]));
+    expect(by('submission').map((p: any) => [p.pageUrl, p.outcome, p.coverage, p.reasons])).toEqual(assignments(course).map(cm => [assignUrl(cm), 'unavailable', 'none', ['collector_unavailable']]));
     // Resource and URL pages are recorded without a request.
     expect(by('material').map((p: any) => [p.pageUrl, p.outcome, p.coverage, p.reasons])).toEqual(
       [`resource/view.php?id=990${n}04`, `resource/view.php?id=990${n}05`, `url/view.php?id=990${n}06`].map(tail => [`${ORIGIN}/mod/${tail}`, 'unavailable', 'none', ['unsupported_page', 'collector_unavailable']]));
     expect(by('unsupported')).toHaveLength(2);
-    expect(pages.every((p: any) => ['quiz', 'assignment', 'course'].includes(p.pageType) || p.coverage !== 'complete')).toBe(true);
+    expect(pages.every((p: any) => ['quiz', 'assignment', 'submission', 'course'].includes(p.pageType) || p.coverage !== 'complete')).toBe(true);
     expect(incompleteReasons).toEqual(expect.arrayContaining(['collector_unavailable', 'undiscovered', 'unsupported_page']));
   }
   // Each course job's calendar row carries the time of its own calendar request.
@@ -280,11 +279,14 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
   // #83: the scanned courses' assignments show their real due dates from the assignment pages.
   const due = (iso: string) => ({kind: 'exact', iso, tz: 'Asia/Almaty'});
   for (const course of ['9001', '9002']) {
-    const moodle = snapshot.assessments.filter((a: any) => a.courseId === ids[course] && a.type === 'assignment' && a.sources.some((s: any) => s.source === 'moodle'));
+    const moodle = snapshot.reconciliation.logicalAssessments.filter((a: any) => a.courseId === ids[course] && a.type === 'assignment' && a.sources.some((s: any) => s.source === 'moodle'));
     expect(moodle.map((a: any) => [a.title, a.sources.find((s: any) => s.source === 'moodle').date]).sort()).toEqual([
       ['Fictional Essay Outline', due('2028-03-08T23:59:00+05:00')], ['Fictional Lab Report', due('2028-03-07T14:30:00+05:00')]]);
+    expect(moodle.every((a: any) => !a.submission)).toBe(true);
   }
   const records = snapshot.collection.records;
+  const submissions=records.filter((r: any) => r.kind === 'submission');
+  expect(submissions).toHaveLength(0);
   expect(records.filter((r: any) => r.kind === 'calendar').map((r: any) => r.observations[0].activity.sourceCourseModuleId).sort()).toEqual(['990102', '990201']);
   expect(records.filter((r: any) => r.kind === 'material').map((r: any) => [r.observations[0].sourceCourseModuleId, r.observations[0].kind]).sort()).toEqual(
     [['990104', 'file'], ['990105', 'file'], ['990106', 'link'], ['990107', 'link'], ['990204', 'file'], ['990205', 'file'], ['990206', 'link'], ['990207', 'link']]);
@@ -304,6 +306,8 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
   }
   await backend.stop(); await backend.start();
   expect(await readback()).toEqual(before);
+  const afterRestart=await backend.get('/api/snapshot');
+  expect(afterRestart.collection.records.filter((r: any) => r.kind === 'submission')).toHaveLength(0);
   // AC3(b): spacing holds across a service-worker restart (dispose, then a fresh install).
   first.worker.dispose();
   const lastStart = site.starts().at(-1)!.at;
@@ -601,13 +605,14 @@ it('AC4 owner live check: a Sync all after sign-out is classified from the respo
   app.worker.dispose();
 }, 120000);
 
-/** #21 AC2: TEST FIXTURE page set with every page type checked and complete; no live collector yields this yet (#83). */
+/** #21 AC2: complete available collectors; unbound submission remains unavailable. */
 function allCompletePages(source: string) {
   const observedAt = '2028-03-05T10:00:00.000Z', n = source.slice(-1);
   const page = (pageType: string, collector: string, pageUrl: string, scope: string) => ({pageType, scope, outcome: 'ok', coverage: 'complete',
     reasons: [], observedAt, pageUrl, collector, result: {kind: collector, observations: [], reviews: [], diagnostics: [], pages: [], coverage: 'complete', scope}});
   return [page('course', 'material', courseUrl(source), 'supplied_pages_only'), page('material', 'material', courseUrl(source), 'supplied_pages_only'),
-    page('assignment', 'assignment', assignUrl(`990${n}01`), 'visited_activity_only'), page('submission', 'submission', assignUrl(`990${n}01`), 'visited_activity_only'),
+    page('assignment', 'assignment', assignUrl(`990${n}01`), 'visited_activity_only'),
+    {pageType:'submission',scope:'unknown',outcome:'unavailable',coverage:'none',reasons:['collector_unavailable'],observedAt,pageUrl:assignUrl(`990${n}01`)},
     page('calendar', 'calendar', CALENDAR, 'supplied_ranges_only'), page('quiz', 'quiz', quizUrl(`990${n}03`), 'visited_activity_only')];
 }
 
@@ -624,7 +629,7 @@ async function popupText(backend: Backend) {
   } finally { popup.dispose(); dom.window.close(); }
 }
 
-it('AC2 (#21): the popup shows a full sync only after an all-complete scan, distinct from the page refresh and a later failed attempt', async () => {
+it('AC2 (#21): the popup does not claim a full sync when submission is unbound and shows a later failed attempt', async () => {
   const backend = new Backend('freshness'); await backend.start();
   const ids = await backend.seed(['9001', '9002']);
   const selected = [ids['9001']!, ids['9002']!];
@@ -639,33 +644,33 @@ it('AC2 (#21): the popup shows a full sync only after an all-complete scan, dist
   expect(shown.text.match(/Last completed scan \(partial coverage\): /g)).toHaveLength(2);
   expect(shown.text).toContain('Latest page refresh: ');
   expect(shown.text).not.toMatch(/Successful full sync|Last failed scan attempt|fictional/);
-  // (b) An all-complete finish (fixture page set) for every selected course through the same HTTP API, then a restart.
+  // (b) Available collectors complete, but unbound submission remains partial after restart.
   expect((await backend.write('POST', '/api/sync')).status).toBe(200);
   for (let claim; (claim = (await (await backend.write('POST', '/api/scan/claim', {})).json()).claim);) {
     const finish = await backend.write('POST', '/api/scan/finish', {jobId: claim.job.id, generation: claim.generation, token: claim.token,
-      selectionRevision: claim.selectionRevision, outcome: 'completed', pages: allCompletePages(claim.sourceCourseId), incompleteReasons: []});
+      selectionRevision: claim.selectionRevision, outcome: 'completed', pages: allCompletePages(claim.sourceCourseId), incompleteReasons: ['collector_unavailable']});
     expect(finish.status).toBe(200);
   }
   await backend.stop(); await backend.start();
   const full = await entries();
-  expect(full.map((s: any) => [s.status, s.coverage])).toEqual([['ok', 'full'], ['ok', 'full']]);
+  expect(full.map((s: any) => [s.status, s.coverage])).toEqual([['partial', 'partial'], ['partial', 'partial']]);
   const timezone = (await backend.get('/api/snapshot')).settings.timezone;
   const earliest = full.map((s: any) => s.lastSuccessAt).sort((a: string, b: string) => Date.parse(a) - Date.parse(b))[0];
   const fullTime = formatInstant(earliest, timezone)!;
   shown = await popupText(backend);
-  expect(shown.full).toBe(`Successful full sync: ${fullTime}`);
+  expect(shown.full).toBe('No successful full sync yet.');
   expect(shown.text).toContain('Latest page refresh: ');
-  expect(shown.text).not.toMatch(/Last completed scan|Last failed scan attempt|fictional/);
-  // (c) A login redirect fails the next scan: the full-sync time stays, and a later failed attempt is shown.
+  expect(shown.text).not.toMatch(/Last failed scan attempt|fictional/);
+  // (c) A login redirect fails the next scan; no full sync is claimed.
   await pause(1100);
   const second = install(backend, clock, moodle(clock, () => ({status: 200, body: html['login-page.html']!, finalUrl: `${ORIGIN}/login/index.php`})).fetcher);
   expect((await second.bridge(1, 'syncAll')).ok).toBe(true);
   expect((await backend.settled(3)).at(-1).status).toBe('failed'); second.worker.dispose();
   const after = await entries();
   shown = await popupText(backend);
-  expect(shown.full).toBe(`Successful full sync: ${fullTime}`);
+  expect(shown.full).toBe('No successful full sync yet.');
   for (const entry of after) {
-    expect(entry).toMatchObject({status: 'failed', coverage: 'full', error: SIGN_IN});
+    expect(entry).toMatchObject({status: 'failed', coverage: 'partial', error: SIGN_IN});
     expect(entry.lastSuccessAt).toBe(full.find((s: any) => s.courseId === entry.courseId).lastSuccessAt);
     expect(Date.parse(entry.lastAttemptAt)).toBeGreaterThan(Date.parse(entry.lastSuccessAt));
     const attempt = formatInstant(entry.lastAttemptAt, timezone)!;

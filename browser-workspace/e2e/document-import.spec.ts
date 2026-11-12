@@ -52,7 +52,7 @@ async function open(s: ExtensionSession) {
   return p;
 }
 const statuses = () => page.evaluate(() => [...(window as any).__e2eStatuses] as string[]);
-const status = () => page.getByRole("status").filter({ hasText: /Queued|Parsing|Complete|Failed|Cancelled|Already associated/ });
+const status = () => page.getByRole("status").filter({ hasText: /Queued|Checking|Complete|Failed|Cancelled|Already added/ });
 async function importFile(course: string, file: string) {
   await expect(page.getByLabel("Syllabus file")).toBeEnabled();
   await page.getByLabel("Course for import").selectOption({ label: course });
@@ -80,10 +80,12 @@ test("#24 local import lifecycle, associations, quota failure, restart persisten
     await importFile("PHY 201", PDF);
     await expect(status()).toHaveText("Complete: validated and stored locally. Extraction has not been performed.");
     const seen = await statuses();
-    expect(seen).toEqual(expect.arrayContaining(["Queued for local validation.", "Parsing: validating and hashing locally; no extraction is performed."]));
-    expect(seen.indexOf("Queued for local validation.")).toBeLessThan(seen.indexOf("Parsing: validating and hashing locally; no extraction is performed."));
+    expect(seen).toEqual(expect.arrayContaining(["Queued for local validation.", "Checking the file in this browser."]));
+    expect(seen.indexOf("Queued for local validation.")).toBeLessThan(seen.indexOf("Checking the file in this browser."));
     await expect(rows("local-valid.pdf")).toHaveCount(1);
-    await expect(rows("local-valid.pdf")).toContainText(`local-valid.pdf · PHY 201 · Local selection · ${fs.statSync(PDF).size} bytes · SHA-256 ${sha(PDF)}`);
+    await expect(rows("local-valid.pdf")).toContainText("local-valid.pdf · PHY 201 · added");
+    await rows("local-valid.pdf").getByText("Details", { exact: true }).first().click();
+    await expect(rows("local-valid.pdf")).toContainText(`Source Local selection · ${fs.statSync(PDF).size} bytes · SHA-256 ${sha(PDF)}`);
     expect(workers.some((w) => /pdf\.worker/.test(w)), "validation ran through the real PDF.js browser worker").toBe(true);
     testInfo.annotations.push({ type: "browser-workers", description: workers.join(", ") || "(none observed)" });
   });
@@ -91,12 +93,14 @@ test("#24 local import lifecycle, associations, quota failure, restart persisten
   await test.step("valid DOCX → another chosen course", async () => {
     await importFile("CSS 215", DOCX);
     await expect(status()).toHaveText(/^Complete: validated and stored locally/);
-    await expect(rows("local-valid.docx")).toContainText(`CSS 215 · Local selection · ${fs.statSync(DOCX).size} bytes · SHA-256 ${sha(DOCX)}`);
+    await expect(rows("local-valid.docx")).toContainText("CSS 215 · added");
+    await rows("local-valid.docx").getByText("Details", { exact: true }).first().click();
+    await expect(rows("local-valid.docx")).toContainText(`Source Local selection · ${fs.statSync(DOCX).size} bytes · SHA-256 ${sha(DOCX)}`);
   });
 
   await test.step("same-course duplicate is not stored twice", async () => {
     await importFile("PHY 201", PDF);
-    await expect(status()).toHaveText("Already associated with this course.");
+    await expect(status()).toHaveText("Already added");
     await expect(rows("local-valid.pdf")).toHaveCount(1);
   });
 
@@ -135,13 +139,22 @@ test("#24 local import lifecycle, associations, quota failure, restart persisten
   });
 
   await test.step("real browser restart of the same persistent profile keeps IndexedDB records", async () => {
-    const before = (await page.locator("li").filter({ hasText: / · SHA-256 / }).allInnerTexts()).map((t) => t.split(" · Complete")[0]).sort();
+    const documentRows = () => page.locator("li").filter({ has: page.getByText("local validation only", { exact: false }) });
+    const persisted = async () => (await documentRows().allTextContents()).map((t) => {
+      const identity = t?.match(/^(.*?) · added /)?.[1];
+      const metadata = t?.match(/Source .*? · \d+ bytes · SHA-256 [0-9a-f]{64}/)?.[0];
+      expect(identity).toBeTruthy();
+      expect(metadata).toBeTruthy();
+      return `${identity} | ${metadata}`;
+    }).sort();
+    const before = await persisted();
+    expect(before).toHaveLength(4);
     await session.close();
     session = await launchWithExtension(dir);
     page = await open(session);
     await page.goto(`${DASHBOARD}/syllabus`);
     await expect(rows("local-valid.pdf")).toHaveCount(2);
-    const after = (await page.locator("li").filter({ hasText: / · SHA-256 / }).allInnerTexts()).map((t) => t.split(" · Complete")[0]).sort();
+    const after = await persisted();
     expect(after).toEqual(before);
     const dbs = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
     testInfo.annotations.push({ type: "indexeddb", description: JSON.stringify(dbs) });

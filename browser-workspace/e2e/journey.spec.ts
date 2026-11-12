@@ -63,6 +63,12 @@ test("fixture student journey: selection, sync, review, conflict, completion, re
   const initial = await api("/api/snapshot");
   const semesterStart: string = initial.settings.semesterStart;
   const moodleDate = localDate(initial.assessments.find((a: any) => a.id === "a1").sources[0].date.iso);
+  const problemSources = initial.assessments.find((a: any) => a.id === "a3").sources;
+  const currentYear = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, year: "numeric" }).format(new Date());
+  const expectedDate = (date: Date, timeZone: string) => {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone, day: "numeric", month: "short", year: "numeric" }).formatToParts(date).map((part) => [part.type, part.value]));
+    return `${parts.day} ${parts.month}${parts.year === currentYear ? "" : ` ${parts.year}`}`;
+  };
 
   await test.step("Settings: tracked course selection saves and survives reopening", async () => {
     await page.goto(`${DASHBOARD}/settings`);
@@ -120,7 +126,7 @@ test("fixture student journey: selection, sync, review, conflict, completion, re
     await doc.getByRole("button", { name: "Retain evidence and route proposals" }).click();
     await expect(page.getByText("4 stored proposals routed.")).toBeVisible();
     const card = page.locator("div,article,li").filter({ hasText: "Original date wording: Exam Week 6" }).filter({ has: page.getByRole("button", { name: "Confirm" }) }).last();
-    await expect(card).toContainText("Deterministic policy · review required");
+    await expect(card).toContainText("Needs your review");
     await expect(card).toContainText("Why review: Date is not explicit; Only a teaching week is given");
     await expect(card).toContainText("Original document is available locally.");
     const pendingBefore = (await api("/api/snapshot")).candidates.filter((c: any) => c.localEvidence && c.status === "pending").length;
@@ -148,8 +154,11 @@ test("fixture student journey: selection, sync, review, conflict, completion, re
   await test.step("Deadline detail: Moodle/syllabus conflict shows both precise dates", async () => {
     await page.getByRole("button").filter({ hasText: "Problem set 4" }).click();
     const sheet = page.getByRole("dialog");
-    await expect(sheet).toContainText(/Moodle: \w{3} \d{1,2} \w{3}, \d{2}:\d{2}/);
-    await expect(sheet).toContainText(/Syllabus: \w{3} \d{1,2} \w{3} \(no time\)/);
+    const moodle = new Date(problemSources.find((s: any) => s.source === "moodle").date.iso);
+    const clock = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(moodle);
+    const syllabus = problemSources.find((s: any) => s.source === "syllabus").date.date;
+    await expect(sheet).toContainText(`Moodle: ${expectedDate(moodle, TZ)}, ${clock}`);
+    await expect(sheet).toContainText(`Syllabus: ${expectedDate(new Date(`${syllabus}T12:00:00Z`), "UTC")} (no time)`);
     await expect(sheet).toContainText("Moodle: Reopened — resubmit");
     await expect(sheet).toContainText("Independent of your personal check.");
     await page.keyboard.press("Escape");

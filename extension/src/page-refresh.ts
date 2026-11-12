@@ -121,9 +121,9 @@ export function submissionRefreshResult(input:SubmissionStatusInput,observedAt:s
   const parsed=parseMoodleSubmissionStatus(input,observedAt);
   if(parsed.status==='error')return {kind:'failed',reasons:[parsed.error]};
   const activity=hints.sourceActivityId;
-  if(typeof activity!=='string'||!/^[1-9][0-9]*$/.test(activity))return {kind:'failed',reasons:['missing_identity']};
+  if(activity!==undefined&&(typeof activity!=='string'||!/^[1-9][0-9]*$/.test(activity)))return {kind:'failed',reasons:['missing_identity']};
   const o=parsed.observation;
-  const observation:SubmissionSourceRecord={sourceCourseId:o.sourceCourseId,sourceActivityId:activity,sourceCourseModuleId:o.sourceCourseModuleId,sourceUrl:o.sourceUrl,
+  const observation:SubmissionSourceRecord={sourceCourseId:o.sourceCourseId,...(activity!==undefined?{sourceActivityId:activity}:{}),sourceCourseModuleId:o.sourceCourseModuleId,sourceUrl:o.sourceUrl,
     observation:{status:o.state,...(o.state!=='unknown'&&o.wording!==undefined?{evidence:o.wording}:{}),observedAt:o.observedAt,actionRequired:o.actionRequired}};
   return {kind:'submission',observations:[observation],reviews:[],diagnostics:[],pages:[],coverage:'complete',scope:'visited_activity_only'};
 }
@@ -137,6 +137,8 @@ export function liveRegistry():CollectorRegistry {
   return {assignment:{availability:'available',evidenceMode:'verified',collect:(input,selection,time,hints)=>assignmentRefreshResult(input,time,{...hints,sourceCourseId:selection[0]??''})},
     calendar:{availability:'available',evidenceMode:'verified',collect:(input,selection,time)=>calendarRefreshResult(input,selection,time)},
     material:{availability:'available',evidenceMode:'verified',collect:(input,selection,time)=>materialRefreshResult(input,selection,time)},
+    // A configured backend namespace is not proof of the active Moodle user.
+    // Do not collect personal submission state until that identity is bound.
     submission:{...unavailable,evidenceMode:'verified'},
     quiz:{availability:'available',evidenceMode:'verified',collect:(input,_selection,time,hints)=>quizRefreshResult(input,time,hints)}};
 }
