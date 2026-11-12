@@ -9,7 +9,7 @@
  *
  * Only the process tree of the given child is ever signalled; nothing is killed by image name.
  */
-import { spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { rm } from "node:fs/promises";
 import net from "node:net";
 
@@ -38,25 +38,37 @@ function portOpen(port: number): Promise<boolean> {
   });
 }
 
-/** Ends the spawned process tree by PID; returns a note when taskkill itself failed. */
-function endTree(child: ChildProcess, signal: "SIGTERM" | "SIGKILL"): string {
+/**
+ * Ends the spawned process tree by PID. On Windows taskkill runs asynchronously (it takes about
+ * 0.3 s, for which a synchronous call would block the test worker); the returned promise settles
+ * when taskkill has finished, which is also awaited (bounded) so that the interpreter, not only
+ * the launcher, has been terminated. A taskkill failure is recorded in `notes` for the error.
+ */
+function endTree(child: ChildProcess, signal: "SIGTERM" | "SIGKILL", notes: string[]): Promise<void> {
   if (process.platform !== "win32") {
     child.kill(signal);
-    return "";
+    return Promise.resolve();
   }
-  const result = spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, encoding: "utf8" });
-  // 128: the process had already ended between the check and taskkill.
-  if (result.error) return `taskkill failed: ${result.error.message}`;
-  if (result.status !== 0 && result.status !== 128) return `taskkill exited ${result.status}: ${(result.stderr || result.stdout).trim()}`;
-  return "";
+  return new Promise((resolve) => {
+    const taskkill = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    taskkill.stdout?.on("data", (data) => (output += data));
+    taskkill.stderr?.on("data", (data) => (output += data));
+    taskkill.once("error", (error) => { notes.push(`taskkill failed: ${error.message}`); resolve(); });
+    // 128: the process had already ended between the check and taskkill.
+    taskkill.once("close", (code) => {
+      if (code !== 0 && code !== 128) notes.push(`taskkill exited ${code}: ${output.trim()}`);
+      resolve();
+    });
+  });
 }
 
-/** Waits until the child has exited and, when given, its port refuses connections. */
-async function settled(child: ChildProcess, exit: Promise<void>, port: number | undefined, ms: number): Promise<boolean> {
+/** Waits until the kill has finished, the child has exited and, when given, its port refuses connections. */
+async function settled(child: ChildProcess, ended: Promise<unknown>, port: number | undefined, ms: number): Promise<boolean> {
   const deadline = Date.now() + ms;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); });
-  await Promise.race([exit, timeout]);
+  await Promise.race([ended, timeout]);
   clearTimeout(timer);
   if (!exited(child)) return false;
   if (port === undefined) return true;
@@ -77,12 +89,13 @@ export async function stopBackend(label: string, child: ChildProcess | undefined
   if (!child?.pid || exited(child)) return;
   const pid = child.pid;
   const exit = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  const notes = [endTree(child, "SIGTERM")];
-  if (await settled(child, exit, port, STOP_TIMEOUT_MS)) return;
-  notes.push(endTree(child, "SIGKILL"));
-  if (await settled(child, exit, port, FORCE_KILL_TIMEOUT_MS)) return;
+  const notes: string[] = [];
+  const first = endTree(child, "SIGTERM", notes);
+  if (await settled(child, Promise.all([exit, first]), port, STOP_TIMEOUT_MS)) return;
+  const second = endTree(child, "SIGKILL", notes);
+  if (await settled(child, Promise.all([exit, second]), port, FORCE_KILL_TIMEOUT_MS)) return;
   const what = exited(child) ? `exited but port ${port} still accepts connections` : "is still running";
-  const detail = notes.filter(Boolean).join("; ");
+  const detail = notes.join("; ");
   throw new Error(`${label}: backend PID ${pid} ${what} after ${STOP_TIMEOUT_MS + FORCE_KILL_TIMEOUT_MS} ms${detail ? ` (${detail})` : ""}`);
 }
 
