@@ -19,7 +19,7 @@
  *   that reply can only narrow access, never make a login page accessible.
  */
 import {detectObservedMoodleAccess, type MoodleAccessResult} from './moodle-access';
-import {observedRoute, responseAccess, type AccessChecker, type AnalysisRequest, type AnalysisResult, type Analyzer} from './moodle-page-analysis';
+import {moodleUserId, observedRoute, responseAccess, type AccessChecker, type AnalysisRequest, type AnalysisResult, type Analyzer} from './moodle-page-analysis';
 import {OFFSCREEN_PATH, OFFSCREEN_TARGET, type OffscreenMessage, type OffscreenReply} from './offscreen';
 import {pageRoute} from './page-refresh';
 import type {ScanEnvelope, ScanRequest, ScanResponse, ScanSource, StartContext} from './scan-coordinator';
@@ -174,7 +174,10 @@ export function createMoodlePageSource(options:{fetcher?:typeof fetch;analyze:An
       }
       if(external)throw Error('Request aborted');
       const input:ScanEnvelope={requestedUrl:url,finalUrl:got.finalUrl,httpStatus:got.status,networkFailure:false,...(got.contentType!==undefined?{contentType:got.contentType}:{})};
-      const base={input,sourceCourseId:context.sourceCourseId,bytes:got.bytes,observedAt,...(got.retryAfter!==undefined?{retryAfter:got.retryAfter}:{})};
+      // #93: the signed-in user id from this very text, if it shows one; the text itself stays here.
+      const userId=got.html&&!got.truncated?moodleUserId(got.html):undefined;
+      const base={input,sourceCourseId:context.sourceCourseId,bytes:got.bytes,observedAt,...(got.retryAfter!==undefined?{retryAfter:got.retryAfter}:{}),
+        ...(userId?{moodleUserId:userId}:{})};
       const route=observedRoute(url,context.sourceCourseId);
       if(!got.html||got.truncated||!route)
         return {...base,links:[],...(route?{access:detectObservedMoodleAccess(input,route)}:{})};

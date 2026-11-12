@@ -25,6 +25,8 @@ const root = path.resolve(import.meta.dirname, '..');
 const python = path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
 const fixtures = path.join(root, 'tests/fixtures/moodle');
 const ORIGIN = 'https://moodle.sdu.edu.kz';
+/** #93: the dataset account of tests/live_scan_network_app.py, the invented id of observed/m-cfg-user-id.txt. */
+const ACCOUNT = '987650';
 const SHELL_URL = `${ORIGIN}/my/courses.php`;
 const SESSKEY = '0InventedFixtureKey0';
 const SERVICE_URL = `${ORIGIN}/lib/ajax/service.php?sesskey=${SESSKEY}&info=${ENROLLED_METHOD}`;
@@ -33,12 +35,15 @@ const FAILED = 'Could not read your SDU courses. Try again later.';
 const DEMO = 'Course discovery is not available in the demo dataset.';
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 let dir: string;
-let shell: string, inprogress: string, loginPage: string, loginRedirect: any;
+let shell: string, inprogress: string, loginPage: string, loginRedirect: any, config: string;
 const running: Backend[] = [];
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'course-discovery-'));
-  shell = await readFile(path.join(fixtures, 'my-courses-shell.html'), 'utf8');
+  // #93: the synthetic shell plus the observed-structure M.cfg with the dataset's invented account.
+  config = (await readFile(path.join(fixtures, 'observed/m-cfg-user-id.txt'), 'utf8')).trim();
+  expect(config).toContain(`"userId":${ACCOUNT}}`);
+  shell = (await readFile(path.join(fixtures, 'my-courses-shell.html'), 'utf8')).replace('</body>', `<script>${config}</script></body>`);
   inprogress = await readFile(path.join(fixtures, 'observed/enrolled-courses-inprogress.json'), 'utf8');
   loginPage = await readFile(path.join(fixtures, 'observed/login-page.html'), 'utf8');
   loginRedirect = JSON.parse(await readFile(path.join(fixtures, 'observed/login-redirect-course.json'), 'utf8'));
@@ -199,7 +204,7 @@ async function realBackend() {
 it('shares the request authority with a running #20 scan: requests interleave but never overlap', async () => {
   const backend = new Backend('interleave'); await backend.start();
   const seeded = await backend.write('POST', '/api/courses/discovery', {observations: ['9001', '9002'].map(id => ({sourceCourseId: id, sourceUrl: `${ORIGIN}/course/view.php?id=${id}`,
-    title: {kind: 'known', value: `Fictional course ${id}`}, termIndicators: {kind: 'unknown'}}))});
+    title: {kind: 'known', value: `Fictional course ${id}`}, termIndicators: {kind: 'unknown'}})), moodleUserId: ACCOUNT});
   const ids = (await seeded.json()).courses.map((c: any) => c.id);
   expect((await backend.write('PUT', '/api/tracked-courses', ids)).status).toBe(200);
   const coursePage = await readFile(path.join(fixtures, 'observed/course-page.html'), 'utf8');
@@ -355,6 +360,30 @@ it('failures end with the fixed message and no backend write: invalidsesskey onc
   app.worker.dispose();
 }, 90000);
 
+it('#93: another or no signed-in account saves nothing and returns the fixed message, with the same Moodle requests', async () => {
+  const backend = await realBackend();
+  const MISMATCH = 'The signed-in Moodle account is not the account of this dataset. Nothing was saved.';
+  const UNCONFIRMED = 'The Moodle account could not be confirmed. Nothing was saved.';
+  // An invented other account; a signed-out guest value (0) and no M.cfg count as not read.
+  const other = '5550001';
+  for (const [page, message, sent] of [[shell.replace(`"userId":${ACCOUNT}`, `"userId":${other}`), MISMATCH, other],
+    [shell.replace(`"userId":${ACCOUNT}`, '"userId":0'), UNCONFIRMED, undefined],
+    [shell.replace(/<script>[\s\S]*?<\/script>/, ''), UNCONFIRMED, undefined]] as const) {
+    const clock = fresh();
+    const site_ = moodle(clock, site(undefined, () => ok(page)));
+    const app = install(backend, clock, site_.fetcher);
+    const before = await backend.get('/api/snapshot');
+    expect(await app.bridge(1, 'discoverCourses')).toMatchObject({ok: true, result: {message}});
+    // Exactly the Moodle requests of a saving run: one GET and one POST.
+    expect(site_.starts().map(e => [e.method, e.url])).toEqual([['GET', SHELL_URL], ['POST', SERVICE_URL]]);
+    const [ingest] = app.writes();
+    expect(app.writes()).toHaveLength(1);
+    expect(JSON.parse(ingest!.body!).moodleUserId).toBe(sent);
+    expect(await backend.get('/api/snapshot')).toEqual(before);
+    app.worker.dispose();
+  }
+}, 90000);
+
 it('happy path: one GET, one POST and one ingest; three unticked courses; one run for two tabs; the sesskey only in the POST URL', async () => {
   const backend = await realBackend();
   const clock = fresh();
@@ -384,7 +413,7 @@ it('happy path: one GET, one POST and one ingest; three unticked courses; one ru
   expect(ingest!.headers['X-Moodle-Helper-Bridge-Binding']).toBe(await backend.binding());
   expect(JSON.parse(ingest!.body!)).toEqual({observations: ['9001', '9002', '9003'].map((id, i) => ({sourceCourseId: id, sourceUrl: `${ORIGIN}/course/view.php?id=${id}`,
     title: {kind: 'known', value: ['Fictional Course Alpha', 'Fictional Course Beta', 'Fictional Course Gamma'][i]}, termIndicators: {kind: 'known', value: ['In progress']},
-    code: {kind: 'known', value: CODES[i]}, classification: 'inprogress'}))});
+    code: {kind: 'known', value: CODES[i]}, classification: 'inprogress'})), moodleUserId: ACCOUNT});
   const snapshot = await backend.get('/api/snapshot');
   expect(discovered(snapshot)).toEqual(['9001', '9002', '9003']);
   // #84: the code and a verified current status come from the shortname and the requested classification.
@@ -504,7 +533,7 @@ it('#41: a download, a #20 scan and a #82 discovery at the same time: at most 1 
   };
   // Fixture setup: two tracked courses, and one collected PDF resource linked as its exact view.php?id=<cmid>.
   const seeded = await call('/api/courses/discovery', 'POST', {observations: ['9001', '9002'].map(id => ({sourceCourseId: id, sourceUrl: `${ORIGIN}/course/view.php?id=${id}`,
-    title: {kind: 'known', value: `Fictional course ${id}`}, termIndicators: {kind: 'unknown'}}))});
+    title: {kind: 'known', value: `Fictional course ${id}`}, termIndicators: {kind: 'unknown'}})), moodleUserId: ACCOUNT});
   const ids = seeded.courses.filter((c: any) => c.discovery).map((c: any) => c.id);
   expect((await backend.write('PUT', '/api/tracked-courses', ids)).status).toBe(200);
   const ctx = await backend.get('/api/backups/restore-context');

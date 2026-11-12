@@ -24,6 +24,8 @@ const root = path.resolve(import.meta.dirname, '..');
 const python = path.join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
 const fixtures = path.join(root, 'tests/fixtures/moodle');
 const ORIGIN = 'https://moodle.sdu.edu.kz';
+/** #93: the dataset account of tests/live_scan_network_app.py, the invented id of observed/m-cfg-user-id.txt. */
+const ACCOUNT = '987650';
 const SHELL_URL = `${ORIGIN}/my/courses.php`;
 const SESSKEY = '0InventedFixtureKey0';
 const USER = 'Invented Student Example', USER_ID = '7350001';
@@ -257,7 +259,7 @@ it('not verified: network error, timeout, 403, 5xx after the retries, non-HTML, 
 it('shares the request authority with a running #20 fixture scan: requests never overlap and start >= 1000 ms apart', async () => {
   const backend = new Backend('interleave'); await backend.start();
   const seeded = await backend.write('POST', '/api/courses/discovery', {observations: ['9001', '9002'].map(id => ({sourceCourseId: id, sourceUrl: `${ORIGIN}/course/view.php?id=${id}`,
-    title: {kind: 'known', value: `Fictional course ${id}`}, termIndicators: {kind: 'unknown'}}))});
+    title: {kind: 'known', value: `Fictional course ${id}`}, termIndicators: {kind: 'unknown'}})), moodleUserId: ACCOUNT});
   const ids = (await seeded.json()).courses.map((c: any) => c.id);
   expect((await backend.write('PUT', '/api/tracked-courses', ids)).status).toBe(200);
   const clock = fresh();

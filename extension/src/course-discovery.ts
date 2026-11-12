@@ -19,10 +19,14 @@
  * The sesskey lives in one local variable of `run()` and is used only to build the
  * POST URLs of that run. It is never stored, logged, put in a message, an error, a
  * backend request or the reply. Failures map to fixed messages only.
+ *
+ * #93: the signed-in user id is read from the same `/my/courses.php` text (`M.cfg`
+ * `"userId"`) and sent only in the ingest body, where the backend compares it with the
+ * dataset's account. Its fixed 409 messages are returned to the dashboard as they are.
  */
 import {DISCOVERY_MESSAGES, type DiscoveryMessage, type DiscoveryResult} from '../../shared/src/bridge';
 import {parseEnrolledCourses, type RawCourseObservation} from './moodle-courses';
-import {reducedBody, type AccessChecker, type AccessRequest} from './moodle-page-analysis';
+import {moodleUserId, reducedBody, type AccessChecker, type AccessRequest} from './moodle-page-analysis';
 import {ENROLLED_METHOD, MY_COURSES_URL, enrolledCoursesUrl, startDiscoveryRequest, type DiscoveryRequest, type DiscoveryResponse} from './moodle-page-source';
 import {ACQUIRE_LIMIT_MS, type RequestAuthority} from './scan-coordinator';
 import {retryAfterDeadline, scanRetryDecision} from './scan-retry';
@@ -117,10 +121,16 @@ export function createCourseDiscovery(options:CourseDiscoveryOptions) {
       const response = await fetcher(options.base + path, {method:body === undefined ? 'GET' : 'POST', credentials:'omit', redirect:'error', cache:'no-store', signal:controller.signal,
         headers:{Accept:'application/json', ...(body === undefined ? {} : {'Content-Type':'application/json', 'X-Moodle-Helper-Bridge-Binding':binding!})},
         ...(body === undefined ? {} : {body:JSON.stringify(body)})});
+      if (response.status === 409 && body !== undefined) {
+        // #93: the backend's fixed account messages pass through; anything else is a failure.
+        const message = (await response.json().catch(() => undefined))?.message;
+        throw message === DISCOVERY_MESSAGES.accountMismatch || message === DISCOVERY_MESSAGES.accountUnconfirmed
+          ? new Stop({message}) : stop('failed');
+      }
       if (!response.ok) throw stop('failed');
       return await response.json();
-    } catch {
-      throw stop('failed');
+    } catch (error) {
+      throw error instanceof Stop ? error : stop('failed');
     } finally { clearTimeout(timer); }
   }
 
@@ -139,6 +149,8 @@ export function createCourseDiscovery(options:CourseDiscoveryOptions) {
       if (shell.kind === 'failed') throw stop('failed');
       // The one sesskey of this run: read here, kept only in this variable.
       const sesskey = shell.value.truncated ? undefined : SESSKEY.exec(shell.value.text)?.[1];
+      // #93: the signed-in account, from the same text; no further request.
+      const userId = shell.value.truncated ? undefined : moodleUserId(shell.value.text);
       const shellAccess = await access(shell.value, 'my-courses');
       if (shellAccess.status === 'signed_out') throw stop('signedOut');
       if (shellAccess.status !== 'accessible' || !sesskey) throw stop('failed');
@@ -167,7 +179,7 @@ export function createCourseDiscovery(options:CourseDiscoveryOptions) {
           const observations:RawCourseObservation[] = result.observations.map(observation => ({...observation, classification:DISCOVERY_CLASSIFICATION}));
           const binding = (await backend('/api/bridge-context'))?.binding;
           if (typeof binding !== 'string') throw stop('failed');
-          const snapshot = await backend('/api/courses/discovery', binding, {observations});
+          const snapshot = await backend('/api/courses/discovery', binding, {observations, ...(userId ? {moodleUserId:userId} : {})});
           return {snapshot, found:observations.length, coverage:result.coverage === 'complete' ? 'complete' : 'partial'};
         }
         offset = result.next;

@@ -31,9 +31,14 @@ const python = process.env.MH_TEST_PYTHON ?? path.join(root, process.platform ==
 const fixtures = path.join(root, 'tests/fixtures/moodle/observed');
 const ORIGIN = 'https://moodle.sdu.edu.kz';
 const SIGN_IN = 'Sign in to SDU Moodle to continue.';
+/** #93: the dataset account of tests/live_scan_network_app.py, the invented id of observed/m-cfg-user-id.txt. */
+const ACCOUNT = '987650';
+const UNCONFIRMED = 'The Moodle account could not be confirmed. Earlier data was kept.';
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 let dir: string;
 let html: Record<string, string>;
+/** #93: the inline page configuration every signed-in fixture page is served with. */
+let config: string;
 const running: Backend[] = [];
 const releaseHangs: (() => void)[] = [];
 
@@ -43,6 +48,8 @@ beforeAll(async () => {
   for (const name of ['course-page.html', 'quiz-finished.html', 'not-found.html', 'login-page.html', 'assign-submitted.html',
     'assign-not-submitted.html', 'calendar-upcoming.html'])
     html[name] = await readFile(path.join(fixtures, name), 'utf8');
+  config = (await readFile(path.join(fixtures, 'm-cfg-user-id.txt'), 'utf8')).trim();
+  expect(config).toContain(`"userId":${ACCOUNT}}`);
   const login = JSON.parse(await readFile(path.join(fixtures, 'login-redirect-course.json'), 'utf8'));
   expect(login.response).toMatchObject({status: 200, finalPath: '/login/index.php'});
 });
@@ -110,7 +117,7 @@ class Backend {
   /** Three Moodle-mapped courses; `selected` are tracked. Returns courseId by Moodle id. */
   async seed(selected: string[], all = ['9001', '9002', '9003']) {
     const response = await this.write('POST', '/api/courses/discovery', {observations: all.map(id => ({sourceCourseId: id, sourceUrl: courseUrl(id),
-      title: {kind: 'known', value: `Fictional course ${id}`}, termIndicators: {kind: 'unknown'}}))});
+      title: {kind: 'known', value: `Fictional course ${id}`}, termIndicators: {kind: 'unknown'}})), moodleUserId: ACCOUNT});
     expect(response.status).toBe(200);
     const ids = Object.fromEntries((await response.json()).courses.map((c: any) => [c.discovery.sourceCourseId, c.id]));
     expect((await this.write('PUT', '/api/tracked-courses', selected.map(id => ids[id]))).status).toBe(200);
@@ -156,7 +163,9 @@ function moodle(clock: {now: number}, route: Route, hold?: Promise<void>) {
   }) as typeof fetch;
   return {fetcher, trace, starts: () => trace.filter(e => e.event === 'start'), maxActive: () => maxActive};
 }
-const ok = (body: string): Reply => ({status: 200, body});
+/** A signed-in page: the observed body plus the `M.cfg` script that shows the account (`id` replaces it). */
+const signedIn = (body: string, id = ACCOUNT) => body.replace('</body>', `<script>${config.replace(`"userId":${ACCOUNT}`, `"userId":${id}`)}</script></body>`);
+const ok = (body: string): Reply => ({status: 200, body: signedIn(body)});
 /** The observed pages of the selected courses. */
 const observedSite = (url: string): Reply => {
   const course = /course\/view\.php\?id=(\d+)$/.exec(url)?.[1];
@@ -374,11 +383,10 @@ it('#41 owner live check: a scanned PDF resource is offered the download and one
 
 it('AC2/AC4: forbidden, missing, non-topics and truncated pages are requested once and stay incomplete', async () => {
   const backend = new Backend('incomplete'); await backend.start();
-  const ids = await backend.seed(['9001', '9002', '9003']);
+  const ids = await backend.seed(['9001', '9002']);
   const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
   const site = moodle(clock, url => {
     if (url === courseUrl('9002')) return ok(coursePage('9002', page => page.replace('format-topics ', 'format-weeks ')));
-    if (url === courseUrl('9003')) return ok(coursePage('9003', page => page.replace('</body>', `<p>${'x'.repeat(1_100_000)}</p></body>`)));
     if (url === quizUrl('990103')) return {status: 403, body: '<!doctype html><html lang="en"><body class="lang-en"></body></html>'};
     if (url === quizUrl('990109')) return {status: 404, body: html['not-found.html']!};
     return observedSite(url);
@@ -389,19 +397,31 @@ it('AC2/AC4: forbidden, missing, non-topics and truncated pages are requested on
   const [run] = await backend.settled(1);
   expect(run.jobs.every((j: any) => j.state === 'completed')).toBe(true);
   const urls = site.starts().map(e => e.url);
-  expect([...urls].sort()).toEqual([...jobUrls('9001'), courseUrl('9002'), courseUrl('9003')].sort());
+  expect([...urls].sort()).toEqual([...jobUrls('9001'), courseUrl('9002')].sort());
   const job = (course: string) => run.jobs.find((j: any) => j.courseId === ids[course]).id;
   const first = (await backend.pages(job('9001'))).pages;
   expect(first.find((p: any) => p.pageUrl === quizUrl('990103'))).toMatchObject({pageType: 'quiz', outcome: 'forbidden', coverage: 'none', reasons: ['forbidden']});
   expect(first.find((p: any) => p.pageUrl === quizUrl('990109'))).toMatchObject({pageType: 'quiz', outcome: 'failed', coverage: 'none', reasons: ['access_error']});
-  for (const course of ['9002', '9003']) {
-    const {pages, incompleteReasons} = await backend.pages(job(course));
-    expect(pages.find((p: any) => p.pageUrl === courseUrl(course))).toMatchObject({outcome: 'failed', coverage: 'none', reasons: ['access_error']});
-    expect(incompleteReasons).toEqual(expect.arrayContaining(['access_error', 'undiscovered']));
-  }
+  const {pages, incompleteReasons} = await backend.pages(job('9002'));
+  expect(pages.find((p: any) => p.pageUrl === courseUrl('9002'))).toMatchObject({outcome: 'failed', coverage: 'none', reasons: ['access_error']});
+  expect(incompleteReasons).toEqual(expect.arrayContaining(['access_error', 'undiscovered']));
   const snapshot = await backend.get('/api/snapshot');
-  expect(snapshot.sync.map((s: any) => [s.status, s.coverage])).toEqual([['partial', 'partial'], ['partial', 'partial'], ['partial', 'partial']]);
+  expect(snapshot.sync.filter((s: any) => [ids['9001'], ids['9002']].includes(s.courseId)).map((s: any) => [s.status, s.coverage]))
+    .toEqual([['partial', 'partial'], ['partial', 'partial']]);
   app.worker.dispose();
+  // A truncated course page is requested once and its text is not read, so (#93) no page shows the
+  // account: the job saves nothing and fails as unconfirmed.
+  const truncated = new Backend('truncated'); await truncated.start();
+  const only = await truncated.seed(['9003']);
+  const big = moodle(clock, url => url === courseUrl('9003') ? ok(coursePage('9003', page => page.replace('</body>', `<p>${'x'.repeat(1_100_000)}</p></body>`))) : observedSite(url));
+  const second = install(truncated, clock, big.fetcher);
+  expect((await truncated.write('POST', '/api/sync')).status).toBe(200);
+  second.alarm();
+  const [cut] = await truncated.settled(1);
+  expect(big.starts().map(e => e.url)).toEqual([courseUrl('9003')]);
+  expect(cut.jobs).toEqual([expect.objectContaining({state: 'failed', errorCode: 'account_unconfirmed'})]);
+  expect((await truncated.get('/api/snapshot')).sync.find((s: any) => s.courseId === only['9003'])).toMatchObject({status: 'failed', error: UNCONFIRMED});
+  second.worker.dispose();
 }, 60000);
 
 it('AC3(c)(d): 503 and 429 retries wait 2 s and 5 s, or a longer Retry-After, with at most three attempts', async () => {
@@ -444,15 +464,12 @@ it('AC3(d)(e): a malformed Retry-After is not retried and an always-503 page fai
     const evidence = await backend.pages(run.jobs[0].id);
     expect(evidence.incompleteReasons).toContain('request_failed');
     const entry = (await backend.get('/api/snapshot')).sync.find((s: any) => s.courseId === ids['9001']);
-    if (header) {
-      // No retry: the job fails with the fixed reason (and the gate stays occupied, fail closed).
-      expect(run.jobs[0]).toMatchObject({state: 'failed', errorCode: 'request_failed'});
-      expect(entry).toMatchObject({status: 'failed', error: 'Moodle could not be read for this course. Earlier data was kept.'});
-    } else {
-      // The page ends failed/request_failed after three attempts; the course stays incomplete.
-      expect(evidence.pages.find((p: any) => p.pageUrl === courseUrl('9001'))).toMatchObject({outcome: 'failed', coverage: 'none', reasons: ['request_failed']});
-      expect(entry).toMatchObject({status: 'partial', coverage: 'partial'});
-    }
+    // No page was read, so (#93) no page showed the account: nothing is saved and the job fails as
+    // unconfirmed, whether it stopped without a retry (the gate stays occupied, fail closed) or its
+    // page ended failed/request_failed after three attempts.
+    expect(run.jobs[0]).toMatchObject({state: 'failed', errorCode: 'account_unconfirmed'});
+    expect(evidence.pages).toEqual([]);
+    expect(entry).toMatchObject({status: 'failed', error: UNCONFIRMED});
     // The trace is finite: later wakes find no work and make no request.
     app.alarm(); app.startup(); await pause(300);
     expect(site.starts()).toHaveLength(header ? 1 : 3);
@@ -539,6 +556,61 @@ it('AC4: a login redirect mid-scan fails the job and every unstarted job without
   // The one-minute alarm and later wakes cannot keep fetching the login page.
   for (let minute = 0; minute < 3; minute++) { clock.now += 60_000; app.alarm(); app.startup(); await pause(150); }
   expect(site.starts()).toHaveLength(2);
+  app.worker.dispose();
+}, 60000);
+
+/** #93: the observed site, with each page showing `shown(url)` as its M.cfg user id, or no M.cfg when null. */
+const showing = (shown: (url: string) => string | null): Route => url => {
+  const reply = observedSite(url), id = shown(url);
+  return {...reply, body: id === null ? reply.body.replace(/<script>M\.cfg[^<]*<\/script>/, '') : reply.body.replace(`"userId":${ACCOUNT}`, `"userId":${id}`)};
+};
+
+it('#93: a job whose pages disagree or show no id saves nothing, with the same Moodle requests as a saving job', async () => {
+  for (const [name, shown] of [['disagree', (url: string) => url.includes('/mod/quiz/') ? '5550001' : ACCOUNT],
+    ['none', () => null]] as const) {
+    const backend = new Backend(`account-${name}`); await backend.start();
+    const ids = await backend.seed(['9001']);
+    const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+    const site = moodle(clock, showing(shown));
+    const app = install(backend, clock, site.fetcher);
+    expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
+    const [run] = await backend.settled(1);
+    expect(run.status).toBe('failed');
+    expect(run.jobs).toEqual([expect.objectContaining({state: 'failed', errorCode: 'account_unconfirmed'})]);
+    // The id comes only from pages the job requests anyway: the same URLs, each once.
+    expect(site.starts().map(e => e.url).sort()).toEqual(jobUrls('9001').sort());
+    const snapshot = await backend.get('/api/snapshot');
+    expect(snapshot.sync.find((s: any) => s.courseId === ids['9001'])).toMatchObject({status: 'failed', error: UNCONFIRMED});
+    expect(snapshot.collection?.records ?? []).toEqual([]);
+    expect((await backend.pages(run.jobs[0].id)).pages).toEqual([]);
+    app.worker.dispose();
+  }
+}, 90000);
+
+it('#93: another signed-in account fails the job and every unstarted job of the run without a Moodle request', async () => {
+  const MISMATCH = 'The signed-in Moodle account is not the account of this dataset. Earlier data was kept.';
+  const other = '5550001';
+  const backend = new Backend('account-mismatch'); await backend.start();
+  const ids = await backend.seed(['9001', '9002']);
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  const site = moodle(clock, showing(() => other));
+  const app = install(backend, clock, site.fetcher);
+  expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
+  const [run] = await backend.settled(1);
+  expect(run.status).toBe('failed');
+  expect(run.jobs.every((j: any) => j.state === 'failed' && j.errorCode === 'account_mismatch')).toBe(true);
+  // Only the first job's own pages were requested; the other course was never claimed.
+  const urls = site.starts().map(e => e.url);
+  const scanned = urls[0] === courseUrl('9001') ? '9001' : '9002', unclaimed = scanned === '9001' ? '9002' : '9001';
+  expect([...urls].sort()).toEqual(jobUrls(scanned).sort());
+  expect(run.jobs.find((j: any) => j.courseId === ids[unclaimed]).attempts).toBe(0);
+  const snapshot = await backend.get('/api/snapshot');
+  for (const course of ['9001', '9002'])
+    expect(snapshot.sync.find((s: any) => s.courseId === ids[course])).toMatchObject({status: 'failed', error: MISMATCH});
+  expect(snapshot.collection?.records ?? []).toEqual([]);
+  // The received id is never stored or echoed.
+  expect(await backend.sql('SELECT count(*) FROM scan_pages')).toEqual([[0]]);
+  expect(JSON.stringify([snapshot, run, await backend.sql('SELECT * FROM queue_jobs')])).not.toContain(other);
   app.worker.dispose();
 }, 60000);
 
@@ -648,7 +720,7 @@ it('AC2 (#21): the popup does not claim a full sync when submission is unbound a
   expect((await backend.write('POST', '/api/sync')).status).toBe(200);
   for (let claim; (claim = (await (await backend.write('POST', '/api/scan/claim', {})).json()).claim);) {
     const finish = await backend.write('POST', '/api/scan/finish', {jobId: claim.job.id, generation: claim.generation, token: claim.token,
-      selectionRevision: claim.selectionRevision, outcome: 'completed', pages: allCompletePages(claim.sourceCourseId), incompleteReasons: ['collector_unavailable']});
+      selectionRevision: claim.selectionRevision, outcome: 'completed', pages: allCompletePages(claim.sourceCourseId), incompleteReasons: ['collector_unavailable'], moodleUserId: ACCOUNT});
     expect(finish.status).toBe(200);
   }
   await backend.stop(); await backend.start();
