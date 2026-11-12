@@ -240,6 +240,9 @@ $env:MOODLE_HELPER_STABLE_USER_ID = '42'
 ```
 
 These are labeled fixture/example identifiers, not discovered browser identity.
+`MOODLE_HELPER_STABLE_USER_ID` must be your numeric Moodle user id (digits only,
+no leading zero): live sync saves data only when the account signed in to SDU
+Moodle has exactly this id, so startup refuses any other value.
 Switch accounts/profiles by stopping, configuring and restarting. Partial identity
 configuration fails; request headers/bodies cannot select a namespace. All records,
 settings, overlays, reset and local-data deletion remain in the selected partition.
@@ -671,7 +674,7 @@ no login). The write binding is a process safeguard, not user authentication.
 
 After `make install`, run `make` from the repository root. It starts the backend on `127.0.0.1:8000` and the dashboard on `127.0.0.1:5173`; open the displayed dashboard address. Press Ctrl+C in the same terminal to stop the processes it started. If either port is already in use, startup stops without touching the existing application.
 
-For the real Moodle dataset, set `MOODLE_HELPER_DATASET=moodle`, `MOODLE_HELPER_MOODLE_ORIGIN=https://moodle.sdu.edu.kz`, `MOODLE_HELPER_PROFILE_LABEL`, and `MOODLE_HELPER_STABLE_USER_ID` as shown above. If none is set, `make` asks for the profile label and stable Moodle user ID. Enter exactly the same values used previously to access that dataset; different values select a different dataset. The command does not discover your identity, request your Moodle password, or change your database setting. Non-interactive runs require all four variables to be set. A partially configured identity fails instead of guessing.
+For the real Moodle dataset, set `MOODLE_HELPER_DATASET=moodle`, `MOODLE_HELPER_MOODLE_ORIGIN=https://moodle.sdu.edu.kz`, `MOODLE_HELPER_PROFILE_LABEL`, and `MOODLE_HELPER_STABLE_USER_ID` as shown above. If none is set, `make` asks for the profile label and stable Moodle user ID, which must be your numeric Moodle user id. Enter exactly the same values used previously to access that dataset; different values select a different dataset. The command does not discover your identity, request your Moodle password, or change your database setting. Non-interactive runs require all four variables to be set. A partially configured identity fails instead of guessing.
 
 To sync, install and enable the browser extension and sign in to SDU Moodle in Chrome. Starting the dashboard alone does not sign in or initiate a sync. The `make run` and `make frontend` commands remain available for starting each service separately.
 

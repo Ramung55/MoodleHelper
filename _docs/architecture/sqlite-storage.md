@@ -35,7 +35,7 @@ gets samples. An existing empty row stays empty after restart. Moodle mode requi
 | MOODLE_HELPER_DATASET | `moodle` |
 | MOODLE_HELPER_MOODLE_ORIGIN | exactly `https://moodle.sdu.edu.kz` |
 | MOODLE_HELPER_PROFILE_LABEL | nonblank non-secret local profile label |
-| MOODLE_HELPER_STABLE_USER_ID | nonblank stable Moodle user identifier |
+| MOODLE_HELPER_STABLE_USER_ID | canonical decimal Moodle user id (`^[1-9][0-9]{0,18}$`); startup refuses any other value (#93) |
 
 For profile `personal`, user `42`, the key is the canonical JSON tuple
 `["moodle","https://moodle.sdu.edu.kz","personal","42"]`. JSON tuple encoding

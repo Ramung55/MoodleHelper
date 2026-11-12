@@ -29,6 +29,13 @@ def namespace_key(mode: str = "demo", *, origin: str | None = None,
 
 def namespace_from_environment(env: Mapping[str, str]) -> str:
     """Explicit mapping only; caller decides when to read trusted environment."""
+    import re
+    user = env.get("MOODLE_HELPER_STABLE_USER_ID")
+    # #93: live collection compares this with the signed-in Moodle user id, so only
+    # the canonical numeric id can ever match. Stored namespaces are not re-checked.
+    if env.get("MOODLE_HELPER_DATASET", "demo") == "moodle" and user is not None and not re.fullmatch(MOODLE_USER_ID, user):
+        raise ValueError("stable_user_id: MOODLE_HELPER_STABLE_USER_ID must be your numeric Moodle user id "
+                         "(digits only, no leading zero)")
     return namespace_key(env.get("MOODLE_HELPER_DATASET", "demo"),
                          origin=env.get("MOODLE_HELPER_MOODLE_ORIGIN"),
                          profile_label=env.get("MOODLE_HELPER_PROFILE_LABEL"),

@@ -22,6 +22,8 @@ async function selectIdentity(env, input = process.stdin, output = process.stdou
     } finally { rl.close(); }
   }
   if (env.MOODLE_HELPER_DATASET !== 'moodle' || env.MOODLE_HELPER_MOODLE_ORIGIN !== origin || !env.MOODLE_HELPER_PROFILE_LABEL?.trim() || !env.MOODLE_HELPER_STABLE_USER_ID?.trim()) throw new Error('A complete Moodle identity with the canonical SDU origin is required; existing settings were not changed.');
+  // #93: only the numeric Moodle user id can match the account signed in to Moodle.
+  if (!/^[1-9][0-9]{0,18}$/.test(env.MOODLE_HELPER_STABLE_USER_ID)) throw new Error('The stable Moodle user ID must be your numeric Moodle user id (digits only); existing settings were not changed.');
   return env;
 }
 
