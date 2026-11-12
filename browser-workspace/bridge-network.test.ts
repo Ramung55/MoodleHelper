@@ -98,7 +98,8 @@ async function start(dataset = "demo") {
       MOODLE_HELPER_DATASET: "moodle",
       MOODLE_HELPER_MOODLE_ORIGIN: "https://moodle.sdu.edu.kz",
       MOODLE_HELPER_PROFILE_LABEL: "isolated-profile",
-      MOODLE_HELPER_STABLE_USER_ID: "isolated-user",
+      // #93: a canonical invented id, so the extension's discovery can match the dataset account.
+      MOODLE_HELPER_STABLE_USER_ID: "987650",
     });
   child = spawn(
     python,
@@ -452,17 +453,21 @@ describe("production bridge through labeled Chrome/window shim and real SQLite n
     });
     const hello = await client.connect();
     expect(JSON.stringify(hello)).not.toMatch(
-      /isolated-profile|isolated-user|sqlite|namespace/,
+      /isolated-profile|987650|sqlite|namespace/,
     );
     expect((await client.load()).courses).toEqual([]);
-    const snap = await client.ingestCourseDiscovery([
-      {
-        sourceCourseId: "9001",
-        sourceUrl: "https://moodle.sdu.edu.kz/course/view.php?id=9001",
-        title: { kind: "known", value: "Configured partition course" },
-        termIndicators: { kind: "unknown" },
-      },
-    ]);
+    // #93: a real dataset saves discovery only with its own account id, as the extension sends it.
+    const snap = await (client as any).send("ingestCourseDiscovery", {
+      observations: [
+        {
+          sourceCourseId: "9001",
+          sourceUrl: "https://moodle.sdu.edu.kz/course/view.php?id=9001",
+          title: { kind: "known", value: "Configured partition course" },
+          termIndicators: { kind: "unknown" },
+        },
+      ],
+      moodleUserId: "987650",
+    });
     expect(snap.courses).toHaveLength(1);
     expect(snap.settings.trackedCourseIds).toEqual([]);
     // #20: the fixed 409 reaches the page as its own bridge error, with nothing written.
