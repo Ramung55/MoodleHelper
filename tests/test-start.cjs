@@ -13,9 +13,21 @@ test('rejects incomplete or demo identity and noninteractive missing identity', 
   await assert.rejects(selectIdentity({ ...complete, MOODLE_HELPER_DATASET: 'demo' }), /complete Moodle identity/);
   await assert.rejects(selectIdentity({}, { isTTY: false }), /required/);
 });
+const HINT = 'Open your profile in SDU Moodle (click your name, then Profile); the user id is the number after id= in the address bar.';
 test('rejects a stable Moodle user ID that is not the numeric Moodle user id', async () => {
   for (const user of ['stable-user', '042', '0', '42 ', '1'.repeat(20)])
-    await assert.rejects(selectIdentity({ ...complete, MOODLE_HELPER_STABLE_USER_ID: user }), /numeric Moodle user id/);
+    await assert.rejects(selectIdentity({ ...complete, MOODLE_HELPER_STABLE_USER_ID: user }),
+      error => error.message.includes('numeric Moodle user id') && error.message.includes(HINT));
+});
+test('the interactive prompt says where to find the Moodle user id', async () => {
+  const input = new PassThrough(); input.isTTY = true;
+  const output = new PassThrough(); let shown = '';
+  output.on('data', chunk => { shown += chunk; });
+  const result = selectIdentity({}, input, output);
+  setImmediate(() => { input.write('profile\n'); setImmediate(() => input.write('4242\n')); });
+  await result;
+  assert.ok(shown.includes(HINT));
+  input.destroy(); output.destroy();
 });
 test('prompts for both identity values without changing the database selection', async () => {
   const input = new PassThrough(); input.isTTY = true;

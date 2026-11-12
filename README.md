@@ -242,7 +242,9 @@ $env:MOODLE_HELPER_STABLE_USER_ID = '42'
 These are labeled fixture/example identifiers, not discovered browser identity.
 `MOODLE_HELPER_STABLE_USER_ID` must be your numeric Moodle user id (digits only,
 no leading zero): live sync saves data only when the account signed in to SDU
-Moodle has exactly this id, so startup refuses any other value.
+Moodle has exactly this id, so startup refuses any other value. To find it, open
+your profile in SDU Moodle (click your name, then Profile); the user id is the
+number after `id=` in the address bar.
 Switch accounts/profiles by stopping, configuring and restarting. Partial identity
 configuration fails; request headers/bodies cannot select a namespace. All records,
 settings, overlays, reset and local-data deletion remain in the selected partition.

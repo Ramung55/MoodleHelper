@@ -35,7 +35,8 @@ def namespace_from_environment(env: Mapping[str, str]) -> str:
     # the canonical numeric id can ever match. Stored namespaces are not re-checked.
     if env.get("MOODLE_HELPER_DATASET", "demo") == "moodle" and user is not None and not re.fullmatch(MOODLE_USER_ID, user):
         raise ValueError("stable_user_id: MOODLE_HELPER_STABLE_USER_ID must be your numeric Moodle user id "
-                         "(digits only, no leading zero)")
+                         "(digits only, no leading zero). Open your profile in SDU Moodle (click your name, "
+                         "then Profile); the user id is the number after id= in the address bar.")
     return namespace_key(env.get("MOODLE_HELPER_DATASET", "demo"),
                          origin=env.get("MOODLE_HELPER_MOODLE_ORIGIN"),
                          profile_label=env.get("MOODLE_HELPER_PROFILE_LABEL"),

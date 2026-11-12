@@ -7,6 +7,7 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const identity = ['MOODLE_HELPER_DATASET', 'MOODLE_HELPER_MOODLE_ORIGIN', 'MOODLE_HELPER_PROFILE_LABEL', 'MOODLE_HELPER_STABLE_USER_ID'];
 const origin = 'https://moodle.sdu.edu.kz';
+const WHERE = 'Open your profile in SDU Moodle (click your name, then Profile); the user id is the number after id= in the address bar.';
 
 async function selectIdentity(env, input = process.stdin, output = process.stdout) {
   const present = identity.filter(key => env[key] !== undefined && env[key] !== '');
@@ -16,14 +17,15 @@ async function selectIdentity(env, input = process.stdin, output = process.stdou
     const rl = createInterface({ input, output });
     try {
       output.write('Enter the same profile label and stable Moodle user ID you used previously to open the same data. No password is needed.\n');
+      output.write(`The Moodle user ID is a number. ${WHERE}\n`);
       const profile = await rl.question('Profile label: ');
-      const user = await rl.question('Stable Moodle user ID: ');
+      const user = await rl.question('Stable Moodle user ID (numeric): ');
       Object.assign(env, { MOODLE_HELPER_DATASET: 'moodle', MOODLE_HELPER_MOODLE_ORIGIN: origin, MOODLE_HELPER_PROFILE_LABEL: profile, MOODLE_HELPER_STABLE_USER_ID: user });
     } finally { rl.close(); }
   }
   if (env.MOODLE_HELPER_DATASET !== 'moodle' || env.MOODLE_HELPER_MOODLE_ORIGIN !== origin || !env.MOODLE_HELPER_PROFILE_LABEL?.trim() || !env.MOODLE_HELPER_STABLE_USER_ID?.trim()) throw new Error('A complete Moodle identity with the canonical SDU origin is required; existing settings were not changed.');
   // #93: only the numeric Moodle user id can match the account signed in to Moodle.
-  if (!/^[1-9][0-9]{0,18}$/.test(env.MOODLE_HELPER_STABLE_USER_ID)) throw new Error('The stable Moodle user ID must be your numeric Moodle user id (digits only); existing settings were not changed.');
+  if (!/^[1-9][0-9]{0,18}$/.test(env.MOODLE_HELPER_STABLE_USER_ID)) throw new Error(`The stable Moodle user ID must be your numeric Moodle user id (digits only). ${WHERE} Existing settings were not changed.`);
   return env;
 }
 
