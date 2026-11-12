@@ -247,6 +247,7 @@ export const Assessment = z.object({
   availableFrom: z.string().optional(),
   sources: z.array(SourceEvidence).min(1),
   submission: SubmissionObservation.optional(),
+  submissionStale: z.boolean().optional(),
   personal: z.boolean().default(false),
   firstObservedAt: z.string(),
   lastObservedAt: z.string(),
@@ -806,7 +807,7 @@ export type RawQuizObservation = z.infer<typeof RawQuizObservation>;
 export const SubmissionSourceRecord = z
   .object({
     sourceCourseId: z.string(),
-    sourceActivityId: z.string(),
+    sourceActivityId: z.string().optional(),
     sourceCourseModuleId: z.string(),
     sourceUrl: z.string(),
     observation: SubmissionObservation,

@@ -194,7 +194,7 @@ describe("#16 evidence registry", () => {
       expect(cell.evidenceBasis).toBe("upstream-not-seen-on-sdu");
     }
   });
-  it("is used only by the #81 pure adapter and not dispatched by any registry (#20)", () => {
+  it("keeps personal submission collection unavailable without a bound Moodle identity", () => {
     const dir = resolve(root, "extension/src");
     for (const file of readdirSync(dir).filter(
       (f) => f.endsWith(".ts") && f !== "moodle-submission-status.ts" && f !== "page-refresh.ts",
