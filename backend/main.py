@@ -4,18 +4,20 @@ import os
 import re
 from collections.abc import Callable
 from uuid import uuid4
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from backend.material_downloads import MaterialDownloadService, TransferConflict, material_download_router
 from backend.routers import router, context_router, collection_router, queue_router, scan_router, local_syllabus_router, reminder_router, ai_router, backup_router, erase_router
 from backend.ai_gateway import AiGateway, AiFailure, MAX_BODY_BYTES, gateway_from_environment
 from backend.reminders import ReminderService, ReminderConflict
-from backend.queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
+from backend.sync_queue import QueueService, QueueConflict, QueueMissing, QueueInvalid
 from backend.services import BackendService, SyncUnavailable, SYNC_UNAVAILABLE
 from backend.reconciliation import ReconciliationConflict
 from backend.storage import SnapshotStore
@@ -117,6 +119,14 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     app = FastAPI(title="Moodle Helper", version="0.1.0",
                   description="Local fictional demo API; one process-local dataset, no authentication or live Moodle access.", lifespan=lifespan)
     app.state.ai_gateway = gateway
+    @app.get('/health', include_in_schema=False)
+    def health():
+        try:
+            app.state.service.store.read()
+        except Exception:
+            return JSONResponse(status_code=503, content={'status': 'unhealthy'})
+        return {'status': 'ok', 'release': os.environ.get('MOODLE_HELPER_RELEASE', '')}
+
     if store is not None:
         app.state.service = BackendService(store)
         app.state.queue = make_queue(store)
@@ -328,6 +338,22 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     app.include_router(collection_router)
     app.include_router(local_syllabus_router)
     app.include_router(ai_router)
+    # The container supplies a static SPA build; API routes take precedence.
+    static_dir = Path(__file__).resolve().parent / "static"
+    if (static_dir / "_shell.html").is_file():
+        for name in ("assets", "ocr"):
+            if (static_dir / name).is_dir():
+                app.mount(f"/{name}", StaticFiles(directory=static_dir / name), name=name)
+
+        @app.get("/{path:path}", include_in_schema=False)
+        async def frontend(path: str):
+            if path == "api" or path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="Not Found")
+            candidate = (static_dir / path).resolve()
+            if candidate.is_relative_to(static_dir) and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(static_dir / "_shell.html")
+
     # No credentials: the dashboard never sends cookies. Writes still need the bridge binding header.
     app.add_middleware(CORSMiddleware, allow_origins=[DASHBOARD_ORIGIN], allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
                        allow_headers=['Accept', 'Content-Type', 'X-Moodle-Helper-Bridge-Binding', 'X-Moodle-Helper-Data-Epoch'],

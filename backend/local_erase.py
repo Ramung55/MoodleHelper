@@ -176,7 +176,7 @@ class EraseService:
                           {**ns, 's': json.dumps(snapshot, ensure_ascii=False, allow_nan=False)})
                 for table in SQL_JOB_TABLES:
                     c.execute(text(f'DELETE FROM {table} WHERE namespace=:n'), ns)
-                c.execute(text('INSERT OR IGNORE INTO data_lifecycle(namespace,epoch) VALUES(:n,0)'), ns)
+                c.execute(text('INSERT INTO data_lifecycle(namespace,epoch) VALUES(:n,0) ON CONFLICT(namespace) DO NOTHING'), ns)
                 c.execute(text('UPDATE data_lifecycle SET epoch=epoch+1 WHERE namespace=:n'), ns)
                 if self.before_commit:
                     self.before_commit()

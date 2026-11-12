@@ -283,6 +283,7 @@ class Assessment(WireModel):
     availableFrom: str = None
     sources: list[SourceEvidence] = Field(min_length=1)
     submission: SubmissionObservation = None
+    submissionStale: bool = None
     personal: bool = Field(json_schema_extra={"default": False})
     firstObservedAt: str
     lastObservedAt: str
@@ -775,7 +776,7 @@ class RawQuizObservation(CollectionWire):
 
 class SubmissionSourceRecord(CollectionWire):
     sourceCourseId: str
-    sourceActivityId: str
+    sourceActivityId: str = None
     sourceCourseModuleId: str
     sourceUrl: str
     observation: SubmissionObservation

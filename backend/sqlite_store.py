@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 from pydantic import ValidationError
 
-from backend.database_config import file_database_url
+from backend.database_config import database_url as parse_database_url
 from backend.identity import namespace_key, validate_namespace
 from backend.migrations import upgrade, MigrationError
 from backend.sample_data import build_sample_snapshot
@@ -47,15 +47,35 @@ def initial_snapshot(namespace: str) -> dict:
     return snapshot
 
 
+class _PostgresConnection:
+    """Adapt positional SQL shared with SQLite to the PostgreSQL driver."""
+    def __init__(self, connection):
+        self._connection = connection
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+    def exec_driver_sql(self, sql, parameters=None):
+        sql = sql.replace("?", "%s").replace("MIN(failures+1,3)", "LEAST(failures+1,3)").replace("r.rowid", "r.insertion_order")
+        if sql.lstrip().upper().startswith("CREATE TABLE QUEUE_RUNS"):
+            sql = sql.replace("namespace TEXT NOT NULL", "insertion_order BIGSERIAL UNIQUE, namespace TEXT NOT NULL", 1)
+        if sql.lstrip().upper().startswith(("CREATE TABLE", "ALTER TABLE")):
+            import re
+            sql = re.sub(r"\bINTEGER\b", "BIGINT", sql, flags=re.IGNORECASE)
+        return self._connection.exec_driver_sql(sql, parameters)
+
+
 class SQLiteStore(SourceUpserts):
     def __init__(self, database_url=None, namespace: str = namespace_key(), *, timeout: float = 1.0):
         validate_namespace(namespace)
         self._namespace = namespace
-        self.url = file_database_url(database_url)
-        self.engine = create_engine(self.url, poolclass=NullPool,
-                                    connect_args={"check_same_thread": False, "timeout": timeout})
+        self.url = parse_database_url(database_url)
+        self._postgres = self.url.get_backend_name() == "postgresql"
+        options = {} if self._postgres else {"connect_args": {"check_same_thread": False, "timeout": timeout}}
+        self.engine = create_engine(self.url, poolclass=NullPool, **options)
         try:
-            Path(self.url.database).parent.mkdir(parents=True, exist_ok=True)
+            if not self._postgres:
+                Path(self.url.database).parent.mkdir(parents=True, exist_ok=True)
             with self._transaction() as connection:
                 try:
                     upgrade(connection)
@@ -72,7 +92,7 @@ class SQLiteStore(SourceUpserts):
                                        {**self._key, "snapshot": json.dumps(data, ensure_ascii=False, allow_nan=False)})
                 else:
                     self._decode(saved)
-                connection.execute(text("INSERT OR IGNORE INTO local_datasets(namespace,dataset_id) VALUES(:namespace,:dataset_id)"),
+                connection.execute(text("INSERT INTO local_datasets(namespace,dataset_id) VALUES(:namespace,:dataset_id) ON CONFLICT(namespace) DO NOTHING"),
                                    {**self._key, "dataset_id": str(uuid4())})
         except MigrationError as exc:
             self.close()
@@ -110,7 +130,11 @@ class SQLiteStore(SourceUpserts):
         # Explicit BEGIN makes DDL transactional even with sqlite3's legacy
         # transaction mode, and prevents read/modify/write lost updates.
         with self.engine.connect() as connection:
-            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            if self._postgres:
+                connection.exec_driver_sql("SELECT pg_advisory_xact_lock(730241829)")
+                connection = _PostgresConnection(connection)
+            else:
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
             try:
                 if expected_epoch.get() is not None:
                     # #56: transaction-local fence; erase/restore hold the same write lock.

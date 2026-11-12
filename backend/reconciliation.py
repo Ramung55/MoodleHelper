@@ -362,7 +362,7 @@ def decide(snapshot, namespace, body):
         choose_submission(snapshot, left, right, body['choices'])
         pair['choices'] = deepcopy(body['choices'])
         pair['status'] = 'confirmed'
-    rebuild_logical(snapshot)
+    project_sources(snapshot, namespace)
 
 
 def _positive(value):
@@ -435,7 +435,8 @@ def _activity(record, namespace, courses):
 def project_sources(snapshot, namespace):
     """Project validated source associations; leave unsupported records untouched."""
     records = snapshot.get('collection', {}).get('records', [])
-    if not records and 'reconciliation' not in snapshot:
+    if (not records and 'reconciliation' not in snapshot and
+            not any(a.get('submission') for a in snapshot.get('assessments', []))):
         return
     l = layer(snapshot)
     record_ids = [r['id'] for r in records]
@@ -571,6 +572,76 @@ def project_sources(snapshot, namespace):
                     item['title'], item['lastObservedAt'] = raw['title'], raw['observedAt']
         if not existing_source:
             l['sources'].append(association)
+    # Submission evidence is keyed by its observed course-module identity, not
+    # by a guessed assignment-instance id. Attach it only to a single validated
+    # assignment source in the same course. Legacy instance-keyed evidence is
+    # still readable; all attempts are replayed chronologically through the
+    # retention policy rather than trusting stored confirmation fields.
+    assignment_targets = {}
+    assignment_activities = {}
+    # Project into the rebuilt logical view, never the original assessments.
+    # A public submissionStale flag does not prove ownership of either field.
+    projected_submissions = {}
+    for record, a in parsed:
+        if record['kind'] == 'assignment' and not a['occurrence']:
+            association = (record['courseId'], a['sourceCourse'], a['cm'])
+            assignment_targets.setdefault(association, set()).add(
+                key(namespace, 'assessment', a['identity']))
+            assignment_activities.setdefault(association, set()).add(a['activity'])
+    attempts = {}
+    from backend.collection import CollectionService
+    from backend.submission_retention import SubmissionRecord, retain_submission, _instant
+    from backend.schemas import SubmissionObservation
+    validator = SimpleNamespace(store=SimpleNamespace(namespace=namespace))
+    for record in records:
+        if record['kind'] != 'submission':
+            continue
+        for retained in record['observations']:
+            raw = retained.get('attempted', {})
+            try:
+                identity, course_id, _ = CollectionService._validate_observation(
+                    validator, 'submission', deepcopy(raw), raw['sourceUrl'], courses)
+                if identity != record['id'] or course_id != record['courseId']:
+                    continue
+                attempt = SubmissionRecord(raw['sourceCourseId'], raw.get('sourceActivityId'),
+                    raw['sourceCourseModuleId'], raw['sourceUrl'], SubmissionObservation.model_validate(raw['observation']))
+                stamp = _instant(attempt.observation.observedAt)
+            except (ValueError, KeyError, TypeError):
+                continue
+            attempts.setdefault((course_id, raw['sourceCourseId'], raw['sourceCourseModuleId']), []).append((stamp, canonical(raw), attempt))
+    for association, values in attempts.items():
+        # A module-only observation must not erase knowledge of an earlier
+        # instance id. Restored conflicting histories are never projected.
+        known_activities = {attempt.activity_id for _, _, attempt in values if attempt.activity_id is not None}
+        if len(known_activities) > 1:
+            continue
+        targets = assignment_targets.get(association, set())
+        if len(targets) != 1:
+            continue
+        # The module identifies the page, but does not make a contradictory
+        # assignment-instance id safe to attach to that page's assessment.
+        if known_activities and known_activities != assignment_activities.get(association, set()):
+            continue
+        target_id = next(iter(targets))
+        targets_found = [a for a in snapshot['assessments'] if a['id'] == target_id and not a['personal']]
+        if len(targets_found) != 1:
+            continue
+        previous = None
+        reduced = None
+        for _, _, attempt in sorted(values, key=lambda value: (value[0], value[1])):
+            reduced = retain_submission(attempt, previous)
+            if not reduced.ok:
+                reduced = None
+                break
+            previous = reduced.confirmed
+        if reduced is None:
+            continue
+        # Retain every validated attempt, including unknowns. The time of the
+        # latest attempt is distinct from the time of the last confirmation.
+        projected_submissions[target_id] = [
+            (stamp, attempt.observation.model_dump(exclude_none=True), False)
+            for stamp, _, attempt in values
+        ]
     for candidate in snapshot['candidates']:
         if candidate['status'] not in ('confirmed', 'corrected', 'auto'):
             continue
@@ -608,3 +679,72 @@ def project_sources(snapshot, namespace):
             if a['kind'] == 'moodle' and b['kind'] == 'syllabus':
                 add_pair(snapshot, namespace, a['id'], b['id'], automatic=True)
     rebuild_logical(snapshot)
+    # Only the rebuilt logical view is derived: raw/API/restored assessments
+    # are never cleared or overwritten by the collection projection. Existing
+    # and newly observed submission facts are compared only in this derived view;
+    # a later ambiguous source cannot contribute a new projected value.
+    aliases = {entry['originalId']: entry['canonicalId'] for entry in l['aliases']}
+    for source_id, events in projected_submissions.items():
+        logical_id = aliases.get(source_id)
+        found = [a for a in l['logicalAssessments'] if a['id'] == logical_id]
+        if len(found) != 1:
+            continue
+        target = found[0]
+        existing = target.get('submission')
+        if existing:
+            try:
+                existing_at = _instant(existing['observedAt'])
+            except (KeyError, TypeError, ValueError):
+                target.pop('submission', None)
+                target.pop('submissionStale', None)
+                continue
+            events = [*events, (existing_at, existing, True)]
+        by_time = {}
+        for when, fact, original in events:
+            by_time.setdefault(when, []).append((fact, original))
+        confirmed = None
+        conflict = False
+        for when in sorted(by_time):
+            known = [(fact, original) for fact, original in by_time[when] if fact['status'] != 'unknown']
+            if len({fact['status'] for fact, _ in known}) > 1:
+                conflict = True
+                break
+            if known:
+                # Preserve the original evidence on an equal, equivalent replay.
+                fact, original = max(known, key=lambda item: item[1])
+                confirmed = (when, fact, original)
+        if conflict:
+            target.pop('submission', None)
+            target.pop('submissionStale', None)
+            continue
+        latest_at = max(by_time)
+        if confirmed:
+            confirmed_at, observation, original = confirmed
+            stale = latest_at > confirmed_at or (original and target.get('submissionStale', False))
+        else:
+            observation, original = max(by_time[latest_at], key=lambda item: item[1])
+            stale = original and target.get('submissionStale', False)
+        target['submission'] = observation
+        target['submissionStale'] = stale
+    # Raw-only statuses also need scan freshness. They have no collection
+    # record, but still live in the logical view; never modify the original.
+    for target in l['logicalAssessments']:
+        observation = target.get('submission')
+        if not observation:
+            continue
+        stale = bool(target.get('submissionStale', False))
+        sync = next((s for s in snapshot['sync'] if s['courseId'] == target['courseId']), None)
+        if sync:
+            observed = instant(observation['observedAt']) if observation.get('observedAt') else None
+            failed = instant(sync['lastAttemptAt']) if sync.get('lastAttemptAt') else None
+            success = instant(sync['lastSuccessAt']) if sync.get('lastSuccessAt') else None
+            started = instant(sync['lastScanStartedAt']) if sync.get('lastScanStartedAt') else None
+            # An older failed attempt must not stale a newer source observation.
+            if sync['status'] == 'failed':
+                stale = stale or failed is None or observed is None or failed >= observed
+            elif sync['status'] == 'syncing' and failed and (not success or failed > success):
+                stale = stale or observed is None or failed >= observed
+            elif sync['status'] == 'partial':
+                stale = stale or started is None or observed is None or observed < started
+        if stale or 'submissionStale' in target:
+            target['submissionStale'] = stale

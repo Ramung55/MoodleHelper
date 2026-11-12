@@ -1,11 +1,14 @@
 openapi: 3.1.0
 info:
-  title: Moodle Helper - proposed backend contract
+  title: Moodle Helper - local backend contract
   version: 0.1.0
   description: Local loopback API. Snapshot operations support the existing adapter;
     the durable synthetic queue is separate from Snapshot and does not access Moodle.
     The backend selects its namespace at startup. Queue mutations require the current
-    process binding from /api/bridge-context; a stale or absent binding returns 409.
+    process binding from /api/bridge-context; every API write requires this binding,
+    and a stale or absent binding returns 409. It is a process precondition, not
+    authentication or authorization of a user. Clients may supply the optional
+    data epoch header to fence applicable writes against dataset lifecycle changes.
     A queue run reports counts and job states, not Moodle progress. Queue execution
     may repeat after interruption, while the result and completed state commit together.
     Requests and responses contain no credentials.
@@ -23,8 +26,7 @@ x-source-files:
 - frontend/src/routes/syllabus.tsx
 servers:
 - url: /
-  description: Placeholder relative origin for a future same-origin HTTP adapter;
-    no backend host or API base is configured by the frontend.
+  description: Relative origin; the development frontend proxies /api to the local backend. The approved Pages deployment targets the local loopback backend.
 security: []
 tags:
 - name: Connection
@@ -41,6 +43,35 @@ tags:
 - name: AI availability
 - name: Scan
 paths:
+  /health:
+    get:
+      operationId: health
+      summary: Check local storage health
+      description: Operational endpoint intentionally excluded from generated OpenAPI.
+      parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      responses:
+        '200':
+          description: Storage is readable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, release]
+                properties:
+                  status: {const: ok}
+                  release: {type: string}
+        '503':
+          description: Storage is unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {const: unhealthy}
+        '422': {$ref: '#/components/responses/ProposedHttpFailure'}
+        default: {$ref: '#/components/responses/ProposedHttpFailure'}
   /api/local-syllabus/route:
     post:
       operationId: routeLocalSyllabus
@@ -54,6 +85,7 @@ paths:
         Immutable input replay retains decisions; collisions return 409 atomically.
         This operation is not exposed through the Chrome extension transport.
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -75,6 +107,9 @@ paths:
         default: {$ref: '#/components/responses/ProposedHttpFailure'}
   /api/local-context:
     get:
+      parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       operationId: localContext
       tags: [Local data]
       summary: Identify the current local dataset for browser storage
@@ -100,7 +135,8 @@ paths:
     post:
       operationId: setSyllabusSuggestionDismissal
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
       tags: [Syllabus]
       requestBody:
         required: true
@@ -127,7 +163,8 @@ paths:
       tags: [Assessments]
       security: []
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
       requestBody:
         required: true
         content:
@@ -147,7 +184,8 @@ paths:
       tags: [Assessments]
       security: []
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
       requestBody:
         required: true
         content:
@@ -167,7 +205,8 @@ paths:
       tags: [Assessments]
       security: []
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
       requestBody:
         required: true
         content:
@@ -187,7 +226,8 @@ paths:
       tags: [Assessments]
       security: []
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
       requestBody:
         required: true
         content:
@@ -226,6 +266,7 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - $ref: '#/components/parameters/BridgeBinding'
   /api/snapshot:
     get:
@@ -251,6 +292,7 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - $ref: '#/components/parameters/BridgeBinding'
     put:
       operationId: replaceAll
@@ -282,7 +324,8 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/courses/discovery:
     post:
       operationId: ingestCourseDiscovery
@@ -317,7 +360,8 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/tracked-courses:
     put:
       operationId: setTrackedCourses
@@ -349,7 +393,8 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/assessments/{assessmentId}/overlay:
     patch:
       operationId: updateOverlay
@@ -366,13 +411,14 @@ paths:
       x-frontend-method: MoodleHelperAdapter.updateOverlay
       x-http-mapping: proposed
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: assessmentId
         in: path
         required: true
         description: Assessment identifier passed as the first adapter argument.
         schema:
           type: string
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
       requestBody:
         required: true
         content:
@@ -420,7 +466,8 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/personal-events/{id}:
     delete:
       operationId: deletePersonalEvent
@@ -435,13 +482,14 @@ paths:
       x-frontend-method: MoodleHelperAdapter.deletePersonalEvent
       x-http-mapping: proposed
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: id
         in: path
         required: true
         description: Personal assessment identifier.
         schema:
           type: string
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
       responses:
         '200':
           description: Final adapter return value (proposed HTTP success status).
@@ -506,7 +554,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/SyncUnavailableError'
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/documents/import:
     post:
       operationId: importDocument
@@ -540,7 +589,8 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/candidates/{candidateId}/review:
     post:
       operationId: review
@@ -559,6 +609,7 @@ paths:
       x-frontend-method: MoodleHelperAdapter.review
       x-http-mapping: proposed
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: candidateId
         in: path
         required: true
@@ -567,7 +618,7 @@ paths:
           type: string
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
-        required: false
+        required: true
         description: Required current process binding from /api/bridge-context; absent or stale returns 409 before parsing.
         schema: {type: string}
       requestBody:
@@ -601,13 +652,14 @@ paths:
       x-frontend-method: MoodleHelperAdapter.downloadMaterial
       x-http-mapping: proposed
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: id
         in: path
         required: true
         description: Material identifier.
         schema:
           type: string
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
       responses:
         '200':
           description: Final adapter return value (proposed HTTP success status).
@@ -651,7 +703,8 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/settings:
     patch:
       operationId: updateSettings
@@ -684,7 +737,8 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/local-data:
     delete:
       operationId: deleteLocalData
@@ -710,7 +764,8 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/demo/reset:
     post:
       operationId: resetDemo
@@ -739,7 +794,8 @@ paths:
       x-optional-adapter-method: true
       x-demo-only: true
       parameters:
-      - $ref: '#/components/parameters/BridgeBinding'
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/RequiredBridgeBinding'
   /api/ai/availability:
     get:
       operationId: aiAvailability
@@ -765,6 +821,7 @@ paths:
         '409':
           $ref: '#/components/responses/BridgeContextChanged'
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - $ref: '#/components/parameters/BridgeBinding'
   /api/ai/extract:
     post:
@@ -772,18 +829,20 @@ paths:
       tags: [AI availability]
       summary: Optional bounded AI extraction (ai-extract.v1, #42/#43)
       description: >-
-        Localhost-only, consented excerpt transfer. Ordinary runtime has no provider
-        and returns 503; only a trusted server construction can enable the local mock
-        (no network, simulated cost). Required process binding and expectedDatasetId
+        Localhost-only, consented excerpt transfer. Without an operator-configured
+        Groq or Gemini provider and credentials, the gateway returns 503. A trusted
+        server construction can also enable a local mock. Required process binding and expectedDatasetId
         preconditions; 16 KiB body, 8 excerpts of at most 2000 UTF-8 bytes. Consent
         must bind the exact excerpts, context, destination and policy through
-        payloadDigest. Failures use the error envelope with a fixed code and the
-        request ID (413 payload, 429 rate/concurrency/budget, 502 provider/invalid
-        output, 503 unavailable, 504 timeout); submitted text is never echoed.
+        payloadDigest. Gateway failures include a fixed code and may include the
+        request ID; precondition errors use the same message envelope without a code.
+        Gateway failures include 413 payload, 429 rate/concurrency/budget, 502 provider/invalid
+        output, 503 unavailable and 504 timeout; submitted text is never echoed.
         Proposals are unconfirmed and never change assessments. Evidence offsets are
         UTF-16 code units within the supplied excerpt text. Not exposed through the
         Chrome extension transport.
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -796,15 +855,30 @@ paths:
             schema: {$ref: '#/components/schemas/AiExtractRequest'}
       responses:
         '200':
-          description: Validated unconfirmed proposals from the local mock
+          description: Validated unconfirmed proposals from the configured provider
           content:
             application/json:
               schema: {$ref: '#/components/schemas/AiExtractResponse'}
         '409': {$ref: '#/components/responses/ProposedHttpFailure'}
+        '413': {$ref: '#/components/responses/ProposedHttpFailure'}
         '422': {$ref: '#/components/responses/ProposedHttpFailure'}
+        '429':
+          description: Rate, concurrency or cost limit reached
+          headers:
+            Retry-After:
+              description: Delay in seconds, when supplied by the gateway.
+              schema: {type: integer, minimum: 1}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProposedHttpError'}
+        '502': {$ref: '#/components/responses/ProposedHttpFailure'}
+        '503': {$ref: '#/components/responses/ProposedHttpFailure'}
+        '504': {$ref: '#/components/responses/ProposedHttpFailure'}
         default: {$ref: '#/components/responses/ProposedHttpFailure'}
   /api/bridge-context:
     get:
+      parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       operationId: bridgeContext
       tags:
       - Connection
@@ -816,8 +890,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BridgeContext'
+        '422': {$ref: '#/components/responses/ProposedHttpFailure'}
+        default: {$ref: '#/components/responses/ProposedHttpFailure'}
   /api/collection-context:
     get:
+      parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       operationId: collectionContext
       tags:
       - Collection
@@ -885,6 +964,7 @@ paths:
             schema:
               $ref: '#/components/schemas/BeginPageVisit'
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -929,6 +1009,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PageRefreshInput'
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -937,6 +1018,9 @@ paths:
         description: Required process binding for collection writes.
   /api/queue/current:
     get:
+      parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       operationId: currentQueueRun
       summary: Discover the latest mock run for the selected courses
       description: >-
@@ -982,6 +1066,7 @@ paths:
       tags: [Queue]
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -1031,6 +1116,7 @@ paths:
       - Queue
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - &id008
         name: X-Moodle-Helper-Bridge-Binding
         in: header
@@ -1089,6 +1175,8 @@ paths:
       - Queue
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       - &id009
         name: runId
         in: path
@@ -1129,6 +1217,7 @@ paths:
       - Queue
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - *id008
       - *id009
       responses:
@@ -1150,6 +1239,7 @@ paths:
       - Queue
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - *id008
       responses:
         '200':
@@ -1176,6 +1266,7 @@ paths:
       - Queue
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - *id008
       responses:
         '200':
@@ -1202,6 +1293,7 @@ paths:
       - Queue
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - *id008
       responses:
         '200':
@@ -1228,6 +1320,7 @@ paths:
       - Scan
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -1287,6 +1380,8 @@ paths:
       - Scan
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       - name: runId
         in: path
         required: true
@@ -1352,6 +1447,7 @@ paths:
       - Scan
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -1413,6 +1509,7 @@ paths:
       - Scan
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -1475,6 +1572,7 @@ paths:
       - Scan
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -1533,6 +1631,7 @@ paths:
       - Scan
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -1601,6 +1700,7 @@ paths:
       - Scan
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -1660,6 +1760,7 @@ paths:
       - Scan
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -1716,6 +1817,8 @@ paths:
       - Scan
       security: []
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       - name: jobId
         in: path
         required: true
@@ -1777,6 +1880,9 @@ paths:
         default 100.
   /api/backups/restore-context:
     get:
+      parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       tags:
       - Local data
       summary: Read the authoritative restore preview context
@@ -1828,6 +1934,7 @@ paths:
       summary: Atomically restore a validated v1 backup
       operationId: restoreBackup
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -1886,6 +1993,9 @@ paths:
         a different payload under the key is 409. Restored pending notifications become dashboard-only. Links are never fetched.'
   /api/data-context:
     get:
+      parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       tags:
       - Local data
       summary: Data Context
@@ -1942,6 +2052,7 @@ paths:
         storage failure 503 with nothing changed. Same key replays the receipt.'
       operationId: eraseLocalData
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -2001,6 +2112,8 @@ paths:
       summary: Erase Status
       operationId: eraseStatus
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       - name: eraseId
         in: path
         required: true
@@ -2055,6 +2168,7 @@ paths:
         never regresses.
       operationId: acknowledgeEraseCleanup
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: eraseId
         in: path
         required: true
@@ -2121,6 +2235,8 @@ paths:
       summary: Reminder Plan
       operationId: reminderPlan
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
+      - $ref: '#/components/parameters/BridgeBinding'
       - name: cursor
         in: query
         required: false
@@ -2178,6 +2294,7 @@ paths:
       summary: Reconcile Reminders
       operationId: reconcileReminders
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -2233,6 +2350,7 @@ paths:
       summary: Dispatch Reminders
       operationId: dispatchReminders
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -2288,12 +2406,13 @@ paths:
       summary: Update Alerts
       operationId: updateAlerts
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
-        required: false
+        required: true
         schema:
           type: string
-          description: Process binding from /api/bridge-context. Required on every non-GET request (absent or stale returns 409 before parsing or service work); optional on reads.
+          description: Optional process binding from /api/bridge-context. If supplied on a read, a stale binding returns 409; bridge-context ignores it.
           title: X-Moodle-Helper-Bridge-Binding
         description: Process binding from /api/bridge-context. Required on every non-GET request (absent or stale returns 409 before parsing or service work); optional on reads.
       requestBody:
@@ -2334,6 +2453,7 @@ paths:
       summary: Reminder Delivery Status
       operationId: reminderDeliveryStatus
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -2388,6 +2508,7 @@ paths:
       summary: Reminder Notification Target
       operationId: reminderNotificationTarget
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -2442,6 +2563,7 @@ paths:
       summary: Start Material Download
       operationId: startMaterialDownload
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
@@ -2487,14 +2609,15 @@ paths:
       summary: List Material Downloads
       operationId: listMaterialDownloads
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: X-Moodle-Helper-Bridge-Binding
         in: header
         required: true
         schema:
           type: string
-          description: Required current process binding. Absent or stale returns 409 before processing.
+          description: Current process binding; missing returns 422 and stale returns 409.
           title: X-Moodle-Helper-Bridge-Binding
-        description: Required current process binding. Absent or stale returns 409 before processing.
+        description: Current process binding; missing returns 422 and stale returns 409.
       responses:
         '200':
           description: Successful Response
@@ -2527,6 +2650,7 @@ paths:
       summary: Read Material Download
       operationId: materialDownload
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: transferId
         in: path
         required: true
@@ -2539,9 +2663,9 @@ paths:
         required: true
         schema:
           type: string
-          description: Required current process binding. Absent or stale returns 409 before processing.
+          description: Current process binding; missing returns 422 and stale returns 409.
           title: X-Moodle-Helper-Bridge-Binding
-        description: Required current process binding. Absent or stale returns 409 before processing.
+        description: Current process binding; missing returns 422 and stale returns 409.
       responses:
         '200':
           description: Successful Response
@@ -2574,6 +2698,7 @@ paths:
       summary: Cancel Material Download
       operationId: cancelMaterialDownload
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: transferId
         in: path
         required: true
@@ -2621,6 +2746,7 @@ paths:
       summary: Material Download Descriptor
       operationId: materialDownloadDescriptor
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: transferId
         in: path
         required: true
@@ -2668,6 +2794,7 @@ paths:
       summary: Report Material Download
       operationId: reportMaterialDownload
       parameters:
+      - $ref: '#/components/parameters/DataEpoch'
       - name: transferId
         in: path
         required: true
@@ -4143,6 +4270,8 @@ components:
           minItems: 1
         submission:
           $ref: '#/components/schemas/SubmissionObservation'
+        submissionStale:
+          type: boolean
         personal:
           type: boolean
           default: false
@@ -5496,7 +5625,6 @@ components:
           $ref: '#/components/schemas/SubmissionObservation'
       required:
       - sourceCourseId
-      - sourceActivityId
       - sourceCourseModuleId
       - sourceUrl
       - observation
@@ -7294,10 +7422,8 @@ components:
       title: ReminderNotificationTarget
   responses:
     ProposedHttpFailure:
-      description: Proposed HTTP failure convention only. The current frontend rejects
-        promises or shows an Error.message; it does not define HTTP status codes or
-        an error envelope. Inline domain outcomes such as unsupported imports/downloads
-        remain successful 200 wrapper responses.
+      description: Safe HTTP error envelope. Inline domain outcomes such as unsupported
+        imports or downloads can instead be returned in successful 200 wrappers.
       content:
         application/json:
           schema:
@@ -7309,6 +7435,18 @@ components:
           schema:
             $ref: '#/components/schemas/ProposedHttpError'
   parameters:
+    DataEpoch:
+      name: X-Moodle-Helper-Data-Epoch
+      in: header
+      required: false
+      description: Optional decimal lifecycle epoch of at most 18 digits. Malformed values return 422. Applicable writes reject a stale epoch with 409; omission is accepted for legacy clients and does not fence writes.
+      schema: {type: string, pattern: '^[0-9]{1,18}$'}
+    RequiredBridgeBinding:
+      name: X-Moodle-Helper-Bridge-Binding
+      in: header
+      required: true
+      description: Current process binding from /api/bridge-context. A missing or stale binding returns 409 before a write. This precondition is not user authentication.
+      schema: {type: string}
     BridgeBinding:
       name: X-Moodle-Helper-Bridge-Binding
       in: header

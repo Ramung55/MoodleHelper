@@ -1,5 +1,5 @@
-"""Small transactional SQLite migrations; caller owns BEGIN/COMMIT/ROLLBACK."""
-from sqlalchemy import Connection
+"""Small transactional database migrations; caller owns BEGIN/COMMIT/ROLLBACK."""
+from sqlalchemy import Connection, inspect
 from uuid import uuid4
 
 SCHEMA_VERSION = 13
@@ -125,7 +125,7 @@ MIGRATIONS = {1: version_one_to_two, 2: version_two_to_three, 3: version_three_t
 
 
 def upgrade(connection: Connection) -> None:
-    tables = set(connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'").scalars())
+    tables = set(inspect(getattr(connection, "_connection", connection)).get_table_names())
     if "schema_version" not in tables:
         if tables:
             raise MigrationError("Unversioned database: stop and restore a known backup or select a new database location; existing tables were preserved.")

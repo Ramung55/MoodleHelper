@@ -50,10 +50,10 @@ class BackendService:
         return self.store.read()
 
     def propose_reconciliation(self, selection: dict) -> dict:
-        from backend.reconciliation import add_pair, rebuild_logical
+        from backend.reconciliation import add_pair, project_sources
         def apply(snapshot):
             add_pair(snapshot, self.store.namespace, selection['left'], selection['right'])
-            rebuild_logical(snapshot)
+            project_sources(snapshot, self.store.namespace)
         return self.store.mutate(apply)
 
     def decide_reconciliation(self, decision: dict) -> dict:

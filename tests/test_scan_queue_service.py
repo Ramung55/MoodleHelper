@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import URL
 
 from backend.collection import CollectionService, SyntheticCollectionContext
-from backend.queue import QueueConflict, QueueInvalid, QueueService
+from backend.sync_queue import QueueConflict, QueueInvalid, QueueService
 from backend.sample_data import build_sample_snapshot
 from backend.scan_queue import ScanQueueService
 from backend.sqlite_store import SQLiteStore

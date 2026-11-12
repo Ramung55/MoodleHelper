@@ -157,11 +157,13 @@ class CollectionService:
         pagekind,pageid=route(page)
         if pagekind=='course' and source!=pageid: reject()
         if kind in ['assignment','quiz','submission']:
-            for key in ['sourceActivityId','sourceCourseModuleId']: decimal(item[key])
+            decimal(item['sourceCourseModuleId'])
+            if kind != 'submission' or 'sourceActivityId' in item: decimal(item['sourceActivityId'])
             module='quiz' if kind=='quiz' else 'assign'
             if item['sourceUrl']!=f"{ORIGIN}/mod/{module}/view.php?id={item['sourceCourseModuleId']}": reject()
             if pagekind!=module or pageid!=item['sourceCourseModuleId']: reject()
-            identity=[kind,source,module,item['sourceActivityId']]
+            identity=([kind,source,module,item['sourceActivityId']] if 'sourceActivityId' in item
+                      else [kind,source,module,'course_module',item['sourceCourseModuleId']])
             if kind=='assignment':
                 if item.get('syntheticDeadlineRemoval') and 'due' in item['effectiveDates']: reject()
                 effective=deepcopy(item['baseDates'])
@@ -284,6 +286,10 @@ class CollectionService:
         current=self._context(snapshot)
         mode=self._mode()
         if current['selectionRevision']!=entry['revision'] or mode=='disabled': reject()
+        # A trusted startup namespace does not establish the identity of the
+        # account currently signed in to Chrome. Personal submission facts
+        # remain blocked until a verified account binding is implemented.
+        if mode=='verified' and collector=='submission' and result['kind']=='submission': reject()
         mapping={c['sourceCourseId']:c['courseId'] for c in current['courses']}
         from datetime import date
         for page_facts in result.get('pages',[]):
@@ -301,18 +307,38 @@ class CollectionService:
             record=next((r for r in layer['records'] if r['id']==identity),None)
             if collector=='submission':
                 def wrapper(v):
-                    return SubmissionRecord(v['sourceCourseId'],v['sourceActivityId'],v['sourceCourseModuleId'],v['sourceUrl'],s.SubmissionObservation.model_validate(v['observation']))
+                    return SubmissionRecord(v['sourceCourseId'],v.get('sourceActivityId'),v['sourceCourseModuleId'],v['sourceUrl'],s.SubmissionObservation.model_validate(v['observation']))
                 previous=None
-                if record:
-                    for evidence in record['observations']:
+                known_activity_ids = {raw['sourceActivityId']} if 'sourceActivityId' in raw else set()
+                # Old instance-keyed and new course-module-keyed records can coexist.
+                # Accept prior evidence only after revalidating its identity and course.
+                for candidate in layer['records']:
+                    if candidate['kind'] != 'submission' or candidate['courseId'] != course: continue
+                    for evidence in candidate['observations']:
+                        attempted=evidence.get('attempted', {})
+                        if attempted.get('sourceCourseId') == raw['sourceCourseId'] and attempted.get('sourceCourseModuleId') == raw['sourceCourseModuleId']:
+                            try:
+                                attempted_identity, attempted_course, _ = self._validate_observation('submission',attempted,attempted['sourceUrl'],mapping)
+                            except (ValueError, KeyError, TypeError):
+                                continue
+                            if attempted_identity == candidate['id'] and attempted_course == course and 'sourceActivityId' in attempted:
+                                known_activity_ids.add(attempted['sourceActivityId'])
                         confirmed=evidence.get('confirmed')
-                        if confirmed and (previous is None or _instant(confirmed['observation']['observedAt'])>_instant(previous['observation']['observedAt'])): previous=confirmed
+                        if not confirmed or confirmed.get('sourceCourseId') != raw['sourceCourseId'] or confirmed.get('sourceCourseModuleId') != raw['sourceCourseModuleId']: continue
+                        try:
+                            confirmed_identity, confirmed_course, _ = self._validate_observation('submission',confirmed,confirmed['sourceUrl'],mapping)
+                        except (ValueError, KeyError, TypeError):
+                            continue
+                        if confirmed_identity != candidate['id'] or confirmed_course != course: continue
+                        if previous is None or _instant(confirmed['observation']['observedAt'])>_instant(previous['observation']['observedAt']): previous=confirmed
+                if len(known_activity_ids) > 1: reject()
                 reduced=retain_submission(wrapper(raw),wrapper(previous) if previous else None)
                 if not reduced.ok: reject()
                 item={'attempted':raw,'stale':reduced.stale}
                 if reduced.confirmed:
                     c=reduced.confirmed
-                    item['confirmed']=dict(sourceCourseId=c.course_id,sourceActivityId=c.activity_id,sourceCourseModuleId=c.module_id,sourceUrl=c.source_url,observation=c.observation.model_dump(exclude_none=True))
+                    item['confirmed']=dict(sourceCourseId=c.course_id,sourceCourseModuleId=c.module_id,sourceUrl=c.source_url,observation=c.observation.model_dump(exclude_none=True))
+                    if c.activity_id is not None: item['confirmed']['sourceActivityId']=c.activity_id
             courseids.add(raw['sourceCourseId'])
             activity=raw.get('sourceActivityId',activity); cm=raw.get('sourceCourseModuleId',cm)
             if record is None:

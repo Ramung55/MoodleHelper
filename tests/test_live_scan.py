@@ -15,7 +15,7 @@ from sqlalchemy import URL
 
 from backend.identity import namespace_key
 from backend.main import create_app
-from backend.queue import QueueService
+from backend.sync_queue import QueueService
 from backend.sample_data import build_sample_snapshot
 from backend.scan_queue import CLAIM_CAP, SYNC_ERRORS
 from backend.sqlite_store import SQLiteStore
@@ -265,12 +265,12 @@ def complete_page(page_type, collector, url, scope):
 
 
 def all_complete_pages(source):
-    """TEST FIXTURE page set: every page type checked with complete coverage (no live collector yields this yet)."""
+    """Complete available collectors; submission is unavailable without account binding."""
     course, assign = f'{ORIGIN}/course/view.php?id={source}', f'{ORIGIN}/mod/assign/view.php?id=990{source[-1]}01'
     return [complete_page('course', 'material', course, 'supplied_pages_only'),
             complete_page('material', 'material', course, 'supplied_pages_only'),
             complete_page('assignment', 'assignment', assign, 'visited_activity_only'),
-            complete_page('submission', 'submission', assign, 'visited_activity_only'),
+            unavailable('submission', assign),
             complete_page('calendar', 'calendar', f'{ORIGIN}/calendar/view.php?view=upcoming', 'supplied_ranges_only'),
             quiz_page(f'990{source[-1]}03', source)]
 
@@ -280,7 +280,7 @@ def finish_all(live):
     finished = []
     while (claim := live.post('/api/scan/claim', {}).json().get('claim')):
         body = completed(claim, all_complete_pages(claim['sourceCourseId']))
-        assert body['incompleteReasons'] == []
+        assert body['incompleteReasons'] == ['collector_unavailable']
         response = live.post('/api/scan/finish', body)
         assert response.status_code == 200, response.text
         finished.append(claim['job']['courseId'])
@@ -291,12 +291,12 @@ def entries(live):
     return {course: live.sync_entry(course) for course in ('c-csc', 'c-math')}
 
 
-def test_all_complete_scan_is_ok_full_with_last_success(live, tmp_path):
+def test_unbound_submission_makes_scan_partial_with_last_success(live, tmp_path):
     live.post('/api/sync')
     assert sorted(finish_all(live)) == ['c-csc', 'c-math']
     before = entries(live)
     for entry in before.values():
-        assert (entry['status'], entry['coverage'], entry['progress']) == ('ok', 'full', 100)
+        assert (entry['status'], entry['coverage'], entry['progress']) == ('partial', 'partial', 100)
         assert entry['lastSuccessAt'] and 'error' not in entry and 'lastAttemptAt' not in entry
     live = restarted(live, tmp_path)
     try:
@@ -305,7 +305,7 @@ def test_all_complete_scan_is_ok_full_with_last_success(live, tmp_path):
         live.close()
 
 
-def test_failed_scan_records_attempt_time_and_keeps_full_coverage(live, tmp_path):
+def test_failed_scan_records_attempt_time_and_keeps_partial_coverage(live, tmp_path):
     live.post('/api/sync')
     finish_all(live)
     full = entries(live)
@@ -318,13 +318,74 @@ def test_failed_scan_records_attempt_time_and_keeps_full_coverage(live, tmp_path
     # The finished job and the signed-out cascade job both record the failed attempt.
     for course, entry in after.items():
         assert (entry['status'], entry['error']) == ('failed', SIGN_IN)
-        assert (entry['coverage'], entry['lastSuccessAt']) == ('full', full[course]['lastSuccessAt'])
+        assert (entry['coverage'], entry['lastSuccessAt']) == ('partial', full[course]['lastSuccessAt'])
         assert entry['lastAttemptAt'] > entry['lastSuccessAt']
     live = restarted(live, tmp_path)
     try:
         assert entries(live) == after
     finally:
         live.close()
+
+
+def test_verified_sign_out_stales_raw_only_submission_and_survives_restart(tmp_path, monkeypatch):
+    import backend.scan_queue as scan_queue
+    store=seeded(tmp_path,selected=('c-csc',))
+    snapshot=store.read()
+    original=next(a for a in snapshot['assessments'] if a['id']=='a1')
+    original['submission']={'status':'submitted','observedAt':'2026-10-25T12:00:00Z'}
+    original['submissionStale']=False
+    before=deepcopy(original)
+    store.replace(snapshot)
+    monkeypatch.setattr(scan_queue,'now_iso',lambda:'2026-10-27T12:00:00Z')
+    harness=Live(store,[1000])
+    def verify(value):
+        assert next(a for a in value['assessments'] if a['id']=='a1')==before
+        logical=next(a for a in value['reconciliation']['logicalAssessments'] if a['id']=='a1')
+        assert logical['submission']['status']=='submitted' and logical['submissionStale'] is True
+        assert not any(r['kind']=='submission' for r in value.get('collection',{}).get('records',[]))
+    try:
+        assert harness.post('/api/sync').status_code==200
+        claim=harness.post('/api/scan/claim',{}).json()['claim']
+        page=dict(pageType='course',scope='unknown',outcome='signed_out',coverage='none',reasons=['signed_out'],
+                  observedAt='2026-10-27T12:00:00Z',pageUrl=f'{ORIGIN}/course/view.php?id=9001')
+        response=harness.post('/api/scan/finish',failed(claim,'signed_out',[page]))
+        assert response.status_code==200,response.text
+        verify(harness.store.read())
+        harness=restarted(harness,tmp_path)
+        verify(harness.store.read())
+    finally:
+        harness.close()
+
+
+def test_unbound_real_scan_rejects_submission_from_any_active_account_atomically(tmp_path):
+    from test_page_refresh import assignment, submission
+    harness=Live(seeded(tmp_path, selected=('c-csc',)),[1000])
+    def submission_pages(observed):
+        pages=all_complete_pages('9001')
+        assign=next(p for p in pages if p.get('collector')=='assignment')
+        index=next(i for i,p in enumerate(pages) if p.get('pageType')=='submission')
+        status=complete_page('submission','submission',f'{ORIGIN}/mod/assign/view.php?id=303','visited_activity_only')
+        pages[index]=status
+        raw=assignment(observed); raw['sourceCourseId']='9001'
+        sub=submission('submitted',observed,activity=None); sub['sourceCourseId']='9001'
+        for page, item in ((assign,raw),(status,sub)):
+            page['pageUrl']=item['sourceUrl']; page['observedAt']=observed; page['result']['observations']=[item]
+        return pages
+    try:
+        assert harness.post('/api/sync').status_code==200
+        claim=harness.post('/api/scan/claim',{}).json()['claim']
+        before=harness.store.read()
+        # No active account is bound. Neither the configured user's alleged
+        # status nor a different signed-in account's status may be persisted.
+        for status in ('submitted','draft'):
+            pages=submission_pages('2026-10-25T12:00:00Z')
+            next(p for p in pages if p.get('collector')=='submission')['result']['observations'][0]['observation']['status']=status
+            response=harness.post('/api/scan/finish',completed(claim,pages))
+            assert response.status_code in (400,409,422),response.text
+            assert harness.store.read()==before
+        assert not any(r['kind']=='submission' for r in before.get('collection',{}).get('records',[]))
+    finally:
+        harness.close()
 
 
 def test_completed_scan_records_its_earliest_request_and_a_failed_job_keeps_it(live, tmp_path):
@@ -423,7 +484,12 @@ def test_claim_cap_bounds_repeated_worker_crashes(live):
 # AC5 -----------------------------------------------------------------------
 
 def preserved(snapshot):
-    return {k: v for k, v in snapshot.items() if k != 'sync'}
+    result = deepcopy({k: v for k, v in snapshot.items() if k != 'sync'})
+    # A failed scan may update only the derived warning; source records,
+    # submission values, and all other data must remain unchanged.
+    for assessment in result.get('reconciliation', {}).get('logicalAssessments', []):
+        assessment.pop('submissionStale', None)
+    return result
 
 
 def seed_quizzes(live):

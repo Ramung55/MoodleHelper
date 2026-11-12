@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from backend import schemas
 from backend.collection import CollectionRejected, canonical, route
-from backend.queue import QueueConflict, QueueInvalid, QueueMissing, QueueService
+from backend.sync_queue import QueueConflict, QueueInvalid, QueueMissing, QueueService
 from backend.scan_gate import ScanGate, forget_job_failures
 from backend.submission_retention import _instant
 
@@ -68,6 +68,13 @@ class ScanQueueService(QueueService):
         return self.store._decode(self.execute(c, 'SELECT snapshot FROM snapshots WHERE namespace=?', self.ns).scalar_one())
 
     def _save(self, c, snapshot):
+        # A failed or partial course scan changes freshness without producing a
+        # submission observation. Rebuild the derived view in this transaction;
+        # never invent an unknown observation or mutate the original assessment.
+        if (any(r['kind'] == 'submission' for r in snapshot.get('collection', {}).get('records', [])) or
+                any(a.get('submission') for a in snapshot.get('assessments', []))):
+            from backend.reconciliation import project_sources
+            project_sources(snapshot, self.ns)
         validated = self.store._validated(snapshot)
         self.execute(c, 'UPDATE snapshots SET snapshot=?,revision=revision+1 WHERE namespace=?',
                      json.dumps(validated, ensure_ascii=False, allow_nan=False), self.ns)
@@ -219,7 +226,8 @@ class ScanQueueService(QueueService):
             if cancelled and self.verified:
                 snapshot = self._snapshot(c)
                 for row in cancelled:
-                    set_sync(snapshot, row.course_id, status='failed', progress=100, error=SYNC_ERRORS['cancelled'])
+                    set_sync(snapshot, row.course_id, status='failed', progress=100, error=SYNC_ERRORS['cancelled'],
+                             lastAttemptAt=now_iso())
                 self._save(c, snapshot)
             return run
         with self.collection.lock:

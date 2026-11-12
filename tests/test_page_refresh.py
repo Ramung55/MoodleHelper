@@ -271,13 +271,306 @@ def test_submission_storage_failure_rolls_back_with_earlier_confirmation(harness
     assert latest_submission(store)['confirmed']['observation']['status']=='submitted'
 
 
-@pytest.mark.parametrize('activity',[None,'','0','12a','-1',' 202'])
+@pytest.mark.parametrize('activity',['','0','12a','-1',' 202'])
 def test_submission_without_recorded_decimal_instance_id_is_rejected(harness,activity):
     client,store,_=harness
     before=store.read();rev=revision(store);token,h=begin(client)
     response=refresh(client,token,h,result('submission',[submission('submitted',TIME,activity=activity)]),'submission')
     assert response.status_code in (409,422),response.text
     assert revision(store)==rev and store.read()==before
+
+
+def test_module_keyed_submission_retains_legacy_confirmation(harness):
+    client,store,_=harness
+    store_submissions(client,submission('submitted','2026-10-25T12:00Z'))
+    token,h=begin(client,visit='module-keyed')
+    response=refresh(client,token,h,result('submission',[submission('unknown',TIME,activity=None)]),'submission')
+    assert response.status_code==200,response.text
+    records=[r for r in store.read()['collection']['records'] if r['kind']=='submission']
+    assert len(records)==2
+    module_record=next(r for r in records if 'course_module' in r['id'])
+    latest=module_record['observations'][-1]
+    assert 'sourceActivityId' not in latest['attempted']
+    assert latest['confirmed']['observation']['status']=='submitted' and latest['stale'] is True
+
+
+def test_module_submission_projects_to_matching_assignment_and_keeps_personal_completion(harness):
+    client,store,path=harness
+    token,h=begin(client,visit='assignment-before-submission')
+    response=refresh(client,token,h,result('assignment',[assignment()]),'assignment')
+    assert response.status_code==200,response.text
+    snapshot=store.read()
+    assignment_record=next(r for r in snapshot['collection']['records'] if r['kind']=='assignment')
+    source=next(s for s in snapshot['reconciliation']['sources'] if s.get('recordId')==assignment_record['id'])
+    assessment_id=source['assessmentId']
+    def mark_done(snapshot):
+        snapshot['overlays'].append(dict(assessmentId=assessment_id,hidden=False,completed=True))
+    store.mutate(mark_done)
+    token,h=begin(client,visit='module-submission-known')
+    assert refresh(client,token,h,result('submission',[submission('submitted','2026-10-25T12:00Z',activity=None)]),'submission').status_code==200
+    snapshot=store.read(); assessment=next(a for a in snapshot['reconciliation']['logicalAssessments'] if a['id']==assessment_id)
+    assert assessment['submission']['status']=='submitted' and assessment['submissionStale'] is False
+    assert 'submission' not in next(a for a in snapshot['assessments'] if a['id']==assessment_id)
+    assert next(o for o in snapshot['overlays'] if o['assessmentId']==assessment_id)['completed'] is True
+    token,h=begin(client,visit='module-submission-unknown')
+    assert refresh(client,token,h,result('submission',[submission('unknown',TIME,activity=None)]),'submission').status_code==200
+    snapshot=store.read(); assessment=next(a for a in snapshot['reconciliation']['logicalAssessments'] if a['id']==assessment_id)
+    assert assessment['submission']['status']=='submitted' and assessment['submissionStale'] is True
+    assert next(o for o in snapshot['overlays'] if o['assessmentId']==assessment_id)['completed'] is True
+    reopened=SQLiteStore(URL.create('sqlite',database=str(path)))
+    try:
+        restored=reopened.read()
+        restored_assessment=next(a for a in restored['reconciliation']['logicalAssessments'] if a['id']==assessment_id)
+        assert restored_assessment['submission']['status']=='submitted' and restored_assessment['submissionStale'] is True
+        assert next(o for o in restored['overlays'] if o['assessmentId']==assessment_id)['completed'] is True
+    finally:
+        reopened.close()
+
+
+def test_snapshot_and_backup_submission_fields_survive_unrelated_projection(harness):
+    from test_backup_restore import backup_of, request_body, headers
+    client,store,_=harness
+    incoming=store.read()
+    existing=incoming['assessments'][0]
+    existing['submission']={'status':'submitted','observedAt':'2026-10-20T12:00:00Z'}
+    existing['submissionStale']=True
+    expected=deepcopy(existing)
+    response=client.put('/api/snapshot',headers=headers(client),json=incoming)
+    assert response.status_code==200,response.text
+    token,h=begin(client,visit='unrelated-projection')
+    response=refresh(client,token,h,result('assignment',[assignment()]),'assignment')
+    assert response.status_code==200,response.text
+    saved=store.read()
+    assert next(a for a in saved['assessments'] if a['id']==expected['id'])==expected
+    assert next(a for a in saved['reconciliation']['logicalAssessments'] if a['id']==expected['id'])==expected
+    backup=backup_of(client,saved)
+    response=client.post('/api/backups/restore',headers=headers(client),json=request_body(client,backup))
+    assert response.status_code==200,response.text
+    restored=store.read()
+    assert next(a for a in restored['assessments'] if a['id']==expected['id'])==expected
+    assert next(a for a in restored['reconciliation']['logicalAssessments'] if a['id']==expected['id'])==expected
+
+
+@pytest.mark.parametrize(('old_time','old_status','expected'),[
+    ('2026-10-20T12:00:00Z','draft','submitted'),
+    ('2026-10-30T12:00:00Z','draft','draft'),
+    (TIME,'draft',None),
+    (TIME,'submitted','submitted'),
+])
+def test_existing_submission_on_generated_assessment_is_preserved_and_displayed_by_time(harness,old_time,old_status,expected):
+    from test_backup_restore import headers
+    client,store,_=harness
+    token,h=begin(client,visit='assignment-with-existing-data')
+    assert refresh(client,token,h,result('assignment',[assignment()]),'assignment').status_code==200
+    incoming=store.read()
+    source=next(s for s in incoming['reconciliation']['sources'] if 'assignment' in s.get('recordId',''))
+    assessment=next(a for a in incoming['assessments'] if a['id']==source['assessmentId'])
+    assessment['submission']={'status':old_status,'observedAt':old_time}
+    assessment['submissionStale']=True
+    expected_original=deepcopy(assessment)
+    response=client.put('/api/snapshot',headers=headers(client),json=incoming)
+    assert response.status_code==200,response.text
+    token,h=begin(client,visit='new-submission-same-assessment')
+    response=refresh(client,token,h,result('submission',[submission('submitted',TIME,activity=None)]),'submission')
+    assert response.status_code==200,response.text
+    saved=store.read()
+    assert next(a for a in saved['assessments'] if a['id']==expected_original['id'])==expected_original
+    logical=next(a for a in saved['reconciliation']['logicalAssessments'] if a['id']==assessment['id'])
+    if expected is None:
+        assert 'submission' not in logical and 'submissionStale' not in logical
+    else:
+        assert logical['submission']['status']==expected
+
+
+def test_submission_freshness_respects_failure_and_partial_scan_order(harness):
+    from backend.reconciliation import project_sources
+    client,store,_=harness
+    token,h=begin(client,visit='freshness-assignment')
+    assert refresh(client,token,h,result('assignment',[assignment()]),'assignment').status_code==200
+    token,h=begin(client,visit='freshness-submission')
+    assert refresh(client,token,h,result('submission',[submission('submitted',TIME,activity=None)]),'submission').status_code==200
+    snapshot=store.read()
+    source=next(s for s in snapshot['reconciliation']['sources'] if 'assignment' in s.get('recordId',''))
+    assessment_id=source['assessmentId']
+    sync=next(s for s in snapshot['sync'] if s['courseId']=='c-csc')
+    def stale():
+        project_sources(snapshot,store.namespace)
+        return next(a for a in snapshot['reconciliation']['logicalAssessments'] if a['id']==assessment_id)['submissionStale']
+    sync.update(status='failed',lastAttemptAt='2026-10-26T00:00:00Z')
+    assert stale() is False  # failure predates the source observation
+    sync.update(lastAttemptAt='2026-10-28T00:00:00Z')
+    assert stale() is True
+    sync.update(status='partial',lastScanStartedAt='2026-10-26T00:00:00Z')
+    assert stale() is False  # this submission was re-read during the scan
+    sync.update(lastScanStartedAt='2026-10-28T00:00:00Z')
+    assert stale() is True
+    assert 'submission' not in next(a for a in snapshot['assessments'] if a['id']==assessment_id)
+
+
+def test_raw_only_submission_freshness_updates_logical_view_without_mutating_original(harness):
+    from backend.reconciliation import project_sources
+    _,store,_=harness
+    snapshot=store.read()
+    original=next(a for a in snapshot['assessments'] if a['id']=='a1')
+    original['submission']={'status':'submitted','observedAt':'2026-10-27T12:00:00Z'}
+    original['submissionStale']=False
+    before=deepcopy(original)
+    sync=next(s for s in snapshot['sync'] if s['courseId']==original['courseId'])
+    for state, field, time, expected in [
+        ('failed','lastAttemptAt','2026-10-26T00:00:00Z',False),
+        ('failed','lastAttemptAt','2026-10-28T00:00:00Z',True),
+        ('partial','lastScanStartedAt','2026-10-26T00:00:00Z',False),
+        ('partial','lastScanStartedAt','2026-10-28T00:00:00Z',True),
+    ]:
+        sync.update(status=state,**{field:time})
+        project_sources(snapshot,store.namespace)
+        logical=next(a for a in snapshot['reconciliation']['logicalAssessments'] if a['id']=='a1')
+        assert logical['submission']['status']=='submitted'
+        assert logical['submissionStale'] is expected
+        assert next(a for a in snapshot['assessments'] if a['id']=='a1')==before
+
+
+def test_newer_unknown_preserves_existing_known_submission_in_derived_view(harness):
+    from test_backup_restore import headers
+    client,store,_=harness
+    token,h=begin(client,visit='known-before-unknown')
+    assert refresh(client,token,h,result('assignment',[assignment()]),'assignment').status_code==200
+    incoming=store.read()
+    source=next(s for s in incoming['reconciliation']['sources'] if 'assignment' in s.get('recordId',''))
+    assessment=next(a for a in incoming['assessments'] if a['id']==source['assessmentId'])
+    assessment['submission']={'status':'submitted','observedAt':'2026-10-20T12:00:00Z'}
+    expected=deepcopy(assessment)
+    response=client.put('/api/snapshot',headers=headers(client),json=incoming)
+    assert response.status_code==200,response.text
+    token,h=begin(client,visit='later-unknown')
+    response=refresh(client,token,h,result('submission',[submission('unknown',TIME,activity=None)]),'submission')
+    assert response.status_code==200,response.text
+    saved=store.read()
+    assert next(a for a in saved['assessments'] if a['id']==expected['id'])==expected
+    logical=next(a for a in saved['reconciliation']['logicalAssessments'] if a['id']==expected['id'])
+    assert logical['submission']['status']=='submitted' and logical['submissionStale'] is True
+
+
+@pytest.mark.parametrize(('existing_status','existing_time','attempt_status','attempt_time','sync','expected_status','expected_stale'),[
+    # A failed or partial scan must stale even a newer original status.
+    ('submitted','2026-10-28T00:00:00Z','submitted','2026-10-27T00:00:00Z',
+     {'status':'failed','lastAttemptAt':'2026-10-29T00:00:00Z'},'submitted',True),
+    ('submitted','2026-10-28T00:00:00Z','submitted','2026-10-28T00:00:00Z',
+     {'status':'partial','lastScanStartedAt':'2026-10-29T00:00:00Z'},'submitted',True),
+    # An unknown attempt after both confirmations makes the latest known stale.
+    ('draft','2026-10-28T00:00:00Z','unknown','2026-10-29T00:00:00Z',{},'draft',True),
+    # An unknown original cannot replace an older confirmed observation.
+    ('unknown','2026-10-29T00:00:00Z','submitted','2026-10-27T00:00:00Z',{},'submitted',True),
+])
+def test_existing_submission_and_latest_attempt_freshness(harness,existing_status,existing_time,attempt_status,attempt_time,sync,expected_status,expected_stale):
+    from backend.reconciliation import project_sources
+    client,store,_=harness
+    token,h=begin(client,visit='freshness-existing-assignment')
+    assert refresh(client,token,h,result('assignment',[assignment()]),'assignment').status_code==200
+    token,h=begin(client,visit='freshness-existing-confirmed')
+    assert refresh(client,token,h,result('submission',[submission('submitted','2026-10-26T00:00:00Z',activity=None)]),'submission').status_code==200
+    token,h=begin(client,visit='freshness-existing-attempt')
+    assert refresh(client,token,h,result('submission',[submission(attempt_status,attempt_time,activity=None)]),'submission').status_code==200
+    snapshot=store.read()
+    source=next(s for s in snapshot['reconciliation']['sources'] if 'assignment' in s.get('recordId',''))
+    original=next(a for a in snapshot['assessments'] if a['id']==source['assessmentId'])
+    original['submission']={'status':existing_status,'observedAt':existing_time}
+    expected_original=deepcopy(original)
+    next(s for s in snapshot['sync'] if s['courseId']=='c-csc').update(sync)
+    project_sources(snapshot,store.namespace)
+    displayed=next(a for a in snapshot['reconciliation']['logicalAssessments'] if a['id']==source['assessmentId'])
+    assert displayed['submission']['status']==expected_status
+    assert displayed['submissionStale'] is expected_stale
+    assert next(a for a in snapshot['assessments'] if a['id']==source['assessmentId'])==expected_original
+
+
+def test_ambiguous_assignment_module_removes_previously_derived_submission(harness):
+    client,store,_=harness
+    token,h=begin(client,visit='assignment-one')
+    assert refresh(client,token,h,result('assignment',[assignment()]),'assignment').status_code==200
+    token,h=begin(client,visit='module-observed')
+    assert refresh(client,token,h,result('submission',[submission('submitted',TIME,activity=None)]),'submission').status_code==200
+    assert any(a.get('submissionStale') is False for a in store.read()['reconciliation']['logicalAssessments'])
+    conflicting=assignment(); conflicting['sourceActivityId']='999'
+    token,h=begin(client,visit='assignment-two')
+    response=refresh(client,token,h,result('assignment',[conflicting]),'assignment')
+    assert response.status_code==200,response.text
+    snapshot=store.read()
+    assert len([r for r in snapshot['collection']['records'] if r['kind']=='assignment'])==2
+    assert not any('submission' in a for a in snapshot['reconciliation']['logicalAssessments'] if a['title']=='Synthetic assignment')
+
+
+def test_conflicting_legacy_and_module_submission_at_same_time_is_rejected(harness):
+    client,store,_=harness
+    store_submissions(client,submission('submitted',TIME))
+    before=store.read(); token,h=begin(client,visit='module-conflict')
+    response=refresh(client,token,h,result('submission',[submission('draft',TIME,activity=None)]),'submission')
+    assert response.status_code==409 and store.read()==before
+
+
+def test_module_only_attempt_does_not_hide_conflicting_legacy_instance(harness):
+    client,store,_=harness
+    store_submissions(client,submission('submitted','2026-10-25T12:00Z',activity='201'))
+    token,h=begin(client,visit='module-after-legacy')
+    assert refresh(client,token,h,result('submission',[submission('submitted','2026-10-26T12:00Z',activity=None)]),'submission').status_code==200
+    before=store.read(); token,h=begin(client,visit='conflicting-legacy')
+    response=refresh(client,token,h,result('submission',[submission('reopened',TIME,activity='202')]),'submission')
+    assert response.status_code==409 and store.read()==before
+
+
+def test_restored_conflicting_submission_instance_history_is_not_projected(harness):
+    from backend.reconciliation import project_sources
+    client,store,_=harness
+    token,h=begin(client,visit='assignment-for-conflict')
+    assert refresh(client,token,h,result('assignment',[assignment()]),'assignment').status_code==200
+    token,h=begin(client,visit='first-instance')
+    assert refresh(client,token,h,result('submission',[submission('submitted','2026-10-25T12:00Z',activity='202')]),'submission').status_code==200
+    token,h=begin(client,visit='module-after-first')
+    assert refresh(client,token,h,result('submission',[submission('submitted','2026-10-26T12:00Z',activity=None)]),'submission').status_code==200
+    snapshot=store.read()
+    assert any(a.get('submissionStale') is False for a in snapshot['reconciliation']['logicalAssessments'])
+    raw=submission('reopened',TIME,activity='201')
+    snapshot['collection']['records'].append(dict(
+        id=json.dumps(['demo','submission','101','assign','201'],separators=(',',':')),
+        courseId='c-csc',kind='submission',firstObservedAt=TIME,lastObservedAt=TIME,
+        observations=[dict(attempted=raw,confirmed=raw,stale=False)]))
+    project_sources(snapshot,store.namespace)
+    assert not any('submission' in a for a in snapshot['reconciliation']['logicalAssessments'] if a['title']=='Synthetic assignment')
+    assert len([r for r in snapshot['collection']['records'] if r['kind']=='submission'])==3
+
+
+@pytest.mark.parametrize('submission_first',[False,True])
+def test_legacy_submission_instance_must_match_assignment_for_projection(harness,submission_first):
+    from backend.reconciliation import project_sources
+    client,store,path=harness
+    def collect_assignment():
+        token,h=begin(client,visit='identity-assignment')
+        response=refresh(client,token,h,result('assignment',[assignment()]),'assignment')
+        assert response.status_code==200,response.text
+    def collect_submission():
+        token,h=begin(client,visit='identity-submission')
+        response=refresh(client,token,h,result('submission',[submission('submitted',TIME,activity='201')]),'submission')
+        assert response.status_code==200,response.text
+    if submission_first:
+        collect_submission(); collect_assignment()
+    else:
+        collect_assignment(); collect_submission()
+    snapshot=store.read()
+    source=next(s for s in snapshot['reconciliation']['sources'] if 'assignment' in s.get('recordId',''))
+    assessment_id=source['assessmentId']
+    def assert_unprojected(value):
+        item=next(a for a in value['reconciliation']['logicalAssessments'] if a['id']==assessment_id)
+        assert 'submission' not in item and 'submissionStale' not in item
+    assert_unprojected(snapshot)
+    project_sources(snapshot,store.namespace)
+    assert_unprojected(snapshot)
+    reopened=SQLiteStore(URL.create('sqlite',database=str(path)))
+    try:
+        restored=reopened.read()
+        project_sources(restored,reopened.namespace)
+        assert_unprojected(restored)
+    finally:
+        reopened.close()
 
 
 def test_submission_signed_out_scan_keeps_confirmed_submitted_as_stale(harness):

@@ -294,7 +294,7 @@ class RestoreService:
                         row = json.loads(record)
                         if self._fence_transfer(row):
                             c.execute(text('UPDATE material_transfers SET record=:r WHERE namespace=:n AND transfer_id=:t'), {**ns, 't': tid, 'r': json.dumps(row)})
-                    c.execute(text('INSERT OR IGNORE INTO data_lifecycle(namespace,epoch) VALUES(:n,0)'), ns)
+                    c.execute(text('INSERT INTO data_lifecycle(namespace,epoch) VALUES(:n,0) ON CONFLICT(namespace) DO NOTHING'), ns)
                     c.execute(text('UPDATE data_lifecycle SET epoch=epoch+1 WHERE namespace=:n'), ns)
                     generation = self._rebuild_plan(snapshot)
                     if self.before_commit:

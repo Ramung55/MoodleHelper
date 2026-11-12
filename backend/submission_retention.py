@@ -18,7 +18,7 @@ from backend.schemas import SubmissionObservation
 @dataclass(frozen=True)
 class SubmissionRecord:
     course_id: str
-    activity_id: str
+    activity_id: str | None
     module_id: str
     source_url: str
     observation: SubmissionObservation
@@ -53,7 +53,10 @@ def _validated(record: SubmissionRecord, *, previous: bool = False) -> tuple[int
     if type(record) is not SubmissionRecord:
         raise ValueError
     if any(type(v) is not str or re.fullmatch(r'[1-9][0-9]*', v) is None
-           for v in (record.course_id, record.activity_id, record.module_id)):
+           for v in (record.course_id, record.module_id)):
+        raise ValueError
+    if record.activity_id is not None and (type(record.activity_id) is not str or
+                                            re.fullmatch(r'[1-9][0-9]*', record.activity_id) is None):
         raise ValueError
     if record.source_url != f'{MOODLE_ORIGIN}/mod/assign/view.php?id={record.module_id}':
         raise ValueError
@@ -83,8 +86,10 @@ def retain_submission(attempt: SubmissionRecord,
             previous_at = _validated(previous, previous=True)
         except (ValueError, TypeError, AttributeError):
             return RetentionResult(False, 'invalid_previous')
-        if ((attempt.course_id, attempt.activity_id, attempt.module_id, attempt.source_url)
-                != (previous.course_id, previous.activity_id, previous.module_id, previous.source_url)):
+        if ((attempt.course_id, attempt.module_id, attempt.source_url)
+                != (previous.course_id, previous.module_id, previous.source_url) or
+                (attempt.activity_id is not None and previous.activity_id is not None and
+                 attempt.activity_id != previous.activity_id)):
             return RetentionResult(False, 'identity_mismatch')
         if (attempted_at == previous_at and attempt.observation.status != 'unknown'
                 and attempt.observation.status != previous.observation.status):

@@ -64,9 +64,15 @@ def test_offset_and_fraction_equivalent_replay_preserves_previous(equivalent):
 
 
 @pytest.mark.parametrize('field,value', [(field, value) for field in ('course_id', 'activity_id', 'module_id')
-                                      for value in ('', '0', '01', '-1', '1.0', ' 1', '١', 1, True, None)])
+                                      for value in ('', '0', '01', '-1', '1.0', ' 1', '١', 1, True, None)
+                                      if not (field == 'activity_id' and value is None)])
 def test_exact_positive_string_ids(field, value):
     assert retain_submission(record(**{field: value})).diagnostic == 'invalid_attempt'
+
+
+def test_module_identity_does_not_require_an_invented_activity_id():
+    result = retain_submission(record(activity_id=None))
+    assert result.ok and result.confirmed.activity_id is None
 
 
 @pytest.mark.parametrize('url', [
