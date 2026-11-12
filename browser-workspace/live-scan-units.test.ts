@@ -80,8 +80,8 @@ it('maps the #14 quiz parser to the QuizRefreshResult wire shape without inventi
   expect(quizRefreshResult({...input, finalUrl: 'https://moodle.sdu.edu.kz/login/index.php'}, '2028-03-05T10:00:00.000Z', {title: 'x'}))
     .toEqual({kind: 'failed', reasons: ['access_error']});
   const registry = liveRegistry();
-  expect(Object.entries(registry).filter(([, a]) => a.availability === 'available').map(([k]) => k).sort()).toEqual(['assignment', 'calendar', 'material', 'quiz']);
-  expect(registry.submission.availability).toBe('unavailable');
+  expect(Object.entries(registry).filter(([, a]) => a.availability === 'available').map(([k]) => k).sort()).toEqual(['assignment', 'calendar', 'material', 'quiz', 'submission']);
+  expect(registry.submission).toMatchObject({availability: 'available', evidenceMode: 'verified'}); // #94, through the #93 account check
 });
 
 it('#83: analyzes observed assignment, upcoming calendar and course pages with the live registry', async () => {
@@ -96,7 +96,11 @@ it('#83: analyzes observed assignment, upcoming calendar and course pages with t
   const assign = await request(assignUrl, await read('assign-not-submitted.html'), ['assignment','submission'], 'Fictional Lab Report');
   expect(assign.access.status).toBe('accessible');
   expect(validSchema('CollectorResult', assign.collected.assignment)).toBe(true);
-  expect(assign.collected.submission).toBeUndefined(); // live account is not bound
+  // #94: the submission status is read from the same assignment page, module-keyed.
+  expect(validSchema('CollectorResult', assign.collected.submission)).toBe(true);
+  expect(assign.collected.submission).toEqual({kind: 'submission', reviews: [], diagnostics: [], pages: [], coverage: 'complete', scope: 'visited_activity_only',
+    observations: [{sourceCourseId: '9001', sourceCourseModuleId: '990102', sourceUrl: assignUrl,
+      observation: {status: 'not_submitted', evidence: 'No submissions have been made yet', observedAt, actionRequired: false}}]});
   expect(assign.collected.assignment).toMatchObject({kind: 'assignment', observations: [{sourceCourseModuleId: '990102', title: 'Fictional Lab Report',
     effectiveDates: {due: {value: {kind: 'exact', iso: '2028-03-07T14:30:00+05:00', tz: 'Asia/Almaty'}}}}]});
   expect((await request(assignUrl, await read('assign-not-submitted.html'), ['assignment'], 'x')).links).toEqual([]);
@@ -193,4 +197,41 @@ it('#93: the page source passes on the id it read, and a scan job carries one id
   expect(await job(['987650', '5550001'])).toBeUndefined();
   expect(await job([undefined, undefined])).toBeUndefined();
   expect(await job(['0123', undefined])).toBeUndefined();
+});
+
+it('#94: enabling the submission collector adds no Moodle request and puts one submission result per assignment page in the finish body', async () => {
+  const text = (name: string) => readFile(path.join(fixtures, name), 'utf8');
+  const [coursePage, submitted, notSubmitted, quizPage, calendar] = await Promise.all(
+    ['course-page.html', 'assign-submitted.html', 'assign-not-submitted.html', 'quiz-finished.html', 'calendar-upcoming.html'].map(text));
+  const htmlFor = (url: string) => url === course ? coursePage : url.endsWith('assign/view.php?id=990101') ? submitted
+    : url.endsWith('assign/view.php?id=990102') ? notSubmitted : url.includes('/mod/quiz/') ? quizPage.replace('cmid-990103', `cmid-${url.split('=')[1]}`)
+      : url.includes('/calendar/') ? calendar : '';
+  const observedAt = '2028-03-05T10:00:00.000Z';
+  const job = async (registry: ReturnType<typeof liveRegistry>) => {
+    const urls: string[] = [];
+    const source = {start(url: string, context: {sourceCourseId: string; collectors: any[]; title?: string}) {
+      urls.push(url);
+      const input = envelope(url, 200);
+      const completion = analyzeMoodlePage({envelope: input, html: htmlFor(url), sourceCourseId: '9001', collectors: context.collectors, observedAt,
+        ...(context.title ? {title: context.title} : {})}, {registry, parse}).then((analysis): ScanResponse =>
+        ({input, sourceCourseId: '9001', bytes: 10, observedAt, access: analysis.access, links: analysis.links, titles: analysis.titles, collected: analysis.collected} as ScanResponse));
+      return {completion, termination: Promise.resolve(true), abort() {}};
+    }};
+    let now = 0;
+    const authority = {acquire: async () => 'owner', releaseAfterTermination: async () => true};
+    const result = await scanCourse({source, authority, registry, sourceCourseId: '9001', valid: async () => true, now: () => now, wait: async ms => { now += ms; }});
+    return {urls, result};
+  };
+  const off = liveRegistry();
+  off.submission = {availability: 'unavailable', evidenceMode: 'verified', collect: () => ({kind: 'unavailable', reasons: ['collector_unavailable']})};
+  const before = await job(off), after = await job(liveRegistry());
+  expect(after.urls).toEqual(before.urls);
+  expect(after.urls.filter(u => u.includes('/mod/assign/'))).toEqual(['990101', '990102'].map(id => `https://moodle.sdu.edu.kz/mod/assign/view.php?id=${id}`));
+  expect(after.urls.some(u => u.includes('action='))).toBe(false);
+  const submissions = (pages: any[]) => pages.filter(p => p.pageType === 'submission');
+  expect(submissions(before.result.pages).map(p => [p.outcome, p.reasons])).toEqual([['unavailable', ['collector_unavailable']], ['unavailable', ['collector_unavailable']]]);
+  expect(submissions(after.result.pages).map(p => [p.pageUrl, p.collector, p.outcome, p.result.kind, p.result.observations[0].observation.status,
+    'sourceActivityId' in p.result.observations[0]])).toEqual([
+    ['https://moodle.sdu.edu.kz/mod/assign/view.php?id=990101', 'submission', 'ok', 'submission', 'submitted', false],
+    ['https://moodle.sdu.edu.kz/mod/assign/view.php?id=990102', 'submission', 'ok', 'submission', 'not_submitted', false]]);
 });

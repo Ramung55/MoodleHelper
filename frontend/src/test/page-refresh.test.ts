@@ -629,7 +629,8 @@ describe("#18 real pipeline AC1/AC2/AC5", () => {
     cleanup();
     spy.mockRestore();
   });
-  it("executes typed synthetic quiz and submission mocks while real adapters remain unavailable", async () => {
+  it("executes typed synthetic quiz and submission mocks while the synthetic registry keeps them unavailable", async () => {
+    // #94: only liveRegistry() (Sync all) enables submission; the synthetic fixture registry does not.
     const registry = syntheticFixtureRegistry();
     expect(registry.quiz.availability).toBe("unavailable");
     expect(registry.submission.availability).toBe("unavailable");

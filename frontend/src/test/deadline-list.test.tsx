@@ -14,7 +14,7 @@ import {
 } from "@/domain/deadline-display";
 import { DeadlineList, parseDeadlineSearch } from "@/routes/deadlines";
 import { AssessmentSheet } from "@/components/mh/AssessmentSheet";
-import type { Assessment, DateValue, Overlay, Snapshot } from "@/domain/types";
+import type { Assessment, DateValue, Overlay, Snapshot, SubmissionStatus } from "@/domain/types";
 
 const state = vi.hoisted(() => ({
   app: {} as { snap: Snapshot; views: AssessmentView[]; run: Mock; api: { updateOverlay: Mock } },
@@ -401,5 +401,81 @@ describe("details and restore (#35 AC2/AC5)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Restore item" }));
     expect(await screen.findByText(/was not restored/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Restore item" })).toBeVisible();
+  });
+});
+
+describe("#94: live Moodle submission status after Sync all", () => {
+  const evidence: Record<string, string> = {
+    submitted: "Submitted for grading",
+    not_submitted: "No submissions have been made yet",
+    draft: "Draft (not submitted)",
+    reopened: "Reopened",
+  };
+  /** One Moodle assignment whose projected status is `status` (as the backend returns it after Sync all). */
+  function observed(status: SubmissionStatus, stale = false, completed = false) {
+    let id = "";
+    const result = setup((s) => {
+      const a = s.assessments.find((x) => !x.personal)!;
+      id = a.id;
+      a.submission = {
+        status,
+        observedAt: "2028-03-05T10:00:00Z",
+        ...(evidence[status] ? { evidence: evidence[status] } : {}),
+      };
+      a.submissionStale = stale;
+      s.overlays = s.overlays.filter((o) => o.assessmentId !== id);
+      s.overlays.push({ assessmentId: id, hidden: false, completed });
+    });
+    return { ...result, id };
+  }
+  it.each([
+    ["submitted", "Moodle: Submitted"],
+    ["not_submitted", "Moodle: Not submitted"],
+    ["draft", "Moodle: Draft — not submitted"],
+    ["reopened", "Moodle: Reopened — resubmit"],
+    ["unknown", "Moodle: Status unknown"],
+  ] as const)("%s shows %s on the assignment row and the assessment sheet", (status, label) => {
+    const { id } = observed(status);
+    render(<DeadlineList search={{}} set={vi.fn()} />);
+    const row = document.querySelector<HTMLElement>(`[data-assessment-row="${id}"]`)!;
+    expect(within(row).getByText(label)).toBeInTheDocument();
+    cleanup();
+    render(<AssessmentSheet id={id} onClose={vi.fn()} />);
+    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.queryByText("Submission status may be out of date.")).toBeNull();
+    expect(screen.queryByText(/not observed yet/)).toBeNull();
+  });
+  it("a stale known status keeps its badge with the out-of-date hint", () => {
+    const { id } = observed("submitted", true);
+    render(<AssessmentSheet id={id} onClose={vi.fn()} />);
+    expect(screen.getByText("Moodle: Submitted")).toBeInTheDocument();
+    expect(screen.getByText("Submission status may be out of date.")).toBeInTheDocument();
+  });
+  it("ticking and unticking the personal check does not change the Moodle badge", async () => {
+    const { id, api } = observed("not_submitted");
+    for (const completed of [true, false]) {
+      render(<AssessmentSheet id={id} onClose={vi.fn()} />);
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: "I've finished this (personal check)" }),
+      );
+      await waitFor(() => expect(api.updateOverlay).toHaveBeenLastCalledWith(id, { completed }));
+      cleanup();
+      render(<AssessmentSheet id={id} onClose={vi.fn()} />);
+      expect(
+        screen.getByRole("checkbox", { name: "I've finished this (personal check)" }),
+      ).toHaveProperty("checked", completed);
+      expect(screen.getByText("Moodle: Not submitted")).toBeInTheDocument();
+      cleanup();
+    }
+  });
+  it("a new Moodle status from Sync all does not change the personal check", () => {
+    for (const status of ["submitted", "not_submitted", "reopened"] as const) {
+      const { id } = observed(status, false, true);
+      render(<AssessmentSheet id={id} onClose={vi.fn()} />);
+      expect(
+        screen.getByRole("checkbox", { name: "I've finished this (personal check)" }),
+      ).toHaveProperty("checked", true);
+      cleanup();
+    }
   });
 });

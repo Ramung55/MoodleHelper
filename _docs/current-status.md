@@ -48,7 +48,9 @@ Not run: live SDU Moodle, a real external AI provider (Groq), and actual Chrome 
 
 Update 2026-11-12: #93 (account binding) passed QA on branch `feat/issue-93-account-binding`. Verified scans and course discovery now save only when the `M.cfg` `"userId"` on the fetched SDU pages equals the dataset's numeric `MOODLE_HELPER_STABLE_USER_ID` (Addendum 7 in `compatibility/sdu-moodle.md`). QA run: `uv run pytest` 1532 passed, 9 skipped; frontend `bun run test` 1526 passed; touched browser-workspace files passed. Known limits: a direct dashboard `ingestCourseDiscovery` call in a real dataset gets 409, and account rejections record `request_failed` as the page reason.
 
-Open MVP issues, in order: #94 (live submission status), #95 (live update while browsing), #96 (recorded live SDU journey). Gaps without issues:
+Update 2026-11-12: #94 (live submission status) passed QA on branch `feat/issue-94-submission-status`. Sync all now reads submission status from assignment pages it already fetches, saved only through the #93 account check. QA run: `uv run pytest` 1540 passed, 9 skipped; frontend 1558 passed; touched browser-workspace files passed.
+
+Open MVP issues, in order: #95 (live update while browsing), #96 (recorded live SDU journey). Gaps without issues:
 
 - lint formatting errors and adding lint to CI;
 - the Windows cleanup in `queue-network.test.ts`;
@@ -56,4 +58,4 @@ Open MVP issues, in order: #94 (live submission status), #95 (live update while 
 
 ## Next step
 
-Merge #93, then continue with #94 through the orchestrator lifecycle in `_docs/process.md`.
+Merge #94, then continue with #95 through the orchestrator lifecycle in `_docs/process.md`.
