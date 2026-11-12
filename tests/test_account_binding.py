@@ -206,3 +206,39 @@ def test_demo_discovery_needs_no_id(tmp_path):
         response = client.post('/api/courses/discovery', headers=binding, json={'observations': [observation('9777')]})
         assert response.status_code == 200
     store.close()
+
+
+def test_failed_finish_without_id_keeps_its_code_merges_nothing_and_the_run_continues(three):
+    # Clarification: a 503 (request_failed) finish without an id is not account_unconfirmed.
+    three.post('/api/sync')
+    before = records(three)
+    claim = three.post('/api/scan/claim', {}).json()['claim']
+    pages = full_scan(claim['sourceCourseId'], ['990103'])
+    pages[0] = dict(pages[0], outcome='failed', reasons=['request_failed'])
+    body = without_id(failed(claim, 'request_failed', pages))
+    response = three.post('/api/scan/finish', body)
+    assert response.json()['state'] == 'failed' and response.json()['errorCode'] == 'request_failed'
+    # The quiz result in the batch is not merged.
+    assert records(three) == before
+    entry = three.sync_entry(claim['job']['courseId'])
+    assert entry['status'] == 'failed' and entry['error'] == 'Moodle could not be read for this course. Earlier data was kept.'
+    # No cascade: the other jobs are still claimed and saved normally.
+    states = jobs(three.store)
+    assert sorted(state[0] for state in states.values()) == ['failed', 'pending', 'pending']
+    other = three.post('/api/scan/claim', {}).json()['claim']
+    assert three.post('/api/scan/finish', completed(other, full_scan(other['sourceCourseId'], []))).json()['state'] == 'completed'
+
+
+def test_completed_finish_without_id_and_without_results_is_handled_as_before(live):
+    # Every page failed (for example a truncated course page): nothing to merge, so no account is needed.
+    live.post('/api/sync')
+    claim = live.post('/api/scan/claim', {}).json()['claim']
+    page = dict(pageType='course', scope='unknown', outcome='failed', coverage='none', reasons=['access_error'],
+                observedAt='2028-03-05T10:00:00.000Z', pageUrl=f"{ORIGIN}/course/view.php?id={claim['sourceCourseId']}")
+    pages = [page] + [dict(pageType=k, scope='unknown', outcome='undiscovered', coverage='none', reasons=['undiscovered'])
+                      for k in ('assignment', 'calendar', 'material', 'quiz', 'submission')]
+    response = live.post('/api/scan/finish', without_id(completed(claim, pages)))
+    assert response.json()['state'] == 'completed'
+    assert live.sync_entry(claim['job']['courseId'])['status'] == 'partial'
+    assert scan_pages(live.store) == len(pages)
+    assert live.post('/api/scan/claim', {}).json()['claim']

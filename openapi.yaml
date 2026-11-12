@@ -6957,10 +6957,12 @@ components:
         and unique mapping; merge accepted source observations, store page coverage
         and finish. Stale or cancelled claims commit nothing. A completed job does
         not assert complete course coverage. In verified mode (#93) a moodleUserId
-        that differs from the dataset's stable user id, or a missing one (except a
-        failed signed_out finish), saves nothing from the batch, fails the job with
+        that differs from the dataset's stable user id, or a missing one on a completed
+        finish with collector results, saves nothing from the batch, fails the job with
         account_mismatch or account_unconfirmed and fails the run's pending jobs
-        with the same code without claiming them.
+        with the same code without claiming them. A failed finish, or one without
+        results, that has no moodleUserId keeps its own outcome and error code but
+        merges no collector result.
       allOf:
       - if:
           properties:

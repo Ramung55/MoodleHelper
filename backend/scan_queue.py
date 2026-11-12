@@ -253,9 +253,12 @@ class ScanQueueService(QueueService):
             if row.scan_revision != body['selectionRevision']: raise QueueConflict()
             # #93: the received id is only compared here; it is not stored, logged or returned.
             account = self.collection.account_error(body.get('moodleUserId'))
-            # A signed-out finish without an id is handled as before, but merges no evidence.
-            unconfirmed_sign_out = signed_out and account == 'account_unconfirmed'
-            if account and not unconfirmed_sign_out:
+            # Without an id, a failed finish, or one with no collector result (every page
+            # failed, as on a 503 or a truncated page), keeps its own code, message and
+            # cascade but merges no evidence. Only a completed finish with results needs it.
+            unconfirmed_failure = account == 'account_unconfirmed' and (
+                body['outcome'] == 'failed' or not any('result' in page for page in body['pages']))
+            if account and not unconfirmed_failure:
                 # Nothing from this batch is written; the run's pending jobs fail with the same code.
                 self._fail_jobs(c, [row] + pending_of_run(c, row), account, snapshot)
                 self._save(c, snapshot)
@@ -282,7 +285,7 @@ class ScanQueueService(QueueService):
                         if candidate.get('sourceCourseId') not in (None, source): raise QueueInvalid()
                     entry = {'revision': context['selectionRevision'], 'body': {'pageUrl':page['pageUrl'],
                              'visitId':f"scan:{row.id}:{ordinal}"}}
-                    if not unconfirmed_sign_out:
+                    if not unconfirmed_failure:
                         self.collection._merge_refresh(snapshot, entry, {'collector':collector, 'result':page['result'],
                                                                          'observedAt':page['observedAt']}, body.get('moodleUserId'))
                 evidence = {k:v for k,v in page.items() if k != 'result'}
