@@ -81,7 +81,9 @@ describe("safe source links (#35)", () => {
       a.submission = { status: "submitted", observedAt: "2026-09-01T00:00:00Z" };
       a.submissionStale = true;
     });
-    render(<AssessmentSheet id={snap.assessments.find((x) => !x.personal)!.id} onClose={vi.fn()} />);
+    render(
+      <AssessmentSheet id={snap.assessments.find((x) => !x.personal)!.id} onClose={vi.fn()} />,
+    );
     expect(screen.getByText("Submission status may be out of date.")).toBeInTheDocument();
     expect(screen.getByText(/Independent of your personal check/)).toBeInTheDocument();
   });
