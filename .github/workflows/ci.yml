@@ -21,6 +21,10 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # FastAPI integration tests (http-live, page-refresh) start the backend from the root .venv.
+      - run: uv sync --locked
+        working-directory: .
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run test
