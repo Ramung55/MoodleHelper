@@ -85,7 +85,9 @@ def test_each_operation_request_and_response_contract_without_credentials(client
 
 def test_generated_operations_and_schemas_match_authoritative_contract(client, contract):
     generated = client.get("/openapi.json").json()
-    expected_operations = {(method, path) for path, ops in contract["paths"].items() for method in ops}
+    # /health is intentionally excluded from FastAPI's generated schema, but is
+    # part of the operational contract and is checked separately below.
+    expected_operations = {(method, path) for path, ops in contract["paths"].items() if path != "/health" for method in ops}
     actual_operations = {(method, path) for path, ops in generated["paths"].items() for method in ops}
     internal = {('get','/api/collection-context'),('post','/api/collection/visits'),('post','/api/collection/refresh'), ('post','/api/queue/runs'), ('get','/api/queue/runs/{runId}'), ('post','/api/queue/runs/{runId}/cancel'), ('post','/api/queue/claim'), ('post','/api/queue/renew'), ('post','/api/queue/finish')}
     internal |= {('get','/api/queue/current'), ('post','/api/queue/current'), ('post','/api/scan/runs'), ('get','/api/scan/runs/{runId}'), ('post','/api/scan/runs/{runId}/cancel'), ('post','/api/scan/claim'), ('post','/api/scan/renew'), ('post','/api/scan/finish'), ('get','/api/scan/jobs/{jobId}/pages'), ('post','/api/scan/gate/acquire'), ('post','/api/scan/gate/release')}
@@ -108,7 +110,19 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
         actual = generated["paths"][path][method]
         assert actual["operationId"] == expected["operationId"]
         assert not actual.get("security")
-        assert sorted(canonical(actual.get("parameters", []), generated), key=lambda p: (p["in"], p["name"])) == sorted(canonical(expected.get("parameters", []), contract), key=lambda p: (p["in"], p["name"]))
+        # Middleware enforces these headers independently of route signatures;
+        # generated schema cannot be the authority for their requiredness.
+        middleware_headers = {"x-moodle-helper-bridge-binding", "x-moodle-helper-data-epoch"}
+        def non_middleware(parameters, document):
+            return sorted((p for p in canonical(parameters, document) if p.get("name", "").lower() not in middleware_headers), key=lambda p: (p["in"], p["name"]))
+        assert non_middleware(actual.get("parameters", []), generated) == non_middleware(expected.get("parameters", []), contract)
+        parameters = canonical(expected.get("parameters", []), contract)
+        epoch = next(p for p in parameters if p.get("name", "").lower() == "x-moodle-helper-data-epoch")
+        assert epoch["required"] is False
+        if path != "/api/bridge-context":
+            binding = next(p for p in parameters if p.get("name", "").lower() == "x-moodle-helper-bridge-binding")
+            required_on_read = path in {"/api/material-downloads", "/api/material-downloads/{transferId}"}
+            assert binding["required"] is (method != "get" or required_on_read)
         assert ("requestBody" in actual) == ("requestBody" in expected)
         if "requestBody" in expected:
             assert actual["requestBody"]["required"] is True
@@ -117,6 +131,19 @@ def test_generated_operations_and_schemas_match_authoritative_contract(client, c
         expected_error = contract["components"]["schemas"]["ProposedHttpError"]
         assert canonical(actual["responses"]["default"]["content"]["application/json"]["schema"], generated) == canonical(expected_error, contract)
         assert canonical(actual["responses"]["422"]["content"]["application/json"]["schema"], generated) == canonical(expected_error, contract)
+
+
+def test_health_contract_matches_operational_endpoint(client, contract, contract_validator):
+    response = client.get("/health")
+    assert response.status_code == 200
+    schema = contract["paths"]["/health"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    contract_validator(schema, response.json())
+
+
+@pytest.mark.parametrize("path", ["/api/material-downloads", "/api/material-downloads/missing"])
+def test_material_download_reads_require_current_binding(client, path):
+    assert client.get(path).status_code == 422
+    assert client.get(path, headers={"X-Moodle-Helper-Bridge-Binding": "stale"}).status_code == 409
 
 
 def test_all_named_record_schemas_match_fields_enums_bounds_and_requiredness(client, contract):

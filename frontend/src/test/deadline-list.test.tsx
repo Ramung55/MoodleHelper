@@ -75,6 +75,16 @@ function setup(mutate?: (s: Snapshot) => void, ok = true) {
 }
 
 describe("safe source links (#35)", () => {
+  it("labels a retained Moodle submission as potentially out of date", () => {
+    const { snap } = setup((s) => {
+      const a = s.assessments.find((x) => !x.personal)!;
+      a.submission = { status: "submitted", observedAt: "2026-09-01T00:00:00Z" };
+      a.submissionStale = true;
+    });
+    render(<AssessmentSheet id={snap.assessments.find((x) => !x.personal)!.id} onClose={vi.fn()} />);
+    expect(screen.getByText("Submission status may be out of date.")).toBeInTheDocument();
+    expect(screen.getByText(/Independent of your personal check/)).toBeInTheDocument();
+  });
   it("accepts only stable HTTPS SDU activity/course routes", () => {
     expect(safeSourceHref("https://moodle.sdu.edu.kz/mod/assign/view.php?id=12")).toBe(
       "https://moodle.sdu.edu.kz/mod/assign/view.php?id=12",

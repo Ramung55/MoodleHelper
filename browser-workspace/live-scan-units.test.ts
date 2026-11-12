@@ -79,7 +79,6 @@ it('maps the #14 quiz parser to the QuizRefreshResult wire shape without inventi
   expect(quizRefreshResult({...input, finalUrl: 'https://moodle.sdu.edu.kz/login/index.php'}, '2028-03-05T10:00:00.000Z', {title: 'x'}))
     .toEqual({kind: 'failed', reasons: ['access_error']});
   const registry = liveRegistry();
-  // #83: assignment, calendar and material are on with their observed-fixture tests; submission waits for #16.
   expect(Object.entries(registry).filter(([, a]) => a.availability === 'available').map(([k]) => k).sort()).toEqual(['assignment', 'calendar', 'material', 'quiz']);
   expect(registry.submission.availability).toBe('unavailable');
 });
@@ -93,9 +92,10 @@ it('#83: analyzes observed assignment, upcoming calendar and course pages with t
   expect(page.titles).toMatchObject({990101: 'Fictional Essay Outline', 990102: 'Fictional Lab Report', 990103: 'Fictional Warm-up Quiz'});
   expect(page.collected.material).toMatchObject({kind: 'material', coverage: 'complete', observations: [{sourceCourseModuleId: '990104'}, {sourceCourseModuleId: '990105'}, {sourceCourseModuleId: '990106'}, {sourceCourseModuleId: '990107', sourceModuleType: 'page', kind: 'link'}]});
   const assignUrl = 'https://moodle.sdu.edu.kz/mod/assign/view.php?id=990102';
-  const assign = await request(assignUrl, await read('assign-not-submitted.html'), ['assignment'], 'Fictional Lab Report');
+  const assign = await request(assignUrl, await read('assign-not-submitted.html'), ['assignment','submission'], 'Fictional Lab Report');
   expect(assign.access.status).toBe('accessible');
   expect(validSchema('CollectorResult', assign.collected.assignment)).toBe(true);
+  expect(assign.collected.submission).toBeUndefined(); // live account is not bound
   expect(assign.collected.assignment).toMatchObject({kind: 'assignment', observations: [{sourceCourseModuleId: '990102', title: 'Fictional Lab Report',
     effectiveDates: {due: {value: {kind: 'exact', iso: '2028-03-07T14:30:00+05:00', tz: 'Asia/Almaty'}}}}]});
   expect((await request(assignUrl, await read('assign-not-submitted.html'), ['assignment'], 'x')).links).toEqual([]);

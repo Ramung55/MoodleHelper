@@ -1,0 +1,90 @@
+# Preparation only: ports default to loopback until the access design is approved.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [database]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      - MOODLE_HELPER_DATABASE_URL=${MOODLE_HELPER_DATABASE_URL:?Set MOODLE_HELPER_DATABASE_URL}
+      - MOODLE_HELPER_DATASET
+      - MOODLE_HELPER_MOODLE_ORIGIN
+      - MOODLE_HELPER_PROFILE_LABEL
+      - MOODLE_HELPER_STABLE_USER_ID
+      - MOODLE_HELPER_AI_PROVIDER
+      - MOODLE_HELPER_AI_MODEL
+      - MOODLE_HELPER_AI_LEDGER_PATH
+      - GROQ_API_KEY
+      - GEMINI_API_KEY
+    volumes:
+      - app-data:/data
+    # Separate egress network preserves optional external provider access.
+    networks: [application, database, egress]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["test -s /run/secrets/caddy_users && exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?Set SITE_DOMAIN to a DNS name}
+    ports:
+      - "${OCI_BIND_ADDRESS:-127.0.0.1}:80:80"
+      - "${OCI_BIND_ADDRESS:-127.0.0.1}:443:443"
+    volumes:
+      - ./Caddyfile.oci:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    secrets:
+      - caddy_users
+    networks: [edge, application]
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 443"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  edge: {}
+  egress: {}
+  application:
+    internal: true
+  database:
+    internal: true
+
+volumes:
+  postgres-data: {}
+  app-data: {}
+  caddy-data: {}
+  caddy-config: {}
+
+secrets:
+  caddy_users:
+    file: ./.oci-secrets/caddy-users

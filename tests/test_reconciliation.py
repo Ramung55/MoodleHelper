@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import URL, event
 from backend.identity import namespace_key, MOODLE_ORIGIN
 
-from test_page_refresh import harness, begin, refresh, result, assignment, ORIGIN, PAGE, TIME
+from test_page_refresh import harness, begin, refresh, result, assignment, submission, ORIGIN, PAGE, TIME
 
 
 def collect_assignment(client, visit='assignment'):
@@ -119,6 +119,26 @@ def test_pair_confirm_replay_dates_and_alias_overlay_survive_restart(harness):
             assert second.get('/api/snapshot').json()==store.read()
             assert decision(second,pair,'reject').status_code==409
     finally: reopened.close()
+
+
+def test_projected_submission_survives_reconciliation_decision_and_rebuild(harness):
+    client,store,_=harness
+    collect_assignment(client)
+    token,headers=begin(client,visit='submission-before-pair')
+    response=refresh(client,token,headers,result('submission',[submission('submitted',TIME,activity=None)]),'submission')
+    assert response.status_code==200,response.text
+    snap,pairs,candidate=make_pair(client)
+    assert len(pairs)==1
+    response=decision(client,pairs[0],'confirm')
+    assert response.status_code==200,response.text
+    saved=store.read()
+    canonical=next(x['canonicalId'] for x in saved['reconciliation']['aliases'] if x['originalId']==f"syl-{candidate['id']}")
+    logical=next(a for a in saved['reconciliation']['logicalAssessments'] if a['id']==canonical)
+    assert logical['submission']['status']=='submitted' and logical['submissionStale'] is False
+    raw=next(a for a in saved['assessments'] if a['id']==canonical)
+    assert 'submission' not in raw
+    assert decision(client,pairs[0],'confirm').status_code==200
+    assert next(a for a in store.read()['reconciliation']['logicalAssessments'] if a['id']==canonical)['submission']['status']=='submitted'
 
 
 def test_reject_is_pair_specific_replay_and_changed_evidence(harness):

@@ -18,6 +18,8 @@ def test_shared_closed_inventory_tracks_source_contract():
     assert inventory == source['components']['schemas']
     expected = {}
     for path, operations in source['paths'].items():
+        if path == '/health':
+            continue  # Operational health check is not a dashboard bridge operation.
         for method, operation in operations.items():
             if operation['operationId'] == 'aiExtract':
                 continue  # consented excerpt transfer is HTTP-only, never bridged

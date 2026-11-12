@@ -29,3 +29,4 @@ Definition of done:
 
 Ignore what the implementation says it does. Only the acceptance
 criteria and the running code count.
+Verify independently of the implementer, using the current implementation and evidence. Mark every criterion PASS or FAIL; if a criterion cannot be verified, report FAIL with the blocker rather than assuming success. Run appropriate tests and include their results. Follow user instructions governing issue comments and external actions.

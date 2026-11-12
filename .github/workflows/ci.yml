@@ -1,0 +1,117 @@
+name: CI and deploy
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --locked
+      # Contract tests run the frontend Zod models through Node (typescript, zod)
+      # and the privacy review reads the built extension manifest.
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: frontend
+      - run: bun run --cwd extension build
+      - run: uv run pytest
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # FastAPI integration tests (http-live, page-refresh) start the backend from the root .venv.
+      - run: uv sync --locked
+        working-directory: .
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: uv sync --locked
+      - run: bun install --frozen-lockfile
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ./.playwright-browsers
+      - run: uv run pytest tests/test_compose_integration.py
+        env:
+          MOODLE_HELPER_COMPOSE_TEST: '1'
+      - run: node e2e/compose.cjs
+      - name: Save tested image
+        run: |
+          image=$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep '^moodlehelper-e2e-.*-app:latest$' | head -n 1)
+          test -n "$image"
+          docker tag "$image" moodlehelper:tested
+          docker save moodlehelper:tested -o tested-image.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-image
+          path: tested-image.tar
+          retention-days: 1
+  deploy:
+    # Disabled while the OCI deployment and access boundary await approval.
+    if: ${{ false }}
+    needs: [backend, frontend, compose]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-image
+      - run: docker load -i tested-image.tar
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Push tested image and deploy ECS service
+        env:
+          REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          CLUSTER: ${{ vars.ECS_CLUSTER }}
+          SERVICE: ${{ vars.ECS_SERVICE }}
+          CONTAINER: ${{ vars.ECS_CONTAINER }}
+        run: |
+          set -euo pipefail
+          account=$(aws sts get-caller-identity --query Account --output text)
+          registry="$account.dkr.ecr.$REGION.amazonaws.com"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          image="$registry/$REPOSITORY:${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker tag moodlehelper:tested "$image"
+          docker push "$image"
+          task=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
+          aws ecs describe-task-definition --task-definition "$task" --query taskDefinition > task.json
+          jq --arg container "$CONTAINER" --arg image "$image" --arg release "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" 'if ([.containerDefinitions[] | select(.name == $container)] | length) != 1 then error("container not found") else . end | .containerDefinitions |= map(if .name == $container then .image = $image | .environment = ((.environment // [] | map(select(.name != "MOODLE_HELPER_RELEASE"))) + [{"name":"MOODLE_HELPER_RELEASE","value":$release}]) else . end) | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' task.json > new-task.json
+          revision=$(aws ecs register-task-definition --cli-input-json file://new-task.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$revision" > /dev/null
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+          actual=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
+          test "$actual" = "$revision"
+      - name: Check deployed endpoint
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$HEALTH_URL"
+          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors --max-time 10 "${HEALTH_URL%/}/health" | jq -e --arg release "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" '.status == "ok" and .release == $release'
+
+

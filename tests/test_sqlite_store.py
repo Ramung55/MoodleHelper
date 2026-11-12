@@ -379,7 +379,7 @@ def test_config_predictable_default_relative_path_nested_parent_and_immutable_na
     nested.close()
 
 
-@pytest.mark.parametrize("value", ["postgresql://user:secret@host/db", "sqlite://", "sqlite:///:memory:", "sqlite:///state.db?mode=ro", "not-a-url", "sqlite+pysqlite:///state.db"])
+@pytest.mark.parametrize("value", ["sqlite://", "sqlite:///:memory:", "sqlite:///state.db?mode=ro", "not-a-url", "sqlite+pysqlite:///state.db"])
 def test_invalid_database_configuration_never_falls_back_or_exposes_secret(value):
     with pytest.raises(ValueError, match="file-backed") as exc:
         DatabaseConfig.from_environment({"MOODLE_HELPER_DATABASE_URL": value})

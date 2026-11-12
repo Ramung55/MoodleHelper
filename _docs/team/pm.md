@@ -20,3 +20,5 @@ Definition of done:
 If something does not belong in this task, do not silently drop it.
 File a follow-up issue and list it under out of scope with a link to
 that issue, so it is clear what was moved and where it went.
+
+Identify dependencies and edge cases explicitly, and make every criterion measurable and independently verifiable. Groom only one issue at a time. Obtain authorization before creating follow-up issues or posting changes when that action is not already authorized; document proposed follow-ups in the issue draft when creation is not authorized.

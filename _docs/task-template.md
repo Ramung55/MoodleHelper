@@ -16,3 +16,5 @@ One or two sentences on what should be true when this is done.
 - Files this should stay inside
 - Libraries to use
 - Guidelines to follow
+
+Record relevant edge cases and dependencies in the acceptance criteria or constraints, with links to existing specifications or prerequisite issues where available. Criteria must state observable outcomes and be independently verifiable.
