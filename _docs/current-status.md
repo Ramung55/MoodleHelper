@@ -46,16 +46,14 @@ Not run: live SDU Moodle, a real external AI provider (Groq), and actual Chrome 
 
 ## Backlog
 
-GitHub has 85 issues, all closed, and no open pull requests. The remaining MVP gaps have no issues yet:
+Update 2026-11-12: #93 (account binding) passed QA on branch `feat/issue-93-account-binding`. Verified scans and course discovery now save only when the `M.cfg` `"userId"` on the fetched SDU pages equals the dataset's numeric `MOODLE_HELPER_STABLE_USER_ID` (Addendum 7 in `compatibility/sdu-moodle.md`). QA run: `uv run pytest` 1532 passed, 9 skipped; frontend `bun run test` 1526 passed; touched browser-workspace files passed. Known limits: a direct dashboard `ingestCourseDiscovery` call in a real dataset gets 409, and account rejections record `request_failed` as the page reason.
 
-- binding collected data to the active Moodle account (account isolation);
-- live submission status, which depends on account binding;
-- live update while browsing (visited-page refresh) on real SDU pages;
-- an authorized read-only live SDU journey with recorded evidence;
+Open MVP issues, in order: #94 (live submission status), #95 (live update while browsing), #96 (recorded live SDU journey). Gaps without issues:
+
 - lint formatting errors and adding lint to CI;
 - the Windows cleanup in `queue-network.test.ts`;
 - authentication, if hosted deployment is wanted at all.
 
 ## Next step
 
-Create GitHub issues for the gaps above using `_docs/task-template.md`, groom them, and continue with the orchestrator lifecycle in `_docs/process.md`.
+Merge #93, then continue with #94 through the orchestrator lifecycle in `_docs/process.md`.
