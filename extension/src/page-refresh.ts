@@ -109,13 +109,13 @@ export function materialRefreshResult(input:MoodleAccessInput,selection:readonly
 /**
  * #81 adapter from the #16 submission status mapper to the existing
  * SubmissionRefreshResult wire shape. The SDU assignment view page shows only
- * `course-<id>` and `cmid-<id>`, never the assignment instance id that retention
- * keys on, so `hints.sourceActivityId` must come from a recorded source (a stored
- * assignment or calendar observation for the same course and cmid). Unlike the
- * quiz adapter, the cmid is never copied into `sourceActivityId`: without a
- * decimal hint the result fails with missing_identity and nothing is stored.
- * An inaccessible page maps to `unknown` (never `not_submitted`). The mapper's
- * `access`, `evidenceBasis` and `unknownReason` are not stored.
+ * `course-<id>` and `cmid-<id>`, never the assignment instance id, so records are
+ * module-keyed (owner decision 2026-11-08): `hints.sourceActivityId` is optional
+ * and, when given, must be a decimal id from a recorded source. The cmid is never
+ * copied into `sourceActivityId`. An inaccessible page maps to `unknown` (never
+ * `not_submitted`). The mapper's `access`, `evidenceBasis` and `unknownReason` are
+ * not stored. #94: the live registry uses it on the Sync all path, where the
+ * backend saves the result only through #93's account check.
  */
 export function submissionRefreshResult(input:SubmissionStatusInput,observedAt:string,hints:{sourceActivityId?:string}={}):CollectorResult {
   const parsed=parseMoodleSubmissionStatus(input,observedAt);
@@ -130,16 +130,18 @@ export function submissionRefreshResult(input:SubmissionStatusInput,observedAt:s
 /**
  * #20 live registry: the collectors that match the observed SDU pages, each switched on
  * with its passing observed-fixture tests: #14 quiz; #83 assignment (assignment view
- * page), calendar (upcoming view) and material (course page). Submission stays
- * unavailable until #16 is wired.
+ * page), calendar (upcoming view) and material (course page); #94 submission, read
+ * from the assignment page the scan already fetches. The former account-binding gate
+ * is lifted through #93: the backend saves verified evidence only when the scan
+ * finish's `moodleUserId` is the dataset's own account.
  */
 export function liveRegistry():CollectorRegistry {
   return {assignment:{availability:'available',evidenceMode:'verified',collect:(input,selection,time,hints)=>assignmentRefreshResult(input,time,{...hints,sourceCourseId:selection[0]??''})},
     calendar:{availability:'available',evidenceMode:'verified',collect:(input,selection,time)=>calendarRefreshResult(input,selection,time)},
     material:{availability:'available',evidenceMode:'verified',collect:(input,selection,time)=>materialRefreshResult(input,selection,time)},
-    // A configured backend namespace is not proof of the active Moodle user.
-    // Do not collect personal submission state until that identity is bound.
-    submission:{...unavailable,evidenceMode:'verified'},
+    // Module-keyed: the scan's course and the requested page's cmid, no sourceActivityId hint.
+    submission:{availability:'available',evidenceMode:'verified',collect:(input,selection,time)=>
+      submissionRefreshResult({...input,expectedSourceCourseId:selection[0]??'',expectedSourceCourseModuleId:pageRoute(input.requestedUrl)?.id??''},time)},
     quiz:{availability:'available',evidenceMode:'verified',collect:(input,_selection,time,hints)=>quizRefreshResult(input,time,hints)}};
 }
 export interface RefreshState {status:'idle'|'collecting'|'saved'|'unavailable'|'failed'|'cancelled';visitId?:string;reason?:string;receipts:PageRefreshReceipt[]}

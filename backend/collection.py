@@ -294,10 +294,7 @@ class CollectionService:
         current=self._context(snapshot)
         mode=self._mode()
         if current['selectionRevision']!=entry['revision'] or mode=='disabled': reject()
-        # A trusted startup namespace does not establish the identity of the
-        # account currently signed in to Chrome. Personal submission facts
-        # remain blocked until a verified account binding is implemented.
-        if mode=='verified' and collector=='submission' and result['kind']=='submission': reject()
+        # #94: verified submission facts are saved only past the account check above.
         mapping={c['sourceCourseId']:c['courseId'] for c in current['courses']}
         from datetime import date
         for page_facts in result.get('pages',[]):

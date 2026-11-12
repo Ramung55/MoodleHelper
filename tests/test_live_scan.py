@@ -110,6 +110,28 @@ def undiscovered(kind):
     return dict(pageType=kind, scope='unknown', outcome='undiscovered', coverage='none', reasons=['undiscovered', 'collector_unavailable'])
 
 
+# #94: the status-cell wording of each fixture page, as the live submission adapter stores it.
+FIXTURES = Path('tests/fixtures/moodle')
+WORDING = {'submitted': ('observed/assign-submitted.html', 'Submitted for grading'),
+           'not_submitted': ('observed/assign-not-submitted.html', 'No submissions have been made yet'),
+           'draft': ('upstream/assign-draft.html', 'Draft (not submitted)'),  # upstream, not seen on SDU
+           'reopened': ('upstream/assign-reopened.html', 'Reopened')}  # upstream, not seen on SDU
+
+
+def submission_page(source, cm, status, time=TIME):
+    """The #94 live adapter's module-keyed result for one assignment page (no sourceActivityId)."""
+    observation = dict(status=status, observedAt=time, actionRequired=status == 'reopened')
+    if status != 'unknown':
+        path, wording = WORDING[status]
+        assert wording in (FIXTURES / path).read_text(encoding='utf-8')
+        observation['evidence'] = wording
+    url = f'{ORIGIN}/mod/assign/view.php?id={cm}'
+    result = dict(kind='submission', observations=[dict(sourceCourseId=source, sourceCourseModuleId=cm, sourceUrl=url, observation=observation)],
+                  reviews=[], diagnostics=[], pages=[], coverage='complete', scope='visited_activity_only')
+    return dict(pageType='submission', scope='visited_activity_only', outcome='ok', coverage='complete', reasons=[], observedAt=time,
+                pageUrl=url, collector='submission', result=result)
+
+
 def completed(claim, pages):
     reasons = sorted({r for p in pages for r in p['reasons']})
     return dict(jobId=claim['job']['id'], generation=claim['generation'], token=claim['token'],
@@ -267,12 +289,12 @@ def complete_page(page_type, collector, url, scope):
 
 
 def all_complete_pages(source):
-    """Complete available collectors; submission is unavailable without account binding."""
+    """Complete collectors; #94: submission is read from the assignment page the scan fetched."""
     course, assign = f'{ORIGIN}/course/view.php?id={source}', f'{ORIGIN}/mod/assign/view.php?id=990{source[-1]}01'
     return [complete_page('course', 'material', course, 'supplied_pages_only'),
             complete_page('material', 'material', course, 'supplied_pages_only'),
             complete_page('assignment', 'assignment', assign, 'visited_activity_only'),
-            unavailable('submission', assign),
+            submission_page(source, f'990{source[-1]}01', 'submitted'),
             complete_page('calendar', 'calendar', f'{ORIGIN}/calendar/view.php?view=upcoming', 'supplied_ranges_only'),
             quiz_page(f'990{source[-1]}03', source)]
 
@@ -282,7 +304,7 @@ def finish_all(live):
     finished = []
     while (claim := live.post('/api/scan/claim', {}).json().get('claim')):
         body = completed(claim, all_complete_pages(claim['sourceCourseId']))
-        assert body['incompleteReasons'] == ['collector_unavailable']
+        assert body['incompleteReasons'] == []
         response = live.post('/api/scan/finish', body)
         assert response.status_code == 200, response.text
         finished.append(claim['job']['courseId'])
@@ -293,12 +315,13 @@ def entries(live):
     return {course: live.sync_entry(course) for course in ('c-csc', 'c-math')}
 
 
-def test_unbound_submission_makes_scan_partial_with_last_success(live, tmp_path):
+def test_bound_submission_completes_a_full_scan_with_last_success(live, tmp_path):
+    # Before #94 the unbound submission collector kept every such scan partial.
     live.post('/api/sync')
     assert sorted(finish_all(live)) == ['c-csc', 'c-math']
     before = entries(live)
     for entry in before.values():
-        assert (entry['status'], entry['coverage'], entry['progress']) == ('partial', 'partial', 100)
+        assert (entry['status'], entry['coverage'], entry['progress']) == ('ok', 'full', 100)
         assert entry['lastSuccessAt'] and 'error' not in entry and 'lastAttemptAt' not in entry
     live = restarted(live, tmp_path)
     try:
@@ -307,7 +330,7 @@ def test_unbound_submission_makes_scan_partial_with_last_success(live, tmp_path)
         live.close()
 
 
-def test_failed_scan_records_attempt_time_and_keeps_partial_coverage(live, tmp_path):
+def test_failed_scan_records_attempt_time_and_keeps_earlier_coverage(live, tmp_path):
     live.post('/api/sync')
     finish_all(live)
     full = entries(live)
@@ -320,7 +343,7 @@ def test_failed_scan_records_attempt_time_and_keeps_partial_coverage(live, tmp_p
     # The finished job and the signed-out cascade job both record the failed attempt.
     for course, entry in after.items():
         assert (entry['status'], entry['error']) == ('failed', SIGN_IN)
-        assert (entry['coverage'], entry['lastSuccessAt']) == ('partial', full[course]['lastSuccessAt'])
+        assert (entry['coverage'], entry['lastSuccessAt']) == (full[course]['coverage'], full[course]['lastSuccessAt'])
         assert entry['lastAttemptAt'] > entry['lastSuccessAt']
     live = restarted(live, tmp_path)
     try:
@@ -359,35 +382,120 @@ def test_verified_sign_out_stales_raw_only_submission_and_survives_restart(tmp_p
         harness.close()
 
 
-def test_unbound_real_scan_rejects_submission_from_any_active_account_atomically(tmp_path):
-    from test_page_refresh import assignment, submission
-    harness=Live(seeded(tmp_path, selected=('c-csc',)),[1000])
-    def submission_pages(observed):
-        pages=all_complete_pages('9001')
-        assign=next(p for p in pages if p.get('collector')=='assignment')
-        index=next(i for i,p in enumerate(pages) if p.get('pageType')=='submission')
-        status=complete_page('submission','submission',f'{ORIGIN}/mod/assign/view.php?id=303','visited_activity_only')
-        pages[index]=status
-        raw=assignment(observed); raw['sourceCourseId']='9001'
-        sub=submission('submitted',observed,activity=None); sub['sourceCourseId']='9001'
-        for page, item in ((assign,raw),(status,sub)):
-            page['pageUrl']=item['sourceUrl']; page['observedAt']=observed; page['result']['observations']=[item]
-        return pages
-    try:
-        assert harness.post('/api/sync').status_code==200
-        claim=harness.post('/api/scan/claim',{}).json()['claim']
-        before=harness.store.read()
-        # No active account is bound. Neither the configured user's alleged
-        # status nor a different signed-in account's status may be persisted.
-        for status in ('submitted','draft'):
-            pages=submission_pages('2026-10-25T12:00:00Z')
-            next(p for p in pages if p.get('collector')=='submission')['result']['observations'][0]['observation']['status']=status
-            response=harness.post('/api/scan/finish',completed(claim,pages))
-            assert response.status_code in (400,409,422),response.text
-            assert harness.store.read()==before
-        assert not any(r['kind']=='submission' for r in before.get('collection',{}).get('records',[]))
-    finally:
-        harness.close()
+# #94: verified submission status through #93's account check (replaces the unbound-rejection test) ----
+
+def statuses(value):
+    """Moodle submission status and staleness of the two observed assignments, by title."""
+    return {a['title']: (a.get('submission', {}).get('status'), a.get('submissionStale'))
+            for a in value['reconciliation']['logicalAssessments'] if a['title'] in ('Fictional Essay Outline', 'Fictional Lab Report')}
+
+
+def scan(harness, pages, moodleUserId=ACCOUNT):
+    assert harness.post('/api/sync').status_code == 200
+    claim = harness.post('/api/scan/claim', {}).json()['claim']
+    body = completed(claim, pages)
+    if moodleUserId is None: body.pop('moodleUserId')
+    else: body['moodleUserId'] = moodleUserId
+    return harness.post('/api/scan/finish', body)
+
+
+@pytest.fixture
+def csc(tmp_path):
+    harness = Live(seeded(tmp_path, selected=('c-csc',)), [1000])
+    yield harness
+    harness.close()
+
+
+def test_verified_scan_with_the_dataset_account_saves_submission_status(csc):
+    response = scan(csc, observed_scan())
+    assert response.status_code == 200 and response.json()['state'] == 'completed', response.text
+    snapshot = csc.client.get('/api/snapshot').json()
+    saved = [r for r in snapshot['collection']['records'] if r['kind'] == 'submission']
+    assert sorted(r['observations'][-1]['confirmed']['observation']['status'] for r in saved) == ['not_submitted', 'submitted']
+    # Module-keyed; only the state, wording, time, course, cmid and source URL are stored.
+    for record in saved:
+        attempted = record['observations'][-1]['attempted']
+        assert set(attempted) == {'sourceCourseId', 'sourceCourseModuleId', 'sourceUrl', 'observation'}
+        assert set(attempted['observation']) == {'status', 'evidence', 'observedAt', 'actionRequired'}
+    assert statuses(snapshot) == {'Fictional Essay Outline': ('submitted', False), 'Fictional Lab Report': ('not_submitted', False)}
+
+
+@pytest.mark.parametrize('user,code', [('8765432109876543', 'account_mismatch'), (None, 'account_unconfirmed')], ids=['different', 'missing'])
+def test_verified_scan_from_another_or_unconfirmed_account_saves_no_submission(csc, user, code):
+    before = csc.store.read()
+    response = scan(csc, observed_scan(), moodleUserId=user)
+    assert response.status_code == 200 and response.json()['errorCode'] == code
+    after = csc.store.read()
+    assert not any(r['kind'] == 'submission' for r in after.get('collection', {}).get('records', []))
+    assert after.get('collection') == before.get('collection') and after['assessments'] == before['assessments']
+
+
+def test_visited_page_refresh_still_rejects_real_dataset_submissions(csc):
+    """#95 owns the visited-page path; in the real dataset it saves no submission."""
+    from backend.collection import CollectionRejected, CollectionService
+    before = csc.store.read()
+    result = submission_page('9001', '990101', 'submitted')['result']
+    body = dict(visitToken='visit', collector='submission', observedAt=TIME, result=result)
+    assert csc.post('/api/collection/refresh', body).status_code in (400, 409, 422)
+    assert csc.store.read() == before
+    # The refresh merge passes no Moodle user id, so #93's check rejects it in verified mode.
+    service = CollectionService(csc.store, 'binding')
+    assert service._mode() == 'verified'
+    with pytest.raises(CollectionRejected):
+        service._merge_refresh(csc.store.read(), {}, {'collector': 'submission', 'result': result})
+
+
+def assignment_pages(time):
+    """observed_scan without its submission pages, every page observed at `time`."""
+    pages = [p for p in observed_scan() if p['pageType'] != 'submission']
+    for page in pages:
+        if page.get('observedAt'): page['observedAt'] = time
+    return pages
+
+
+def with_statuses(first, second, time):
+    pages = assignment_pages(time)
+    index = next(i for i, p in enumerate(pages) if p['pageType'] == 'calendar')
+    pages[index:index] = [submission_page('9001', '990101', first, time), submission_page('9001', '990102', second, time)]
+    return pages
+
+
+LATER, LATEST = '2028-03-06T10:00:00.000Z', '2028-03-07T10:00:00.000Z'
+
+
+def test_newer_unknown_keeps_the_known_status_marked_stale_and_a_known_one_clears_it(csc):
+    assert scan(csc, observed_scan()).status_code == 200
+    assert scan(csc, with_statuses('unknown', 'unknown', LATER)).status_code == 200
+    assert statuses(csc.client.get('/api/snapshot').json()) == {
+        'Fictional Essay Outline': ('submitted', True), 'Fictional Lab Report': ('not_submitted', True)}
+    assert scan(csc, with_statuses('submitted', 'not_submitted', LATEST)).status_code == 200
+    assert statuses(csc.client.get('/api/snapshot').json()) == {
+        'Fictional Essay Outline': ('submitted', False), 'Fictional Lab Report': ('not_submitted', False)}
+
+
+@pytest.mark.parametrize('outcome', ['signed_out', 'request_failed', 'inaccessible_page'])
+def test_failed_or_partial_sync_keeps_the_known_status_marked_stale(csc, monkeypatch, outcome):
+    import backend.scan_queue as scan_queue
+    assert scan(csc, observed_scan()).status_code == 200
+    monkeypatch.setattr(scan_queue, 'now_iso', lambda: LATER)
+    if outcome == 'inaccessible_page':
+        # A partial Sync all: the 990101 assignment page could not be read, so it has no result.
+        unread = dict(pageType='assignment', scope='unknown', outcome='failed', coverage='none', reasons=['access_error'],
+                      observedAt=LATER, pageUrl=f'{ORIGIN}/mod/assign/view.php?id=990101')
+        pages = [unread if p.get('pageUrl', '').endswith('id=990101') else p for p in assignment_pages(LATER)]
+        response = scan(csc, pages)
+    else:
+        assert csc.post('/api/sync').status_code == 200
+        claim = csc.post('/api/scan/claim', {}).json()['claim']
+        page = dict(pageType='course', scope='unknown', outcome='signed_out' if outcome == 'signed_out' else 'failed', coverage='none',
+                    reasons=[outcome], observedAt=LATER, pageUrl=f'{ORIGIN}/course/view.php?id=9001')
+        response = csc.post('/api/scan/finish', failed(claim, outcome, [page]))
+    assert response.status_code == 200, response.text
+    value = statuses(csc.client.get('/api/snapshot').json())
+    # Never "Not submitted": the earlier known status stays, marked may be out of date.
+    assert value['Fictional Essay Outline'] == ('submitted', True)
+    if outcome != 'inaccessible_page':
+        assert value['Fictional Lab Report'] == ('not_submitted', True)
 
 
 def test_completed_scan_records_its_earliest_request_and_a_failed_job_keeps_it(live, tmp_path):
@@ -646,7 +754,8 @@ def observed_scan(source='9001'):
                  observedAt=TIME, pageUrl=f'{ORIGIN}/mod/resource/view.php?id=990104'),
             assign('990101', 'Fictional Essay Outline', '2028-03-08T23:59:00+05:00', 'Due: Wednesday, 8 March 2028, 11:59 PM'),
             assign('990102', 'Fictional Lab Report', '2028-03-07T14:30:00+05:00', 'Due: Tuesday, 7 March 2028, 2:30 PM'),
-            unavailable('submission', f'{ORIGIN}/mod/assign/view.php?id=990101'),
+            submission_page(source, '990101', 'submitted'),
+            submission_page(source, '990102', 'not_submitted'),
             dict(pageType='calendar', scope='supplied_ranges_only', outcome='partial', coverage='partial', reasons=['undiscovered'],
                  observedAt=TIME, pageUrl=f'{ORIGIN}/calendar/view.php?view=upcoming', collector='calendar', result=calendar),
             undiscovered('quiz')]
@@ -663,7 +772,7 @@ def test_scan_accepts_observed_assignment_calendar_and_material_results(live):
            if a['courseId'] == 'c-csc' and any(s.get('url', '').startswith(f'{ORIGIN}/mod/assign/view.php?id=9901') for s in a['sources'])}
     assert due == {'Fictional Essay Outline': exact('2028-03-08T23:59:00+05:00'), 'Fictional Lab Report': exact('2028-03-07T14:30:00+05:00')}
     kinds = sorted(r['kind'] for r in snapshot['collection']['records'])
-    assert kinds == ['assignment', 'assignment', 'calendar', 'material', 'material', 'material']
+    assert kinds == ['assignment', 'assignment', 'calendar', 'material', 'material', 'material', 'submission', 'submission']
     page = next(r for r in snapshot['collection']['records'] if r['kind'] == 'material' and r['observations'][0]['sourceModuleType'] == 'page')
     assert page['observations'][0]['kind'] == 'link' and page['observations'][0]['fileType'] == {'kind': 'unknown'}
     pdf = next(r for r in snapshot['collection']['records'] if r['kind'] == 'material' and r['observations'][0]['kind'] == 'file')
@@ -671,7 +780,8 @@ def test_scan_accepts_observed_assignment_calendar_and_material_results(live):
     assert not snapshot['collection']['reviews']
     pages = live.client.get(f"/api/scan/jobs/{claim['job']['id']}/pages").json()['pages']
     checked = {(p['pageType'], p.get('collector')): p['outcome'] for p in pages if p.get('collector')}
-    assert checked == {('course', 'material'): 'ok', ('assignment', 'assignment'): 'ok', ('calendar', 'calendar'): 'partial'}
+    assert checked == {('course', 'material'): 'ok', ('assignment', 'assignment'): 'ok', ('calendar', 'calendar'): 'partial',
+                       ('submission', 'submission'): 'ok'}
     assert live.sync_entry('c-csc')['status'] == 'partial'
 
 
@@ -705,3 +815,24 @@ def test_page_material_round_trips_and_is_never_downloadable():
         schemas.RawMaterialObservation.model_validate({**page, 'sourceModuleType': 'lesson'})
     snapshot = {'collection': {'records': [{'id': 'm-page', 'kind': 'material', 'observations': [page]}]}, 'materials': []}
     assert resolve(snapshot, 'm-page') == (None, 'not_a_file')
+
+
+def test_personal_check_and_moodle_status_from_sync_all_stay_separate(csc):
+    from urllib.parse import quote
+    assert scan(csc, observed_scan()).status_code == 200
+    snapshot = csc.client.get('/api/snapshot').json()
+    aid = next(a['id'] for a in snapshot['reconciliation']['logicalAssessments'] if a['title'] == 'Fictional Lab Report')
+    def done(value):
+        overlays = value['reconciliation'].get('logicalOverlays', []) + value['overlays']
+        return next((o.get('completed') for o in overlays if o['assessmentId'] == aid), None)
+    # Ticking and unticking the personal check leaves the Moodle badge as it was.
+    for completed_value in (True, False):
+        response = csc.client.patch(f'/api/assessments/{quote(aid, safe="")}/overlay', headers=csc.h(), json={'completed': completed_value})
+        assert response.status_code == 200, response.text
+        assert done(response.json()) is completed_value
+        assert statuses(response.json())['Fictional Lab Report'] == ('not_submitted', False)
+    csc.client.patch(f'/api/assessments/{quote(aid, safe="")}/overlay', headers=csc.h(), json={'completed': True})
+    # A new Moodle status from Sync all leaves the personal check as it was.
+    assert scan(csc, with_statuses('submitted', 'submitted', LATER)).status_code == 200
+    after = csc.client.get('/api/snapshot').json()
+    assert statuses(after)['Fictional Lab Report'] == ('submitted', False) and done(after) is True
