@@ -579,21 +579,24 @@ it('#93: a job whose pages disagree or show no id saves nothing, with the same M
   }
 }, 90000);
 
-it('#93: a 503 on one course without an id keeps request_failed, saves no evidence, and the other course still runs', async () => {
+it('#93: an always-503 course shows no id but keeps its request_failed page and partial status, and the other course still runs', async () => {
   const backend = new Backend('account-503'); await backend.start();
   const ids = await backend.seed(['9001', '9002']);
   const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
-  const site = moodle(clock, url => url === courseUrl('9001')
-    ? {status: 503, body: '<html><body></body></html>', headers: {'Retry-After': 'soon'}} : observedSite(url));
+  // A malformed Retry-After would keep the gate occupied (fail closed), so this uses plain 503s.
+  const site = moodle(clock, url => url === courseUrl('9001') ? {status: 503, body: '<html><body></body></html>'} : observedSite(url));
   const app = install(backend, clock, site.fetcher);
   expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
   const [run] = await backend.settled(1);
   const job = (course: string) => run.jobs.find((j: any) => j.courseId === ids[course]);
-  expect(job('9001')).toMatchObject({state: 'failed', errorCode: 'request_failed'});
+  expect(job('9001')).toMatchObject({state: 'completed'});
+  expect(job('9001').errorCode).toBeUndefined();
+  expect((await backend.pages(job('9001').id)).pages.find((p: any) => p.pageUrl === courseUrl('9001')))
+    .toMatchObject({outcome: 'failed', coverage: 'none', reasons: ['request_failed']});
   expect(job('9002')).toMatchObject({state: 'completed'});
   expect(site.starts().map(e => e.url).filter(u => u !== courseUrl('9001')).sort()).toEqual(jobUrls('9002').sort());
   const snapshot = await backend.get('/api/snapshot');
-  expect(snapshot.sync.find((s: any) => s.courseId === ids['9001'])).toMatchObject({status: 'failed', error: 'Moodle could not be read for this course. Earlier data was kept.'});
+  expect(snapshot.sync.find((s: any) => s.courseId === ids['9001'])).toMatchObject({status: 'partial', coverage: 'partial'});
   expect(snapshot.sync.find((s: any) => s.courseId === ids['9002'])).toMatchObject({status: 'partial'});
   // Only the course that showed the dataset account saved records.
   const saved = JSON.stringify(snapshot.collection?.records ?? []);
