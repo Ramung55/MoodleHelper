@@ -7,7 +7,7 @@ All fixtures are offline, inert inputs. They contain no captured student or cour
 - **`synthetic`** (top level): invented edge-case inputs with fixture-specific `data-fact` markers. They are not SDU markup, and their English and Russian text claims no SDU locale support.
   - `my-courses-shell.html` (#82) stands in for the `/my/courses.php` page shell, which #3 did not record. It holds only the obviously invented session value `"sesskey":"0InventedFixtureKey0"` for the course discovery run's in-memory read. M.cfg sesskey placement assumed from Moodle defaults; not recorded by #3. The owner's Chrome check (#82 step 2) confirms the live placement. This is the only session value any fixture may contain.
 
-One more observed-structure file is not in the manifest, because it is script text rather than inert markup: `observed/m-cfg-user-id.txt` (#93) is the inline `M.cfg = {...}` page configuration with the keys recorded in Addendum 7 of the compatibility report (2026-11-12), ending with `"userId":<number>`. Every value is invented; the id has a different number of digits from the owner's. `tests/test_moodle_fixtures.py` checks its shape.
+One more observed-structure file is not in the manifest, because it is script text rather than inert markup: `observed/m-cfg-user-id.txt` (#93) is the inline `M.cfg = {...}` page configuration with the keys recorded in Addendum 7 of the compatibility report (2026-11-12), ending with `"userId":<number>`. Every value is invented, including the id 987650. `tests/test_moodle_fixtures.py` checks its shape.
 
 ## Observed coverage
 

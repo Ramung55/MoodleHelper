@@ -884,7 +884,6 @@ def test_m_cfg_user_id_fixture_holds_only_the_recorded_shape_with_an_invented_id
     config = json.loads(match[1])
     assert list(config) == ["courseContextId", "contextid", "contextInstanceId", "langrev", "templaterev", "siteId", "userId"]
     assert text.count('"userId":') == 1 and type(config["userId"]) is int
-    assert re.fullmatch(r"[1-9][0-9]{0,18}", str(config["userId"]))
-    # The owner's id has 4 digits; the invented one cannot be it.
-    assert len(str(config["userId"])) != 4
+    # Only the invented id used by the tests and the network harness.
+    assert config["userId"] == 987650
     assert "sesskey" not in text
