@@ -4,7 +4,7 @@ from copy import deepcopy
 from hashlib import sha256
 import re
 
-from backend.identity import collector_entity_key, namespace_key
+from backend.identity import account_error, collector_entity_key, namespace_key
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -31,6 +31,10 @@ LIVE_SYNC = ('Real dataset. Sync all scans the selected courses read-only throug
 
 class SyncUnavailable(RuntimeError):
     pass
+
+
+class DiscoveryAccountRejected(RuntimeError):
+    """#93: a fixed 409 message; nothing was saved. Never carries the received id."""
 
 
 class BackendService:
@@ -80,7 +84,12 @@ class BackendService:
             project_sources(snapshot, self.store.namespace)
         return self.store.replace(snapshot)
 
-    def ingest_course_discovery(self, observations: list[dict]) -> dict:
+    def ingest_course_discovery(self, observations: list[dict], moodle_user_id: str | None = None) -> dict:
+        # #93: a real dataset saves only the signed-in account's own courses.
+        account = account_error(self.store.namespace, moodle_user_id)
+        if account:
+            from backend.schemas import DISCOVERY_ACCOUNT_MESSAGES
+            raise DiscoveryAccountRejected(DISCOVERY_ACCOUNT_MESSAGES[account])
         # Validate the full batch before mutation; raw wire shape stays permissive
         # for backwards-compatible Snapshot restore.
         incoming = {}

@@ -113,7 +113,7 @@ def test_two_file_store_writers_preserve_latest_whitelist_and_other_records(tmp_
     try:
         initial = first.replace(build_sample_snapshot())
         with ThreadPoolExecutor(max_workers=3) as pool:
-            futures = [pool.submit(api.ingest_course_discovery, [observation("7")]),
+            futures = [pool.submit(api.ingest_course_discovery, [observation("7")], "42"),
                        pool.submit(other.set_tracked_courses, ["c-csc", "missing-legacy"]),
                        pool.submit(other.update_settings, {"timezone": "UTC"})]
             for result in futures:

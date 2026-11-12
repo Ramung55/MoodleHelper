@@ -204,7 +204,14 @@ export type RawCourseObservation = z.infer<typeof RawCourseObservation>;
 export const CourseDiscovery = RawCourseObservation.extend({
   currentTermStatus: z.enum(["current", "past", "unknown"]),
 });
-export const CourseDiscoveryInput = z.object({ observations: z.array(RawCourseObservation) });
+export const CourseDiscoveryInput = z.object({
+  observations: z.array(RawCourseObservation),
+  /** #93: the signed-in Moodle user id, only compared with the dataset identity. */
+  moodleUserId: z
+    .string()
+    .regex(/^[1-9][0-9]{0,18}$/)
+    .optional(),
+});
 
 export const Course = z.object({
   id: z.string(),

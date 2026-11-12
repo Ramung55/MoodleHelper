@@ -242,8 +242,11 @@ class CourseDiscovery(RawCourseObservation):
     currentTermStatus: Literal["current", "past", "unknown"]
 
 
+MoodleUserId = Annotated[str, Field(pattern=r'^[1-9][0-9]{0,18}$', description="#93: the signed-in Moodle user id read from M.cfg \"userId\" in fetched page text. Used only for the comparison with the dataset's stable user id; never stored or returned.")]
+
 class CourseDiscoveryInput(WireModel):
     observations: list[RawCourseObservation]
+    moodleUserId: MoodleUserId = None
 
 
 class Course(WireModel):
@@ -1283,8 +1286,8 @@ class QueueRenewResponse(QueueModel):
 ScanReason = Literal['undiscovered','unsupported_page','collector_unavailable','access_error','signed_out','forbidden','request_failed','limit_reached','invalid_context']
 ScanCollector = Literal['assignment','calendar','material','quiz','submission']
 ScanError = Literal['signed_out','request_failed','invalid_context']
-# claim_limit is server-assigned only (scan job claim cap); workers cannot submit it.
-ScanJobError = Literal['signed_out','request_failed','invalid_context','claim_limit']
+# claim_limit and the #93 account codes are server-assigned only; workers cannot submit them.
+ScanJobError = Literal['signed_out','request_failed','invalid_context','claim_limit','account_mismatch','account_unconfirmed']
 ScanRevision = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
 
 def scan_page_schema(record=False, result_refs=None):
@@ -1327,7 +1330,7 @@ class ScanJob(QueueModel):
     state: QueueState
     attempts: QueueCount
     generation: QueueCount
-    errorCode: ScanJobError = Field(default=None, description="claim_limit is set only by the server when a scan job reached its claim cap of 3 without finishing; workers cannot submit it.")
+    errorCode: ScanJobError = Field(default=None, description="claim_limit is set only by the server when a scan job reached its claim cap of 3 without finishing. account_mismatch and account_unconfirmed (#93) are set only by the server when a finish carried a different or no moodleUserId; nothing from it was saved. Workers cannot submit these codes.")
 
 class ScanRun(QueueModel):
     id: QueueId
@@ -1392,6 +1395,7 @@ class ScanFinish(QueueClaimToken):
     pages: list[ScanPageInput] = Field(max_length=100)
     incompleteReasons: list[ScanReason] = Field(max_length=9,json_schema_extra={'uniqueItems':True})
     errorCode: ScanError = None
+    moodleUserId: MoodleUserId = None
     @model_validator(mode='after')
     def valid_finish(self):
         if (self.outcome == 'failed') != (self.errorCode is not None): raise ValueError('Invalid error code')
@@ -1424,6 +1428,12 @@ class ScanPageList(QueueModel):
 
 class SyncUnavailableError(QueueModel):
     message: Literal['Live course sync is unavailable until Moodle access is verified.']
+
+# #93: fixed POST /api/courses/discovery 409 messages (shared/src/bridge.ts DISCOVERY_MESSAGES).
+DISCOVERY_ACCOUNT_MESSAGES = {
+    'account_mismatch': 'The signed-in Moodle account is not the account of this dataset. Nothing was saved.',
+    'account_unconfirmed': 'The Moodle account could not be confirmed. Nothing was saved.',
+}
 
 SYNC_NO_COURSES = 'Select at least one course to sync.'
 SYNC_UNLINKED_COURSE = 'A selected course is not linked to a Moodle course.'

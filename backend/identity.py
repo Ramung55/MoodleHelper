@@ -62,3 +62,22 @@ def collector_entity_key(namespace: str, entity: str, *, course_id: str,
     elif entity != "course" or module_type is not None or source_id is not None:
         raise ValueError("entity: expected course, or activity/resource with module_type and source_id")
     return json.dumps(parts, ensure_ascii=True, separators=(",", ":"))
+
+
+MOODLE_USER_ID = r"^[1-9][0-9]{0,18}$"
+
+
+def account_error(namespace: str, moodle_user_id: str | None) -> str | None:
+    """#93: None when live evidence may be saved in this dataset, else the server-only error code.
+
+    The demo dataset needs no account. A real dataset accepts only the exact
+    MOODLE_HELPER_STABLE_USER_ID (string equality, no trimming). The received id is
+    only compared here, never stored, logged or returned.
+    """
+    import re
+    parts = validate_namespace(namespace)
+    if parts[0] != "moodle":
+        return None
+    if not isinstance(moodle_user_id, str) or not re.fullmatch(MOODLE_USER_ID, moodle_user_id):
+        return "account_unconfirmed"
+    return None if moodle_user_id == parts[3] else "account_mismatch"

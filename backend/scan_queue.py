@@ -26,6 +26,8 @@ SYNC_ERRORS = {
     'invalid_context': 'The course selection or its Moodle link changed during the sync. Earlier data was kept.',
     'claim_limit': 'The sync was interrupted too often and stopped. Earlier data was kept.',
     'cancelled': 'The sync was cancelled. Earlier data was kept.',
+    'account_mismatch': 'The signed-in Moodle account is not the account of this dataset. Earlier data was kept.',
+    'account_unconfirmed': 'The Moodle account could not be confirmed. Earlier data was kept.',
 }
 
 
@@ -163,7 +165,8 @@ class ScanQueueService(QueueService):
             self.execute(c, "UPDATE queue_jobs SET state='failed',error_code=?,generation=generation+1,token=NULL,expires=NULL WHERE namespace=? AND id=?",
                          code, self.ns, row.id)
             if not self.execute(c, 'SELECT 1 FROM scan_coverage WHERE namespace=? AND job_id=?', self.ns, row.id).first():
-                reason = 'request_failed' if code == 'claim_limit' else code
+                # Server-only codes (claim_limit, #93 account codes) are not page reasons.
+                reason = code if code in ('signed_out', 'invalid_context') else 'request_failed'
                 self.execute(c, 'INSERT INTO scan_coverage(namespace,job_id,reasons) VALUES(?,?,?)', self.ns, row.id, canonical([reason]))
             forget_job_failures(c, row.id)
             if snapshot is not None:
@@ -238,10 +241,25 @@ class ScanQueueService(QueueService):
             body = schemas.ScanFinish.model_validate(body).model_dump(exclude_none=True)
         except ValidationError:
             raise QueueInvalid() from None
+        signed_out = body['outcome'] == 'failed' and body.get('errorCode') == 'signed_out'
+        def pending_of_run(c, row):
+            # The run's unstarted jobs: they fail without a claim, so without a Moodle request.
+            return self.execute(c, """SELECT DISTINCT j.* FROM queue_jobs j JOIN queue_links l ON l.namespace=j.namespace AND l.job_id=j.id
+                WHERE j.namespace=? AND j.kind='scan' AND j.state='pending' AND j.id<>? AND l.run_id IN
+                (SELECT run_id FROM queue_links WHERE namespace=? AND job_id=?)""", self.ns, row.id, self.ns, row.id).all()
         def action(c):
             row = self._valid(c, body['jobId'], body['generation'], body['token'])
             snapshot, context, source = self._current_mapping(c, row)
             if row.scan_revision != body['selectionRevision']: raise QueueConflict()
+            # #93: the received id is only compared here; it is not stored, logged or returned.
+            account = self.collection.account_error(body.get('moodleUserId'))
+            # A signed-out finish without an id is handled as before, but merges no evidence.
+            unconfirmed_sign_out = signed_out and account == 'account_unconfirmed'
+            if account and not unconfirmed_sign_out:
+                # Nothing from this batch is written; the run's pending jobs fail with the same code.
+                self._fail_jobs(c, [row] + pending_of_run(c, row), account, snapshot)
+                self._save(c, snapshot)
+                return self._job(c, self.execute(c, 'SELECT * FROM queue_jobs WHERE namespace=? AND id=?', self.ns, row.id).one())
             for ordinal, page in enumerate(body['pages']):
                 page_kind = page_id = None
                 if 'pageUrl' in page:
@@ -264,18 +282,15 @@ class ScanQueueService(QueueService):
                         if candidate.get('sourceCourseId') not in (None, source): raise QueueInvalid()
                     entry = {'revision': context['selectionRevision'], 'body': {'pageUrl':page['pageUrl'],
                              'visitId':f"scan:{row.id}:{ordinal}"}}
-                    self.collection._merge_refresh(snapshot, entry, {'collector':collector, 'result':page['result'],
-                                                                     'observedAt':page['observedAt']})
+                    if not unconfirmed_sign_out:
+                        self.collection._merge_refresh(snapshot, entry, {'collector':collector, 'result':page['result'],
+                                                                         'observedAt':page['observedAt']}, body.get('moodleUserId'))
                 evidence = {k:v for k,v in page.items() if k != 'result'}
                 evidence['ordinal'] = ordinal
                 self.execute(c, 'INSERT INTO scan_pages(namespace,job_id,ordinal,page) VALUES(?,?,?,?)',
                              self.ns, row.id, ordinal, canonical(evidence))
-            cascade = []
-            if body['outcome'] == 'failed' and body.get('errorCode') == 'signed_out':
-                # The session is gone: the run's unstarted jobs fail without a request.
-                cascade = self.execute(c, """SELECT DISTINCT j.* FROM queue_jobs j JOIN queue_links l ON l.namespace=j.namespace AND l.job_id=j.id
-                    WHERE j.namespace=? AND j.kind='scan' AND j.state='pending' AND j.id<>? AND l.run_id IN
-                    (SELECT run_id FROM queue_links WHERE namespace=? AND job_id=?)""", self.ns, row.id, self.ns, row.id).all()
+            # The session is gone: the run's unstarted jobs fail without a request.
+            cascade = pending_of_run(c, row) if signed_out else []
             if self.verified:
                 if body['outcome'] == 'completed':
                     incomplete = bool(body['incompleteReasons']) or any(p['coverage'] != 'complete' for p in body['pages'])
