@@ -18,3 +18,4 @@ Definition of done:
 
 If an acceptance criterion is wrong, impossible, or contradicts
 another one, create a comment on the issue about it.
+Run tests appropriate to the change and report commands and results, including any blocked checks. Preserve existing unrelated changes. Follow user instructions governing issue comments and external actions.

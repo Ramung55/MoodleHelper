@@ -1,5 +1,10 @@
 # SQLite storage operations and recovery (#6)
 
+This document records the SQLite implementation and its original decisions.
+PostgreSQL support was added later; for current database URL configuration and
+PostgreSQL verification, see the [README](../../README.md). Statements below
+that reject other database drivers describe the earlier SQLite-only decision.
+
 The local backend owns authoritative application data. SQLAlchemy's synchronous
 SQLite path uses Python's built-in sqlite3 driver; SQLAlchemy>=2,<3 is the only
 new direct dependency. No server, Alembic, async driver or additional package is

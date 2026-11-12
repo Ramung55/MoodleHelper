@@ -24,6 +24,73 @@ The generated API description is at http://127.0.0.1:8000/openapi.json.
 No Moodle login, extension, frontend process, or external account is needed.
 `uv.lock` pins the approved dependencies; `uv sync --locked` checks it unchanged.
 
+## Run the container locally
+
+With Docker running, build and start the application from the repository root:
+
+```sh
+docker build -t moodlehelper:local .
+docker volume create moodlehelper-data
+docker run --name moodlehelper -p 127.0.0.1:8000:8000 \
+  -v moodlehelper-data:/data moodlehelper:local
+```
+
+Open http://127.0.0.1:8000. The image runs as UID 10001 and defaults to
+`MOODLE_HELPER_DATABASE_URL=sqlite:////data/moodle-helper.sqlite3`. The named
+volume preserves SQLite data across container replacement; a bind-mounted
+directory must be writable by UID 10001. Set `MOODLE_HELPER_DATABASE_URL` at
+runtime to use a different supported SQLite path or PostgreSQL connection.
+Provide database credentials through your deployment's secret mechanism, not the
+image or command history.
+
+This is a local-only application without user accounts or password login. Its
+process binding guards writes, but is not authentication against local callers.
+Keep the published port on loopback; the existing Host allowlist and security
+decision do not authorize public deployment. See
+[_docs/decisions/local-process-auth.md](_docs/decisions/local-process-auth.md).
+
+### Compose with PostgreSQL
+
+Copy `.env.example` to `.env`, choose a unique password using letters, digits,
+`_` and `-`, and update both `POSTGRES_PASSWORD` and
+`MOODLE_HELPER_DATABASE_URL` to match. The URL must also use the configured
+user and database. Other special characters require correct Compose quoting and
+URL percent-encoding. `.env` is ignored by Git. Start the stack with:
+
+```sh
+docker compose up -d --build --wait
+docker compose ps
+docker compose logs --tail=100 app postgres
+docker compose down
+```
+
+Open http://127.0.0.1:8100. PostgreSQL is available only on the Compose network;
+its named volume survives `docker compose down`. Avoid `down --volumes` unless
+you intend to permanently delete the database. The app applies its versioned
+migrations automatically on startup. Back up the PostgreSQL volume or database
+before an upgrade and check the logs if startup fails. The database name and
+credentials initialize only a new volume: editing `.env` does not rotate them
+in an existing database. Existing SQLite data is not imported automatically;
+see the migration plan below before moving any data.
+
+For a database backup before upgrading, while the stack is running:
+
+```sh
+docker compose exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > moodlehelper-backup.sql
+```
+
+Keep that backup private. Migrations run when the updated app starts via
+`docker compose up -d --build --wait`; review the app logs and retain the backup
+for recovery. Do not replace existing data without an approved migration plan.
+
+If the stack does not start, check `docker compose ps` and the logs above,
+confirm Docker is running and port 8100 is free, and verify the database URL
+matches the initialized PostgreSQL credentials. Treat Compose configuration and
+logs as potentially sensitive when sharing them. The application remains a
+local-only service without user-account authentication.
+The Chrome extension currently targets a different dashboard origin and backend
+port; its integration with the Compose dashboard on port 8100 is not verified.
+
 ## Toolchain decision and outstanding documentation
 
 The backend uses FastAPI with uv/pytest and file-backed SQLite through the
@@ -122,8 +189,46 @@ uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 Use a writable local path of your choice. Relative SQLite paths resolve against
-the repository root. Non-SQLite, memory, credential-bearing or query-option URLs
-are rejected; there is no silent memory fallback and no automatic `.env` loading.
+the repository root. SQLite memory, credential-bearing or query-option URLs are
+rejected; there is no silent memory fallback and no automatic `.env` loading.
+
+For PostgreSQL, provide a database URL with a host and database name:
+
+```powershell
+$env:MOODLE_HELPER_DATABASE_URL = 'postgresql://USER:PASSWORD@localhost:5432/DATABASE'
+uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Replace the connection values with your own. The backend creates its schema in
+the configured database; use an empty database. PostgreSQL does not automatically
+import existing SQLite data. When running in Docker, use a database hostname
+reachable from the application container (not `localhost` for another container).
+For the optional PostgreSQL integration test, set
+`MOODLE_HELPER_TEST_POSTGRES_URL` to a disposable empty PostgreSQL database.
+PostgreSQL uses the existing versioned migrations in a transaction and serializes
+repository writes with a transaction-scoped advisory lock. A newer or unversioned
+schema is rejected instead of being reset. Back up the target database before an
+upgrade; PostgreSQL connections use the configured URL and close between operations.
+
+Existing SQLite data is not moved by changing the URL. A migration would require
+an explicit approval: stop writers, take and verify a SQLite backup, export the
+intended dataset with the application's backup facility, restore it into an isolated
+PostgreSQL database, compare the restored data and exercise the application, then
+switch configuration only after verification. Keep the original SQLite backup for
+rollback. The application backup may not include browser-local documents or all
+operational queue and notification state; assess those separately before any move.
+No existing data is migrated by the commands in this section.
+
+On 2026-11-09, the PostgreSQL integration suite passed five tests against a
+disposable PostgreSQL 16 instance. It exercised database connection, a version-1
+upgrade and injected rollback, API create/update/delete, queue locking, backup
+restore, and store reopening. A separate disposable-container restart retained
+the test data. Invalid database credentials were rejected, and missing or stale
+process bindings were rejected on writes. These are test results, not a migration
+of the user's SQLite data or a claim of application-account authentication.
+The default backend regression run also completed with 1,495 passed and four
+opt-in integration tests skipped; the PostgreSQL tests were run separately as
+described above.
 Omit `MOODLE_HELPER_DATASET` or set it to `demo`, with all Moodle identity variables
 unset. For a separately configured identity, set all four values before startup:
 
@@ -538,3 +643,44 @@ Results: list output, an HTML report (never auto-opened), `results.json`, and, o
 failure, a screenshot, trace and error context under
 `browser-workspace/e2e/.artifacts/{normal,broken}/`. All of these are ignored.
 `show-trace` opens a trace. Specs use no retries.
+
+### Docker Compose integration tests
+
+These opt-in tests build and start real Compose stacks with unique project names,
+test-only credentials, temporary ports and disposable volumes. They check startup,
+frontend delivery, PostgreSQL initialization, an upgrade from schema version 1,
+representative contract-validated API CRUD, error and write-binding handling,
+Host/CORS restrictions, and persistence after container recreation. Only their
+own containers and volumes are removed. Docker Desktop must be running.
+
+```powershell
+$env:MOODLE_HELPER_COMPOSE_TEST = '1'
+uv run pytest tests/test_compose_integration.py -q
+Remove-Item Env:MOODLE_HELPER_COMPOSE_TEST
+node e2e/compose.cjs
+```
+
+The browser test uses the project's installed Chromium and checks dashboard
+navigation, a settings update, and persistence across recreation; see
+[e2e/README.md](e2e/README.md) for browser setup. These checks exercise selected
+API operations rather than every endpoint. They do not verify live Moodle,
+extension integration, or user-account authentication (the local application has
+no login). The write binding is a process safeguard, not user authentication.
+
+### Start the local dashboard and backend
+
+After `make install`, run `make` from the repository root. It starts the backend on `127.0.0.1:8000` and the dashboard on `127.0.0.1:5173`; open the displayed dashboard address. Press Ctrl+C in the same terminal to stop the processes it started. If either port is already in use, startup stops without touching the existing application.
+
+For the real Moodle dataset, set `MOODLE_HELPER_DATASET=moodle`, `MOODLE_HELPER_MOODLE_ORIGIN=https://moodle.sdu.edu.kz`, `MOODLE_HELPER_PROFILE_LABEL`, and `MOODLE_HELPER_STABLE_USER_ID` as shown above. If none is set, `make` asks for the profile label and stable Moodle user ID. Enter exactly the same values used previously to access that dataset; different values select a different dataset. The command does not discover your identity, request your Moodle password, or change your database setting. Non-interactive runs require all four variables to be set. A partially configured identity fails instead of guessing.
+
+To sync, install and enable the browser extension and sign in to SDU Moodle in Chrome. Starting the dashboard alone does not sign in or initiate a sync. The `make run` and `make frontend` commands remain available for starting each service separately.
+
+If `uv` reports that the existing `.venv` Python cannot start, keep that environment intact and use a separate one in PowerShell:
+
+```powershell
+$env:UV_PROJECT_ENVIRONMENT = '.venv-new'
+uv sync
+make
+```
+
+Keep `UV_PROJECT_ENVIRONMENT` set in that terminal for later starts. The launcher also requires Node.js, Bun, uv, and GNU Make; install the project dependencies first with `make install`.

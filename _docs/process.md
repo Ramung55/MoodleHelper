@@ -31,3 +31,6 @@ Rules
 - The engineer does not close the issue
 - QA does not fix the code, only outputs PASS or FAIL
 - The orchestrator closes the issue only after QA outputs PASS
+## Grooming and evidence
+
+The PM grooms one issue at a time using `_docs/task-template.md`, including measurable criteria, edge cases and dependencies. If an issue is already groomed, review it against the template and acceptance criteria before implementation; improve it if needed. The engineer implements and tests one groomed issue and commits the work. QA independently reports PASS or FAIL for each criterion, including test commands, results and evidence. An unverified criterion cannot pass. On FAIL, return the issue and evidence to the engineer and repeat QA after changes. The orchestrator closes only after a complete QA PASS, then selects the next open issue. User instructions and authorization govern external issue updates and take precedence over this workflow.
