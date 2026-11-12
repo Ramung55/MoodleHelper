@@ -194,13 +194,14 @@ describe("#16 evidence registry", () => {
       expect(cell.evidenceBasis).toBe("upstream-not-seen-on-sdu");
     }
   });
-  it("keeps personal submission collection unavailable without a bound Moodle identity", () => {
+  it("#94: only the live Sync all registry collects submission status; synthetic and disabled stay unavailable", () => {
     const dir = resolve(root, "extension/src");
     for (const file of readdirSync(dir).filter(
       (f) => f.endsWith(".ts") && f !== "moodle-submission-status.ts" && f !== "page-refresh.ts",
     ))
       expect(readFileSync(resolve(dir, file), "utf8")).not.toContain("moodle-submission-status");
-    for (const registry of [liveRegistry(), syntheticFixtureRegistry(), disabledRegistry()])
+    expect(liveRegistry().submission).toMatchObject({ availability: "available", evidenceMode: "verified" });
+    for (const registry of [syntheticFixtureRegistry(), disabledRegistry()])
       expect(registry.submission.availability).toBe("unavailable");
   });
 });
@@ -670,5 +671,52 @@ describe("AC5: observation time and source link", () => {
       again.access.reason = "accessible";
       expect(observation(parseMoodleSubmissionStatus(value, observedAt))).toEqual(first);
     }
+  });
+});
+
+describe("#94: the live Sync all collector", () => {
+  /** The scan's envelope for one fetched assignment page: no expected ids, which the collector derives. */
+  const envelope = (html: string, cmid = cmidOf(html)) => {
+    const { expectedSourceCourseId: _c, expectedSourceCourseModuleId: _m, ...rest } = input(html, {
+      requestedUrl: urlFor(cmid),
+      finalUrl: urlFor(cmid),
+    });
+    return rest;
+  };
+  const collect = (html: string, selection: string[] = ["9001"], cmid?: string) =>
+    liveRegistry().submission.collect(envelope(html, cmid), selection, observedAt, {
+      title: "Fictional title",
+    });
+  it.each(states)("%s: module-keyed result from the scan's course and requested cmid", async (_p, html, state, wording) => {
+    const cmid = cmidOf(html);
+    expect(await collect(html)).toEqual({
+      kind: "submission",
+      observations: [
+        {
+          sourceCourseId: "9001",
+          sourceCourseModuleId: cmid,
+          sourceUrl: urlFor(cmid),
+          observation: { status: state, evidence: wording, observedAt, actionRequired: state === "reopened" },
+        },
+      ],
+      reviews: [],
+      diagnostics: [],
+      pages: [],
+      coverage: "complete",
+      scope: "visited_activity_only",
+    });
+  });
+  it.each(unknownInputs)("%s stays unknown with no wording", async (_name, html) => {
+    const result = await collect(html, ["9001"], "990101");
+    expect(result.kind).toBe("submission");
+    const [record] = (result as Extract<typeof result, { kind: "submission" }>).observations;
+    expect(record!.observation).toEqual({ status: "unknown", observedAt, actionRequired: false });
+    expect(record).not.toHaveProperty("sourceActivityId");
+  });
+  it("never copies the cmid into sourceActivityId and fails on another course", async () => {
+    const result = await collect(submitted);
+    expect(JSON.stringify(result)).not.toContain("sourceActivityId");
+    expect(await collect(submitted, ["9002"])).toEqual({ kind: "failed", reasons: ["identity_mismatch"] });
+    expect(await collect(submitted, [])).toEqual({ kind: "failed", reasons: ["identity_mismatch"] });
   });
 });
