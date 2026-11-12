@@ -874,3 +874,17 @@ def test_quiz_live_markup_and_weekday_quirk_follow_addendum_4():
     assert quirk["shownWeekday"] != quirk["computedWeekday"]
     assert closed == (f"Closed: {quirk['shownWeekday']}, {close_at.day} {close_at:%B %Y}, "
                       f"{close_at:%I:%M %p}").replace(" 0", " ")
+
+
+def test_m_cfg_user_id_fixture_holds_only_the_recorded_shape_with_an_invented_id():
+    # #93 Addendum 7: the location and shape of the signed-in user id, never a real value.
+    text = (ROOT / "observed" / "m-cfg-user-id.txt").read_text(encoding="utf-8")
+    match = re.fullmatch(r"M\.cfg = (\{.*\});\n", text)
+    assert match
+    config = json.loads(match[1])
+    assert list(config) == ["courseContextId", "contextid", "contextInstanceId", "langrev", "templaterev", "siteId", "userId"]
+    assert text.count('"userId":') == 1 and type(config["userId"]) is int
+    assert re.fullmatch(r"[1-9][0-9]{0,18}", str(config["userId"]))
+    # The owner's id has 4 digits; the invented one cannot be it.
+    assert len(str(config["userId"])) != 4
+    assert "sesskey" not in text
