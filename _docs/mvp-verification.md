@@ -35,7 +35,7 @@ Requirement rows after this run:
 | Detect session, discover and select current courses | **verified** (live, this run) |
 | Update while browsing and sync all selected courses, with freshness and failures | **verified** for Sync all and one visited assignment; full-sync freshness shows partial (see above) |
 | Collect Moodle assignment, quiz and calendar deadlines | **verified** (live, this run) |
-| Track changes and notify with old and new dates | unverified (no date changed during the run) |
+| Track changes and notify with old and new dates | unverified (no date changed during the run); partial synthetic-harness evidence 2026-11-13, see #106 section below |
 | Suggest syllabus and import PDF/DOCX; extract locally | unverified |
 | Add clear dates with provenance, review and reconcile | unverified |
 | Teaching weeks; configure calendar and breaks | unverified |
@@ -48,6 +48,43 @@ Requirement rows after this run:
 | Student journey and privacy | unverified as a whole |
 
 #96 criteria 1–4 pass live in this run; #96 stays open pending independent QA. **MVP verdict: FAIL**, because most requirement rows above are still unverified. Known weak points: Chrome may show an unexpected Save As window that, if closed, ends as "Download interrupted" with no hint, because the extension does not keep Chrome's error code (`chromeStopped` in `extension/src/material-transfer.ts`). Full-sync coverage also never reaches complete.
+
+## Deadline change tracking for #106, 2026-11-13 (synthetic harness, partial)
+
+**Source of the date changes: the SYNTHETIC fixture harness `tests.collection_network_app:app`, not live Moodle.** Live Moodle cannot be changed for this check. Fixture values are fictional ("date A/B/C/D").
+
+Setup: branch `verify/issue-106-deadline-changes`. Harness started with `MOODLE_HELPER_COLLECTION_TEST_DATABASE` set to an absolute `synthetic-collection.sqlite3` outside the repository. Port 8000 was occupied by an already-running live-mode backend that this session was not permitted to stop, so the harness ran on 127.0.0.1:8001 and was driven over loopback HTTP by `tests/deadline_change_driver.py` (test-only; `MOODLE_HELPER_DRIVER_BASE`). Because the frontend dev server proxies only to port 8000 and the extension targets it, the dashboard pages, the extension worker and the owner's Chrome were **not** part of this run. Sample settings: reminders enabled.
+
+Steps and observed results (each step: one `POST /api/collection/visits` + `POST /api/collection/refresh` with a newer `observedAt`):
+
+| Step | Observed (Snapshot over HTTP) |
+| --- | --- |
+| Unknown due date first | stream not established, no accepted value, no new change or alert |
+| First known date A | accepted A, established; no change record, no alert (baseline) |
+| Date A again | no change, no alert |
+| Date B | one change record; one unread alert "`<title>` changed from A (date only, no time given) to B (date only, no time given)", delivery `pending` |
+| Date B again | no change, no alert |
+| Later unknown due date | accepted stays B; no change, no alert |
+| `syntheticDeadlineRemoval` | one change; one alert "`<title>`: deadline removed (was B …)", delivery `pending`; accepted `removed` |
+| Date C after removal | one change; one alert "`<title>` changed from deadline removed to C …", delivery `pending` |
+| Harness stopped and restarted on the same SQLite file | accepted C, same 4 change alerts with unchanged delivery states; replaying C added nothing |
+| Date D after restart | one change, one `pending` alert |
+
+Tests run: `uv run pytest tests/test_deadline_tracking.py tests/test_alert_delivery.py tests/test_reminders.py` (57 passed, including the new `test_established_removal_then_known_date_alerts_old_and_new` for criterion 6(b) and 6(a)); browser-workspace `notification-delivery` and `reminder-worker` (14 passed, mocked Chrome APIs).
+
+| #106 criterion | Status |
+| --- | --- |
+| 1 Changed date shown | backend projection verified (HTTP + tests); `/deadlines` page not observed |
+| 2 Alert with both dates | verified at Snapshot/HTTP level; Alerts page and history sheet not observed |
+| 3 Notification, granted | [auto] only; extension and owner Chrome not run |
+| 4 Notification, denied | [auto] only; extension and owner Chrome not run |
+| 5 No duplicates | verified for change records and alerts; OS notification count not observed |
+| 6 Gains a date | (a) and (b) verified (HTTP + new test); notification part pending |
+| 7 Loses a date | (a) and (b) verified (HTTP + tests); notification part pending |
+| 8 Dashboard only when hidden/disabled | [auto] only |
+| 9 Restart | verified for Snapshot and alerts; `/deadlines` page not observed |
+
+No defect found. Remaining: rerun with the harness on port 8000 (after the live backend is stopped by the owner), the dashboard pages, the rebuilt extension and the owner's Chrome for criteria 1–5 UI parts and the real notification, click and denied checks. Row stays **unverified**.
 
 ## Read-only observation, 2026-11-13
 
