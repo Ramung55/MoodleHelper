@@ -133,7 +133,8 @@ function Planner() {
                           {v.title}
                         </Link>
                         <span className="shrink-0 text-xs">
-                          {TYPE_LABEL[v.a.type]} ·{" "}
+                          {TYPE_LABEL[v.a.type]}
+                          {v.a.personal && " · Personal event"} ·{" "}
                           {v.outstanding ? `+${weightOf(v, s)} est.` : "done"}
                         </span>
                       </div>

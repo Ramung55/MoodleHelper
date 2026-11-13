@@ -37,6 +37,14 @@ def test_personal_crud_and_source_separation(client):
     assert imported["assessments"] == before["assessments"]
 
 
+def test_delete_personal_event_keeps_moodle_overlay(client):
+    """#110: a non-personal id is a full no-op; the Moodle item's edit and hidden flag stay."""
+    edited = client.patch("/api/assessments/a1/overlay", json={"titleOverride": "Edited", "hidden": True}).json()
+    deleted = client.delete("/api/personal-events/a1").json()
+    assert deleted["assessments"] == edited["assessments"]
+    assert deleted["overlays"] == edited["overlays"]
+
+
 def test_unique_personal_ids(client):
     ids = [client.post("/api/personal-events", json=event()).json()["assessments"][-1]["id"] for _ in range(4)]
     assert len(set(ids)) == 4

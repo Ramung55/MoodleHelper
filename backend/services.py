@@ -229,7 +229,10 @@ class BackendService:
 
     def delete_personal_event(self, id: str) -> dict:
         def apply(s):
-            s["assessments"] = [a for a in s["assessments"] if not (a["id"] == id and a["personal"])]
+            kept = [a for a in s["assessments"] if not (a["id"] == id and a["personal"])]
+            if len(kept) == len(s["assessments"]):
+                return  # non-personal or missing id: full no-op, Moodle overlays stay (#110)
+            s["assessments"] = kept
             s["overlays"] = [o for o in s["overlays"] if o["assessmentId"] != id]
         return self.store.mutate(apply)
 
