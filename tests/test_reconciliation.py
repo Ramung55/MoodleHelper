@@ -1,5 +1,6 @@
 """Invented examples through real FastAPI and the transactional SQLite store."""
 from copy import deepcopy
+import pytest
 from concurrent.futures import ThreadPoolExecutor
 import sqlite3
 
@@ -298,3 +299,27 @@ def test_namespace_isolation_and_foreign_restore_fails_closed(harness):
             assert response.status_code==409
         assert other.read()==before and store.read()==original
     finally: other.close()
+
+
+@pytest.mark.parametrize('day,pairs', [('2026-10-28', 1), ('2026-10-30', 0)])
+def test_local_review_accept_projects_syllabus_source_and_same_day_match_without_moodle_refresh(harness, day, pairs):
+    """#108: accepting a routed local proposal immediately projects its syllabus source; a same-day one is suggested."""
+    from test_local_review import review
+    from test_local_syllabus import request, submit
+    client, _, _ = harness
+    collect_assignment(client)
+    body, headers = request(client)
+    body['proposals'][0].update(title='Synthetic assignment', type='assignment', date={'kind': 'date', 'date': day})
+    routed = submit(client, body, headers).json()
+    route = routed['routes'][0]
+    assert route['disposition'] == 'review' and 'conflicting_match' in route['reasons']
+    receipt = next(r for r in routed['snapshot']['localSyllabusReceipts'] if r['route']['candidateId'] == route['candidateId'])
+    context = dict(datasetId=body['datasetId'], pipelineVersion='local-syllabus-1', proposalFingerprint=receipt['fingerprint'],
+                   decisionId='decision-108', evidenceMode='original-available', acknowledgedStoredOnly=False)
+    response = review(client, route['candidateId'], {'kind': 'confirm', 'localReview': context}, headers)
+    assert response.status_code == 200, response.text
+    layer = response.json()['reconciliation']
+    syllabus = [s for s in layer['sources'] if s['kind'] == 'syllabus' and s['candidateId'] == route['candidateId']]
+    assert len(syllabus) == 1
+    pending = [p for p in layer['pairs'] if p['status'] == 'pending' and syllabus[0]['id'] in (p['left'], p['right'])]
+    assert len(pending) == pairs
