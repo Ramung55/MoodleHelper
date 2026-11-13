@@ -1,5 +1,54 @@
 # MVP verification audit
 
+## Live journey attempt for #96, 2026-11-13 (Claude in Chrome)
+
+Setup: HEAD `ca3d48e`, freshly built `extension/dist` loaded unpacked by the owner in their own Chrome, backend started with `MOODLE_HELPER_DATASET=moodle` and the owner's numeric Moodle user id (environment only, not recorded here), frontend dev server on 127.0.0.1:5173. The owner signed in to SDU Moodle themselves; no credentials were typed. Moodle was read-only: only GET page loads and the course-list AJAX call that the extension and Moodle's own page make. Nothing was submitted or changed.
+
+**Blocking defect found.** On every live page read (`/my/`, `/my/courses.php`, `/calendar/view.php?view=upcoming`, `/course/view.php`), Moodle's inline `M.cfg` now contains `"homeurl":{}` before `"userId"`. The extension's `M_CFG_USER_ID` pattern (`extension/src/moodle-page-analysis.ts:55`) allows no `}` between `M.cfg = {` and `"userId"`, so it does not match. The extension therefore sends no `moodleUserId`, and the backend rejects live saves with 409 `account_unconfirmed`. Seen in the dashboard: Settings → **Find my SDU courses** showed "The Moodle account could not be confirmed. Nothing was saved."; backend log `POST /api/courses/discovery 409`. Compatibility Addendum 7 (2026-11-12) recorded `M.cfg` as flat, so either the live shape changed or the earlier check missed the field.
+
+First run, before the fix: every criterion failed or was blocked at discovery.
+
+**Fix (same day, uncommitted at the time of writing).** `M_CFG_USER_ID` now allows flat `{...}` objects inside `M.cfg`. The `observed/m-cfg-user-id.txt` fixture gains `"homeurl":{}`, and a unit case checks that a `"userId"` outside `M.cfg` is still ignored after such an object. Tests: `uv run pytest tests/test_moodle_fixtures.py` 104 passed; browser-workspace `live-scan-units`, `course-discovery-network`, `live-scan-network` and `sign-in-probe` 44 passed. The owner reloaded the rebuilt extension. The first reload did not take; after the owner re-checked the extension source and reloaded again, the new code ran.
+
+### Rerun after the fix
+
+Moodle comparison method: Moodle's own `/mod/assign/index.php?id=<course>` and `/mod/quiz/index.php?id=<course>` tables and `/calendar/view.php?view=upcoming` (GET only), compared by course-module id and local minute with the dashboard's records and its Deadlines page.
+
+| #96 criterion | Result | Evidence |
+| --- | --- | --- |
+| Select current courses; Sync all; assignment, quiz and calendar deadlines match Moodle | **PASS** | Find my SDU courses: "Found 8 in-progress courses", matching the 8 enrolled courses. All 8 were ticked; Sync all finished all 8 (`/api/scan/finish` × 8). Assignments: 32 in Moodle, 32 in the dashboard, same set, same due date or no date on all 32. Quizzes: 3 in Moodle (one course), 3 in the dashboard, same close times. Calendar upcoming: 6 events (all `mod_assign` due), all 6 in the dashboard at the same minute. The Deadlines page shows "35 shown". |
+| Opening one assignment page updates the dashboard; submission status matches Moodle | **PASS** | One synced assignment page was opened. The backend recorded a `submission` refresh, `outcome: ok`, `coverage: complete`, `evidenceMode: verified`, and the assessment's `lastObservedAt` moved to the visit time. The dashboard shows "Moodle: Not submitted"; the page shows "No submissions have been made yet". Across all 32 assignments, the dashboard shows 8 Submitted and 24 Not submitted, and Moodle's index shows 8 "Submitted for grading" and 24 "No submission". |
+| Still shown after backend restart | **PASS** | Backend process stopped (port closed) and restarted with the same settings. The snapshot still had 35 assessments, 8 tracked courses, 8 sync states and the visit's `lastObservedAt`. The Deadlines page again showed "35 shown", 8 Submitted and 24 Not submitted. |
+| One PDF material download completes | **PASS** (third attempt) | The Materials page listed 87 materials. Attempts 1 and 2 on one PDF lecture ended "Download interrupted": attempt 1 left a ~718 KB `.tmp` starting with `%PDF-` that was never renamed (about 7 min in "saving"), attempt 2 stopped after about 8 s. Chrome's own History database records both, and three earlier extension downloads on 2026-11-03, as `interrupt_reason` 40 (USER_CANCELED) with an empty target path, after all bytes had been received; the extension's own cancel paths would have ended as `cancelled` or `page_closed` instead. Attempt 3: Chrome showed a Save As window although the extension passes `saveAs: false` and the profile has no "ask where to save" preference; the owner clicked Save. A 717,990-byte file starting with `%PDF-1.7` was saved to Downloads, and the dashboard shows "Download record: saved by Chrome". Probable cause of attempts 1 and 2: the same Save As window was closed, or not seen, so Chrome cancelled. Why Chrome asks is not established. |
+| Sanitised evidence in this file and `compatibility/sdu-moodle.md`, dated | **Done** | This section and compatibility Addendum 8. No user id, names, course ids, titles or dates are recorded. |
+| Each requirement row marked, verdict reassessed | **Done** | Below. |
+
+Other observations:
+- Every course ends with coverage `partial` and reason `unselected_course` (course pages link to modules in courses the scan does not select). Settings therefore shows "0 of 8 courses fully scanned" and the Overview "Last full sync" can never complete, although all deadlines matched.
+- During and for some time after Sync all, Settings kept showing "Sync running…" after all 8 jobs had finished; a page reload cleared it.
+
+Requirement rows after this run:
+
+| MVP requirement | Status |
+| --- | --- |
+| Local Chrome dashboard, no account; local-first and read-only | **verified** (live, this run) |
+| Detect session, discover and select current courses | **verified** (live, this run) |
+| Update while browsing and sync all selected courses, with freshness and failures | **verified** for Sync all and one visited assignment; full-sync freshness shows partial (see above) |
+| Collect Moodle assignment, quiz and calendar deadlines | **verified** (live, this run) |
+| Track changes and notify with old and new dates | unverified (no date changed during the run) |
+| Suggest syllabus and import PDF/DOCX; extract locally | unverified |
+| Add clear dates with provenance, review and reconcile | unverified |
+| Teaching weeks; configure calendar and breaks | unverified |
+| Personal deadlines, edits, hiding and source preservation | unverified |
+| Moodle submission status distinct from personal completion | **verified** for submitted / not submitted (draft and reopened not available in this account) |
+| Weekly counts, weighted workload and warnings | unverified |
+| Materials links and optional selective offline download | links **verified**; download **verified** for one PDF, after confirming Chrome's Save As window |
+| Optional AI with consent | unverified |
+| Local backup, restore and deletion | unverified |
+| Student journey and privacy | unverified as a whole |
+
+#96 criteria 1–4 pass live in this run; #96 stays open pending independent QA. **MVP verdict: FAIL**, because most requirement rows above are still unverified. Known weak points: Chrome may show an unexpected Save As window that, if closed, ends as "Download interrupted" with no hint, because the extension does not keep Chrome's error code (`chromeStopped` in `extension/src/material-transfer.ts`). Full-sync coverage also never reaches complete.
+
 ## Read-only observation, 2026-11-13
 
 The owner's already signed-in in-app browser displayed a course list, a course page with assignment due dates and an assignment page with a due date and submission-status table. This confirms source fields are visible, not that MoodleHelper collects, displays or persists them. Course selection, Sync all, quiz/calendar comparisons, page refresh, restart persistence and an application-initiated PDF download were not verified. All requirement rows retain their existing verified/unverified/failed status and the MVP verdict remains FAIL. Issue #96 remains open; see `autonomous-work-2026-11-13.md` for the criterion-by-criterion record. No private identifiers or credentials are included.
