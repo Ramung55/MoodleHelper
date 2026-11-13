@@ -45,3 +45,29 @@ def test_reconciliation_uses_explicit_slots_not_legacy_arithmetic():
     assert not compatible_dates({"kind": "week", "week": 8}, {"kind": "week", "week": 8}, settings)
     assert compatible_dates(week, {"kind": "exact", "iso": "2027-01-25T00:00:00Z", "tz": "UTC"}, settings)
 
+
+
+def test_saved_calendar_survives_sqlite_restart(tmp_path):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import URL
+    from backend.main import create_app
+    from backend.sqlite_store import SQLiteStore
+
+    path = URL.create("sqlite", database=str(tmp_path / "restart.sqlite3"))
+    calendar = {**CALENDAR, "partialBreaks": [dict(startDate="2027-01-13", endDate="2027-01-13", numbering="preserve")]}
+    store = SQLiteStore(path)
+    try:
+        with TestClient(create_app(store)) as client:
+            assert client.patch("/api/settings", json={"teachingCalendar": calendar}).status_code == 200
+            before = client.get("/api/snapshot").json()["settings"]
+    finally:
+        store.close()
+    store = SQLiteStore(path)
+    try:
+        with TestClient(create_app(store)) as client:
+            after = client.get("/api/snapshot").json()["settings"]
+    finally:
+        store.close()
+    assert after == before
+    assert after["teachingCalendar"]["excludedWeekStarts"] == ["2027-01-18"]
+    assert after["teachingCalendar"]["partialBreaks"] == calendar["partialBreaks"]

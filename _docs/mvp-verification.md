@@ -38,7 +38,7 @@ Requirement rows after this run:
 | Track changes and notify with old and new dates | **verified** on the local stack with the synthetic harness (#106, 2026-11-13), including the owner's real Windows notification and click; the denied case is verified by mocked test only (limitation: Windows Chrome offered no control that produced `denied` for the extension) |
 | Suggest syllabus and import PDF/DOCX; extract locally | **verified** on the local stack with the synthetic harness and synthetic files (#107, 2026-11-13), after two fixes (specific message for a renamed non-document; self-hosted fonts so the dashboard makes no third-party requests). Live Moodle route not exercised, by owner decision; OCR text is not restored after reload, by design (#27) |
 | Add clear dates with provenance, review and reconcile | **verified** on the local stack with the synthetic harness and synthetic files (#108, 2026-11-13); no code defect found. Criterion 1 judged on complete-text synthetic PDFs by owner decision; a PDF with an image-only page goes to review, which is correct per #31. Live Moodle route not exercised, by owner decision |
-| Teaching weeks; configure calendar and breaks | unverified |
+| Teaching weeks; configure calendar and breaks | **verified** on the local stack with the synthetic harness (#109, 2026-11-13); no code defect found. Week groups show the range as "8–14 Feb 2027" rather than ISO dates (same range). Live Moodle route not exercised, by owner decision |
 | Personal deadlines, edits, hiding and source preservation | unverified |
 | Moodle submission status distinct from personal completion | **verified** for submitted / not submitted (draft and reopened not available in this account) |
 | Weekly counts, weighted workload and warnings | unverified |
@@ -166,6 +166,38 @@ Tests run: `uv run pytest`: 1549 passed, 9 skipped (includes the 2 new cases). `
 | 7 Restart persistence | **verified** (fixture) |
 | 8 Failures | no code defect found. The routing stall above stays an observation only, per owner decision 2026-11-13 ("Note it only") |
 | 9 Evidence | this section |
+
+## Teaching weeks and semester calendar for #109, 2026-11-13 (synthetic harness, local stack)
+
+**Route for every criterion: the SYNTHETIC fixture harness `tests.collection_network_app:app`, not live Moodle**, by owner decision 2026-11-13. SDU Moodle was not opened. `tests/deadline_change_driver.py` was not run (it would narrow tracked courses).
+
+Setup: branch `verify/issue-109-teaching-calendar`. Port 8000 was free. The harness ran on 127.0.0.1:8000 with `MOODLE_HELPER_COLLECTION_TEST_DATABASE` set to a fresh absolute `synthetic-collection.sqlite3` outside the repository; this is the "fixture/mock dataset on the local stack". Fresh state: three tracked synthetic courses, no teaching calendar, legacy semester fields present, a seeded exam dated only "Week 9". The frontend dev server was already running on 127.0.0.1:5173. Pages were driven with Claude in Chrome in a new tab of the owner's Chrome, closed afterwards; fields were set with its form tools and each step was awaited. Via Deadlines → **Personal event**: "Synthetic quiz" (Quiz, Teaching week 6) and "Synthetic task" (Assignment, Date only 2027-02-10). Calendar C: 2027-01-04 – 2027-03-14, Asia/Almaty, no exclusions. C+B: C with excluded start 2027-01-18.
+
+| Criterion | Steps | Observed |
+| --- | --- | --- |
+| 1 No calendar | Deadlines, quiz sheet, Overview, Weekly planner | "Unresolved week" group holds "Synthetic quiz" ("Week 6 (no exact date)", "Teaching calendar not set.") and the seeded exam ("Week 9 (no exact date)", "Teaching calendar not set."). Quiz sheet: "Deadline Week 6 (no exact date) Teaching calendar not set."; its source line shows only the observation time, no deadline day or time. Overview: "Teaching calendar not set · Set calendar", both week cards "Set your teaching calendar to count weeks." Planner: "Set your teaching calendar to see weeks. Set calendar" linking to `/settings#teaching-calendar`; all items Unallocated, reason "Teaching calendar not set." |
+| 2 Calendar set | save C | "Saved: 4 Jan 2027 – 14 Mar 2027."; Preview Weeks 1–10. Deadlines: group "Week 6" (heading range "8–14 Feb 2027") holds "Synthetic quiz" ("Week 6 (no exact date)", "Week 6 · 8–14 Feb 2027") and "Synthetic task" ("10 Feb 2027 (no time)"); "Week 9" ("1–7 Mar 2027") holds the exam ("Week 9 · 1–7 Mar 2027"). Quiz sheet: "Week 6 (no exact date)", "8–14 Feb 2027", "Teaching week 6", no day or time. The group heading renders the range in the friendly form; the group's underlying detail is "2027-02-08 – 2027-02-14" (`deadline-display.ts`), the same range |
+| 3 Breaks | save C+B; remove the exclusion and save; partial holiday 2027-01-13 with "I confirm numbering stays unchanged", save; switch to "Unknown — unresolved", save; remove holiday, save | C+B Preview: Weeks 1–9 with 2027-01-25 as Week 3, 2027-02-08 Week 5, 2027-02-15 Week 6, 2027-03-08 Week 9, and "2027-01-18 2027-01-24 Break — counter paused, Full exclusion" (listed as the last row of the table). Deadlines: "Week 5" (8–14 Feb) "Synthetic task"; "Week 6" (15–21 Feb) "Synthetic quiz", "Week 6 · 15–21 Feb 2027"; "Week 9" (8–14 Mar) the exam. Removing the exclusion restored criterion 2 exactly. Preserve: Preview Week 2 notes "2027-01-13–2027-01-13: numbering kept", Deadlines equal criterion 2. Unknown: Preview Week 1 resolved, Weeks 2–10 "Unresolved" with "Institutional numbering is unresolved from a partial holiday…"; Deadlines "Unresolved week" holds "Synthetic quiz" and the exam with "Week N (no exact date)" and "Institutional numbering is unresolved from a partial holiday.", no date (the date-only "Synthetic task" also falls in this group, as Week 6 is unresolved). Removing the holiday restored criterion 2 |
+| 4 Invalid input | with C saved, each draft, **Save teaching calendar**, then **Cancel calendar draft** | Each showed its `role=alert` message and a "Draft: …" line with the same text: "Inclusive boundaries must form 1–60 complete seven-day calendar slots."; "Use at most 59 distinct excluded slot starts."; "Excluded weeks must be full seven-day slots aligned to the calendar start and inside its boundaries."; "Partial breaks must not overlap, including inclusive endpoints."; "A partial break must be shorter than seven days within one nonexcluded anchored slot." The harness log shows no `PATCH /api/settings` for any of them (the only PATCHes after the restart are the four valid saves of criterion 3). Cancel restored the saved inputs and removed the draft line. After a full page reload: "Saved: 4 Jan 2027 – 14 Mar 2027.", inputs and Preview of C; Deadlines equal criterion 2 |
+| 5 Weekly planner | `/planner` with C, then with C+B; Deadlines "Group by day" with C | C: Week 6 Total 2 / Outstanding 2 / Weighted estimate 3, "Synthetic quiz … Date: week only", "Synthetic task … Date: date only"; Week 9 1 / 1 / 3 (exam, "Date: week only"); Unallocated 4 (three dated seeded items "The source date is outside the explicit semester boundaries.", one "Unknown date."). C+B: Week 5 1 / 1 / 2 ("Synthetic task"), Week 6 1 / 1 / 1 ("Synthetic quiz"), Week 9 1 / 1 / 3. Group by day: "Week 6 · no exact day" and "Week 9 · no exact day" groups; only "Synthetic task" under "Wednesday 10 February · no time" |
+| 6 Restart persistence | with C+B saved, stop the harness, restart on the same SQLite file, reload Settings, Deadlines, Planner | Backend returned the same calendar; Settings "Saved: 4 Jan 2027 – 14 Mar 2027.", inputs 2027-01-04 / 2027-03-14 / 2027-01-18, Asia/Almaty, the C+B Preview; Deadlines and Planner equal criterion 3's and 5's C+B results |
+
+New test: `test_saved_calendar_survives_sqlite_restart` in `tests/test_teaching_calendar.py` saves a calendar with an exclusion and a partial holiday through `PATCH /api/settings` on a file-backed `SQLiteStore`, closes it, reopens a new app on the same file and checks the settings are identical. No application code changed.
+
+Observations, not defects: the Deadlines week heading and sheet show the range as "8–14 Feb 2027" (the issue text quoted the ISO detail string); the Preview lists the break row after the teaching weeks rather than in date order.
+
+Tests run: issue-named tests: `tests/test_teaching_calendar.py` + `tests/test_irregular_calendar.py` 58 passed before the new case (28 in `test_teaching_calendar.py` with it); `teaching-calendar`, `personal-event`, `irregular-calendar`, `weekly-overview`, `workload-ui` 33 passed; `workload.test.ts` 12 passed. Full suites: `uv run pytest` 1550 passed, 9 skipped (includes the new case); `bun run test` (frontend) 78 files, 1560 passed.
+
+| #109 criterion | Result |
+| --- | --- |
+| 1 No calendar | **verified** (fixture + auto) |
+| 2 Calendar set | **verified** (fixture + auto); range shown in friendly form, same dates |
+| 3 Breaks | **verified** (fixture + auto) |
+| 4 Invalid input | **verified** (fixture + auto) |
+| 5 Weekly planner | **verified** (fixture + auto) |
+| 6 Restart persistence | **verified** (fixture + new auto test) |
+| 7 Failures | no code defect found |
+| 8 Evidence | this section |
 
 
 ## Read-only observation, 2026-11-13
