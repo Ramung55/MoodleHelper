@@ -227,3 +227,30 @@ def test_submicrosecond_exact_values_and_order_are_not_collapsed(harness):
     second = observed('2026-10-27T10:00:00.0000002Z', {'kind':'exact','iso':'2026-11-01T10:00:00.0000002Z','tz':'UTC'})
     snap = ingest(client, 'submicro-second', second).json()['snapshot']
     assert len(snap['changes']) == count + 1
+
+
+def test_established_removal_then_known_date_alerts_old_and_new(harness):
+    """#106: removed->known on an established stream is a change; first known value is not."""
+    client, _, _ = harness
+    snap = ingest(client, 'gain-unknown', observed('2026-10-27T09:00:00Z', None)).json()['snapshot']
+    changes, alerts = len(snap['changes']), len(snap['alerts'])
+    snap = ingest(client, 'gain-first', observed('2026-10-27T10:00:00Z', {'kind':'date','date':'2026-11-01'})).json()['snapshot']
+    assert (len(snap['changes']), len(snap['alerts'])) == (changes, alerts)  # baseline, no alert
+    assessment = next(a for a in snap['assessments'] if a['id'] == snap['deadlineStreams'][0]['assessmentId'])
+    removal = observed('2026-10-27T11:00:00Z', None); removal['syntheticDeadlineRemoval'] = True
+    snap = ingest(client, 'gain-removed', removal).json()['snapshot']
+    assert len(snap['changes']) == changes + 1 and len(snap['alerts']) == alerts + 1
+    assert snap['alerts'][0]['message'] == f"{assessment['title']}: deadline removed (was 2026-11-01 (date only, no time given))"
+    assert not [s for s in effective_sources(snap, assessment) if s['source'] == 'moodle']
+    unknown = ingest(client, 'gain-unknown-later', observed('2026-10-27T11:30:00Z', None)).json()['snapshot']
+    assert (len(unknown['changes']), len(unknown['alerts'])) == (changes + 1, alerts + 1)
+    regained = observed('2026-10-27T12:00:00Z', {'kind':'date','date':'2026-11-05'})
+    snap = ingest(client, 'gain-known', regained).json()['snapshot']
+    assert len(snap['changes']) == changes + 2 and len(snap['alerts']) == alerts + 2
+    assert snap['changes'][-1]['from'] == {'kind':'removed'} and snap['changes'][-1]['to'] == {'kind':'date','date':'2026-11-05'}
+    alert = snap['alerts'][0]
+    assert alert['message'] == f"{assessment['title']} changed from deadline removed to 2026-11-05 (date only, no time given)"
+    assert alert['delivery']['state'] == 'pending'
+    assert [s['date'] for s in effective_sources(snap, assessment) if s['source'] == 'moodle'] == [{'kind':'date','date':'2026-11-05'}]
+    replay = ingest(client, 'gain-replay', regained).json()['snapshot']
+    assert (len(replay['changes']), len(replay['alerts'])) == (changes + 2, alerts + 2)

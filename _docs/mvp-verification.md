@@ -35,7 +35,7 @@ Requirement rows after this run:
 | Detect session, discover and select current courses | **verified** (live, this run) |
 | Update while browsing and sync all selected courses, with freshness and failures | **verified** for Sync all and one visited assignment; full-sync freshness shows partial (see above) |
 | Collect Moodle assignment, quiz and calendar deadlines | **verified** (live, this run) |
-| Track changes and notify with old and new dates | unverified (no date changed during the run) |
+| Track changes and notify with old and new dates | **verified** on the local stack with the synthetic harness (#106, 2026-11-13), including the owner's real Windows notification and click; the denied case is verified by mocked test only (limitation: Windows Chrome offered no control that produced `denied` for the extension) |
 | Suggest syllabus and import PDF/DOCX; extract locally | unverified |
 | Add clear dates with provenance, review and reconcile | unverified |
 | Teaching weeks; configure calendar and breaks | unverified |
@@ -48,6 +48,48 @@ Requirement rows after this run:
 | Student journey and privacy | unverified as a whole |
 
 #96 criteria 1–4 pass live in this run; #96 stays open pending independent QA. **MVP verdict: FAIL**, because most requirement rows above are still unverified. Known weak points: Chrome may show an unexpected Save As window that, if closed, ends as "Download interrupted" with no hint, because the extension does not keep Chrome's error code (`chromeStopped` in `extension/src/material-transfer.ts`). Full-sync coverage also never reaches complete.
+
+## Deadline change tracking for #106, 2026-11-13 (synthetic harness, local stack)
+
+**Source of the date changes: the SYNTHETIC fixture harness `tests.collection_network_app:app`, not live Moodle.** Live Moodle cannot be changed for this check, and SDU Moodle was not opened while the harness ran. Fixture values are fictional and are written here as dates A, B and C.
+
+Setup: branch `verify/issue-106-deadline-changes`. The owner stopped their live-mode backend. The harness ran on 127.0.0.1:8000 with `MOODLE_HELPER_COLLECTION_TEST_DATABASE` set to a fresh absolute `synthetic-collection.sqlite3` outside the repository. The frontend dev server was already running on 127.0.0.1:5173. The extension was built (`bun run --cwd extension build`) and already loaded in the owner's Chrome; no extension or shared code has changed since the owner's last reload for #96, and `chrome://` pages could not be opened from Claude in Chrome. Pages were read with Claude in Chrome in a new tab. Each step ran `tests/deadline_change_driver.py` (test-only), which makes one `POST /api/collection/visits` and one `POST /api/collection/refresh` with `observedAt` = now. Sample settings have reminders enabled. Notification evidence is the alert delivery state that the extension worker reports to the backend (`chrome.notifications.getAll` runs only in the extension context, which these tools cannot reach).
+
+| Step | `/deadlines` | `/alerts`, delivery |
+| --- | --- | --- |
+| Course tracked; unknown due date first | – | no new row |
+| First date A (baseline) | row shows A | no new row (only the sample row) |
+| Date B | row shows B, not A | exactly one new unread row "`<title>` changed from A (date only, no time given) to B (date only, no time given)", "Browser notification pending"; became `shown` about 42 s later (one attempt id) |
+| Date B again, then a later unknown due date | B stays | no new row, change count unchanged |
+| `syntheticDeadlineRemoval` | "Date unknown" (no syllabus date for this item) | one new row "`<title>`: deadline removed (was B …)", `shown` within about 1 min |
+| Date C | row shows C | one new row "`<title>` changed from deadline removed to C …", `shown` within about 1 min |
+| Assessment sheet (`/deadlines?id=…`) | history lists A → B, B → Removed, Removed → C, each with observed and detected times | – |
+| Harness stopped and restarted on the same SQLite file; waited 75 s (past one worker alarm); replayed C | row shows C | same 3 change rows, all "Sent to Chrome notifications"; attempt ids and `updatedAt` unchanged (no new issuance); replay added no change |
+
+Tests run: `uv run pytest` 1547 passed, 9 skipped (includes the new `test_established_removal_then_known_date_alerts_old_and_new` for criterion 6). Browser-workspace `notification-delivery` and `reminder-worker`: 14 passed (mocked Chrome APIs).
+
+| #106 criterion | Result |
+| --- | --- |
+| 1 Changed date shown | **verified** (fixture + auto) |
+| 2 Dashboard alert with both dates, sheet history | **verified** (fixture + auto) |
+| 3 Notification, permission granted | **verified** (fixture + auto + owner). Delivery became `shown` within 2 min, one issuance per change. Owner rerun (below): exactly one Windows notification; clicking it opened `127.0.0.1:5173/deadlines` at that assessment. |
+| 4 Notification, permission denied | **verified by mocked-Chrome tests** (`notification-delivery` "denied capability…"), per owner decision 2026-11-13, **with a recorded limitation**: on Windows, neither of the owner's attempts made Chrome report `denied` for the extension (see below). |
+| 5 No duplicates | **verified** for change records, Alerts rows and OS issuance (one attempt id per alert, none after the restart); owner saw exactly one notification per change. Extension reload not exercised (`chrome://extensions` unreachable). |
+| 6 Gains a date | **verified** (a) and (b) (fixture + auto) |
+| 7 Loses a date | **verified** (a) and (b) (fixture + auto) |
+| 8 Dashboard only when hidden or reminders disabled | **auto only** (`test_source_change_alert_keeps_old_new_distinct_ids_and_hidden_policy`, `test_denied_failed_and_ineligible_states_are_truthful`) |
+| 9 Restart | **verified** (fixture + auto) |
+
+No defect found. Windows-level notification settings are a known limitation: Chrome would still report `granted` and the backend would record `shown`.
+
+**Owner checks, 2026-11-13.** The orchestrator reran the harness on 127.0.0.1:8000 with a fresh database outside the repository and drove the changes with `tests/deadline_change_driver.py`; the harness was stopped afterwards. Results as reported by the owner:
+
+- Permission granted, change date A → B: exactly one Windows notification; clicking it opened `127.0.0.1:5173/deadlines` at that assessment. Delivery `shown`.
+- Owner blocked notifications for the extension in Chrome's site settings, change B → C: a notification still appeared; delivery `shown`.
+- Owner used the notification's own "turn off notifications" option, change C → D: a notification still appeared; delivery `shown`.
+
+Limitation (criterion 4): on Windows, neither Chrome control the owner tried made Chrome report `denied` for the extension (the extension still saw `granted` and recorded `shown`). The denied path is therefore verified only by the mocked-Chrome test, by owner decision.
+
 
 ## Read-only observation, 2026-11-13
 
