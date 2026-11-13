@@ -851,6 +851,17 @@ async function popupPageLine(app: App, tab: number, url: string | undefined) {
   } finally { (globalThis as any).chrome = previous; dom.window.close(); }
 }
 
+it('#95 AC1: an unsynced assignment page saves nothing, its submission included', async () => {
+  const backend = new Backend('visit-unsynced-assign'); await backend.start();
+  await backend.seed(['9001']);
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  const app = install(backend, clock, moodle(clock, observedSite).fetcher);
+  expect(await visitPage(app, 3, assignUrl('990102'), '9001')).toEqual({status: 'needs_sync', message: VISIT.needsSync});
+  expect(collectionWrites(app).filter(r => r === 'POST /api/collection/refresh')).toHaveLength(1);
+  expect((await backend.get('/api/snapshot')).collection?.records ?? []).toEqual([]);
+  app.worker.dispose();
+}, 60000);
+
 it('#95 AC1/AC4/AC5/AC6: opened course, calendar, assignment and quiz pages save within 10 s; revisits add no duplicates; a changed deadline raises the existing alert', async () => {
   const backend = new Backend('visit-types'); await backend.start();
   const ids = await backend.seed(['9001', '9002']);

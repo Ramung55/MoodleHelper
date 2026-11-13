@@ -122,7 +122,8 @@ export function createPageVisitWorker(options:{source:ScanSource;authority:Reque
         if(saved.status===409&&saved.body?.message===VISIT_MESSAGES.account_mismatch)return set(tab,documentKey,'account_mismatch');
         if(saved.status===409&&saved.body?.message===VISIT_MESSAGES.account_unconfirmed)return set(tab,documentKey,'account_unconfirmed');
         if(saved.status!==200)return set(tab,documentKey,'failed');
-        if(result.kind==='failed'&&result.reasons.includes('missing_metadata'))status='needs_sync';
+        // An unsynced activity saves nothing: its submission is not posted either.
+        if(result.kind==='failed'&&result.reasons.includes('missing_metadata')){status='needs_sync';break;}
         else if(result.kind==='failed'&&status==='saved')status='failed';
       }
       return set(tab,documentKey,status);

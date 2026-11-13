@@ -1,7 +1,7 @@
 """#95 visited-page refresh in the real (verified) dataset, through real HTTP and SQLite.
 
 Bodies are shaped like the extension's live visit output (the observed-fixture
-adapters are exercised in frontend/src/test/page-visit.test.ts); no Moodle request
+adapters are exercised in browser-workspace/live-scan-network.test.ts); no Moodle request
 is made here.
 """
 from test_live_scan import live, quiz, ACCOUNT, ORIGIN, completed, full_scan  # noqa: F401
