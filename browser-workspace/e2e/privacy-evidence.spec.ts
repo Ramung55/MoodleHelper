@@ -165,7 +165,7 @@ test("AC2 recorded fixture-session request trace: SDU receives only GET, no unex
     expect(sdu.filter((e) => e.method !== "GET"), "no non-GET request to SDU").toEqual([]);
     expect(sdu.filter((e) => e.fulfilled !== "fixture")).toEqual([]);
     const hosts = [...new Set(trace.map((e) => e.host))].sort();
-    const allowed = new Set(["127.0.0.1:5173", "127.0.0.1:8000", "moodle.sdu.edu.kz", "fonts.googleapis.com", "fonts.gstatic.com", session.extensionId]);
+    const allowed = new Set(["127.0.0.1:5173", "127.0.0.1:8000", "moodle.sdu.edu.kz", session.extensionId]); // #107: fonts are self-hosted
     expect(hosts.filter((h) => !allowed.has(h)), `unexpected destinations in ${hosts.join(", ")}`).toEqual([]);
     expect(trace.filter((e) => e.fulfilled === "network")).toEqual([]);
     // Every SDU-touching path is a read-only page/navigation; nothing from the worker.
