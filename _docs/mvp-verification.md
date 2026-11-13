@@ -35,7 +35,7 @@ Requirement rows after this run:
 | Detect session, discover and select current courses | **verified** (live, this run) |
 | Update while browsing and sync all selected courses, with freshness and failures | **verified** for Sync all and one visited assignment; full-sync freshness shows partial (see above) |
 | Collect Moodle assignment, quiz and calendar deadlines | **verified** (live, this run) |
-| Track changes and notify with old and new dates | **verified** on the local stack with the synthetic harness (#106, 2026-11-13) up to delivery state `shown`; the real Windows toast, a real notification click and the denied case still need the owner |
+| Track changes and notify with old and new dates | **verified** on the local stack with the synthetic harness (#106, 2026-11-13), including the owner's real Windows notification and click; the denied case is verified by mocked test only (limitation: Windows Chrome offered no control that produced `denied` for the extension) |
 | Suggest syllabus and import PDF/DOCX; extract locally | unverified |
 | Add clear dates with provenance, review and reconcile | unverified |
 | Teaching weeks; configure calendar and breaks | unverified |
@@ -72,15 +72,23 @@ Tests run: `uv run pytest` 1547 passed, 9 skipped (includes the new `test_establ
 | --- | --- |
 | 1 Changed date shown | **verified** (fixture + auto) |
 | 2 Dashboard alert with both dates, sheet history | **verified** (fixture + auto) |
-| 3 Notification, permission granted | **verified** up to `shown` within 2 min, exactly one issuance per change (fixture + auto). **Owner only:** that the Windows toast appeared, and a real click on it. The click target `/deadlines?id=<assessment id>` was opened in the tab and showed that assessment's sheet; the real click is covered only by mocked tests. |
-| 4 Notification, permission denied | **auto only; owner check pending.** Chrome's per-extension notification block is in `chrome://settings`, which Claude in Chrome cannot open. |
-| 5 No duplicates | **verified** for change records, Alerts rows and OS issuance (one attempt id per alert, none after the restart). **Owner only:** count of toasts seen; extension reload not exercised (`chrome://extensions` unreachable). |
+| 3 Notification, permission granted | **verified** (fixture + auto + owner). Delivery became `shown` within 2 min, one issuance per change. Owner rerun (below): exactly one Windows notification; clicking it opened `127.0.0.1:5173/deadlines` at that assessment. |
+| 4 Notification, permission denied | **verified by mocked-Chrome tests** (`notification-delivery` "denied capability…"), per owner decision 2026-11-13, **with a recorded limitation**: on Windows, neither of the owner's attempts made Chrome report `denied` for the extension (see below). |
+| 5 No duplicates | **verified** for change records, Alerts rows and OS issuance (one attempt id per alert, none after the restart); owner saw exactly one notification per change. Extension reload not exercised (`chrome://extensions` unreachable). |
 | 6 Gains a date | **verified** (a) and (b) (fixture + auto) |
 | 7 Loses a date | **verified** (a) and (b) (fixture + auto) |
 | 8 Dashboard only when hidden or reminders disabled | **auto only** (`test_source_change_alert_keeps_old_new_distinct_ids_and_hidden_policy`, `test_denied_failed_and_ineligible_states_are_truthful`) |
 | 9 Restart | **verified** (fixture + auto) |
 
 No defect found. Windows-level notification settings are a known limitation: Chrome would still report `granted` and the backend would record `shown`.
+
+**Owner checks, 2026-11-13.** The orchestrator reran the harness on 127.0.0.1:8000 with a fresh database outside the repository and drove the changes with `tests/deadline_change_driver.py`; the harness was stopped afterwards. Results as reported by the owner:
+
+- Permission granted, change date A → B: exactly one Windows notification; clicking it opened `127.0.0.1:5173/deadlines` at that assessment. Delivery `shown`.
+- Owner blocked notifications for the extension in Chrome's site settings, change B → C: a notification still appeared; delivery `shown`.
+- Owner used the notification's own "turn off notifications" option, change C → D: a notification still appeared; delivery `shown`.
+
+Limitation (criterion 4): on Windows, neither Chrome control the owner tried made Chrome report `denied` for the extension (the extension still saw `granted` and recorded `shown`). The denied path is therefore verified only by the mocked-Chrome test, by owner decision.
 
 
 ## Read-only observation, 2026-11-13
