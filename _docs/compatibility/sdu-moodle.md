@@ -1,5 +1,9 @@
 # SDU Moodle compatibility matrix
 
+## Read-only observation, 2026-11-13
+
+An already signed-in in-app browser displayed the course overview, one course page with assignment due dates, and one assignment page with a due date and a submission-status table. No credentials, names, identifiers, grades, filenames or page content were recorded in this note; no Moodle state was changed. This is source-page evidence only: the extension, dashboard, Sync all and PDF download were not verified in this observation. It does not change the unverified variants below or establish issue #96 acceptance.
+
 Live inspection date: **2026-11-01**. Interface language: **English** (`<html lang="en">`, body class `lang-en`). Theme: `alpha` (RaiseUI, `rui-*` classes), dark variant. Report updated: 2026-11-01.
 
 This is the compatibility report for [#3](https://github.com/Ramung55/MoodleHelper/issues/3). It replaces the earlier no-session UNVERIFIED artifact (2026-10-26). Scope is Chrome and `https://moodle.sdu.edu.kz`, with read-only access through the student's own session, local-first data and no product account, as the [product scope](../plan.md) specifies.

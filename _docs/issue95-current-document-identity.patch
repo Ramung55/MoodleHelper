@@ -1,0 +1,57 @@
+REJECTED PROTOTYPE - DO NOT APPLY OR INTEGRATE
+Independent QA found that regex treats text inside comments or string literals as executable M.cfg evidence. For example, // M.cfg={"userId":123} returns 123. Isolated unit tests did not cover this failure; no acceptance criterion is passed by this artifact. Retained solely as a record for redesign.
+
+diff --git a/extension/src/current-document-identity.ts b/extension/src/current-document-identity.ts
+new file mode 100644
+--- /dev/null
++++ b/extension/src/current-document-identity.ts
+@@ -0,0 +1,22 @@
++/**
++ * Extract #93's observed M.cfg userId from the current document only.
++ * The returned value is transient: callers must not persist or log it.
++ * More than one candidate, even if equal, is ambiguous and fails closed.
++ */
++export function currentDocumentMoodleUserId(document: Document): string | undefined {
++  let found: string | undefined;
++  let count = 0;
++  for (const script of Array.from(document.querySelectorAll('script:not([src])'))) {
++    const content = script.textContent ?? '';
++    const configs = content.matchAll(/M\.cfg\s*=\s*\{([^}]*)\}/g);
++    for (const config of configs) {
++      for (const match of config[1]!.matchAll(/"userId"\s*:\s*([^,\s]+)/g)) {
++        count++;
++        const value = match[1]!;
++        if (!/^[1-9][0-9]{0,18}$/.test(value)) return undefined;
++        found = value;
++      }
++    }
++  }
++  return count === 1 ? found : undefined;
++}
+diff --git a/extension/src/current-document-identity.test.ts b/extension/src/current-document-identity.test.ts
+new file mode 100644
+--- /dev/null
++++ b/extension/src/current-document-identity.test.ts
+@@ -0,0 +1,22 @@
++import { describe, expect, test } from 'bun:test';
++import { currentDocumentMoodleUserId } from './current-document-identity';
++
++function doc(...scripts: string[]): Document {
++  return { querySelectorAll: () => scripts.map(textContent => ({ textContent })) } as unknown as Document;
++}
++
++describe('current document account evidence', () => {
++  test('accepts a single canonical observed Moodle id', () => {
++    expect(currentDocumentMoodleUserId(doc('M.cfg = {"other":true,"userId":123,"other2":false};'))).toBe('123');
++  });
++  test('rejects absent, guest, malformed and duplicate evidence', () => {
++    for (const source of ['', 'M.cfg={"userId":0}', 'M.cfg={"userId":-1}', 'M.cfg={"userId":01}',
++      'M.cfg={"userId":123,"userId":123}', 'M.cfg={"userId":123,"userId":"123"}',
++      'M.cfg={"userId":123}; M.cfg={"userId":456}']) {
++      expect(currentDocumentMoodleUserId(doc(source))).toBeUndefined();
++    }
++  });
++  test('does not accept unrelated userId text', () => {
++    expect(currentDocumentMoodleUserId(doc('const data = {"userId":123};'))).toBeUndefined();
++  });
++});
