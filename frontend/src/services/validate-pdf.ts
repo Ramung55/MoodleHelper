@@ -21,6 +21,11 @@ export async function validatePdf(
   check();
   const bytes = new Uint8Array(buffer);
   const text = new TextDecoder("latin1").decode(bytes);
+  // #107: a renamed non-PDF gets a specific signature message, not "corrupt".
+  if (!text.startsWith("%PDF-"))
+    return fail(
+      "The file contents are not a PDF document, although the name ends in .pdf. Choose the original PDF or DOCX file.",
+    );
   if (!/^%PDF-(?:1\.[0-7]|2\.0)(?:\r\n|\r|\n)/.test(text)) return bad();
   const tail = /startxref\s+(\d+)\s+%%EOF\s*$/.exec(text);
   if (!tail) return bad();

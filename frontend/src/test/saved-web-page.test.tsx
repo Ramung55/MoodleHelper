@@ -105,3 +105,27 @@ describe("#24 suggested-file import after a lost Moodle session", () => {
     },
   );
 });
+
+describe("#107 renamed non-document", () => {
+  it.each([
+    ["notes.pdf", "PDF", "pdf"],
+    ["notes.docx", "DOCX", "docx"],
+  ])("rejects %s with a specific signature message and stores nothing", async (name, kind, ext) => {
+    vi.stubGlobal("crypto", webcrypto);
+    render(<Syllabus />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Choose local file for this course" }),
+    );
+    await waitFor(() => expect(screen.getByLabelText("Syllabus file")).toBeEnabled());
+    const text = "Synthetic plain text, not a document.";
+    const file = new File([text], name);
+    Object.defineProperty(file, "arrayBuffer", { value: async () => bytes(text) });
+    fireEvent.change(screen.getByLabelText("Syllabus file"), { target: { files: [file] } });
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        `Failed: The file contents are not a ${kind} document, although the name ends in .${ext}.`,
+      ),
+    );
+    expect(mock.saved).toBe(0);
+  });
+});
