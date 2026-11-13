@@ -36,7 +36,7 @@ Requirement rows after this run:
 | Update while browsing and sync all selected courses, with freshness and failures | **verified** for Sync all and one visited assignment; full-sync freshness shows partial (see above) |
 | Collect Moodle assignment, quiz and calendar deadlines | **verified** (live, this run) |
 | Track changes and notify with old and new dates | **verified** on the local stack with the synthetic harness (#106, 2026-11-13), including the owner's real Windows notification and click; the denied case is verified by mocked test only (limitation: Windows Chrome offered no control that produced `denied` for the extension) |
-| Suggest syllabus and import PDF/DOCX; extract locally | unverified |
+| Suggest syllabus and import PDF/DOCX; extract locally | **failed** on #107 criterion 6 as written (2026-11-13): the dashboard shell fetches Google Fonts, a host other than `127.0.0.1:5173`; no document bytes or text left the device. Criteria 1-5 and 7 **verified** on the local stack with the synthetic harness and synthetic files (one fix); the OCR worker's hosts still need the owner's DevTools check |
 | Add clear dates with provenance, review and reconcile | unverified |
 | Teaching weeks; configure calendar and breaks | unverified |
 | Personal deadlines, edits, hiding and source preservation | unverified |
@@ -89,6 +89,41 @@ No defect found. Windows-level notification settings are a known limitation: Chr
 - Owner used the notification's own "turn off notifications" option, change C → D: a notification still appeared; delivery `shown`.
 
 Limitation (criterion 4): on Windows, neither Chrome control the owner tried made Chrome report `denied` for the extension (the extension still saw `granted` and recorded `shown`). The denied path is therefore verified only by the mocked-Chrome test, by owner decision.
+
+
+## Syllabus suggestion and local extraction for #107, 2026-11-13 (synthetic harness and synthetic files, local stack)
+
+**Route for every criterion: the SYNTHETIC fixture harness `tests.collection_network_app:app` plus synthetic files, not live Moodle**, by owner decision 2026-11-13. SDU Moodle was not opened. No owner document was used.
+
+Setup: branch `verify/issue-107-syllabus-extraction`. Port 8000 was free. The harness ran on 127.0.0.1:8000 with `MOODLE_HELPER_COLLECTION_TEST_DATABASE` set to a fresh absolute `synthetic-collection.sqlite3` outside the repository; this is the "fixture/mock dataset on the local stack". The frontend dev server was already running on 127.0.0.1:5173. Pages were driven with Claude in Chrome in a new tab of the owner's Chrome, closed afterwards. Files were chosen with Claude in Chrome's file-upload tool, which sets the page's file input directly (no native file chooser). `tests/syllabus_material_driver.py` (test-only, talks only to the harness) runs `setup` (tracks the harness course, as in #106) and `post` (one `POST /api/collection/visits` and one `POST /api/collection/refresh` with collector `material` on the course page, carrying a synthetic "Lecture 1" PDF first and a synthetic "Syllabus" PDF second).
+
+Documents: the committed synthetic fixtures `extraction-bilingual.pdf`, `extraction-bilingual.docx`, `ocr-scanned.pdf`, `local-truncated.pdf`, `local-encrypted.pdf` and `extraction-unsupported.docx`; and, by owner decision, two single-language PDFs made in a scratch folder outside the repository (not committed) from `extraction-bilingual.pdf` by same-length byte edits: the page tree keeps only page 1 (English) or page 2 (Russian) and the other pages' content streams are blanked, so the original cross-reference offsets stay valid. Temporary rejection files (a plain-text file named `.pdf`, a PDF renamed `.doc`) were made in the same scratch folder; the over-limit file was a 20 MiB + 1 byte in-page `File` set on the file input by script, because the upload tool is limited to 10 MB.
+
+| Criterion | Steps | Observed |
+| --- | --- | --- |
+| 1 Suggestion listed | driver `setup`, `post`; read "Suggested from Moodle" | "Syllabus" under the harness course's code, `pdf · Title mentions a syllabus or course programme`, first; "Lecture 1" below it, `Title does not clearly identify a syllabus · Uncertain` (it was posted first, so the order comes from the ranking) |
+| 2 Suggestion imported and extracted | **Choose local file for this course** on "Syllabus"; choose `extraction-bilingual.pdf`; **Extract text**; **Find assessments** | Course selector preselected the harness course, "Selected resource: Syllabus". Import: course, name, `80456 bytes`, SHA-256, source "Syllabus", state Ready, "Complete: validated and stored locally". Proposals, each "Unconfirmed" with excerpt and `pdf_row` page: Assignment 1 (assignment, p1), Quiz 2 (quiz, p1), Задание 1 (assignment, p2), Экзамен (exam, p2) |
+| 3 Manual upload, three documents | Cancel the suggestion, choose a sample course in **Import a file**, upload each, **Extract text**, **Find assessments** | English PDF: Assignment 1 (assignment), Quiz 2 (quiz), page 1. Russian PDF: Задание 1 (assignment), Экзамен (exam), page 1 (its only page). DOCX: Assignment 1 (assignment) and Экзамен (exam), `docx_row` with table, row, cell and paragraph references (Экзамен: table 2, row 1, cell 1, paragraph 1). All "Unconfirmed" |
+| 4 Scanned PDF and OCR | upload `ocr-scanned.pdf`, **Extract text**, OCR pages `1,2,3`, English and Russian | Pages 1–3 "OCR needed (image-only)". OCR: page 1 "Text found", "Assignment 1"; page 2 "Text found", "Экзамен"; page 3 "Low quality/no reliable text — review needed". "Text remains unconfirmed" |
+| 5 Rejected files | upload each; reload | `local-truncated.pdf`: "The PDF is corrupt or uses an unsupported structure…". `local-encrypted.pdf`: "Password-protected PDFs are unsupported…". Plain text named `.pdf`: first the generic corrupt-PDF message (**defect**, fixed below), after the fix "The file contents are not a PDF document, although the name ends in .pdf…". Renamed `.doc`: "Legacy .doc is unsupported. Export it as DOCX." Over-limit: "The file exceeds the 20 MiB limit…". `extraction-unsupported.docx`: imported, then **Extract text** gave "Extraction failed: This DOCX contains unsupported body structure…" and no **Find assessments** / proposals. After reload the imported list still had only the six accepted documents; the three PDF rejections stay visible as failed job notices with retry, not as imported rows |
+| 6 No document traffic off the device | Claude in Chrome `read_network_requests` on the dashboard tab during criteria 2–5 and after reload | Every request was `GET`, so no request carried a body. Requests to `127.0.0.1:5173` only (`/api/local-context`, Vite modules, `pdf.worker.min.mjs`, `/ocr/7.0.0/local-worker.js`), **plus `fonts.googleapis.com` / `fonts.gstatic.com`** webfont GETs from the dashboard shell (`frontend/src/routes/__root.tsx`). None to `moodle.sdu.edu.kz`. The harness log showed no document upload endpoint. The tab log did not show the OCR worker's own `/ocr/7.0.0/` fetches (core/language data) |
+| 7 Restart persistence | stop the harness, restart on the same SQLite file, reload | Same dataset; all six documents listed under their courses; "Restored from this browser: the local extraction"; proposals from criteria 2–3 shown again without re-running. `ocr-scanned.pdf` shows its restored extraction (pages "OCR needed"); the OCR text from criterion 4 is not restored, by design (`StoredExtraction.result` excludes the OCR format; #27 says OCR does not persist results), so OCR must be rerun |
+
+Fix (criterion 8): a non-document file renamed `.pdf` (or `.docx`) got the generic "corrupt" message, but #24 requires a specific message for mismatched signatures. `validate-pdf.ts` and `validate-docx.ts` now report "The file contents are not a PDF/DOCX document, although the name ends in .pdf/.docx. Choose the original PDF or DOCX file." Regression test: `saved-web-page.test.tsx` "#107 renamed non-document" (2 cases; both fail without the fix). The browser recheck saw this message from an earlier placement of the same check in `syllabus.tsx`; the final validator placement is covered by the test.
+
+Tests run: targeted `bun run test` of `syllabus-suggestions`, `extract-pdf-real`, `extract-docx`, `assessment-mentions`, `ocr-real`, `local-ocr`, `local-documents`, `validate-pdf`, `validate-docx`, `local-extraction-persistence`: 10 files, 91 passed, 0 skipped. Full `bun run test`: 78 files, 1560 passed. `uv run pytest`: 1547 passed, 9 skipped.
+
+| #107 criterion | Result |
+| --- | --- |
+| 1 Suggestion listed | **verified** (fixture + auto) |
+| 2 Suggestion imported and extracted | **verified** (fixture route, synthetic `extraction-bilingual.pdf`) |
+| 3 Manual upload, three documents | **verified** (fixture + auto; two single-language synthetic PDFs by owner decision) |
+| 4 Scanned PDF and OCR | **verified** (fixture + auto; real Chrome WASM worker) |
+| 5 Rejected files | **verified** after the fix (fixture + auto); over-limit file supplied by in-page script |
+| 6 No document traffic off the device | **failed as written**: Google Fonts requests from the dashboard shell are a host other than `127.0.0.1:5173` (the #48 privacy review already lists Google Fonts). No document bytes or text left the device. Fixing it means self-hosting fonts outside this requirement's files, an owner decision. **[owner]** still needed: one OCR run with DevTools Network ("Preserve log", workers included) to report the worker's hosts |
+| 7 Restart persistence | **verified** for imports, extraction results and proposals (fixture + auto); OCR text is not persisted, by design |
+| 8 Failures | one defect fixed with a regression test; criterion 6 recorded as failed with reason |
+| 9 Evidence | this section |
 
 
 ## Read-only observation, 2026-11-13
