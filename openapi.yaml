@@ -479,9 +479,9 @@ paths:
       tags:
       - Assessments
       summary: Delete a personal assessment
-      description: No request body. The current demo removes a matching assessment
-        only if personal is true and removes the overlay with this id; missing ids
-        are a no-op rather than a declared 404. Return the full updated Snapshot,
+      description: No request body. Removes a matching assessment and its overlay
+        only if personal is true; a non-personal (Moodle) id keeps the assessment
+        and its overlay, and missing ids are a no-op rather than a declared 404. Return the full updated Snapshot,
         not 204.
       security: []
       x-frontend-method: MoodleHelperAdapter.deletePersonalEvent

@@ -169,6 +169,16 @@ describe("imported assessment overrides (#53)", () => {
     ]);
     expect(snap.assessments.filter((x) => x.id === a.id)).toHaveLength(1);
   });
+
+  it("demo adapter: deleting a non-personal id keeps the item and its overlay (#110)", async () => {
+    const adapter = new DemoAdapter();
+    let snap = await adapter.load();
+    const a = snap.assessments.find((x) => !x.personal)!;
+    snap = await adapter.updateOverlay(a.id, { titleOverride: "Mine", hidden: true });
+    const after = await adapter.deletePersonalEvent(a.id);
+    expect(after.assessments).toEqual(snap.assessments);
+    expect(after.overlays).toEqual(snap.overlays);
+  });
 });
 
 describe("AssessmentSheet keeps an early edit when it seeds from the snapshot (#68)", () => {

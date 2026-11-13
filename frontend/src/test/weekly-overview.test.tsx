@@ -106,6 +106,15 @@ describe("planner route", () => {
     expect(un).toHaveTextContent("Precision: unknown date");
     expect(un).toHaveTextContent("weighted estimate");
   }, 15_000); // #69: first full-app planner render in the file plus role queries over every week region; ~2.5s under per-core load
+  it("marks personal events in the contributor list (#110)", async () => {
+    mount("/planner");
+    const list = await screen.findByRole("list", { name: "Week 1 contributors" }, { timeout: 5_000 });
+    const marked = within(list)
+      .getAllByRole("listitem")
+      .filter((li) => li.textContent?.includes("Personal event"));
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveTextContent("Other · Personal event · +0 est.");
+  });
   it("warns with numeric reason text when above a threshold", async () => {
     snap.settings.thresholds = { maxOutstanding: 0, maxWeighted: 100 };
     mount("/planner");

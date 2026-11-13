@@ -159,7 +159,10 @@ export class DemoAdapter implements MoodleHelperAdapter {
     return this.mutate((s) => ({
       ...s,
       assessments: s.assessments.filter((a) => !(a.id === id && a.personal)),
-      overlays: s.overlays.filter((o) => o.assessmentId !== id),
+      // #110: only a personal id drops its overlay; a Moodle id is a full no-op.
+      overlays: s.assessments.some((a) => a.id === id && a.personal)
+        ? s.overlays.filter((o) => o.assessmentId !== id)
+        : s.overlays,
     }));
   }
 
