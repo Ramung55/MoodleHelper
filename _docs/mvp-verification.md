@@ -217,9 +217,9 @@ Setup: branch `verify/issue-110-personal-deadlines`. Port 8000 was free. The har
 
 Fixes (criterion 7):
 - `frontend/src/routes/planner.tsx`: a personal contributor line reads "<Type> · Personal event · +N est." (same wording as the sheet subtitle). Regression test "marks personal events in the contributor list (#110)" in `weekly-overview.test.tsx`.
-- `backend/services.py` `delete_personal_event`: a non-personal or missing id is now a full no-op, so a Moodle item's overlay (edit, baseline, hidden flag) stays; owner decision 2026-11-14. `openapi.yaml` description updated. Regression test `test_delete_personal_event_keeps_moodle_overlay` in `tests/test_api.py` (fails on the old code). The demo adapter (`frontend/src/services/demo-adapter.ts`) still drops the overlay in the same case; left unchanged as outside the approved change.
+- `backend/services.py` `delete_personal_event`: a non-personal or missing id is now a full no-op, so a Moodle item's overlay (edit, baseline, hidden flag) stays; owner decision 2026-11-14. `openapi.yaml` description updated. Regression test `test_delete_personal_event_keeps_moodle_overlay` in `tests/test_api.py` (fails on the old code). The demo adapter (`frontend/src/services/demo-adapter.ts` `deletePersonalEvent`) was aligned to the same contract, with a test in `assessment-overrides.test.tsx`.
 
-Tests run: issue-named backend tests `tests/test_api.py`, `test_assessment_overrides.py`, `test_overlay_reset.py`, `test_deadline_tracking.py` 147 passed; frontend `personal-event`, `weekly-overview`, `workload-ui`, `assessment-overrides`, `deadline-list`, `workload` 79 passed. Full suites: `uv run pytest` 1552 passed, 9 skipped (includes the new case); `bun run test` (frontend) 78 files, 1561 passed.
+Tests run: issue-named backend tests `tests/test_api.py`, `test_assessment_overrides.py`, `test_overlay_reset.py`, `test_deadline_tracking.py` 147 passed; frontend `personal-event`, `weekly-overview`, `workload-ui`, `assessment-overrides`, `deadline-list`, `workload` 79 passed. Full suites: `uv run pytest` 1552 passed, 9 skipped (includes the new case); `bun run test` (frontend) 78 files, 1562 passed.
 
 | #110 criterion | Result |
 | --- | --- |
