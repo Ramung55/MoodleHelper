@@ -166,6 +166,7 @@ it('#93: reads the signed-in user id only from M.cfg "userId", and only a canoni
   expect(moodleUserId(page.replace('"userId":987650', `"userId":${'9'.repeat(19)}`))).toBe('9'.repeat(19));
   // A "userId" outside the M.cfg object is not the signed-in account.
   expect(moodleUserId('<script>M.cfg = {"siteId":1};</script><div data-x=\'{"userId":4242}\'></div>')).toBeUndefined();
+  expect(moodleUserId('<script>M.cfg = {"homeurl":{},"siteId":1};</script><div data-x=\'{"userId":4242}\'></div>')).toBeUndefined();
 });
 
 it('#93: the page source passes on the id it read, and a scan job carries one id only when every page that shows one agrees', async () => {

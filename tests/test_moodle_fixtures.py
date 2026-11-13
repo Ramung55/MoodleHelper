@@ -877,12 +877,12 @@ def test_quiz_live_markup_and_weekday_quirk_follow_addendum_4():
 
 
 def test_m_cfg_user_id_fixture_holds_only_the_recorded_shape_with_an_invented_id():
-    # #93 Addendum 7: the location and shape of the signed-in user id, never a real value.
+    # #93 Addendum 7, with Addendum 8's empty "homeurl" object: the location and shape of the signed-in user id, never a real value.
     text = (ROOT / "observed" / "m-cfg-user-id.txt").read_text(encoding="utf-8")
     match = re.fullmatch(r"M\.cfg = (\{.*\});\n", text)
     assert match
     config = json.loads(match[1])
-    assert list(config) == ["courseContextId", "contextid", "contextInstanceId", "langrev", "templaterev", "siteId", "userId"]
+    assert list(config) == ["homeurl", "courseContextId", "contextid", "contextInstanceId", "langrev", "templaterev", "siteId", "userId"]
     assert text.count('"userId":') == 1 and type(config["userId"]) is int
     # Only the invented id used by the tests and the network harness.
     assert config["userId"] == 987650

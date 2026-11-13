@@ -51,8 +51,8 @@ export function reducedBody(html:string,limit=64):AccessRequest['body'] {
 }
 /** #93: only a canonical positive decimal counts as a Moodle user id. */
 export const MOODLE_USER_ID=/^[1-9][0-9]{0,18}$/;
-// #93 (compatibility report Addendum 7): the one `"userId":<number>` inside the flat inline `M.cfg = {...}`.
-const M_CFG_USER_ID=/M\.cfg\s*=\s*\{[^}]*?"userId"\s*:\s*(-?[0-9]+)\s*[,}]/;
+// #93 (compatibility report Addenda 7, 8): the one `"userId":<number>` inside the inline `M.cfg = {...}`, which may hold flat objects such as `"homeurl":{}`.
+const M_CFG_USER_ID=/M\.cfg\s*=\s*\{(?:[^{}]|\{[^{}]*\})*?"userId"\s*:\s*(-?[0-9]+)\s*[,}]/;
 /**
  * #93: the signed-in user id from the text of a Moodle page already fetched, or undefined.
  * A missing or non-canonical value (the signed-out login page shows a guest value) counts as not read.
