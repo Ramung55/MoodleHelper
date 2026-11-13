@@ -31,7 +31,7 @@ export type SyntheticResponse = ScanResponse;
 /** Resolve only after actual request termination; rejected/lost acknowledgement must not release. */
 export interface ScanRequest {completion:Promise<ScanResponse>; termination:Promise<boolean>; abort:()=>void}
 export type SyntheticRequest = ScanRequest;
-export interface StartContext {sourceCourseId:string; collectors:Collector[]; title?:string}
+export interface StartContext {sourceCourseId:string; collectors:Collector[]; title?:string; selection?:string[]}
 export interface ScanSource {start:(url:string,context?:StartContext)=>ScanRequest}
 export type SyntheticSource = ScanSource;
 export interface RequestAuthority {acquire:(now:number,requestKey?:string)=>Promise<string|{token:string;failures:number}|null>;releaseAfterTermination:(token:string,notBefore:number,requestKey?:string,retryFailure?:boolean)=>Promise<boolean>}

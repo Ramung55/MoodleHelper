@@ -2,6 +2,7 @@ import { BACKEND, type PopupOperation, type PopupReply } from './dashboard-bridg
 import { DISCOVERY_MESSAGES, errors, validResult, validSchema, type SignInResult } from '../../shared/src/bridge';
 import { createMockProgress, type ProgressState } from '../../shared/src/mock-progress';
 import { syncFreshness, type FullSyncAttestation } from '../../shared/src/full-sync';
+import { VISIT_MESSAGES, VISIT_STATE_SOURCE, visitRoute, type VisitState } from './page-visit';
 
 declare const __MOODLE_HELPER_DASHBOARD_URL__: string | undefined;
 /** #86 D3: the approved Pages dashboard; a local dev build may inject an approved dev URL (extension/build.ts). */
@@ -14,6 +15,8 @@ export type PopupEnvironment = {
   /** Sends `{source:'moodle-helper-popup', operation}` to this extension's worker. */
   send?: (operation: PopupOperation) => Promise<unknown>;
   openTab?: (url: string) => void;
+  /** #95: the active tab's live-update state; `null` when that page has none yet. */
+  pageVisit?: () => Promise<VisitState | null | undefined>;
   dashboardUrl?: string;
   now?: () => Date;
 };
@@ -27,6 +30,16 @@ function chromeEnvironment(): PopupEnvironment {
     } catch { resolve(undefined); }
   });
   if (typeof chromeApi?.tabs?.create === 'function') env.openTab = (url) => { chromeApi.tabs.create({ url }); };
+  if (typeof chromeApi?.tabs?.query === 'function' && typeof chromeApi?.runtime?.sendMessage === 'function') env.pageVisit = () => new Promise((resolve) => {
+    try {
+      chromeApi.tabs.query({ active: true, currentWindow: true }, (tabs: { id?: number; url?: string }[] | undefined) => {
+        const tab = chromeApi.runtime.lastError ? undefined : tabs?.[0];
+        // Without host access Chrome hides a tab's URL: such a page is not an SDU page either.
+        if (!tab || typeof tab.url !== 'string' || !visitRoute(tab.url)) { resolve({ status: 'not_supported', message: VISIT_MESSAGES.not_supported }); return; }
+        chromeApi.runtime.sendMessage({ source: VISIT_STATE_SOURCE, tabId: tab.id }, (reply: unknown) => resolve(chromeApi.runtime.lastError ? undefined : reply as VisitState | null));
+      });
+    } catch { resolve(undefined); }
+  });
   return env;
 }
 
@@ -278,7 +291,14 @@ export function installPopup(doc:Document, fetcher:typeof fetch=fetch, storage:S
   if (syncButton) syncButton.onclick = () => void syncAll();
   if (openDashboard) openDashboard.onclick = () => env.openTab?.(dashboardUrl);
 
-  const ready = refresh().then(async (loaded) => { if (loaded.kind === 'real') { signIn = undefined; await probe(generation); } });
+  // #95: what live updating did with the page in the active tab (only fixed messages are shown).
+  async function renderPageVisit() {
+    const value = await env.pageVisit?.().catch(() => undefined);
+    if (disposed) return;
+    const message = value && Object.values(VISIT_MESSAGES).includes(value.message as never) ? value.message : '';
+    text('page-visit', message); show('page-visit', !!message);
+  }
+  const ready = Promise.all([renderPageVisit(), refresh().then(async (loaded) => { if (loaded.kind === 'real') { signIn = undefined; await probe(generation); } })]).then(() => {});
   return {
     ready,
     reconnect: reconnectAll,

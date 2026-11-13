@@ -187,7 +187,7 @@ export function createMoodlePageSource(options:{fetcher?:typeof fetch;analyze:An
       const own=responseAccess(input,got.html,route);
       if(own.status!=='accessible')return {...base,links:[],access:own};
       const request:AnalysisRequest={envelope:input,html:got.html,sourceCourseId:context.sourceCourseId,collectors:context.collectors,observedAt,
-        ...(context.title?{title:context.title}:{})};
+        ...(context.title?{title:context.title}:{}),...(context.selection?{selection:context.selection}:{})};
       const analysis:AnalysisResult=await options.analyze(request);
       if(!analysis?.access)throw Error('Analysis failed.');
       // The analysis may only narrow access: anything but its own accessible verdict wins.

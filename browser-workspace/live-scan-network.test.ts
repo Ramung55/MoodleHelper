@@ -207,7 +207,7 @@ function install(backend: Backend, clock: {now: number}, moodleFetch: typeof fet
     const hello = await send({...common, requestId: `r-${++request}`, operation: 'hello', payload: {}});
     return send({...common, requestId: `r-${++request}`, operation, sessionId: hello.result.sessionId, payload});
   };
-  return {worker, created, tabs, requests, alarm: () => alarms[0]!({name: 'moodle-helper-mock-queue'}), startup: () => startup[0]!(), bridge};
+  return {worker, created, tabs, requests, messages, alarm: () => alarms[0]!({name: 'moodle-helper-mock-queue'}), startup: () => startup[0]!(), bridge};
 }
 
 function spacing(starts: {at: number}[]) {
@@ -815,4 +815,140 @@ it('#46 AC2/AC4: one Start initial sync gives one POST /api/sync and one run; re
   expect(await conflict.json()).toEqual({message: 'A sync is already running for one of the selected courses. Try again when it finishes.'});
   expect(await scanRuns()).toBe(1);
   expect(syncPosts()).toBe(1);
+}, 60000);
+
+// #95 -----------------------------------------------------------------------
+const VISIT = {
+  saved: 'Deadlines from this page were saved.', notSupported: 'This page is not supported for live updates.',
+  notSelected: 'This course is not selected in Moodle Helper. Nothing was saved.', needsSync: 'Run Sync all once to add this activity. Nothing was saved.',
+  mismatch: 'The signed-in Moodle account is not the account of this dataset. Nothing was saved.',
+  unconfirmed: 'The Moodle account could not be confirmed. Nothing was saved.', signedOut: 'Sign in to SDU Moodle to continue.',
+};
+let documents = 0;
+type App = ReturnType<typeof install>;
+/** The content script's one message for a loaded top-frame SDU document, with Chrome's sender data. */
+function visitAs(app: App, sender: Record<string, unknown>, course?: string) {
+  const message = {source: 'moodle-helper-page-visit', version: '1', ...(course ? {sourceCourseId: course} : {})};
+  return new Promise<any>(resolve => { for (const listener of app.messages) if (listener(message, sender, resolve) === true) return; resolve(undefined); });
+}
+const senderFor = (tab: number, url: string, documentId = `DOC-${tab}-${++documents}`) =>
+  ({id: 'live-scan-test', frameId: 0, tab: {id: tab, url}, documentId, url, origin: ORIGIN});
+const visitPage = (app: App, tab: number, url: string, course?: string) => visitAs(app, senderFor(tab, url), course);
+const collectionWrites = (app: App) => app.requests.filter(r => /^POST \/api\/collection\//.test(r));
+/** The installed popup's #95 line, with Chrome's tab query answering `url` for the active tab. */
+async function popupPageLine(app: App, tab: number, url: string | undefined) {
+  const previous = (globalThis as any).chrome;
+  (globalThis as any).chrome = {runtime: {sendMessage: (message: unknown, reply: (value: unknown) => void) => {
+    for (const listener of app.messages) if (listener(message, {id: 'live-scan-test', url: 'chrome-extension://live-scan-test/popup.html'}, reply) !== undefined) return;
+    reply(undefined);
+  }}, tabs: {query: (_: unknown, reply: (tabs: unknown[]) => void) => reply([{id: tab, ...(url ? {url} : {})}])}};
+  const dom = new JSDOM('<p id="page-visit" hidden></p><p id="connection"></p>', {url: 'https://extension.test'});
+  try {
+    const popup = installPopup(dom.window.document, (async () => { throw Error('offline'); }) as typeof fetch, dom.window.localStorage);
+    await popup.ready; popup.dispose();
+    const line = dom.window.document.getElementById('page-visit')!;
+    return line.hidden ? '' : line.textContent;
+  } finally { (globalThis as any).chrome = previous; dom.window.close(); }
+}
+
+it('#95 AC1/AC4/AC5/AC6: opened course, calendar, assignment and quiz pages save within 10 s; revisits add no duplicates; a changed deadline raises the existing alert', async () => {
+  const backend = new Backend('visit-types'); await backend.start();
+  const ids = await backend.seed(['9001', '9002']);
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  let change = (page: string) => page;
+  const site = moodle(clock, url => { const reply = observedSite(url); return {...reply, body: change(reply.body)}; });
+  const app = install(backend, clock, site.fetcher);
+  const records = async (kind: string) => ((await backend.get('/api/snapshot')).collection?.records ?? []).filter((r: any) => r.kind === kind);
+  // Course page (materials) and the upcoming calendar save without a Sync all; each visit is one GET of that page.
+  for (const [url, course, kind] of [[courseUrl('9001'), '9001', 'material'], [CALENDAR, '1', 'calendar']] as const) {
+    const started = Date.now(), before = site.starts().length;
+    expect(await visitPage(app, 3, url, course)).toEqual({status: 'saved', message: VISIT.saved});
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(site.starts().slice(before).map(e => e.url)).toEqual([url]);
+    expect((await records(kind)).length).toBeGreaterThan(0);
+  }
+  expect([...new Set((await records('calendar')).map((r: any) => r.courseId))].sort()).toEqual([ids['9001'], ids['9002']].sort());
+  // An activity first seen on its own page has no recorded title source (#3): nothing is saved, the popup says why.
+  expect(await visitPage(app, 3, quizUrl('990103'), '9001')).toEqual({status: 'needs_sync', message: VISIT.needsSync});
+  expect(await records('quiz')).toEqual([]);
+  // After one Sync all, the activity pages update the same records.
+  expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
+  await backend.settled(1);
+  const counts = async () => { const s = await backend.get('/api/snapshot'); return [s.collection.records.length, s.assessments.length, s.changes.length]; };
+  const baseline = await counts();
+  // Opening the same pages again (new documents, and a duplicate notification of one document) adds nothing.
+  const sender = senderFor(4, quizUrl('990103'));
+  const before = site.starts().length;
+  expect(await Promise.all([visitAs(app, sender, '9001'), visitAs(app, sender, '9001')])).toEqual([{status: 'saved', message: VISIT.saved}, {status: 'saved', message: VISIT.saved}]);
+  expect(site.starts().length - before).toBe(1);
+  expect(await visitPage(app, 4, assignUrl('990102'), '9001')).toEqual({status: 'saved', message: VISIT.saved});
+  expect(await visitPage(app, 4, courseUrl('9001'), '9001')).toEqual({status: 'saved', message: VISIT.saved});
+  expect(await counts()).toEqual(baseline);
+  // Revisits with changed dates: the existing deadline-change alert with old and new dates, no new records.
+  change = page => page.replace('Closed: Saturday, 4 March 2028, 9:00 AM', 'Closed: Monday, 6 March 2028, 9:00 AM')
+    .replace('Due: Tuesday, 7 March 2028, 2:30 PM', 'Due: Thursday, 9 March 2028, 2:30 PM');
+  for (const [url, from, to] of [[quizUrl('990103'), '2028-03-04T09:00', '2028-03-06T09:00'], [assignUrl('990102'), '2028-03-07T14:30', '2028-03-09T14:30']]) {
+    const started = Date.now();
+    expect(await visitPage(app, 5, url!, '9001')).toEqual({status: 'saved', message: VISIT.saved});
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const alert = (await backend.get('/api/snapshot')).changes.at(-1);
+    expect([alert.from.iso.slice(0, 16), alert.to.iso.slice(0, 16)]).toEqual([from, to]);
+  }
+  expect(await counts()).toEqual([baseline[0], baseline[1], baseline[2]! + 2]);
+  // The dashboard reads the saved dates after a backend restart (reload).
+  await backend.stop(); await backend.start();
+  const reloaded = await backend.get('/api/snapshot');
+  // The dashboard shows a Moodle deadline from its accepted stream value (frontend/src/domain/assessments.ts).
+  const accepted = (url: string) => reloaded.deadlineStreams.find((s: any) => s.sourceUrl === url).accepted.iso;
+  expect([accepted(quizUrl('990103')), accepted(assignUrl('990102'))]).toEqual(['2028-03-06T09:00:00+05:00', '2028-03-09T14:30:00+05:00']);
+  expect(await popupPageLine(app, 5, assignUrl('990102'))).toBe(VISIT.saved);
+  app.worker.dispose();
+}, 120000);
+
+it('#95 AC2/AC3: unselected courses and unsupported pages save nothing and make no Moodle request; the popup says the page is not supported', async () => {
+  const backend = new Backend('visit-refused'); await backend.start();
+  await backend.seed(['9001']);
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  const site = moodle(clock, observedSite);
+  const app = install(backend, clock, site.fetcher);
+  const before = await backend.get('/api/snapshot');
+  for (const [url, course] of [[courseUrl('9002'), '9002'], [courseUrl('9003'), undefined], [assignUrl('990201'), '9002'], [quizUrl('990303'), '9003'], [quizUrl('990103'), undefined]])
+    expect(await visitPage(app, 6, url!, course)).toEqual({status: 'not_selected', message: VISIT.notSelected});
+  for (const url of [`${ORIGIN}/mod/forum/view.php?id=990107`, `${ORIGIN}/mod/resource/view.php?id=990104`, `${ORIGIN}/my/`, `${ORIGIN}/login/index.php`,
+    `${ORIGIN}/calendar/view.php?view=month`, `${courseUrl('9001')}#section-2`, `${ORIGIN}/mod/folder/view.php?id=990108`])
+    expect(await visitPage(app, 7, url, '9001')).toEqual({status: 'not_supported', message: VISIT.notSupported});
+  // A frame, another origin or another extension is not a visit at all.
+  expect(await visitAs(app, {...senderFor(8, courseUrl('9001')), frameId: 2}, '9001')).toBeUndefined();
+  expect(await visitAs(app, senderFor(8, 'https://moodle.sdu.edu.kz.example.com/course/view.php?id=9001'), '9001')).toBeUndefined();
+  expect(await visitAs(app, {...senderFor(8, courseUrl('9001')), id: 'other-extension'}, '9001')).toBeUndefined();
+  expect(site.starts()).toEqual([]);
+  expect(collectionWrites(app)).toEqual([]);
+  expect(await backend.get('/api/snapshot')).toEqual(before);
+  expect(await popupPageLine(app, 7, `${ORIGIN}/mod/forum/view.php?id=990107`)).toBe(VISIT.notSupported);
+  expect(await popupPageLine(app, 9, 'https://example.com/')).toBe(VISIT.notSupported);
+  expect(await popupPageLine(app, 9, undefined)).toBe(VISIT.notSupported);
+  expect(await popupPageLine(app, 6, quizUrl('990103'))).toBe(VISIT.notSelected);
+  app.worker.dispose();
+}, 60000);
+
+it('#95 + #93: a page showing another account, no account or the sign-in page saves nothing', async () => {
+  const backend = new Backend('visit-account'); await backend.start();
+  await backend.seed(['9001']);
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  let reply = (url: string): Reply => observedSite(url);
+  const app = install(backend, clock, moodle(clock, url => reply(url)).fetcher);
+  const before = await backend.get('/api/snapshot');
+  reply = url => ({status: 200, body: signedIn(coursePage(url.slice(-4)), '5550001')});
+  expect(await visitPage(app, 10, courseUrl('9001'), '9001')).toEqual({status: 'account_mismatch', message: VISIT.mismatch});
+  reply = url => ({status: 200, body: coursePage(url.slice(-4))});
+  expect(await visitPage(app, 10, courseUrl('9001'), '9001')).toEqual({status: 'account_unconfirmed', message: VISIT.unconfirmed});
+  reply = () => ({status: 200, body: html['login-page.html']!, finalUrl: `${ORIGIN}/login/index.php`});
+  expect(await visitPage(app, 10, courseUrl('9001'), '9001')).toEqual({status: 'signed_out', message: VISIT.signedOut});
+  // A wrong course hint for an activity page is refused before any request.
+  reply = observedSite;
+  expect((await visitPage(app, 10, assignUrl('990102'), '9002')).status).toBe('not_selected');
+  const after = await backend.get('/api/snapshot');
+  expect(after).toEqual(before);
+  expect(JSON.stringify(after)).not.toContain('5550001');
+  app.worker.dispose();
 }, 60000);

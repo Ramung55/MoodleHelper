@@ -231,13 +231,14 @@ def test_demo_keeps_labelled_simulation_and_source_409_contract(tmp_path):
     assert actual == expected == [NO_COURSES, UNLINKED, RUNNING, 'Backend context changed. Reconnect.']
 
 
-def test_real_namespace_is_verified_and_refuses_visited_page_receipts(live):
+def test_real_namespace_is_verified_and_a_visit_begin_alone_saves_nothing(live):
     context = live.client.get('/api/collection-context').json()
     assert context['mode'] == 'verified' and 'reason' not in context
     response = live.client.post('/api/collection/visits', headers={'X-Moodle-Helper-Bridge-Binding': context['binding']},
                                 json={'documentKey': 'document', 'visitId': 'visit', 'selectionRevision': context['selectionRevision'],
                                       'pageUrl': f'{ORIGIN}/course/view.php?id=9001'})
-    assert response.status_code == 409
+    # #95 lifts the former refusal; writes still need refresh and #93's account check.
+    assert response.status_code == 200 and set(response.json()) == {'visitToken'}
     assert 'collection' not in live.client.get('/api/snapshot').json()
     assert 'unavailable' not in live.client.get('/api/connection').json()['message']
 
