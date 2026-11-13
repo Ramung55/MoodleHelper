@@ -37,7 +37,7 @@ Requirement rows after this run:
 | Collect Moodle assignment, quiz and calendar deadlines | **verified** (live, this run) |
 | Track changes and notify with old and new dates | **verified** on the local stack with the synthetic harness (#106, 2026-11-13), including the owner's real Windows notification and click; the denied case is verified by mocked test only (limitation: Windows Chrome offered no control that produced `denied` for the extension) |
 | Suggest syllabus and import PDF/DOCX; extract locally | **verified** on the local stack with the synthetic harness and synthetic files (#107, 2026-11-13), after two fixes (specific message for a renamed non-document; self-hosted fonts so the dashboard makes no third-party requests). Live Moodle route not exercised, by owner decision; OCR text is not restored after reload, by design (#27) |
-| Add clear dates with provenance, review and reconcile | **failed** on #108 criterion 1 as written (2026-11-13): the synthetic `extraction-bilingual.pdf` has an image-only page, so #31 routes all its proposals to review; the auto path is verified with single-language synthetic PDFs. Criteria 2-7 **verified** on the local stack with the synthetic harness and synthetic files; no code defect found |
+| Add clear dates with provenance, review and reconcile | **verified** on the local stack with the synthetic harness and synthetic files (#108, 2026-11-13); no code defect found. Criterion 1 judged on complete-text synthetic PDFs by owner decision; a PDF with an image-only page goes to review, which is correct per #31. Live Moodle route not exercised, by owner decision |
 | Teaching weeks; configure calendar and breaks | unverified |
 | Personal deadlines, edits, hiding and source preservation | unverified |
 | Moodle submission status distinct from personal completion | **verified** for submitted / not submitted (draft and reopened not available in this account) |
@@ -140,7 +140,7 @@ Every document ran **Extract text** → **Find assessments** → **Interpret exp
 
 | Criterion | Steps | Observed |
 | --- | --- | --- |
-| 1 Clear date with provenance | dataset A: `extraction-bilingual.pdf` | **Not as the issue expected.** All four proposals went to "Needs review" with "Text extraction was incomplete" (`incomplete_extraction`); Assignment 1 and Задание 1 also with "May relate to an existing item". Cause: page 3 is image-only ("OCR needed"), and #31 sends any PDF with an image-only page to review (`complete` fact in `local-routing.ts`; `_docs/confidence-routing-31.md`: "Incomplete/image-only extraction … Review"). Running OCR does not change that fact. Nothing reached Deadlines before review. Quiz 2 and Экзамен were then added with **Confirm** so that criteria 6–7 could use this dataset |
+| 1 Clear date with provenance | dataset A: `extraction-bilingual.pdf` | **Not as the issue expected.** All four proposals went to "Needs review" with "Text extraction was incomplete" (`incomplete_extraction`); Assignment 1 and Задание 1 also with "May relate to an existing item". Cause: page 3 is image-only ("OCR needed"), and #31 sends any PDF with an image-only page to review (`complete` fact in `local-routing.ts`; `_docs/confidence-routing-31.md`: "Incomplete/image-only extraction … Review"). Running OCR does not change that fact. Nothing reached Deadlines before review. Quiz 2 and Экзамен were then added with **Confirm** so that criteria 6–7 could use this dataset. Owner decision 2026-11-13: this review routing is correct per #31, and criterion 1 is judged on complete-text documents (next row) |
 | 1 recheck | dataset B: driver `setup`, `post`; single-language English PDF, then Russian PDF | Quiz 2 (5 Nov) and Экзамен (5 Nov) were on Deadlines with no review action and not under "Needs review"; Assignment 1 and Задание 1 went to review with only "May relate to an existing item". Each sheet: "Syllabus · 5 Nov (no time)", "Stored original local evidence", "Original document is available locally.", the excerpt ("Quiz 2 5 November 2026" / "Экзамен 5 ноября 2026"), and under "Original proposals, location and routing audit" a `pdf_row` location on page 1 listing the row's items |
 | 2 Uncertain dates wait | dataset A: scratch DOCX | "Quiz 3": "Date unresolved in the source", "Why review: Date is not explicit; No date was found; …", "Missing year; no explicit semester start/end supplied." "Assignment 4": "Why review: Date is not explicit; Day/month order is ambiguous; …", "Ambiguous numeric day/month; declare document/course DMY or MDY order." Each shows "Original document is available locally.", its excerpt and "Location: DOCX word/document.xml, body block 2, table 1, row 1" (row 2) ", cell(s) 1, 2". Neither on Deadlines |
 | 3 Accept adds with source | **Correct** on Quiz 3: Date only, 2027-03-12, **Save correction** | One "Quiz 3" row on 12 Mar 2027; sheet "Syllabus · 12 Mar 2027 (no time)", "Original document is available locally.", excerpt, location audit. "Decided": "Quiz 3 — 12 Mar 2027 (no time) (original proposal: Quiz 3 — Date unknown) Corrected" |
@@ -157,14 +157,14 @@ Tests run: `uv run pytest`: 1549 passed, 9 skipped (includes the 2 new cases). `
 
 | #108 criterion | Result |
 | --- | --- |
-| 1 Clear date with provenance | **failed as written** (fixture route): `extraction-bilingual.pdf` has an image-only page, so #31 sends every proposal to review. Not a code defect; the issue's expected routing conflicts with the #31 rule. The auto path, provenance and location are **verified** with the single-language synthetic PDFs from the same fixture (dataset B) and by auto tests. Owner decision needed |
+| 1 Clear date with provenance | **verified** (fixture + auto) on complete-text documents, per owner decision 2026-11-13 ("Judge on complete docs"): the dataset B run with the single-language synthetic PDFs is the evidence. `extraction-bilingual.pdf` going to review because of its image-only page is **correct per #31** |
 | 2 Uncertain dates wait | **verified** (fixture + auto) |
 | 3 Accept adds with source | **verified** (fixture + auto) |
 | 4 Reject is permanent | **verified** (fixture + auto) |
 | 5 Conflict, Moodle wins | **verified** (fixture + auto); the syllabus source was selectable directly after accepting |
 | 6 Same date, no duplicate | **verified** (fixture + auto); the card appeared directly after accepting, no refresh needed |
 | 7 Restart persistence | **verified** (fixture) |
-| 8 Failures | no code defect found; criterion 1 recorded as failed as written, with the reason |
+| 8 Failures | no code defect found. The routing stall above stays an observation only, per owner decision 2026-11-13 ("Note it only") |
 | 9 Evidence | this section |
 
 
