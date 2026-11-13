@@ -80,7 +80,7 @@ def route_local_syllabus(body: s.LocalSyllabusInput, api: Service, request: Requ
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
-@collection_router.post('/visits', response_model=s.PageVisitToken, operation_id='beginPageVisit', tags=['Collection'])
+@collection_router.post('/visits', response_model=s.PageVisitToken, response_model_exclude_none=True, operation_id='beginPageVisit', tags=['Collection'])
 def begin_page_visit(body: s.BeginPageVisit, request: Request):
     return request.app.state.collection.begin(wire(body))
 
@@ -89,6 +89,8 @@ def begin_page_visit(body: s.BeginPageVisit, request: Request):
 def ingest_page_refresh(body: s.PageRefreshInput, request: Request):
     try:
         return request.app.state.collection.refresh(wire(body))
+    except DiscoveryAccountRejected as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
     except ValueError:
         from backend.collection import CollectionRejected
         raise CollectionRejected() from None

@@ -375,3 +375,41 @@ and frontend collection **42** tests pass; full backend **512 passed**, full
 frontend **671 passed / 14 files**. `git diff --check` passes. This changes backend
 validation and tests only; prior unchanged browser/build/TypeScript results remain
 applicable. Issue remains open for repeat independent QA.
+
+## #95 live update while browsing SDU Moodle (2026-11-13)
+
+PM grooming: all six criteria of [#95](https://github.com/Ramung55/MoodleHelper/issues/95) are kept unchanged. #93 (account check) and #94 (submission status) are merged (PR #101, PR #102). Out of scope, as in the issue: the recorded live journey (#96) and crawling pages the student has not opened.
+
+### Design decision: the worker reads the opened page once
+
+The #18 content-script coordinator needs a trustworthy envelope for the live `Document`, and this contract forbids inventing an HTTP 200 for it. #95 therefore does not use that coordinator for the real dataset:
+
+1. `extension/src/content.ts` (top frame on `https://moodle.sdu.edu.kz` only, at `document_idle`) sends one message `{source:'moodle-helper-page-visit', version:'1', sourceCourseId?}`. `sourceCourseId` is the page's own `course-<id>` body class and is only a hint. The script imports nothing, parses nothing, fetches nothing and stores nothing.
+2. The worker (`extension/src/page-visit.ts`) accepts it only from a sender that passes `collectionSender` (this extension, frame 0, a tab, a document id, the exact SDU origin). The URL is the browser's `sender.url`, never the payload.
+3. Supported pages are exactly the pages the live Sync all reads: `/course/view.php?id=<n>` (materials), `/mod/assign/view.php?id=<cmid>` (dates and the #94 submission status), `/mod/quiz/view.php?id=<cmid>` and `/calendar/view.php?view=upcoming`. Any other URL, including a URL with a fragment and resource, URL, folder and forum pages, is **not supported**: no backend write and no Moodle request.
+4. Context comes from `GET /api/collection-context`. Only `verified` mode (the real dataset) continues; demo and synthetic datasets save nothing from visits. The page's course (from the URL, the body-class hint, or the tracked courses for the calendar) must be a selected, mapped course. Otherwise the page is **not selected**: no Moodle request and no write.
+5. The worker makes **one GET of the same URL** through the live scan's page source and request authority: credentials included, redirects followed, no cache, 30 s limit, 1 MiB cap, the observed access check on the response itself, offscreen analysis with `liveRegistry()`, and #93's `M.cfg` user id from the text that was read. The page was opened by the student and is read under the Sync all rules; nothing else is requested. Trade-off: the page is requested a second time. In return there is a real status, final URL and content type, and the parser input is identical to Sync all.
+6. `POST /api/collection/visits`, then one `POST /api/collection/refresh` per collector, carrying `moodleUserId` when the page showed one. The backend checks `account_error` (#93) before the transaction and again in `_merge_refresh`. A different or missing id returns 409 with the fixed #93 "Nothing was saved." message and writes nothing. The received id is removed before the in-memory replay signature and is never stored.
+7. Records keep the #18 stable identities, so revisits update the same record, and `deadline_tracking.apply_observations` raises the existing deadline-change alert. Duplicate notifications for one document share one run and one Moodle request.
+
+### Titles of assignments and quizzes
+
+The SDU view-page heading was never recorded (#3), so the adapters take the title from the course-page card. A visit has no course page. `PageVisitToken` therefore gets an optional `title`: in verified mode the backend returns the stored title of the visited cmid from its earlier Sync all record. Without one, the collector fails with `missing_metadata`, nothing is saved and the popup says "Run Sync all once to add this activity."
+
+### Popup
+
+`#page-visit` shows the active tab's fixed state message: saved; not supported (also for non-SDU tabs, tabs whose URL Chrome hides and unsupported SDU pages); not selected; live updates only with your own dataset; signed out; account mismatch or unconfirmed; needs Sync all; or failed. No new permission is needed: `chrome.tabs.query` returns the URL only for SDU tabs, through the existing host permission.
+
+### Contract changes
+
+`PageVisitToken.title?` (1–256 characters) and `PageRefreshInput.moodleUserId?` (`^[1-9][0-9]{0,18}$`) were added together in `openapi.yaml`, `backend/schemas.py`, `frontend/src/domain/types.ts` and the `shared/src/bridge.ts` inventory. `AnalysisRequest.selection?` and `StartContext.selection?` let a calendar visit keep the events of every selected course. `tools/generate_collection_models.py` no longer runs on the current `openapi.yaml` (it predates hand-written schemas), so the models were edited by hand.
+
+### Tests
+
+- `tests/test_page_visit_95.py`: verified begin and refresh through real HTTP and SQLite; matching, other and missing account; unselected course; revisit without duplicates and the deadline-change alert with old and new dates; stored title only for a synced activity; a received id is never stored.
+- `browser-workspace/live-scan-network.test.ts`, `#95` cases: the installed worker, offscreen analysis and live registry against a real loopback backend, with the observed fixtures. Course, calendar, assignment and quiz pages save within 10 s with exactly one Moodle request each. A duplicate notification makes one request. Revisits leave record, assessment and alert counts unchanged. Changed quiz and assignment dates give two alerts with old and new dates, and the new dates survive a backend restart. Unselected and unsupported pages make no Moodle request and no collection write. The popup line is checked for unsupported, non-SDU and not-selected tabs. Another account, no account and the sign-in page save nothing.
+- `browser-workspace/extension-shell.test.ts`: the emitted `content.js` sends one visit message and never fetches, parses or stores.
+
+### Known limits
+
+Not verified on the live SDU site: the in-app browser's Moodle session had expired on 2026-11-13, and the live journey is #96. Every visit adds a refresh receipt to the snapshot, as each Sync all page already does; the 1 MiB snapshot reply limit is not yet managed for long-term browsing. The #18 content-script coordinator and runtime collection relay remain in the code for the synthetic harness.

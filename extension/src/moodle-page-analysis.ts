@@ -19,6 +19,8 @@ export interface AnalysisRequest {
   collectors:Collector[];
   observedAt:string;
   title?:string;
+  /** #95 calendar visit: the tracked courses whose events are kept; default [sourceCourseId]. */
+  selection?:string[];
 }
 export interface AnalysisResult {
   access:MoodleAccessResult;
@@ -150,8 +152,9 @@ export async function analyzeMoodlePage(request:AnalysisRequest,options:{registr
     const adapter=registry[collector];
     if(!adapter||adapter.availability!=='available')continue;
     try {
-      const result=await adapter.collect(input,[request.sourceCourseId],request.observedAt,request.title?{title:request.title}:{});
-      const foreign=result.kind!=='failed'&&result.kind!=='unavailable'&&(result.observations as {sourceCourseId?:string}[]).some(o=>o.sourceCourseId!==request.sourceCourseId);
+      const selection=Array.isArray(request.selection)&&request.selection.length?request.selection:[request.sourceCourseId];
+      const result=await adapter.collect(input,selection,request.observedAt,request.title?{title:request.title}:{});
+      const foreign=result.kind!=='failed'&&result.kind!=='unavailable'&&(result.observations as {sourceCourseId?:string}[]).some(o=>!selection.includes(o.sourceCourseId!));
       collected[collector]=foreign?{kind:'failed',reasons:['identity_mismatch']}:result;
     } catch {
       collected[collector]={kind:'failed',reasons:['collector_failed']};

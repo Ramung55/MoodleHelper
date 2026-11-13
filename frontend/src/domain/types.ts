@@ -1472,6 +1472,7 @@ export type BeginPageVisit = z.infer<typeof BeginPageVisit>;
 export const PageVisitToken = z
   .object({
     visitToken: z.string(),
+    title: z.string().min(1).max(256).optional(),
   })
   .strict();
 export type PageVisitToken = z.infer<typeof PageVisitToken>;
@@ -1482,6 +1483,10 @@ export const PageRefreshInput = z
     observedAt: z.string(),
     collector: z.enum(["assignment", "calendar", "material", "quiz", "submission"]),
     result: CollectorResult,
+    moodleUserId: z
+      .string()
+      .regex(/^[1-9][0-9]{0,18}$/)
+      .optional(),
   })
   .strict();
 export type PageRefreshInput = z.infer<typeof PageRefreshInput>;

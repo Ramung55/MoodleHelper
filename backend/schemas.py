@@ -959,12 +959,14 @@ class BeginPageVisit(CollectionWire):
 
 class PageVisitToken(CollectionWire):
     visitToken: str
+    title: str = Field(default=None, min_length=1, max_length=256)
 
 class PageRefreshInput(CollectionWire):
     visitToken: str
     observedAt: str
     collector: Literal['assignment', 'calendar', 'material', 'quiz', 'submission']
     result: CollectorResult
+    moodleUserId: MoodleUserId = None
 
 # END GENERATED COLLECTION MODELS
 

@@ -14,6 +14,7 @@
   <body>
     <h1>Moodle Helper</h1>
     <p id="connection" aria-live="polite">Connecting…</p>
+    <p id="page-visit" aria-live="polite" hidden></p>
     <div id="unreachable" hidden>
       <p>Can't reach the local backend.</p>
       <p>Start it with: <code>uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000</code></p>

@@ -2,6 +2,7 @@
 import { BACKEND, transferTabFor } from './dashboard-bridge';
 import {createScanWorker, type ScanWorkerOptions} from './synthetic-scan-worker';
 import {createMoodlePageSource, createOffscreenClient, type OffscreenChrome} from './moodle-page-source';
+import {createPageVisitWorker, installPageVisitWorker} from './page-visit';
 import {createMoodleRequestAuthority, createTransferLeaseHost, type LeasePort} from './moodle-request-authority';
 import {liveRegistry} from './page-refresh';
 import type {AccessChecker, Analyzer} from './moodle-page-analysis';
@@ -80,7 +81,7 @@ export function createQueueService(options:{fetcher?:typeof fetch; executor?:Exe
 }
 
 type QueueChrome = { alarms:{create:(name:string,info:{delayInMinutes:number;periodInMinutes:number})=>void;clear:(name:string)=>void;onAlarm:{addListener:(cb:(alarm:{name:string})=>void)=>void}};runtime:{onStartup:{addListener:(cb:()=>void)=>void};onInstalled:{addListener:(cb:()=>void)=>void}} } & {runtime:OffscreenChrome['runtime'];offscreen?:OffscreenChrome['offscreen']} &
-  {runtime:{id?:string;onConnect?:{addListener:(cb:(port:LeasePort)=>void)=>void}}};
+  {runtime:{id?:string;onConnect?:{addListener:(cb:(port:LeasePort)=>void)=>void};onMessage?:Parameters<typeof installPageVisitWorker>[0]['runtime']['onMessage']}};
 type SyntheticOptions=Omit<ScanWorkerOptions, 'base'|'fetcher'|'schedule'>;
 /** In-process test seams for the live scan; the installed extension passes none. */
 export type LiveScanOptions={moodleFetch?:typeof fetch;now?:()=>number;wait?:(ms:number)=>Promise<void>;instance?:string;analyze?:Analyzer;access?:AccessChecker;requestLimitMs?:number;transferTabFor?:(transferId:string)=>number|undefined};
@@ -118,10 +119,17 @@ export function installQueueWorker(chrome:QueueChrome, options:Partial<Omit<Para
       transferPageUrl:chrome.runtime.getURL('transfer.html'),tabFor:liveScan.transferTabFor??transferTabFor});
     chrome.runtime.onConnect.addListener(port=>leases.onConnect(port));
   }
+  // #95: a page the student opens is read once through the same authority and page rules.
+  let visits:ReturnType<typeof createPageVisitWorker>|undefined;
+  if(!syntheticScan&&chrome.runtime.id&&chrome.runtime.onMessage){
+    visits=createPageVisitWorker({base,fetcher,authority,now,wait,
+      source:createMoodlePageSource({...(liveScan.moodleFetch?{fetcher:liveScan.moodleFetch}:{}),...(liveScan.requestLimitMs?{requestLimitMs:liveScan.requestLimitMs}:{}),analyze:liveScan.analyze??offscreen.analyze,now})});
+    installPageVisitWorker(chrome as Parameters<typeof installPageVisitWorker>[0],visits);
+  }
   const wake=async()=>{await Promise.all([service.wake(),scan.wake()]);};
   chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name===ALARM_NAME) void wake();});
   chrome.runtime.onStartup.addListener(()=>{void wake();});
   chrome.runtime.onInstalled.addListener(()=>{void wake();});
   void wake();
-  return {...service,wake,wakeScan:()=>scan.wake(),discoverCourses:()=>discovery.discover(),checkMoodleSignIn:()=>signIn.check(),dispose(){service.dispose();scan.dispose();}};
+  return {...service,wake,wakeScan:()=>scan.wake(),discoverCourses:()=>discovery.discover(),checkMoodleSignIn:()=>signIn.check(),visits,dispose(){service.dispose();scan.dispose();}};
 }

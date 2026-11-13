@@ -6312,6 +6312,12 @@ components:
       additionalProperties: false
       properties:
         visitToken: *id019
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: '#95: the stored title of the visited assignment or quiz in a verified
+            dataset, from its earlier Sync all record. Absent when none is stored.'
       required:
       - visitToken
     PageRefreshInput:
@@ -6330,6 +6336,11 @@ components:
           - submission
         result:
           $ref: '#/components/schemas/CollectorResult'
+        moodleUserId:
+          type: string
+          pattern: ^[1-9][0-9]{0,18}$
+          description: '#95: the signed-in Moodle user id read from M.cfg "userId" in
+            the visited page text, compared as in #93. Never stored or returned.'
       required:
       - visitToken
       - observedAt

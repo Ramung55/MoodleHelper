@@ -133,14 +133,17 @@ class CollectionService:
         with self.lock:
             snapshot=self.store.read()
             context = self._context(snapshot)
-            if context['mode']!='synthetic' or body['selectionRevision']!=context['selectionRevision'] or not context['courses']: reject()
+            # #95: verified mode is the real dataset; its writes still pass #93's account check in refresh.
+            if context['mode']=='disabled' or body['selectionRevision']!=context['selectionRevision'] or not context['courses']: reject()
             for field in ['documentKey','visitId']:
                 if not re.fullmatch(r'[A-Za-z0-9:._-]{1,256}',body[field]): reject()
             kind, page_id = route(body['pageUrl'])
             if kind=='course' and page_id not in [c['sourceCourseId'] for c in context['courses']]: reject()
+            title = self._stored_title(snapshot, context, kind, page_id) if context['mode']=='verified' else None
+            reply = lambda token: {'visitToken':token, **({'title':title} if title else {})}
             old = self.active.get(body['documentKey'])
             if old and self.tokens[old]['body']==body:
-                return {'visitToken':old}
+                return reply(old)
             if any(e['body']['visitId']==body['visitId'] for e in self.tokens.values()) or any(r['visitId']==body['visitId'] for r in snapshot.get('collection',{}).get('refreshes',[])): reject()
             token = uuid4().hex
             self.tokens[token] = dict(body=deepcopy(body),revision=context['selectionRevision'],receipts={})
@@ -148,7 +151,21 @@ class CollectionService:
             while len(self.tokens)>128:
                 retired, entry = self.tokens.popitem(last=False)
                 if self.active.get(entry['body']['documentKey'])==retired: self.active.pop(entry['body']['documentKey'])
-            return {'visitToken':token}
+            return reply(token)
+
+    @staticmethod
+    def _stored_title(snapshot, context, kind, cmid):
+        """#95: the title of the visited assignment or quiz from its earlier Sync all record.
+
+        The view page's own heading was never recorded on SDU (#3), so a visit can add
+        dates only to an activity whose course-page title is already stored.
+        """
+        collector={'assign':'assignment','quiz':'quiz'}.get(kind)
+        courses={c['courseId'] for c in context['courses']}
+        if not collector: return None
+        titles={o['title'] for r in snapshot.get('collection',{}).get('records',[]) if r['kind']==collector and r['courseId'] in courses
+                for o in r['observations'][-1:] if o.get('sourceCourseModuleId')==cmid and isinstance(o.get('title'),str) and 0<len(o['title'])<=256}
+        return titles.pop() if len(titles)==1 else None
 
     def _validate_observation(self, kind, raw, page, mapping):
         item=raw['attempted'] if kind=='submission' and 'attempted' in raw else raw
@@ -262,7 +279,14 @@ class CollectionService:
         with self.lock:
             token=body['visitToken']; entry=self.tokens.get(token)
             if not entry or self.active.get(entry['body']['documentKey'])!=token: reject()
-            if not self._enabled(): reject()
+            if self._mode()=='disabled': reject()
+            # #93/#95: the received id is only compared, never kept in the replay signature.
+            body=dict(body); moodle_user_id=body.pop('moodleUserId',None)
+            account=self.account_error(moodle_user_id)
+            if account:
+                from backend.schemas import DISCOVERY_ACCOUNT_MESSAGES
+                from backend.services import DiscoveryAccountRejected
+                raise DiscoveryAccountRejected(DISCOVERY_ACCOUNT_MESSAGES[account])
             collector=body['collector']; result=body['result']; signature=canonical(body)
             if result['kind'] not in [collector,'failed','unavailable']: reject()
             context=self.context()
@@ -278,7 +302,7 @@ class CollectionService:
             def apply(snapshot):
                 nonlocal receipt
                 if self.active.get(entry['body']['documentKey'])!=token: reject()
-                receipt=self._merge_refresh(snapshot, entry, body)
+                receipt=self._merge_refresh(snapshot, entry, body, moodle_user_id)
             snapshot=self.store.mutate(apply)
             entry['receipts'][collector]=(signature,deepcopy(receipt))
             return dict(snapshot=snapshot,receipt=receipt)
