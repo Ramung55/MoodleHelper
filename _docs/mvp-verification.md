@@ -1,5 +1,9 @@
 # MVP verification audit
 
+## Read-only observation, 2026-11-13
+
+The owner's already signed-in in-app browser displayed a course list, a course page with assignment due dates and an assignment page with a due date and submission-status table. This confirms source fields are visible, not that MoodleHelper collects, displays or persists them. Course selection, Sync all, quiz/calendar comparisons, page refresh, restart persistence and an application-initiated PDF download were not verified. All requirement rows retain their existing verified/unverified/failed status and the MVP verdict remains FAIL. Issue #96 remains open; see `autonomous-work-2026-11-13.md` for the criterion-by-criterion record. No private identifiers or credentials are included.
+
 Date: 2026-11-08. **Verdict: FAIL.** Critical end-to-end Moodle collection and the complete acceptance criteria have not been verified in the current working tree. This verdict includes lack of evidence; it is not a claim that every listed implementation fails. The scope is `_docs/plan.md`; issue references below point to [the project backlog](https://github.com/Ramung55/MoodleHelper/issues). Historical issue documents and test names are leads, not current passing QA results. The working tree contained approximately 246 changed or untracked entries before this audit, so HEAD `08a325e` alone does not identify the audited implementation.
 
 ## Requirement traceability
