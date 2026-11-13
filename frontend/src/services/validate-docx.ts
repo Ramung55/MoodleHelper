@@ -245,5 +245,11 @@ export async function readValidatedDocx(
 
 /** Preserve the import validator API while sharing its checked reader. */
 export async function validateDocx(buffer: ArrayBuffer, signal: AbortSignal): Promise<void> {
+  // #107: a renamed non-ZIP gets a specific signature message, not "corrupt".
+  const head = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
+  if (![0x50, 0x4b, 0x03, 0x04].every((byte, i) => head[i] === byte))
+    fail(
+      "The file contents are not a DOCX document, although the name ends in .docx. Choose the original PDF or DOCX file.",
+    );
   await readValidatedDocx(buffer, signal);
 }
