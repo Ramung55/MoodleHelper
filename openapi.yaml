@@ -1691,8 +1691,13 @@ paths:
               $ref: '#/components/schemas/ScanFinish'
       description: Complete only a valid scan claim with the atomic merge and coverage
         transaction. The same transaction writes the course's Snapshot sync entry
-        (completed with complete coverage gives ok/full; completed with any incomplete
-        page type gives partial/partial; failed gives failed with a fixed error text;
+        (#124 owner decision D1/D1a, only what we read; completed gives ok/full unless
+        something MoodleHelper should read was not read, otherwise partial/partial; a
+        failed, forbidden or request_failed page, limit_reached, an assignment, submission,
+        quiz or course page without complete coverage, a material diagnostic, or a calendar
+        malformed record, review or event_conflict counts; exclusions such as
+        unselected_course, the upcoming calendar window, listed resource/URL/folder modules,
+        unsupported module types and undiscovered page types do not; failed gives failed with a fixed error text;
         lastSuccessAt only for a completed job, with lastScanStartedAt as the earliest
         page observedAt of that job; a failed job sets lastAttemptAt and keeps
         coverage, lastSuccessAt and lastScanStartedAt). A failed job with errorCode signed_out

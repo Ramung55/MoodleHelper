@@ -475,7 +475,8 @@ export function collectMoodleCalendar(
  *   gives no date (`missing_dates`); an event outside the selection is an
  *   `unselected_course` exclusion; one event id with different values is `event_conflict`.
  * - Only the upcoming window was seen and calendar pagination is UNVERIFIED, so coverage
- *   is never `complete`.
+ *   is never `complete`. That limit alone does not lower the course's scan coverage
+ *   (#124 owner decision D1a); a malformed record, a review or `event_conflict` does.
  * Pure and read-only; access is #20's observed check (route `calendar-upcoming`).
  */
 export const UPCOMING_CALENDAR_URL = `${origin}/calendar/view.php?view=upcoming`;
