@@ -43,7 +43,7 @@ Requirement rows after this run:
 | Moodle submission status distinct from personal completion | **verified** for submitted / not submitted (draft and reopened not available in this account) |
 | Weekly counts, weighted workload and warnings | **verified** on the local stack with the synthetic harness (#111, 2026-11-14); no code defect found. Busy-week alert delivered once (state shown, one attempt id, not repeated after a threshold re-trigger), including the owner's real Windows notification: exactly one, at about T, none after the re-trigger (owner-confirmed 2026-11-14). Live Moodle route not exercised, by owner decision |
 | Materials links and optional selective offline download | links **verified**; download **verified** for one PDF, after confirming Chrome's Save As window |
-| Optional AI with consent | unverified; #112 in progress (2026-11-14): Settings-switch gate fixed (frontend + backend 403 `ai_disabled`), phase A (no key) verified on the synthetic harness, phases B/C (owner Groq key) pending |
+| Optional AI with consent | unverified; #112 in progress (2026-11-14): Settings-switch gate fixed (frontend + backend 403 `ai_disabled`), AI evidence fingerprint fixed, phases A (no key) and B (owner Groq key) verified on the synthetic harness, phase C (invalid key, criterion 5b) pending |
 | Local backup, restore and deletion | unverified |
 | Student journey and privacy | unverified as a whole |
 
@@ -264,7 +264,7 @@ Tests run: issue-named `tests/test_reminders.py` + `tests/test_alert_delivery.py
 | 8 Failures | none found |
 | 9 Evidence | this section |
 
-## Optional AI with consent for #112, 2026-11-14 (synthetic harness, local stack) — phase A; B/C pending
+## Optional AI with consent for #112, 2026-11-14 (synthetic harness, local stack) — phases A and B; C pending
 
 **Route: the SYNTHETIC fixture harness `tests.collection_network_app:app` plus the committed synthetic `frontend/src/test/fixtures/ai-fallback-synthetic.docx`, not live Moodle.** These are the "fixture/mock dataset on the local stack". SDU Moodle was not opened. Phase A ran with **no** `MOODLE_HELPER_AI_*`, `GROQ_API_KEY` or `GEMINI_API_KEY` variables; nothing was sent to any provider.
 
@@ -286,19 +286,39 @@ Setup: branch `verify/issue-112-ai-consent`. Port 8000 was free. Harness on 127.
 
 The harness was stopped at the end of phase A (port 8000 free); the browser's IndexedDB (imported document, extraction, mentions) was left in place for phase B.
 
+### Phase B (owner key, agent in the owner's Chrome)
+
+Setup: the owner started the harness on 127.0.0.1:8000 in their own PowerShell window outside the Claude app with `MOODLE_HELPER_AI_PROVIDER=groq`, the AI ledger path in the same data folder, and the Groq key entered at the hidden prompt. The agent did not type, see, read or store the key and did not read that window or any process environment; it confirmed only `GET /api/ai/availability` → `available:true`, mode `groq`, provider "Groq openai/gpt-oss-120b, free plan (external)", `maxBodyBytes` 3072. Same data folder and browser profile as phase A (IndexedDB still held the imported synthetic DOCX under CSS 215; not re-imported). Ledger read read-only (`SELECT status FROM ai_requests`) before and after each step; network log read with Claude in Chrome (`/api/ai/`). Baseline before phase B: ledger file present with **0 rows**, `/syllabus` **Needs review (2)**, `/deadlines` "5 shown". **Only the synthetic excerpt "Midterm exam in Week 6." was sent to Groq, once.** Live Moodle was not opened.
+
+| Criterion | Steps | Observed | Ledger | Network (`/api/ai/`) |
+| --- | --- | --- | --- | --- |
+| 6 first step (switch default off) | `/syllabus` (restored document) → **Optional AI help**; Settings → switch on → reload Settings | "AI help is off in Settings (Allow asking before sending excerpts). No text was sent." with **Continue locally**; 0 checkboxes, no Send. Settings showed "Available: Groq openai/gpt-oss-120b, free plan (external)", switch enabled and off; after turning it on and reloading it stayed on (`aria-checked=true`; Snapshot `settings.ai.enabled` true, `consentGiven` false) | 0 rows | `GET /api/ai/availability` only |
+| 2 Consent preview | **Optional AI help** → select only "Midterm exam in Week 6." → **Review what will be sent** | Exactly three checkboxes: "Select excerpt Assignment 1", "Select excerpt exam", "Select excerpt Контрольная работа 2" ("Lab assignment 2 …" not offered). Preview: "Sends to: Groq openai/gpt-oss-120b, free plan (external)"; "Kept by provider:" followed by `GROQ_RETENTION` word for word (identical to the availability response); one "Selected excerpt" "Midterm exam in Week 6." and no other document text; the "Excerpts may contain private information and are sent exactly as shown without automatic redaction. Files, Moodle session data and cloud-sync records are never sent." line; **Send** and **Cancel**. Details: destination "groq:openai/gpt-oss-120b", mode groq; "Policy: groq-free-policy-1 · cost cap $0/month, reserve $0/request · timeout 30 s" (no "(simulated)"); 571 bytes (≤ 3072) | 0 rows | `GET /api/ai/availability` only; no `POST /api/ai/extract` |
+| 3 Declining | (a) **Cancel** in the excerpt list; (b) **Cancel** in the preview; (c) **Continue local review** (rendered only after a send outcome, so pressed after the criterion-6 refusal below); reload `/syllabus` | After each: the block returned to "Optional AI help can suggest proposals …"; four possible assessments "Unconfirmed"; **Needs review (2)** after (a), (b) and (3) after (c) (the +1 is criterion 4's routed proposal; declining changed nothing); `/deadlines` "5 shown". Reload: "Restored from this browser: the local extraction, 4 possible assessments and their evidence. All remain unconfirmed; nothing was sent.", extracted text and four mentions present | 0 rows after (a), (b); 1 (`ok`, from criterion 4) after (c) | no `POST /api/ai/extract` from (a), (b), (c) |
+| 4 Consent: sent once, to review | N₀ = 2, M = 5. Preview "Midterm exam in Week 6." → **Send** → **Send AI proposals to review** → `/deadlines` | One `POST /api/ai/extract` → 200. "1 AI proposals validated against your selected excerpts. All are unconfirmed and require review." with "Midterm exam · exam · week 6 · AI-proposed (Groq openai/gpt-oss-120b, free plan (external)); not verified. AI marked uncertain: relative_week."; Needs review still (2) before routing. Routing: "1 AI proposals sent to review. None was confirmed; each needs your decision."; `/syllabus` **Needs review (3)**; new card "Midterm exam", CSS 215, "Proposed: Week 6 (no exact date)", "Why review: … Proposed by optional AI help; not verified". `/deadlines` still "5 shown", same five items, nothing new. Mode `groq` is shown by the provider label in the result (the network tool does not expose response bodies) and by the ledger row, which only the Groq gateway writes. **Defect found** (Fix below): the new card said "Stored original evidence is corrupt (its fingerprint does not match)." with Confirm/Correct disabled | 0 → **1 row `ok`**; still 1 after routing | exactly one `POST /api/ai/extract` (200); none during routing |
+| 6 tab A/B withdrawal | Tab A: preview "Midterm exam in Week 6." (not sent). Tab B (new tab): Settings → switch **off** (Snapshot `settings.ai.enabled` false). Tab A: **Send**, then **Retry same request**, then **Continue local review**; reload tab A → **Optional AI help** | Tab A, after Send and after Retry: "AI help is off in Settings (Allow asking before sending excerpts). No text was sent. Imported document data and local review are unchanged."; no key, provider text, `code:` or request id in the message; no proposals added, Needs review (3) unchanged, `/deadlines` "5 shown". Reload of tab A: **Optional AI help** shows the off message with **Continue locally**, 0 checkboxes, no Send. The switch was left **off** for phase C | still **1 row** (`ok`) | two `POST /api/ai/extract` → **403** (backend refusal); no 200 |
+
+### Fix found in phase B (criteria 4 and 7): AI proposal evidence read as corrupt
+
+- Cause: `frontend/src/services/ai-fallback.ts` (`validateAiResponse`) hashed an extra `ai: {requestId, payloadDigest, evidence}` field into the retained record's `fingerprint`, but that field is not stored on the record, and `local-review.ts` re-hashes only `{original, proposal, format, pipelineVersion}`. So every routed AI proposal showed "Stored original evidence is corrupt (its fingerprint does not match)." and could only be rejected. Fix: hash exactly the stored fields (the request id and digest are already bound into the AI `mentionId`).
+- Regression: the "validates evidence against selected excerpts …" test in `ai-fallback.test.tsx` now asserts each AI record's fingerprint equals `localHash({original, proposal, format, pipelineVersion})`; it fails on the previous code and passes with the fix.
+- Not re-checked live: the one card routed before the fix keeps its old fingerprint in this browser and still shows the corrupt notice; no second live send was made to confirm the fix, to stay within the Groq budget. Reviewing AI proposals is otherwise out of scope (#108).
+
+Tests run after the fix: `ai-fallback.test.tsx` + `ai-fallback-groq.test.tsx` + `local-review.test.tsx` 26 passed; full frontend `bun run test` 78 files, 1563 passed. Backend unchanged in phase B (not re-run).
+
 Tests run: AI suites `tests/test_ai_gateway.py` + `tests/test_ai_groq_provider.py` + `tests/test_ai_gemini_provider.py` 77 passed; frontend `ai-fallback.test.tsx` + `ai-fallback-groq.test.tsx` 19 passed, `local-extraction-persistence.test.tsx` 3 passed. Full suites: `uv run pytest` 1553 passed, 9 skipped; `bun run test` (frontend) 78 files, 1563 passed.
 
 | #112 criterion | Result |
 | --- | --- |
 | 1 No key: offered, nothing sent | **verified** (fixture + auto) |
-| 2 Consent preview names Groq | pending (phase B, owner key) |
-| 3 Declining sends nothing | pending (phase B) |
-| 4 Consent: sent once, to review | pending (phase B) |
+| 2 Consent preview names Groq | **verified** (fixture + auto + owner key) |
+| 3 Declining sends nothing | **verified** (fixture + auto) |
+| 4 Consent: sent once, to review | **verified** (fixture + auto + owner key); evidence-fingerprint defect fixed with a regression test |
 | 5a No key | **verified** (fixture + auto) |
 | 5b Provider failure | pending (phase C) |
-| 6 Settings switch gates sends | fixed with regression tests (auto pass); fixture steps pending (phases B/C) |
-| 7 Failures | one defect (criterion 6) fixed in this branch |
-| 8 Evidence | this section (phase A); B/C to follow |
+| 6 Settings switch gates sends | fixed with regression tests (auto pass); phase B fixture steps **verified**; phase C persistence check pending |
+| 7 Failures | two defects fixed in this branch: criterion 6 gate; AI evidence fingerprint (phase B) |
+| 8 Evidence | this section (phases A and B); C to follow |
 
 ## Read-only observation, 2026-11-13
 

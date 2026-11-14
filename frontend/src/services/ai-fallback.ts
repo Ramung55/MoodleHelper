@@ -475,16 +475,12 @@ export async function validateAiResponse(
     const format = preview.association.name.toLowerCase().endsWith(".docx")
       ? ("docx" as const)
       : ("pdf" as const);
+    // Same fields local-review.ts re-hashes; anything extra makes every AI card read as corrupt.
     const fingerprint = await localHash({
       original,
       proposal: proposalValue,
       format,
       pipelineVersion: LOCAL_PIPELINE_VERSION,
-      ai: {
-        requestId: preview.requestId,
-        payloadDigest: preview.payloadDigest,
-        evidence: proposal.evidence,
-      },
     });
     records.push({
       datasetId: preview.datasetId,

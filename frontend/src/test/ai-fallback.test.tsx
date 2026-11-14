@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AiFallback } from "@/components/mh/AiFallback";
 import type { AssessmentMention } from "@/domain/assessment-mentions";
 import { AiRequestError } from "@/services/ai-gateway";
+import { localHash } from "@/services/local-evidence";
 import {
   classifyAiFailure,
   freezePreview,
@@ -337,6 +338,9 @@ it("validates evidence against selected excerpts, forces AI review and never inv
   expect(result.records[1]!.proposal.date).toEqual({ kind: "unknown" });
   expect(result.records[2]!.proposal.facts.inferredYear).toBe(true);
   expect(result.records[0]!.original.mention.excerpt).toBe(m1.excerpt);
+  // #112: review re-hashes exactly these stored fields; a mismatch shows every AI card as corrupt.
+  for (const { fingerprint, original, proposal, format, pipelineVersion } of result.records)
+    expect(await localHash({ original, proposal, format, pipelineVersion })).toBe(fingerprint);
   await expect(
     validateAiResponse(preview, { ...ok(preview, []), requestId: "other" }),
   ).rejects.toThrow("does not match");
