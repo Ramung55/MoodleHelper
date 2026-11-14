@@ -783,7 +783,108 @@ def test_scan_accepts_observed_assignment_calendar_and_material_results(live):
     checked = {(p['pageType'], p.get('collector')): p['outcome'] for p in pages if p.get('collector')}
     assert checked == {('course', 'material'): 'ok', ('assignment', 'assignment'): 'ok', ('calendar', 'calendar'): 'partial',
                        ('submission', 'submission'): 'ok'}
-    assert live.sync_entry('c-csc')['status'] == 'partial'
+    # #124 D1/D1a: the calendar window, the unselected_course exclusion, the listed resource and no quiz are not gaps.
+    entry = live.sync_entry('c-csc')
+    assert (entry['status'], entry['coverage']) == ('ok', 'full')
+
+
+def finish_observed(live, pages, extra_reasons=()):
+    live.client.put('/api/tracked-courses', headers=live.h(), json=['c-csc'])
+    live.post('/api/sync')
+    claim = live.post('/api/scan/claim', {}).json()['claim']
+    body = completed(claim, pages)
+    body['incompleteReasons'] = sorted(set(body['incompleteReasons']) | set(extra_reasons))
+    assert live.post('/api/scan/finish', body).status_code == 200
+    return claim, live.client.get(f"/api/scan/jobs/{claim['job']['id']}/pages").json()
+
+
+def gap_failed(pages, page_type='assignment', outcome='failed', reason='request_failed'):
+    url = pages[2]['pageUrl'] if page_type == 'assignment' else f'{ORIGIN}/mod/quiz/view.php?id=990103'
+    page = dict(pageType=page_type, scope='unknown', outcome=outcome, coverage='none', reasons=[reason], observedAt=TIME, pageUrl=url)
+    if page_type == 'assignment': pages[2] = page
+    else: pages[-1] = page
+
+
+def partial_collector(page, reason, review=None):
+    result = page['result']
+    result['diagnostics'].append(dict(reason=reason, pageIndex=0, **({'recordIndex': 0} if reason != 'invalid_page' else {})))
+    if review: result['reviews'].append(review)
+    result['coverage'] = result['pages'][0]['coverage'] = page['coverage'] = 'partial'
+    page.update(outcome='partial', reasons=['undiscovered'])
+
+
+CALENDAR_REVIEW = dict(kind='calendar', reasons=['event_conflict'], candidate=dict(sourceEventId='880001', sourceCourseId='9001',
+                       title='Fictional Lab Report', sourceUrl=f'{ORIGIN}/calendar/view.php?event=880001', observedAt=TIME))
+
+
+# #124 D1: something MoodleHelper should read was not read: the course stays partial, and (owner decision
+# 2026-11-15, "Show it in readback") the job readback names the deciding reason on that page and for the job.
+GAPS = {'assignment_failed': ('assignment', 'request_failed'), 'assignment_forbidden': ('assignment', 'forbidden'),
+        'quiz_request_failed': ('quiz', 'request_failed'), 'limit_reached': (None, 'limit_reached'),
+        'folder_contents_uninspected': ('course', 'folder_contents_uninspected'), 'material_diagnostic': ('course', 'missing_metadata'),
+        'calendar_malformed': ('calendar', 'malformed_record'), 'calendar_review': ('calendar', 'event_conflict')}
+
+
+@pytest.mark.parametrize('gap', GAPS)
+def test_a_page_that_was_really_not_read_keeps_the_course_partial(live, gap):
+    pages, extra = observed_scan(), ()
+    if gap == 'assignment_failed': gap_failed(pages)
+    if gap == 'assignment_forbidden': gap_failed(pages, outcome='forbidden', reason='forbidden')
+    if gap == 'quiz_request_failed': gap_failed(pages, 'quiz')
+    if gap == 'limit_reached': extra = ('limit_reached',)
+    if gap == 'folder_contents_uninspected': partial_collector(pages[0], 'folder_contents_uninspected')
+    if gap == 'material_diagnostic': partial_collector(pages[0], 'missing_metadata')
+    if gap == 'calendar_malformed': partial_collector(pages[6], 'malformed_record')
+    if gap == 'calendar_review': partial_collector(pages[6], 'event_conflict', CALENDAR_REVIEW)
+    _, readback = finish_observed(live, pages, extra)
+    entry = live.sync_entry('c-csc')
+    assert (entry['status'], entry['coverage']) == ('partial', 'partial')
+    page_type, reason = GAPS[gap]
+    assert reason in readback['incompleteReasons']
+    if page_type: assert any(p['pageType'] == page_type and reason in p['reasons'] for p in readback['pages'])
+
+
+def test_a_clean_full_course_readback_names_no_gap_reason(live):
+    """#124: the same scan without a gap carries none of those reasons, nor the unselected_course exclusion."""
+    _, readback = finish_observed(live, observed_scan())
+    entry = live.sync_entry('c-csc')
+    assert (entry['status'], entry['coverage']) == ('ok', 'full')
+    found = set(readback['incompleteReasons']) | {r for p in readback['pages'] for r in p['reasons']}
+    assert found == {'collector_unavailable', 'undiscovered', 'unsupported_page'}
+
+
+def test_course_without_deadlines_is_full_and_invents_nothing(live):
+    """#124: a course page with no assignment or quiz links and no own calendar events, parsed cleanly."""
+    pages = observed_scan()
+    calendar = pages[6]['result']
+    calendar['observations'] = []
+    calendar['diagnostics'][0]['recordIndex'] = 0
+    calendar['pages'][0]['candidateCount'] = 1
+    pages = [pages[0], pages[1], pages[6], undiscovered('assignment'), undiscovered('submission'), undiscovered('quiz')]
+    claim, readback = finish_observed(live, pages)
+    entry = live.sync_entry('c-csc')
+    assert (entry['status'], entry['coverage']) == ('ok', 'full')
+    snapshot = live.client.get('/api/snapshot').json()
+    assert not any(r['kind'] in ('assignment', 'quiz', 'submission', 'calendar') for r in snapshot['collection']['records'])
+    assert not any(a['courseId'] == 'c-csc' and any(s['source'] == 'moodle' for s in a['sources']) for a in snapshot['assessments']
+                   if any(s.get('url', '').startswith(f'{ORIGIN}/mod/') for s in a['sources']))
+    # Readback keeps every recorded page, the not-requested and undiscovered ones included.
+    assert [(p['pageType'], p['outcome'], p['coverage']) for p in readback['pages']] == [
+        ('course', 'ok', 'complete'), ('material', 'unavailable', 'none'), ('calendar', 'partial', 'partial'),
+        ('assignment', 'undiscovered', 'none'), ('submission', 'undiscovered', 'none'), ('quiz', 'undiscovered', 'none')]
+    assert all('observedAt' in p for p in readback['pages'][:3]) and readback['pages'][1]['reasons'] == ['unsupported_page', 'collector_unavailable']
+    assert readback['incompleteReasons'] == ['collector_unavailable', 'undiscovered', 'unsupported_page']
+
+
+def test_unsupported_module_pages_do_not_lower_coverage_and_stay_in_readback(live):
+    """#124 D1: a forum (no collector) is recorded as unsupported without a request; the course stays full."""
+    pages = observed_scan()
+    pages.insert(2, dict(pageType='unsupported', scope='unknown', outcome='unavailable', coverage='none',
+                         reasons=['unsupported_page', 'collector_unavailable'], observedAt=TIME))
+    _, readback = finish_observed(live, pages)
+    entry = live.sync_entry('c-csc')
+    assert (entry['status'], entry['coverage']) == ('ok', 'full')
+    assert readback['pages'][2]['pageType'] == 'unsupported' and readback['pages'][2]['reasons'] == ['unsupported_page', 'collector_unavailable']
 
 
 @pytest.mark.parametrize('change', ['file_kind', 'known_type', 'known_mime', 'destination', 'reference_destination', 'wrong_url'])

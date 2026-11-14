@@ -1691,8 +1691,13 @@ paths:
               $ref: '#/components/schemas/ScanFinish'
       description: Complete only a valid scan claim with the atomic merge and coverage
         transaction. The same transaction writes the course's Snapshot sync entry
-        (completed with complete coverage gives ok/full; completed with any incomplete
-        page type gives partial/partial; failed gives failed with a fixed error text;
+        (#124 owner decision D1/D1a, only what we read; completed gives ok/full unless
+        something MoodleHelper should read was not read, otherwise partial/partial; a
+        failed, forbidden or request_failed page, limit_reached, an assignment, submission,
+        quiz or course page without complete coverage, a material diagnostic, or a calendar
+        malformed record, review or event_conflict counts; exclusions such as
+        unselected_course, the upcoming calendar window, listed resource/URL/folder modules,
+        unsupported module types and undiscovered page types do not; failed gives failed with a fixed error text;
         lastSuccessAt only for a completed job, with lastScanStartedAt as the earliest
         page observedAt of that job; a failed job sets lastAttemptAt and keeps
         coverage, lastSuccessAt and lastScanStartedAt). A failed job with errorCode signed_out
@@ -6863,7 +6868,7 @@ components:
           - complete
           - partial
           - none
-        reasons:
+        reasons: &id124
           type: array
           items:
             type: string
@@ -6877,8 +6882,54 @@ components:
             - request_failed
             - limit_reached
             - invalid_context
-          maxItems: 9
+            - collection_disabled
+            - envelope_unavailable
+            - collector_failed
+            - persistence_failed
+            - invalid_selection
+            - invalid_identity
+            - malformed_result
+            - invalid_observed_at
+            - invalid_batch_arguments
+            - invalid_page
+            - malformed_record
+            - empty_marker
+            - site_event
+            - personal_event
+            - non_assessment
+            - unselected_course
+            - unknown_kind
+            - missing_course
+            - unreliable_course
+            - unknown_date
+            - missing_dates
+            - event_conflict
+            - unsupported_structure
+            - identity_mismatch
+            - missing_identity
+            - malformed_candidate
+            - unsafe_url
+            - unsafe_external_url
+            - missing_metadata
+            - type_conflict
+            - invalid_mime
+            - unsafe_label
+            - field_conflict
+            - parent_conflict
+            - pagination_pending
+            - incomplete_list
+            - empty_unconfirmed
+            - empty_conflict
+            - folder_contents_uninspected
+            - listing_conflict
+            - invalid_date
+            - unsupported_date
+            - duplicate_date
+            - malformed_assignment
+            - incomplete_assignment
+          maxItems: 64
           uniqueItems: true
+          description: 'The recorded reasons. Besides the worker''s scan reasons, the backend adds the collector diagnostic or review reasons that make a calendar or material page a gap (#124 owner decision 2026-11-15, Show it in readback).'
         observedAt:
           type: string
           format: date-time
@@ -6999,7 +7050,7 @@ components:
           items:
             $ref: '#/components/schemas/ScanPageRecord'
           maxItems: 100
-        incompleteReasons: *id042
+        incompleteReasons: *id124
         nextCursor: *id030
         signInGuidance:
           type: string

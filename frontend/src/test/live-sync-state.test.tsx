@@ -180,6 +180,108 @@ describe("live sync state (#46)", () => {
     expect(mocks.adapter.collectionMode).not.toHaveBeenCalled();
   });
 
+  /** #124: "Sync running…" clears on Settings and Overview from the store's Snapshot re-read alone. */
+  const syncState = (states: Record<string, [string, string]>) => {
+    const s = structuredClone(data);
+    s.settings.trackedCourseIds = Object.keys(states);
+    s.sync = Object.entries(states).map(([courseId, [status, coverage]]) => ({
+      courseId,
+      status,
+      coverage,
+      progress: status === "syncing" ? 0 : 100,
+      ...(coverage === "full" ? { lastSuccessAt: "2028-03-05T10:00:00Z" } : {}),
+    })) as typeof s.sync;
+    return s;
+  };
+  const renderReal = () => {
+    mocks.adapter.connection.mockResolvedValue({ ...REAL });
+    mocks.detect.mockResolvedValue(false);
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+  };
+
+  it("keeps Sync running while a selected course syncs, then clears it on Settings and Overview without a reload", async () => {
+    mocks.adapter.load
+      .mockResolvedValueOnce(
+        syncState({ "c-csc": ["syncing", "none"], "c-math": ["syncing", "none"] }),
+      )
+      .mockResolvedValueOnce(syncState({ "c-csc": ["ok", "full"], "c-math": ["syncing", "none"] }))
+      .mockResolvedValue(syncState({ "c-csc": ["ok", "full"], "c-math": ["ok", "full"] }));
+    renderReal();
+    await waitFor(() => expect(screen.getAllByText("Sync running…")).toHaveLength(2));
+    await waitFor(() => expect(mocks.adapter.load).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    expect(screen.getAllByText("Sync running…")).toHaveLength(2);
+    await waitFor(
+      () => expect(screen.getAllByText("2 of 2 courses fully scanned")).toHaveLength(2),
+      { timeout: 6000 },
+    );
+    expect(screen.queryByText("Sync running…")).toBeNull();
+    const card = screen.getByRole("region", { name: "Last full sync" });
+    expect(card).not.toHaveTextContent("Never");
+    // No selected course is syncing any more: the re-reads stop.
+    const calls = mocks.adapter.load.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 2500));
+    expect(mocks.adapter.load).toHaveBeenCalledTimes(calls);
+  }, 15000);
+
+  it("a slow backend gets one Snapshot re-read at a time, each 2 s after the previous answer", async () => {
+    const starts: number[] = [],
+      ends: number[] = [];
+    let first = true;
+    mocks.adapter.load.mockImplementation(async () => {
+      const value = syncState({ "c-csc": ["syncing", "none"] });
+      if (first) {
+        first = false;
+        return value;
+      }
+      starts.push(Date.now());
+      await new Promise((r) => setTimeout(r, 1500));
+      ends.push(Date.now());
+      return value;
+    });
+    renderReal();
+    await waitFor(() => expect(screen.getAllByText("Sync running…")).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 8000));
+    // Back-to-back reads (the old interval with a queue) would start right after each answer.
+    expect(starts.length).toBeGreaterThanOrEqual(2);
+    expect(starts.length).toBeLessThanOrEqual(3);
+    for (let i = 1; i < starts.length; i++)
+      expect(starts[i]! - ends[i - 1]!).toBeGreaterThanOrEqual(1900);
+  }, 15000);
+
+  it("a sync that fails midway clears Sync running and shows the failed count", async () => {
+    mocks.adapter.load
+      .mockResolvedValueOnce(
+        syncState({ "c-csc": ["syncing", "none"], "c-math": ["syncing", "none"] }),
+      )
+      .mockResolvedValue(syncState({ "c-csc": ["ok", "full"], "c-math": ["failed", "none"] }));
+    renderReal();
+    await waitFor(() => expect(screen.getAllByText("Sync running…")).toHaveLength(2));
+    await waitFor(() => expect(screen.getByText(/1 course failed to sync/)).toBeInTheDocument(), {
+      timeout: 6000,
+    });
+    expect(screen.queryByText("Sync running…")).toBeNull();
+    expect(screen.getByText("Last sync failed for 1 course")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Last full sync" })).toHaveTextContent("Never");
+  }, 15000);
+
+  it("the demo dataset is never re-read while a course says syncing", async () => {
+    mocks.adapter.connection.mockResolvedValue({ ...DEMO });
+    mocks.detect.mockResolvedValue(false);
+    mocks.adapter.load.mockResolvedValue(syncState({ "c-csc": ["syncing", "none"] }));
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await waitFor(() => expect(screen.getAllByText("Sync running…")).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 2500));
+    expect(mocks.adapter.load).toHaveBeenCalledOnce();
+  }, 10000);
+
   it("Settings bridge check says the Moodle collection is ready when live sync is available", async () => {
     mocks.connect.mockResolvedValue({
       backend: "ready",

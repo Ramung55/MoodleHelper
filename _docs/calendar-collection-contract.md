@@ -155,6 +155,11 @@ Complete means every supplied page/range parsed without unresolved signals, not
 full enrollment, historical or future assessment coverage. Empty batch is none.
 Batch coverage is complete only if all pages complete, otherwise partial if any
 valid page content exists, else none. No disappearance/deletion inference.
+This is the collector's own coverage. A course scan's coverage follows
+`_docs/scan-coordinator-contract.md` (#124, owner decision D1/D1a, 2026-11-14):
+exclusions such as unselected_course and the observed upcoming window or
+unverified pagination do not lower it; a malformed record, review or
+event_conflict does.
 
 ## File bounds and verification
 

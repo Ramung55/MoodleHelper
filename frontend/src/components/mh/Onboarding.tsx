@@ -293,20 +293,13 @@ export function Onboarding({
     probed.current = true;
     void askSignIn();
   }, [probeNow, askSignIn]);
-  // While a selected course is syncing, re-read the local Snapshot (never Moodle) for its progress.
+  // While a selected course is syncing, the app store re-reads the local Snapshot (#124).
   const selectedSyncing =
     !!snap &&
     realData &&
     snap.settings.trackedCourseIds.some(
       (id) => snap.sync.find((s) => s.courseId === id)?.status === "syncing",
     );
-  useEffect(() => {
-    if (!selectedSyncing || current !== "sync") return;
-    const timer = setInterval(() => {
-      void refreshSnapshot();
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [selectedSyncing, current, refreshSnapshot]);
 
   if (!snap || !states) return null;
   const choose = (id: StepId, c: Choice) => {

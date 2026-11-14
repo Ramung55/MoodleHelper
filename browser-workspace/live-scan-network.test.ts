@@ -282,7 +282,9 @@ it('AC1-AC3: Sync all scans only the selected courses, one Moodle request at a t
   const snapshot = await backend.get('/api/snapshot');
   for (const course of ['9001', '9002']) {
     const entry = snapshot.sync.find((s: any) => s.courseId === ids[course]);
-    expect(entry).toMatchObject({status: 'partial', coverage: 'partial', progress: 100});
+    // #124 D1/D1a: everything MoodleHelper reads was read; the calendar window, the other course's
+    // unselected_course event, listed resources/URLs and unsupported modules are not gaps.
+    expect(entry).toMatchObject({status: 'ok', coverage: 'full', progress: 100});
     expect(entry.lastSuccessAt).toBeTruthy();
   }
   expect(snapshot.sync.some((s: any) => s.courseId === ids['9003'])).toBe(false);
@@ -604,7 +606,7 @@ it('#93: an always-503 course shows no id but keeps its request_failed page and 
   expect(site.starts().map(e => e.url).filter(u => u !== courseUrl('9001')).sort()).toEqual(jobUrls('9002').sort());
   const snapshot = await backend.get('/api/snapshot');
   expect(snapshot.sync.find((s: any) => s.courseId === ids['9001'])).toMatchObject({status: 'partial', coverage: 'partial'});
-  expect(snapshot.sync.find((s: any) => s.courseId === ids['9002'])).toMatchObject({status: 'partial'});
+  expect(snapshot.sync.find((s: any) => s.courseId === ids['9002'])).toMatchObject({status: 'ok', coverage: 'full'});
   // Only the course that showed the dataset account saved records.
   const saved = JSON.stringify(snapshot.collection?.records ?? []);
   expect(saved).toContain('"sourceCourseId":"9002"');
@@ -731,14 +733,15 @@ it('AC2 (#21): the popup claims a full sync only once every collector completed 
   const ids = await backend.seed(['9001', '9002']);
   const selected = [ids['9001']!, ids['9002']!];
   const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
-  const first = install(backend, clock, moodle(clock, observedSite).fetcher);
+  // #124: one quiz page that Moodle never serves keeps course 9001 partial.
+  const first = install(backend, clock, moodle(clock, url => url === quizUrl('990103') ? {status: 503, body: '<html><body></body></html>'} : observedSite(url)).fetcher);
   expect((await first.bridge(1, 'syncAll')).ok).toBe(true);
   await backend.settled(1); first.worker.dispose();
   const entries = async () => (await backend.get('/api/snapshot')).sync.filter((s: any) => selected.includes(s.courseId));
-  // (a) #20's fixture scan is partial: no full sync, one completed-scan line per course and the page refresh.
+  // (a) A partial course: no full sync, one completed-scan line for it and the page refresh.
   let shown = await popupText(backend);
   expect(shown.full).toBe('No successful full sync yet.');
-  expect(shown.text.match(/Last completed scan \(partial coverage\): /g)).toHaveLength(2);
+  expect(shown.text.match(/Last completed scan \(partial coverage\): /g)).toHaveLength(1);
   expect(shown.text).toContain('Latest page refresh: ');
   expect(shown.text).not.toMatch(/Successful full sync|Last failed scan attempt|fictional/);
   // (b) Every collector complete (#94: submission included): a full sync, kept after restart.
@@ -802,10 +805,10 @@ it('#46 AC2/AC4: one Start initial sync gives one POST /api/sync and one run; re
   open();
   const [run] = await backend.settled(1);
   expect(run.status).toBe('completed');
-  // Incomplete page types: partial coverage with a completed time, never a full sync.
+  // #124 D1: the observed pages were all read, so each course is fully scanned with a completed time.
   const snapshot = await backend.get('/api/snapshot');
   for (const course of ['9001', '9002'])
-    expect(snapshot.sync.find((s: any) => s.courseId === ids[course])).toMatchObject({status: 'partial', coverage: 'partial', lastSuccessAt: expect.any(String)});
+    expect(snapshot.sync.find((s: any) => s.courseId === ids[course])).toMatchObject({status: 'ok', coverage: 'full', lastSuccessAt: expect.any(String)});
   expect(site.maxActive()).toBe(1); spacing(site.starts());
   app.worker.dispose();
   // A course still held by another kind of run: the fixed 409 message, nothing started.
@@ -915,6 +918,47 @@ it('#95 AC1/AC4/AC5/AC6: opened course, calendar, assignment and quiz pages save
   expect(await popupPageLine(app, 5, assignUrl('990102'))).toBe(VISIT.saved);
   app.worker.dispose();
 }, 120000);
+
+it('#124: the upcoming calendar still drops an unselected course event as unselected_course, and the selected course is full', async () => {
+  const backend = new Backend('unselected-calendar'); await backend.start();
+  const ids = await backend.seed(['9001']);
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  const app = install(backend, clock, moodle(clock, observedSite).fetcher);
+  expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
+  const [run] = await backend.settled(1);
+  const snapshot = await backend.get('/api/snapshot');
+  expect(snapshot.sync.find((s: any) => s.courseId === ids['9001'])).toMatchObject({status: 'ok', coverage: 'full'});
+  const receipt = snapshot.collection.refreshes.find((r: any) => r.collector === 'calendar');
+  expect(receipt.reasons).toEqual(['unselected_course']);
+  // Neither the event id nor the title of course 9002's event reaches observations, reviews or the Snapshot.
+  const saved = JSON.stringify(snapshot);
+  expect(saved).not.toContain('880002');
+  expect(saved).not.toContain('Fictional Problem Set');
+  expect(snapshot.collection.reviews).toEqual([]);
+  expect((await backend.pages(run.jobs[0].id)).pages.find((p: any) => p.pageType === 'calendar')).toMatchObject({outcome: 'partial', coverage: 'partial'});
+  app.worker.dispose();
+}, 60000);
+
+it('#124: a course with no assignment or quiz links and no own calendar events is full and gets no invented assessments', async () => {
+  const backend = new Backend('no-deadlines'); await backend.start();
+  const ids = await backend.seed(['9003']);
+  const before = (await backend.get('/api/snapshot')).assessments.length;
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  // The observed course page without its assignment and quiz cards; the observed calendar lists only 9001/9002 events.
+  const noDeadlines = (page: string) => page.replace(/<li class="activity (assign|quiz) modtype_\1"[\s\S]*?<\/li>\n?/g, '');
+  const site = moodle(clock, url => url === courseUrl('9003') ? ok(coursePage('9003', noDeadlines)) : observedSite(url));
+  const app = install(backend, clock, site.fetcher);
+  expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
+  const [run] = await backend.settled(1);
+  expect(site.starts().map(e => e.url).sort()).toEqual([CALENDAR, courseUrl('9003')].sort());
+  const snapshot = await backend.get('/api/snapshot');
+  expect(snapshot.sync.find((s: any) => s.courseId === ids['9003'])).toMatchObject({status: 'ok', coverage: 'full'});
+  expect(snapshot.assessments).toHaveLength(before);
+  expect(snapshot.collection.records.filter((r: any) => r.kind !== 'material')).toEqual([]);
+  const {pages} = await backend.pages(run.jobs[0].id);
+  expect(pages.filter((p: any) => ['assignment', 'quiz', 'submission'].includes(p.pageType)).map((p: any) => p.outcome)).toEqual(['undiscovered', 'undiscovered', 'undiscovered']);
+  app.worker.dispose();
+}, 60000);
 
 it('#95 AC2/AC3: unselected courses and unsupported pages save nothing and make no Moodle request; the popup says the page is not supported', async () => {
   const backend = new Backend('visit-refused'); await backend.start();
