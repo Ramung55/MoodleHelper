@@ -174,3 +174,25 @@ def test_sqlite_erase_deletes_jobs_and_tombstone_survives_restart_without_reseed
             assert client.get('/api/snapshot').json()['courses'] == []
     finally:
         reopened.close()
+
+
+def test_fresh_live_dataset_starts_with_first_run_defaults_not_sample_settings(tmp_path):
+    """#114: a new real (non-sample) namespace gets the erase first-run settings (reminders off)."""
+    from datetime import date
+    from backend.identity import namespace_key
+    from backend.local_erase import default_settings
+    live = namespace_key('moodle', origin='https://moodle.sdu.edu.kz', profile_label='personal', stable_user_id='12345')
+    store = SQLiteStore(URL.create('sqlite', database=str(tmp_path / 'live.sqlite3')), live)
+    try:
+        snapshot = store.read()
+        assert snapshot['settings'] == InMemoryStore._validated({'settings': default_settings(date.today())} | {
+            k: [] for k in ('courses', 'assessments', 'overlays', 'materials', 'documents', 'candidates', 'sync', 'changes', 'alerts')})['settings']
+        assert snapshot['settings']['reminders']['enabled'] is False
+        assert all(snapshot[k] == [] for k in snapshot if k != 'settings')
+    finally:
+        store.close()
+    demo = SQLiteStore(URL.create('sqlite', database=str(tmp_path / 'demo.sqlite3')))
+    try:
+        assert demo.read()['settings']['reminders']['enabled'] is True  # sample dataset unchanged
+    finally:
+        demo.close()

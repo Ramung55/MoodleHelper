@@ -38,13 +38,12 @@ def storage_failure(error: Exception) -> StorageError:
 
 
 def initial_snapshot(namespace: str) -> dict:
-    snapshot = build_sample_snapshot()
-    if namespace != namespace_key():
-        for key in snapshot:
-            if key != "settings":
-                snapshot[key] = []
-        snapshot["settings"]["trackedCourseIds"] = []
-    return snapshot
+    if namespace == namespace_key():
+        return build_sample_snapshot()
+    # #114: a real (non-sample) dataset starts with the same first-run settings as erase (#56).
+    from datetime import date
+    from backend.local_erase import empty_snapshot
+    return empty_snapshot(date.today())
 
 
 class _PostgresConnection:
