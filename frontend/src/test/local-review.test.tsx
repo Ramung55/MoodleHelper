@@ -17,6 +17,12 @@ import {
 import type { MoodleHelperAdapter, ReviewDecision } from "@/services/adapter";
 import { saveLocalDocument } from "@/services/local-documents";
 import { inspectLocalReviewEvidence, submitLocalReview } from "@/services/local-review";
+import {
+  freezePreview,
+  routeAiRecords,
+  validateAiResponse,
+  type AvailableAi,
+} from "@/services/ai-fallback";
 import { BackendResponseError } from "@/services/http-adapter";
 import { buildDemoSnapshot } from "@/services/fixtures";
 import type { ExtractionCandidate, Snapshot } from "@/domain/types";
@@ -459,4 +465,111 @@ it("keeps a week-only candidate as a week and shows an unallocated mapping inste
   ).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+});
+
+it("#112: a validated AI proposal routed like AiFallback is confirmable, with no corrupt or mismatch notice", async () => {
+  const blob = new NodeBlob([
+    readFileSync("src/test/fixtures/extraction-bilingual.docx"),
+  ]) as unknown as Blob;
+  await saveLocalDocument(association, blob, [], new AbortController().signal);
+  const blocks = await extractDocx(blob, new AbortController().signal, vi.fn());
+  const extraction = {
+    format: "docx" as const,
+    datasetId,
+    courseId: association.courseId,
+    digest,
+    complete: true as const,
+    blocks,
+  };
+  const [mention] = await detectAssessmentMentions(extraction, new AbortController().signal);
+  const info: AvailableAi = {
+    available: true,
+    provider: "Local mock; no external provider",
+    retention: "Mock demonstration; stays local.",
+    mode: "mock",
+    policyVersion: "mock-policy-1",
+    destination: "mock",
+    limits: {
+      maxExcerpts: 8,
+      maxExcerptBytes: 2000,
+      maxBodyBytes: 16384,
+      timeoutSeconds: 30,
+      monthlyCapUsd: 0,
+      perRequestReserveUsd: 0,
+      simulatedCost: true,
+    },
+  };
+  const preview = await freezePreview({ association, datasetId, info, mentions: [mention!] });
+  const { records } = await validateAiResponse(preview, {
+    version: "ai-extract.v1",
+    requestId: preview.requestId,
+    mode: "mock",
+    policyVersion: "mock-policy-1",
+    status: "ok",
+    proposals: [
+      {
+        title: "AI exam",
+        type: "exam",
+        date: { precision: "week" },
+        week: 6,
+        uncertain: true,
+        uncertaintyReason: "relative_week",
+        confirmed: false,
+        evidence: [
+          {
+            excerptId: "ex-0",
+            locationId: preview.excerpts[0]!.locationId,
+            start: 0,
+            end: 4,
+          },
+        ],
+      },
+    ] as never,
+  });
+  const record = records[0]!;
+  const snapshot = buildDemoSnapshot();
+  const candidate: ExtractionCandidate = {
+    id: "local-k-ai",
+    documentId: "local-d-ai",
+    courseId: record.courseId,
+    title: record.proposal.title,
+    type: record.proposal.type,
+    date: record.proposal.date,
+    rawDateText: "",
+    language: "unknown",
+    confidence: 0,
+    excerpt: "",
+    location: "",
+    status: "pending",
+    localEvidence: {
+      datasetId,
+      courseId: record.courseId,
+      digest,
+      mentionId: record.mentionId,
+      locationId: record.locationId,
+      pipelineVersion: record.pipelineVersion,
+    },
+  };
+  const route = {
+    mentionId: record.mentionId,
+    documentId: candidate.documentId,
+    candidateId: candidate.id,
+    disposition: "review" as const,
+    reasons: ["ai_proposal" as const],
+  };
+  snapshot.candidates = [...snapshot.candidates, candidate];
+  snapshot.localSyllabusReceipts = [
+    { evidence: candidate.localEvidence!, fingerprint: "1".repeat(64), route },
+  ];
+  await routeAiRecords(preview, records, new AbortController().signal, {
+    routeLocalSyllabus: vi.fn(async () => ({ snapshot, routes: [route] })),
+  });
+  expect((await inspectLocalReviewEvidence(candidate, snapshot)).mode).toBe("original-available");
+  app.snap = snapshot;
+  app.run = vi.fn();
+  render(<LocalReviewCard c={candidate} />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Confirm" })).toBeEnabled());
+  expect(screen.getByRole("button", { name: "Correct" })).toBeEnabled();
+  expect(screen.getByText(/Proposed by optional AI help; not verified/)).toBeInTheDocument();
+  expect(screen.queryByText(/corrupt|does not match|unavailable/)).not.toBeInTheDocument();
 });
