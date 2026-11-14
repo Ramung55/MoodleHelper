@@ -57,7 +57,8 @@ const monthDay = new RegExp(
   "giu",
 );
 const iso = /(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g;
-const numeric = /(?<![\d/.])(\d{1,2})([/.])(\d{1,2})(?:\2(\d{4}|\d{2})(?!\d))?(?![\d/.])/g;
+// #114: a full stop beside the date is punctuation; only a dot joined to a digit continues a number.
+const numeric = /(?<![\d/]|\d\.)(\d{1,2})([/.])(\d{1,2})(?:\2(\d{4}|\d{2})(?!\d))?(?![\d/]|\.\d)/g;
 type Found = {
   start: number;
   end: number;

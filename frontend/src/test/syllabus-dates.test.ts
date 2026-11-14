@@ -56,6 +56,17 @@ describe("explicit local syllabus dates", () => {
         /invalid or conflicting/,
       );
   });
+  it("#114 finds numeric dates before a sentence-ending full stop, not inside longer numbers", async () => {
+    for (const text of [
+      "Assignment 1 (essay) deadline: 03/04/2027.",
+      "Assignment 1 deadline 03/04/2027",
+    ])
+      expect((await parse(text))[0]!.reasons.join(" ")).toMatch(/Ambiguous numeric day\/month/);
+    for (const text of ["Exam 13/04/2027.", "Exam 13.04.2027."])
+      expect((await parse(text))[0]!.date).toEqual({ kind: "date", date: "2027-04-13" });
+    for (const text of ["Exam 03/04/2027.5", "Exam 03/04/2027/1", "Exam 1.03/04/2027"])
+      expect((await parse(text))[0]?.reasons.join(" ") ?? "").not.toMatch(/Ambiguous numeric/);
+  });
   it("keeps missing years unresolved except one explicit semester placement", async () => {
     expect((await parse("Quiz 12 March"))[0]!.reasons.join(" ")).toMatch(/Missing year/);
     const [inferred] = await parse("Quiz 12 March", {
