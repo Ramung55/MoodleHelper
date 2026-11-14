@@ -120,6 +120,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [adapter, loadAttempt]);
   // #56: another tab erased (or this one did): drop in-memory copies and reload authoritative state.
   useEffect(() => onLocalInvalidation(() => setLoadAttempt((attempt) => attempt + 1)), []);
+  // #124: while a selected course is syncing, every page re-reads the local Snapshot (never
+  // Moodle), so "Sync running…" clears without a reload once the scan jobs finish.
+  const selectedSyncing =
+    !!snap &&
+    !!conn &&
+    conn.state !== "demo" &&
+    snap.settings.trackedCourseIds.some(
+      (id) => snap.sync.find((s) => s.courseId === id)?.status === "syncing",
+    );
+  useEffect(() => {
+    if (!selectedSyncing) return;
+    const timer = setInterval(() => {
+      // Queued, so a poll never replaces the Snapshot of a newer mutation.
+      void enqueue(() => adapter.load())
+        .then(setSnap)
+        .catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [selectedSyncing, adapter, enqueue]);
 
   const run = useCallback(
     async (fn: (a: MoodleHelperAdapter) => Promise<Snapshot>) => {
