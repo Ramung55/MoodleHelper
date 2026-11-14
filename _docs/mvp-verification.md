@@ -24,8 +24,8 @@ Moodle comparison method: Moodle's own `/mod/assign/index.php?id=<course>` and `
 | Each requirement row marked, verdict reassessed | **Done** | Below. |
 
 Other observations:
-- Every course ends with coverage `partial` and reason `unselected_course` (course pages link to modules in courses the scan does not select). Settings therefore shows "0 of 8 courses fully scanned" and the Overview "Last full sync" can never complete, although all deadlines matched.
-- During and for some time after Sync all, Settings kept showing "Sync running…" after all 8 jobs had finished; a page reload cleared it.
+- Every course ended with coverage `partial`, so Settings showed "0 of 8 courses fully scanned" and the Overview "Last full sync" could never complete, although all deadlines matched. **Corrected by #124 (2026-11-14):** the cause was not `unselected_course` (it is only a calendar exclusion, never a scan reason) but the backend verdict, which made a course `partial` for any page not `complete` (the upcoming calendar, listed resources/URLs, uncollected modules, absent page types). Owner decision D1/D1a changed the rule; see the #124 section.
+- During and for some time after Sync all, Settings kept showing "Sync running…" after all 8 jobs had finished; a page reload cleared it. **Fixed by #124:** only the setup page re-read the Snapshot.
 
 Requirement rows after this run:
 
@@ -482,6 +482,24 @@ Tests run: `uv run pytest` 1554 passed, 9 skipped; `bun run test` (frontend) 78 
 | 8 Restart | **verified** (synthetic harness restart + dashboard reload) |
 | 9 Defects | none found; both suites pass |
 | 10 Evidence | this section; requirement row updated; `sdu-moodle.md` unchanged |
+
+## Full sync coverage for #124, 2026-11-14 (automated and synthetic; live pending)
+
+Owner decision D1/D1a (2026-11-14, "only what we read"): a completed scan is `full` unless something MoodleHelper should read was not read. Rule in `backend/scan_queue.py` (`course_gap`), `_docs/scan-coordinator-contract.md` criterion 2 and the `finishScanClaim` description in `openapi.yaml`. "Sync running…" now clears on every page: the app store re-reads the local Snapshot every 2 s while a selected course is `syncing` in the real dataset (`frontend/src/lib/app-store.tsx`), replacing the setup page's own poll.
+
+| Criterion | Route | Result |
+| --- | --- | --- |
+| 1 Coverage rule | `tests/test_live_scan.py` observed-shape scan (calendar window, `unselected_course` exclusion, listed resource, no quiz) → `ok`/`full`; `browser-workspace/live-scan-network.test.ts` AC1-AC3 (real extension adapters, observed fixtures, loopback backend) → both courses `ok`/`full` | done offline; live pending |
+| 2 All selected courses | live only | pending live |
+| 3 `unselected_course` kept | browser-workspace #124 test: one selected course, the calendar's other-course event is the receipt's `unselected_course` reason, its id and title appear nowhere in the Snapshot, course `full` | done offline (synthetic) |
+| 4 Real gaps stay partial | `test_a_page_that_was_really_not_read_keeps_the_course_partial` (8 cases); browser-workspace #93 503 course and #21 popup quiz 503 | done |
+| 5 No deadlines | `test_course_without_deadlines_is_full_and_invents_nothing` | done |
+| 6 Readback | same test plus the unsupported-module test: every page kept with type, outcome, coverage, reasons, `observedAt`, `incompleteReasons` | done |
+| 7 Last full sync | `frontend/src/test/live-sync-state.test.tsx` (card not "Never" after all `full`; "Never" with a failed course), `full-sync-freshness.test.tsx` | done offline |
+| 8 Sync running clears | `live-sync-state.test.tsx`: Settings and Overview keep it while one course syncs and clear it after the re-read, no reload; fails on the old store | done offline; live observation pending |
+| 9 Midway failure | `live-sync-state.test.tsx` failed-course case; browser-workspace signed-out cascade | done offline |
+| 10 Restart | live only (offline restart coverage in browser-workspace AC2) | pending live |
+| 11 Tests | `uv run pytest` 1564 passed, 9 skipped; `bun run test` 78 files, 1569 passed; browser workspace 19 files, 322 passed; `bun run --cwd extension build` exit 0 | done |
 
 ## Read-only observation, 2026-11-13
 
