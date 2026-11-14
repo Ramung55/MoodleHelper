@@ -468,7 +468,12 @@ export async function validateAiResponse(
       },
     });
     const original = {
-      mention: { ...structuredClone(mention), reasons: [...mention.reasons, ...reasons] },
+      // Review requires original.mention.id === the record's mentionId (local-review.ts).
+      mention: {
+        ...structuredClone(mention),
+        id: mentionId,
+        reasons: [...mention.reasons, ...reasons],
+      },
       dates: [],
       week: { kind: "unknown" as const },
     };

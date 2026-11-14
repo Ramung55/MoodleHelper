@@ -302,9 +302,14 @@ Setup: the owner started the harness on 127.0.0.1:8000 in their own PowerShell w
 
 - Cause: `frontend/src/services/ai-fallback.ts` (`validateAiResponse`) hashed an extra `ai: {requestId, payloadDigest, evidence}` field into the retained record's `fingerprint`, but that field is not stored on the record, and `local-review.ts` re-hashes only `{original, proposal, format, pipelineVersion}`. So every routed AI proposal showed "Stored original evidence is corrupt (its fingerprint does not match)." and could only be rejected. Fix: hash exactly the stored fields (the request id and digest are already bound into the AI `mentionId`).
 - Regression: the "validates evidence against selected excerpts …" test in `ai-fallback.test.tsx` now asserts each AI record's fingerprint equals `localHash({original, proposal, format, pipelineVersion})`; it fails on the previous code and passes with the fix.
-- Not re-checked live: the one card routed before the fix keeps its old fingerprint in this browser and still shows the corrupt notice; no second live send was made to confirm the fix, to stay within the Groq budget. Reviewing AI proposals is otherwise out of scope (#108).
+- Second cause, found by the live re-check below: `original.mention` kept the local mention's id while the record's `mentionId` is the new `ai-…` id, and `local-review.ts` requires `original.mention.id === mentionId`, so the card then read "Stored original evidence does not match this candidate's location." Fix: `original.mention.id` is set to the AI `mentionId`. The same regression test now also asserts `original.mention.id`, `proposal.mentionId` and `proposal.locationId` match the record; it fails on the first-fix code (`m1` instead of the AI id) and passes with the second fix.
+- The cards routed before each fix keep their stored records in this browser and still show their notices (corrupt; location mismatch). Reviewing AI proposals is otherwise out of scope (#108).
 
-Tests run after the fix: `ai-fallback.test.tsx` + `ai-fallback-groq.test.tsx` + `local-review.test.tsx` 26 passed; full frontend `bun run test` 78 files, 1563 passed. Backend unchanged in phase B (not re-run).
+| Fix re-check (orchestrator-approved, one extra Groq send) | Steps | Observed | Ledger | Network |
+| --- | --- | --- | --- | --- |
+| After the first fix (`ee83922`; Vite confirmed serving the fixed `ai-fallback.ts`) | Settings switch on → `/syllabus` reload → **Optional AI help** → only "Midterm exam in Week 6." → **Review what will be sent** → **Send** → **Send AI proposals to review** → `/deadlines`; then Settings switch **off** | "1 AI proposals validated …"; "1 AI proposals sent to review. None was confirmed; each needs your decision."; **Needs review (3) → (4)**; the new card has "Proposed by optional AI help; not verified" and **no** "Stored original evidence is corrupt" notice (first fix confirmed), but shows "Stored original evidence does not match this candidate's location." with Confirm/Correct disabled (second cause above; fixed in code, not re-checked live, no further Groq send). `/deadlines` "5 shown". Switch left **off** (Snapshot `settings.ai.enabled` false) for phase C | 1 → **2 rows (`ok`, `ok`)** | one `POST /api/ai/extract` (200); none during routing |
+
+Tests run after both fixes: full frontend `bun run test` 78 files, 1563 passed (includes `ai-fallback.test.tsx`, `ai-fallback-groq.test.tsx`, `local-review.test.tsx`). Backend unchanged in phase B (not re-run). Phase B total: 2 Groq calls, ledger 2 rows `ok`.
 
 Tests run: AI suites `tests/test_ai_gateway.py` + `tests/test_ai_groq_provider.py` + `tests/test_ai_gemini_provider.py` 77 passed; frontend `ai-fallback.test.tsx` + `ai-fallback-groq.test.tsx` 19 passed, `local-extraction-persistence.test.tsx` 3 passed. Full suites: `uv run pytest` 1553 passed, 9 skipped; `bun run test` (frontend) 78 files, 1563 passed.
 
@@ -313,11 +318,11 @@ Tests run: AI suites `tests/test_ai_gateway.py` + `tests/test_ai_groq_provider.p
 | 1 No key: offered, nothing sent | **verified** (fixture + auto) |
 | 2 Consent preview names Groq | **verified** (fixture + auto + owner key) |
 | 3 Declining sends nothing | **verified** (fixture + auto) |
-| 4 Consent: sent once, to review | **verified** (fixture + auto + owner key); evidence-fingerprint defect fixed with a regression test |
+| 4 Consent: sent once, to review | **verified** (fixture + auto + owner key); AI review-evidence defect (fingerprint + mention id) fixed with a regression test, fingerprint part re-checked live, mention-id part auto only |
 | 5a No key | **verified** (fixture + auto) |
 | 5b Provider failure | pending (phase C) |
 | 6 Settings switch gates sends | fixed with regression tests (auto pass); phase B fixture steps **verified**; phase C persistence check pending |
-| 7 Failures | two defects fixed in this branch: criterion 6 gate; AI evidence fingerprint (phase B) |
+| 7 Failures | defects fixed in this branch: criterion 6 gate; AI review evidence fingerprint and mention id (phase B) |
 | 8 Evidence | this section (phases A and B); C to follow |
 
 ## Read-only observation, 2026-11-13

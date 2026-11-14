@@ -338,9 +338,14 @@ it("validates evidence against selected excerpts, forces AI review and never inv
   expect(result.records[1]!.proposal.date).toEqual({ kind: "unknown" });
   expect(result.records[2]!.proposal.facts.inferredYear).toBe(true);
   expect(result.records[0]!.original.mention.excerpt).toBe(m1.excerpt);
-  // #112: review re-hashes exactly these stored fields; a mismatch shows every AI card as corrupt.
-  for (const { fingerprint, original, proposal, format, pipelineVersion } of result.records)
+  // #112: review re-hashes exactly these stored fields and requires matching ids (local-review.ts),
+  // otherwise every AI card shows as corrupt or as not matching its location.
+  for (const r of result.records) {
+    const { fingerprint, original, proposal, format, pipelineVersion } = r;
     expect(await localHash({ original, proposal, format, pipelineVersion })).toBe(fingerprint);
+    expect([original.mention.id, proposal.mentionId]).toEqual([r.mentionId, r.mentionId]);
+    expect(proposal.locationId).toBe(r.locationId);
+  }
   await expect(
     validateAiResponse(preview, { ...ok(preview, []), requestId: "other" }),
   ).rejects.toThrow("does not match");
