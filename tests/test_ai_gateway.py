@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from backend.ai_gateway import (AiFailure, AiGateway, GatewayConfig, MockProvider, PriceTable, mock_config,
                                 payload_digest, LEGACY_UNAVAILABLE)
 from backend.main import create_app
+from backend.sample_data import build_sample_snapshot
 from backend.storage import InMemoryStore
 
 ROOT = Path(__file__).parents[1]
@@ -33,6 +34,13 @@ def no_network(monkeypatch):
     monkeypatch.setattr(socket.socket, 'connect', guarded)
 
 
+def ai_on_store(enabled=True):
+    """Fixture dataset with the Settings switch "Allow asking before sending excerpts" set (#112)."""
+    snapshot = build_sample_snapshot()
+    snapshot['settings']['ai']['enabled'] = enabled
+    return InMemoryStore(snapshot)
+
+
 class Clock:
     def __init__(self, now=1_790_000_000.0):
         self.now = now
@@ -44,7 +52,7 @@ class Clock:
 def make(tmp_path, provider=None, clock=None, **overrides):
     provider = provider or MockProvider()
     gateway = AiGateway(mock_config(str(tmp_path / 'ai-ledger.sqlite3'), **overrides), provider, clock or Clock())
-    client = TestClient(create_app(InMemoryStore(), ai_gateway=gateway))
+    client = TestClient(create_app(ai_on_store(), ai_gateway=gateway))
     return client, provider, gateway
 
 
@@ -167,7 +175,7 @@ def test_budget_and_rate_ledger_survive_restart_and_inflight_crash(tmp_path):
     provider = MockProvider()
     restarted = AiGateway(mock_config(path, monthly_cap_usd=0.15), provider, Clock())
     assert restarted.ledger.rows()[0][2] == 'unknown'
-    with TestClient(create_app(InMemoryStore(), ai_gateway=restarted)) as client:
+    with TestClient(create_app(ai_on_store(), ai_gateway=restarted)) as client:
         assert post(client, body(client, request_id='after')).status_code == 429
         assert post(client, body(client, request_id='crashed')).status_code == 409
     assert provider.calls == 0
@@ -176,7 +184,7 @@ def test_budget_and_rate_ledger_survive_restart_and_inflight_crash(tmp_path):
 def test_concurrency_one_and_atomic_reservation(tmp_path):
     provider = MockProvider(delay=0.3)
     gateway = AiGateway(mock_config(str(tmp_path / 'l.sqlite3')), provider, Clock())
-    with TestClient(create_app(InMemoryStore(), ai_gateway=gateway)) as client:
+    with TestClient(create_app(ai_on_store(), ai_gateway=gateway)) as client:
         a, b = body(client, request_id='c1'), body(client, request_id='c2')
         dataset = a['expectedDatasetId']
 
@@ -250,7 +258,7 @@ def test_utf16_offsets_and_malicious_excerpt_is_inert(tmp_path):
 def test_cancelled_client_stops_work_releases_concurrency_and_records(tmp_path):
     provider = MockProvider(behavior='timeout')
     gateway = AiGateway(mock_config(str(tmp_path / 'l.sqlite3')), provider, Clock())
-    with TestClient(create_app(InMemoryStore(), ai_gateway=gateway)) as client:
+    with TestClient(create_app(ai_on_store(), ai_gateway=gateway)) as client:
         payload = body(client, request_id='gone')
 
     async def run():
@@ -294,3 +302,21 @@ def test_binding_required_and_secret_absent_from_browser_sources():
         for path in (ROOT / folder).rglob('*.ts*'):
             text = path.read_text(encoding='utf-8', errors='ignore')
             assert 'MOODLE_HELPER_AI_API_KEY' not in text and 'VITE_AI' not in text, path
+
+
+def test_settings_switch_off_refuses_before_ledger_and_provider(tmp_path):
+    # #112: a preview frozen while the switch was on cannot be sent after it is turned off.
+    provider = MockProvider()
+    gateway = AiGateway(mock_config(str(tmp_path / 'l.sqlite3')), provider, Clock())
+    with TestClient(create_app(ai_on_store(), ai_gateway=gateway)) as client:
+        frozen = body(client, request_id='frozen')
+        binding = client.get('/api/bridge-context').json()['binding']
+        assert client.patch('/api/settings', json={'ai': {'enabled': False, 'consentGiven': False}},
+                            headers={'X-Moodle-Helper-Bridge-Binding': binding}).status_code == 200
+        refused = post(client, frozen)
+        assert refused.status_code == 403
+        assert refused.json() == {'message': 'AI help is off in Settings. No text was sent. (code: ai_disabled)'}
+    assert provider.calls == 0 and gateway.ledger.rows() == []
+    with TestClient(create_app(ai_on_store(False), ai_gateway=gateway)) as client:
+        assert post(client, body(client, request_id='default-off')).status_code == 403
+    assert provider.calls == 0 and gateway.ledger.rows() == []

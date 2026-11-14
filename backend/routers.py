@@ -343,6 +343,9 @@ async def ai_extract(body: s.AiExtractRequest, request: Request):
     if request.query_params:
         raise AiFailure('invalid_request')
     gateway = request.app.state.ai_gateway
+    # #112: the Settings switch gates every send, even a preview frozen before it was turned off.
+    if gateway.enabled and not request.app.state.service.store.read()['settings']['ai']['enabled']:
+        raise AiFailure('ai_disabled')
     raw = await request.json()  # validated again by the gateway; never echoed
     return await gateway.extract(raw, request.app.state.service.store.dataset_id, request.is_disconnected)
 

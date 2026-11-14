@@ -43,7 +43,7 @@ Requirement rows after this run:
 | Moodle submission status distinct from personal completion | **verified** for submitted / not submitted (draft and reopened not available in this account) |
 | Weekly counts, weighted workload and warnings | **verified** on the local stack with the synthetic harness (#111, 2026-11-14); no code defect found. Busy-week alert delivered once (state shown, one attempt id, not repeated after a threshold re-trigger), including the owner's real Windows notification: exactly one, at about T, none after the re-trigger (owner-confirmed 2026-11-14). Live Moodle route not exercised, by owner decision |
 | Materials links and optional selective offline download | links **verified**; download **verified** for one PDF, after confirming Chrome's Save As window |
-| Optional AI with consent | unverified |
+| Optional AI with consent | unverified; #112 in progress (2026-11-14): Settings-switch gate fixed (frontend + backend 403 `ai_disabled`), phase A (no key) verified on the synthetic harness, phases B/C (owner Groq key) pending |
 | Local backup, restore and deletion | unverified |
 | Student journey and privacy | unverified as a whole |
 
@@ -263,6 +263,42 @@ Tests run: issue-named `tests/test_reminders.py` + `tests/test_alert_delivery.py
 | 7 Restart persistence | **verified** (fixture) |
 | 8 Failures | none found |
 | 9 Evidence | this section |
+
+## Optional AI with consent for #112, 2026-11-14 (synthetic harness, local stack) — phase A; B/C pending
+
+**Route: the SYNTHETIC fixture harness `tests.collection_network_app:app` plus the committed synthetic `frontend/src/test/fixtures/ai-fallback-synthetic.docx`, not live Moodle.** These are the "fixture/mock dataset on the local stack". SDU Moodle was not opened. Phase A ran with **no** `MOODLE_HELPER_AI_*`, `GROQ_API_KEY` or `GEMINI_API_KEY` variables; nothing was sent to any provider.
+
+### Fix (criterion 6 grooming defect, owner decision 2026-11-14 "Frontend + backend gate")
+
+- `frontend/src/components/mh/AiFallback.tsx`: opening **Optional AI help** reads the saved `settings.ai.enabled` fresh from the backend Snapshot. When AI is available but the switch **Allow asking before sending excerpts** is off, it shows "AI help is off in Settings (Allow asking before sending excerpts). No text was sent." with **Continue locally**, no excerpt checkboxes, no Send. With no key the existing "External AI unavailable; continue locally. No text was sent." still takes precedence.
+- `backend/routers.py` + `backend/ai_gateway.py`: when a provider is configured and the stored `settings.ai.enabled` is false, `POST /api/ai/extract` returns 403 `ai_disabled` ("AI help is off in Settings. No text was sent.") before any ledger row or provider call, so a preview frozen before the switch was turned off cannot be sent. `frontend/src/services/ai-fallback.ts` maps it to the fixed off message. Documented in `_docs/architecture/ai-gateway.md` (request handling step 2) and `openapi.yaml` (403 response).
+- Regression tests (each fails on `main`): backend `test_settings_switch_off_refuses_before_ledger_and_provider` (`tests/test_ai_gateway.py`: preview frozen while on, switch turned off via `PATCH /api/settings`, send → 403, 0 provider calls, 0 ledger rows; default-off store → 403); frontend "#112: while the Settings switch is off …" (`ai-fallback.test.tsx`). Existing gateway/provider tests now run on a store with the switch on (`ai_on_store()`); `local-extraction-persistence.test.tsx` serves a Snapshot with the switch on.
+
+### Phase A (agent, no key)
+
+Setup: branch `verify/issue-112-ai-consent`. Port 8000 was free. Harness on 127.0.0.1:8000 with `MOODLE_HELPER_COLLECTION_TEST_DATABASE` = `synthetic-collection.sqlite3` in a new folder outside the repository, created on the test day (reused for phases B/C together with `ai-ledger.sqlite3` there). Vite was already running on 127.0.0.1:5173 (serving this branch's working tree). Claude in Chrome, new tab of the owner's Chrome; the tab's network log was read from a reload of `/syllabus` onwards. Baseline before import: `/syllabus` **Needs review (2)**, `/deadlines` "5 shown".
+
+| Criterion | Steps | Observed |
+| --- | --- | --- |
+| 1 No key, default settings | `/syllabus` → course CSS 215 → file set with the upload tool → **Extract text** → **Find assessments** → order Unspecified, context empty → **Interpret explicit dates** → **Optional AI help** → **Continue locally**; Settings | "4 possible assessments found. All are unconfirmed …", four rows "Unconfirmed" (Assignment 1, exam, Контрольная работа 2, assignment 2). The "Optional AI help can suggest proposals for unresolved excerpts you choose. Nothing is sent unless you review a preview and press Send." block and **Optional AI help** appeared. Pressing it: "External AI unavailable; continue locally. No text was sent." with only **Continue locally**; 0 checkboxes, no Send. Network log: `/api/ai/` requests were `GET /api/ai/availability` only (200; three over the phase: AI help and Settings visits); no `POST /api/ai/extract`; every request went to `http://127.0.0.1:5173`, none to `https://`. Data folder held only `synthetic-collection.sqlite3`: no ledger file. Settings → AI explanations: "Not available on this device.", switch **Allow asking before sending excerpts** disabled and off (`aria-checked=false`); backend Snapshot `settings.ai` = `{enabled:false, consentGiven:false}` |
+| 5a No key: nothing saved | after criterion 1 | Message as in criterion 1; no ledger file, no proposals; **Needs review (2)** and `/deadlines` "5 shown" unchanged. Reload of `/syllabus`: "Restored from this browser: the local extraction, 4 possible assessments and their evidence. All remain unconfirmed; nothing was sent." |
+| 6 (switch-off part) | phase A | With no key the unavailable message correctly takes precedence, so the "off" message itself is shown in phase B. Verified here: the switch defaults to off and is persisted off in the harness Snapshot; the gate is covered by the two [auto] regression tests above. Live phase B/C steps pending |
+
+The harness was stopped at the end of phase A (port 8000 free); the browser's IndexedDB (imported document, extraction, mentions) was left in place for phase B.
+
+Tests run: AI suites `tests/test_ai_gateway.py` + `tests/test_ai_groq_provider.py` + `tests/test_ai_gemini_provider.py` 77 passed; frontend `ai-fallback.test.tsx` + `ai-fallback-groq.test.tsx` 19 passed, `local-extraction-persistence.test.tsx` 3 passed. Full suites: `uv run pytest` 1553 passed, 9 skipped; `bun run test` (frontend) 78 files, 1563 passed.
+
+| #112 criterion | Result |
+| --- | --- |
+| 1 No key: offered, nothing sent | **verified** (fixture + auto) |
+| 2 Consent preview names Groq | pending (phase B, owner key) |
+| 3 Declining sends nothing | pending (phase B) |
+| 4 Consent: sent once, to review | pending (phase B) |
+| 5a No key | **verified** (fixture + auto) |
+| 5b Provider failure | pending (phase C) |
+| 6 Settings switch gates sends | fixed with regression tests (auto pass); fixture steps pending (phases B/C) |
+| 7 Failures | one defect (criterion 6) fixed in this branch |
+| 8 Evidence | this section (phase A); B/C to follow |
 
 ## Read-only observation, 2026-11-13
 

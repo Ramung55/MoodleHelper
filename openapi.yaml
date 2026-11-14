@@ -841,7 +841,8 @@ paths:
         must bind the exact excerpts, context, destination and policy through
         payloadDigest. Gateway failures include a fixed code and may include the
         request ID; precondition errors use the same message envelope without a code.
-        Gateway failures include 413 payload, 429 rate/concurrency/budget, 502 provider/invalid
+        Gateway failures include 403 ai_disabled (Settings ai.enabled is false; refused before any
+        ledger row or provider call, #112), 413 payload, 429 rate/concurrency/budget, 502 provider/invalid
         output, 503 unavailable and 504 timeout; submitted text is never echoed.
         Proposals are unconfirmed and never change assessments. Evidence offsets are
         UTF-16 code units within the supplied excerpt text. Not exposed through the
@@ -864,6 +865,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/AiExtractResponse'}
+        '403': {$ref: '#/components/responses/ProposedHttpFailure'}
         '409': {$ref: '#/components/responses/ProposedHttpFailure'}
         '413': {$ref: '#/components/responses/ProposedHttpFailure'}
         '422': {$ref: '#/components/responses/ProposedHttpFailure'}
