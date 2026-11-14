@@ -33,7 +33,7 @@ Requirement rows after this run:
 | --- | --- |
 | Local Chrome dashboard, no account; local-first and read-only | **verified** (live, this run) |
 | Detect session, discover and select current courses | **verified** (live, this run) |
-| Update while browsing and sync all selected courses, with freshness and failures | **verified** for Sync all and one visited assignment; full-sync freshness shows partial (see above) |
+| Update while browsing and sync all selected courses, with freshness and failures | **verified** for Sync all and one visited assignment; #124: 8 of 8 courses fully scanned, "Last full sync" set, "Sync running…" clears without a reload, midway sign-out failure and restart verified live |
 | Collect Moodle assignment, quiz and calendar deadlines | **verified** (live, this run) |
 | Track changes and notify with old and new dates | **verified** on the local stack with the synthetic harness (#106, 2026-11-13), including the owner's real Windows notification and click; the denied case is verified by mocked test only (limitation: Windows Chrome offered no control that produced `denied` for the extension) |
 | Suggest syllabus and import PDF/DOCX; extract locally | **verified** on the local stack with the synthetic harness and synthetic files (#107, 2026-11-13), after two fixes (specific message for a renamed non-document; self-hosted fonts so the dashboard makes no third-party requests). Live Moodle route not exercised, by owner decision; OCR text is not restored after reload, by design (#27) |
@@ -483,23 +483,32 @@ Tests run: `uv run pytest` 1554 passed, 9 skipped; `bun run test` (frontend) 78 
 | 9 Defects | none found; both suites pass |
 | 10 Evidence | this section; requirement row updated; `sdu-moodle.md` unchanged |
 
-## Full sync coverage for #124, 2026-11-14 (automated and synthetic; live pending)
+## Full sync coverage for #124, 2026-11-14/15 (automated, synthetic and live SDU account) — verified
 
 Owner decision D1/D1a (2026-11-14, "only what we read"): a completed scan is `full` unless something MoodleHelper should read was not read. Rule in `backend/scan_queue.py` (`course_gap`), `_docs/scan-coordinator-contract.md` criterion 2 and the `finishScanClaim` description in `openapi.yaml`. "Sync running…" now clears on every page: the app store re-reads the local Snapshot every 2 s while a selected course is `syncing` in the real dataset (`frontend/src/lib/app-store.tsx`), replacing the setup page's own poll.
 
 | Criterion | Route | Result |
 | --- | --- | --- |
-| 1 Coverage rule | `tests/test_live_scan.py` observed-shape scan (calendar window, `unselected_course` exclusion, listed resource, no quiz) → `ok`/`full`; `browser-workspace/live-scan-network.test.ts` AC1-AC3 (real extension adapters, observed fixtures, loopback backend) → both courses `ok`/`full` | done offline; live pending |
-| 2 All selected courses | live only | pending live |
-| 3 `unselected_course` kept | browser-workspace #124 test: one selected course, the calendar's other-course event is the receipt's `unselected_course` reason, its id and title appear nowhere in the Snapshot, course `full` | done offline (synthetic) |
+| 1 Coverage rule | `tests/test_live_scan.py` observed-shape scan (calendar window, `unselected_course` exclusion, listed resource, no quiz) → `ok`/`full`; `browser-workspace/live-scan-network.test.ts` AC1-AC3 (real extension adapters, observed fixtures, loopback backend) → both courses `ok`/`full`; live run 1 below | **PASS** (auto + live) |
+| 2 All selected courses | live run 1 and run 3: 8 of 8 selected courses `ok`/`full`; Settings "8 of 8 courses fully scanned"; no course stayed partial, so no counting reason was needed | **PASS** (live) |
+| 3 `unselected_course` kept | browser-workspace #124 test: one selected course, the calendar's other-course event is the receipt's `unselected_course` reason, its id and title appear nowhere in the Snapshot, course `full`; live: the calendar receipts carry only `unselected_course` exclusions (42 after run 1) and every course is `full` | **PASS** (auto + synthetic + live) |
 | 4 Real gaps stay partial | `test_a_page_that_was_really_not_read_keeps_the_course_partial` (8 cases); browser-workspace #93 503 course and #21 popup quiz 503 | done |
 | 5 No deadlines | `test_course_without_deadlines_is_full_and_invents_nothing` | done |
 | 6 Readback | same test plus the unsupported-module test: every page kept with type, outcome, coverage, reasons, `observedAt`, `incompleteReasons` | done |
-| 7 Last full sync | `frontend/src/test/live-sync-state.test.tsx` (card not "Never" after all `full`; "Never" with a failed course), `full-sync-freshness.test.tsx` | done offline |
-| 8 Sync running clears | `live-sync-state.test.tsx`: Settings and Overview keep it while one course syncs and clear it after the re-read, no reload; fails on the old store | done offline; live observation pending |
-| 9 Midway failure | `live-sync-state.test.tsx` failed-course case; browser-workspace signed-out cascade | done offline |
-| 10 Restart | live only (offline restart coverage in browser-workspace AC2) | pending live |
-| 11 Tests | `uv run pytest` 1564 passed, 9 skipped; `bun run test` 78 files, 1569 passed; browser workspace 19 files, 322 passed; `bun run --cwd extension build` exit 0 | done |
+| 7 Last full sync | `frontend/src/test/live-sync-state.test.tsx`, `full-sync-freshness.test.tsx`; live: after run 1 the Overview card shows a friendly time equal to the earliest `lastSuccessAt` with "8 of 8 courses fully scanned" | **PASS** (auto + live) |
+| 8 Sync running clears | `live-sync-state.test.tsx` (fails on the old store); live: shown during each run; cleared within about 1 s of the last course leaving `syncing` on Overview (run 2) and on Settings (run 3), no reload (in-page probe against a 1 s API watcher) | **PASS** (auto + live) |
+| 9 Midway failure | `live-sync-state.test.tsx` failed-course case; browser-workspace signed-out cascade; live run 2 (session signed out midway) | **PASS** (auto + live) |
+| 10 Restart | live: owner restarted the backend with the same environment; `sync[]` and all 19 job readbacks byte-identical before and after; Settings "8 of 8 courses fully scanned" and the Overview card unchanged | **PASS** (live) |
+| 11 Tests | `uv run pytest` 1564 passed, 9 skipped; `bun run test` 78 files, 1569 passed; browser workspace 19 files, 322 passed; `bun run --cwd extension build` exit 0 | **PASS** |
+
+Live session (owner's SDU account, read-only, 2026-11-15 Asia/Almaty; the owner loaded the rebuilt `extension/dist`, started the backend in live mode and signed in; the agent used Claude in Chrome on 127.0.0.1:5173 only and never opened Moodle). Counts and states only.
+- Setup: "Find my SDU courses" listed 8 in-progress courses; all 8 were selected. The first backend start used a Moodle user id that did not match the signed-in account; discovery then showed the fixed "The signed-in Moodle account is not the account of this dataset. Nothing was saved." and saved nothing (#93 check working); the owner restarted with the corrected id.
+- Run 1 (Settings open): 8 `syncing` → 8 `ok`/`full` in about 57 s. Readback of the 8 jobs: course page 6 `ok`/`complete` and 2 `partial` (empty material listing, no diagnostic); assignment 32 and submission 32 `ok`/`complete`; quiz 3 `ok`/`complete`; calendar 8 `partial` (upcoming window); 66 listed resource/URL modules and 30 unsupported modules recorded without a request; 14 `undiscovered` page-type records. Page reasons only `unsupported_page`, `collector_unavailable`, `undiscovered`; no `limit_reached`, no failed page; receipt diagnostics only the calendar `unselected_course` exclusion.
+- Run 2 (Overview open): after 3 courses finished, the Moodle session signed out; the next job failed `signed_out` and the other 4 failed by cascade (5 `failed`, "Sign in to SDU Moodle to continue."). Finished courses stayed `ok`/`full`; failed ones kept `coverage: full` and their earlier `lastSuccessAt`, so "Last full sync" still showed the earlier time. Settings showed "3 of 8 courses fully scanned", "5 courses failed to sync. Details below." and a sign-in link per failed course; Overview "Last sync failed for 5 courses".
+- Run 3 (Settings open, after the owner signed in again): 8 `ok`/`full`; "Sync running…" cleared within about 1 s of the last finish, no reload.
+- Restart: compared after the owner's restart as in criterion 10.
+- Not seen live: a genuine gap (criterion 4) and a course with no deadlines (criterion 5); every selected course has assignments. Both are covered by automated tests.
+
 
 ## Read-only observation, 2026-11-13
 
