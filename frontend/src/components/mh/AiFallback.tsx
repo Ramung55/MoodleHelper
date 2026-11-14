@@ -302,7 +302,9 @@ export function AiFallback({
       {info === undefined && <p role="status">Checking AI availability locally…</p>}
       {(info === null || info === "off") && (
         <div className="space-y-2">
-          <p role="status">{info === "off" ? AI_OFF_COPY : `${UNAVAILABLE_COPY}. No text was sent.`}</p>
+          <p role="status">
+            {info === "off" ? AI_OFF_COPY : `${UNAVAILABLE_COPY}. No text was sent.`}
+          </p>
           <Button size="sm" variant="outline" onClick={close}>
             Continue locally
           </Button>

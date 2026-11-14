@@ -108,7 +108,11 @@ describe("planner route", () => {
   }, 15_000); // #69: first full-app planner render in the file plus role queries over every week region; ~2.5s under per-core load
   it("marks personal events in the contributor list (#110)", async () => {
     mount("/planner");
-    const list = await screen.findByRole("list", { name: "Week 1 contributors" }, { timeout: 5_000 });
+    const list = await screen.findByRole(
+      "list",
+      { name: "Week 1 contributors" },
+      { timeout: 5_000 },
+    );
     const marked = within(list)
       .getAllByRole("listitem")
       .filter((li) => li.textContent?.includes("Personal event"));

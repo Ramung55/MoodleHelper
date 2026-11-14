@@ -120,7 +120,12 @@ async function openPreview(
     <AiFallback
       document={association}
       mentions={mentions}
-      deps={{ send, loadAvailability: async () => groq, aiEnabled: async () => true, dataset: async () => datasetId }}
+      deps={{
+        send,
+        loadAvailability: async () => groq,
+        aiEnabled: async () => true,
+        dataset: async () => datasetId,
+      }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Optional AI help" }));
@@ -136,7 +141,12 @@ it.each(["demo", "real"])("hides technical fields in the %s dataset preview", as
     <AiFallback
       document={{ ...association, datasetId: id }}
       mentions={(await unresolvedFromFixture()).map((mention) => ({ ...mention, datasetId: id }))}
-      deps={{ send, loadAvailability: async () => groq, aiEnabled: async () => true, dataset: async () => id }}
+      deps={{
+        send,
+        loadAvailability: async () => groq,
+        aiEnabled: async () => true,
+        dataset: async () => id,
+      }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Optional AI help" }));
