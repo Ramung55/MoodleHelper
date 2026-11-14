@@ -462,3 +462,18 @@ def test_descriptor_format_enum_is_additive():
     from backend.material_downloads import MaterialTransferDescriptor
     schema = MaterialTransferDescriptor.model_json_schema()['properties']['format']
     assert schema['enum'] == ['pdf', 'docx', 'pptx']
+
+
+def test_save_as_closed_is_an_interruption_from_saving_and_fenced_like_any_outcome(make):
+    """#125: Chrome's Save As window was closed; accepted from saving, rejected with a wrong attempt or generation."""
+    client, store = make()
+    t = start(client, store).json()['transfer']
+    d, saving = run_to_saving(client, t['transferId'])
+    url = f"/api/material-downloads/{t['transferId']}/status"
+    body = {'generation': saving['generation'], 'attemptId': d['attemptId'], 'state': 'interrupted', 'reason': 'save_as_closed', 'downloadId': 77}
+    assert client.post(url, json={**body, 'attemptId': 'other'}).status_code == 409
+    assert client.post(url, json={**body, 'generation': 99}).status_code == 409
+    r = client.post(url, json=body).json()
+    assert r['state'] == 'interrupted' and r['reason'] == 'save_as_closed' and r['downloadId'] == 77 and 'completedAt' not in r
+    assert all('downloadedAt' not in m for m in store.read()['materials'])
+    assert client.get(f"/api/material-downloads/{t['transferId']}").json()['reason'] == 'save_as_closed'

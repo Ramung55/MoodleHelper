@@ -2917,7 +2917,9 @@ components:
           - download_interrupted
           - outcome_unknown
           - not_a_file
+          - save_as_closed
           title: Reason
+          description: 'Why a transfer ended. `save_as_closed` (#125, state `interrupted`): Chrome asked where to save the file and that window was closed, so nothing was saved.'
         networkDetail:
           type: string
           const: busy
@@ -3081,7 +3083,9 @@ components:
           - download_interrupted
           - outcome_unknown
           - not_a_file
+          - save_as_closed
           title: Reason
+          description: 'Why a transfer ended. `save_as_closed` (#125, state `interrupted`): Chrome asked where to save the file and that window was closed, so nothing was saved.'
         networkDetail:
           type: string
           const: busy

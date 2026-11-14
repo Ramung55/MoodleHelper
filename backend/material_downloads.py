@@ -33,7 +33,8 @@ OpaqueId = Annotated[str, Field(pattern=r'^[A-Za-z0-9-]{1,128}$')]
 MaterialId = Annotated[str, Field(min_length=1, max_length=256)]
 State = Literal['queued', 'validating', 'saving', 'complete', 'failed', 'cancelled', 'interrupted']
 Reason = Literal['sign_in_required', 'forbidden', 'not_found', 'network', 'unsupported_type', 'too_large',
-                 'timeout', 'cancelled_by_user', 'page_closed', 'download_interrupted', 'outcome_unknown', 'not_a_file']
+                 'timeout', 'cancelled_by_user', 'page_closed', 'download_interrupted', 'outcome_unknown', 'not_a_file',
+                 'save_as_closed']  # #125: Chrome's Save As window was closed (state interrupted)
 # #41: optional detail of a `network` failure. `busy` marks a 429/503 answer to the file
 # fetch (Moodle was reached and said busy), so the dashboard can show the busy text.
 NetworkDetail = Literal['busy']
