@@ -25,7 +25,7 @@ export const REQUEST_LIMIT_MS = 30_000;
 export const LEASE_WAIT_MS = 30_000;
 const HTML_PREFIX_BYTES = 256 * 1024;
 
-export type Reason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown" | "not_a_file";
+export type Reason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown" | "not_a_file" | "save_as_closed";
 export type State = "queued" | "validating" | "saving" | "complete" | "failed" | "cancelled" | "interrupted";
 /** #85 (owner decision 2026-11-03): PDF, DOCX and PPTX only; EPUB and folder entries are declined. */
 export type Format = "pdf" | "docx" | "pptx";
@@ -57,6 +57,7 @@ export const REASON_TEXT: Record<Reason, string> = {
   download_interrupted: "Chrome interrupted the download. The file may be incomplete; retry to download again.",
   outcome_unknown: "The download outcome is unknown. Check Chrome's downloads list, or retry.",
   not_a_file: "This resource opens as a Moodle page, not a file. Open it in Moodle.",
+  save_as_closed: "Chrome asked where to save the file, and that window was closed, so nothing was saved. Retry, then choose Save in Chrome's window.",
 };
 
 const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i;
@@ -370,7 +371,7 @@ export type DownloadDelta = { id: number; state?: { current?: string }; error?: 
 export type DownloadsApi = {
   download(options: { url: string; filename: string; conflictAction: "uniquify"; saveAs: boolean }): Promise<number>;
   cancel(id: number): Promise<void>;
-  search(query: { id: number }): Promise<{ id: number; state: string; error?: string }[]>;
+  search(query: { id: number }): Promise<{ id: number; state: string; error?: string; filename?: string }[]>;
   onChanged: { addListener(f: (d: DownloadDelta) => void): void; removeListener(f: (d: DownloadDelta) => void): void };
 };
 export type View = { phase: State | "starting" | "unrecorded"; message: string; bytes?: number; total?: number | null; filename?: string; downloadId?: number };
@@ -451,14 +452,23 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
       else if (delta.state?.current === "interrupted") resolveTerminal({ state: "interrupted", ...(delta.error?.current ? { error: delta.error.current } : {}) });
     };
     // A Chrome-side stop: cancelled only if the dashboard's Cancel was pressed (seen now or by one
-    // last read), page_closed if the tab is going away, otherwise download_interrupted.
-    const chromeStopped = async (): Promise<View> => {
+    // last read), page_closed if the tab is going away, save_as_closed (#125) if Chrome says
+    // USER_CANCELED and never chose a save path, otherwise download_interrupted.
+    const chromeStopped = async (error?: string): Promise<View> => {
       if (!cancelClicked && !deps.closed.aborted) {
         const t = await api.read(transferId).catch(() => null);
         if (t?.cancelRequested) cancelClicked = true;
       }
       if (cancelClicked) return await end("cancelled", "cancelled_by_user");
-      return await end("interrupted", deps.closed.aborted ? "page_closed" : "download_interrupted");
+      if (deps.closed.aborted) return await end("interrupted", "page_closed");
+      if (error === "USER_CANCELED" && downloadId !== undefined) {
+        // The local path is only tested for emptiness; it is never sent, rendered, logged or kept.
+        const noPath = (await downloads.search({ id: downloadId }).catch(() => []))[0]?.filename === "";
+        if (cancelClicked) return await end("cancelled", "cancelled_by_user");
+        if (deps.closed.aborted) return await end("interrupted", "page_closed");
+        if (noPath) return await end("interrupted", "save_as_closed");
+      }
+      return await end("interrupted", "download_interrupted");
     };
     downloads.onChanged.addListener(listener);
     try {
@@ -486,7 +496,7 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
         return await end("cancelled", after ? "cancelled_by_user" : "outcome_unknown");
       }
       if (first.state === "complete") return await end("complete");
-      return await chromeStopped();
+      return await chromeStopped(first.error);
     } finally {
       downloads.onChanged.removeListener(listener);
     }

@@ -18,7 +18,8 @@ export type TransferReason =
   | "page_closed"
   | "download_interrupted"
   | "outcome_unknown"
-  | "not_a_file";
+  | "not_a_file"
+  | "save_as_closed";
 /** Optional detail of a failed `network` outcome: `busy` is a 429/503 on the file fetch (openapi MaterialTransfer). */
 export type TransferNetworkDetail = "busy";
 export interface MaterialTransfer {
@@ -94,6 +95,8 @@ const DISPLAY_REASON: Record<TransferReason, string> = {
     "Chrome or an extension restart interrupted the download; a partial file is not a download record, so retry.",
   outcome_unknown: "The outcome is unknown; check Chrome's downloads list or retry.",
   not_a_file: "This resource opens as a Moodle page, not a file; open it in Moodle.",
+  save_as_closed:
+    "Chrome asked where to save the file and that window was closed. Retry, then choose Save in Chrome's window.",
 };
 
 export interface TransferLabel {
@@ -161,7 +164,10 @@ export function transferLabel(t: MaterialTransfer, timezone = "UTC"): TransferLa
       };
     case "interrupted":
       return {
-        text: `Download interrupted — ${DISPLAY_REASON[t.reason ?? "download_interrupted"]}`,
+        text:
+          t.reason === "save_as_closed"
+            ? `Download not saved — ${DISPLAY_REASON.save_as_closed}`
+            : `Download interrupted — ${DISPLAY_REASON[t.reason ?? "download_interrupted"]}`,
         tone: "warning",
         canCancel: false,
         canRetry: true,
