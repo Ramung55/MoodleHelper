@@ -225,6 +225,30 @@ describe("live sync state (#46)", () => {
     expect(mocks.adapter.load).toHaveBeenCalledTimes(calls);
   }, 15000);
 
+  it("a slow backend gets one Snapshot re-read at a time, each 2 s after the previous answer", async () => {
+    const starts: number[] = [],
+      ends: number[] = [];
+    let first = true;
+    mocks.adapter.load.mockImplementation(async () => {
+      const value = syncState({ "c-csc": ["syncing", "none"] });
+      if (first) {
+        first = false;
+        return value;
+      }
+      starts.push(Date.now());
+      await new Promise((r) => setTimeout(r, 1500));
+      ends.push(Date.now());
+      return value;
+    });
+    renderReal();
+    await waitFor(() => expect(screen.getAllByText("Sync running…")).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 8000));
+    // Back-to-back reads (the old interval with a queue) would start right after each answer.
+    expect(starts.length).toBeGreaterThanOrEqual(2);
+    expect(starts.length).toBeLessThanOrEqual(3);
+    for (let i = 1; i < starts.length; i++) expect(starts[i]! - ends[i - 1]!).toBeGreaterThanOrEqual(1900);
+  }, 15000);
+
   it("a sync that fails midway clears Sync running and shows the failed count", async () => {
     mocks.adapter.load
       .mockResolvedValueOnce(syncState({ "c-csc": ["syncing", "none"], "c-math": ["syncing", "none"] }))

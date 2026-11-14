@@ -131,13 +131,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   useEffect(() => {
     if (!selectedSyncing) return;
-    const timer = setInterval(() => {
-      // Queued, so a poll never replaces the Snapshot of a newer mutation.
-      void enqueue(() => adapter.load())
-        .then(setSnap)
-        .catch(() => undefined);
-    }, 2000);
-    return () => clearInterval(timer);
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    // One re-read at a time, 2 s after the previous answer: a slow backend busy with scan
+    // finishes is never sent back-to-back Snapshot reads. Queued, so a poll never replaces
+    // the Snapshot of a newer mutation.
+    const next = () => {
+      timer = setTimeout(() => {
+        void enqueue(() => adapter.load())
+          .then(setSnap)
+          .catch(() => undefined)
+          .finally(() => {
+            if (!stopped) next();
+          });
+      }, 2000);
+    };
+    next();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [selectedSyncing, adapter, enqueue]);
 
   const run = useCallback(
