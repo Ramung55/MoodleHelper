@@ -543,6 +543,22 @@ export const ReminderPlan = z
     reasons: z.array(ReminderReason).max(20),
     nextCursor: ReminderOpaque.optional(),
     nextWakeAt: z.string().optional(),
+    // #114: GET /api/reminders/plan always sends this (openapi ReminderPendingDelivery).
+    pendingDeliveries: z
+      .array(
+        z
+          .object({
+            deliveryKey: z
+              .string()
+              .min(1)
+              .max(160)
+              .regex(/^[A-Za-z0-9._~:-]+$/),
+            notificationId: ReminderOpaque,
+          })
+          .strict(),
+      )
+      .max(20)
+      .optional(),
     items: z
       .array(
         z

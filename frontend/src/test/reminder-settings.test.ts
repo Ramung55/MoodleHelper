@@ -53,4 +53,26 @@ describe("#38 reminder settings", () => {
       ReminderPlan.parse({ ...plan, items: [{ ...plan.items[0], kind: "email" }] }),
     ).toThrow();
   });
+
+  it("#114 accepts the pendingDeliveries the backend plan always sends", () => {
+    const plan = {
+      datasetId: "d",
+      generation: "g-1",
+      serverTime: "2027-02-10T12:00:00Z",
+      enabled: true,
+      reasons: [],
+      items: [],
+    };
+    expect(ReminderPlan.parse({ ...plan, pendingDeliveries: [] }).pendingDeliveries).toEqual([]);
+    const pending = [{ deliveryKey: "alert:k-1", notificationId: "n-1" }];
+    expect(ReminderPlan.parse({ ...plan, pendingDeliveries: pending }).pendingDeliveries).toEqual(
+      pending,
+    );
+    expect(() =>
+      ReminderPlan.parse({
+        ...plan,
+        pendingDeliveries: [{ deliveryKey: "k", notificationId: "n", extra: 1 }],
+      }),
+    ).toThrow();
+  });
 });
