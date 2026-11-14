@@ -30,6 +30,30 @@ SYNC_ERRORS = {
     'account_unconfirmed': 'The Moodle account could not be confirmed. Earlier data was kept.',
 }
 
+# #124 owner decision D1 (2026-11-14, "only what we read"): only these lower a course to partial.
+GAP_REASONS = {'access_error', 'signed_out', 'forbidden', 'request_failed', 'limit_reached', 'invalid_context'}
+# Records left out on purpose, not records that failed to read.
+EXCLUSIONS = {'unselected_course', 'site_event', 'personal_event', 'non_assessment'}
+
+
+def course_gap(body):
+    """True when something MoodleHelper should read for the course was not read (#124 D1/D1a)."""
+    if GAP_REASONS & set(body['incompleteReasons']): return True
+    for page in body['pages']:
+        if GAP_REASONS & set(page['reasons']): return True
+        # Page types the course has none of, modules MoodleHelper does not collect, and
+        # resource/URL/folder cards listed by the course page are not gaps on their own.
+        if page['outcome'] == 'undiscovered' or page['pageType'] == 'unsupported': continue
+        if page['pageType'] == 'material' and page['outcome'] == 'unavailable' and 'unsupported_page' in page['reasons']: continue
+        result = page.get('result')
+        if page.get('collector') in ('calendar', 'material') and result is not None:
+            # D1a: the upcoming window and unverified pagination (partial) and empty listings do not count.
+            if result['coverage'] == 'none' or result['reviews']: return True
+            if any(d['reason'] not in EXCLUSIONS for d in result['diagnostics']): return True
+            continue
+        if page['coverage'] != 'complete': return True
+    return False
+
 
 class SyncConflict(Exception):
     """A fixed /api/sync 409 message; nothing was written."""
@@ -296,7 +320,7 @@ class ScanQueueService(QueueService):
             cascade = pending_of_run(c, row) if signed_out else []
             if self.verified:
                 if body['outcome'] == 'completed':
-                    incomplete = bool(body['incompleteReasons']) or any(p['coverage'] != 'complete' for p in body['pages'])
+                    incomplete = course_gap(body)
                     # #21: the earliest request of this scan; sources observed since were read again by it.
                     times = [p['observedAt'] for p in body['pages'] if p.get('observedAt')]
                     started = min(times, key=_instant) if times else None
