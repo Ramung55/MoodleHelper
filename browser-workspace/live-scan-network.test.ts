@@ -939,6 +939,27 @@ it('#124: the upcoming calendar still drops an unselected course event as unsele
   app.worker.dispose();
 }, 60000);
 
+it('#124: a course with no assignment or quiz links and no own calendar events is full and gets no invented assessments', async () => {
+  const backend = new Backend('no-deadlines'); await backend.start();
+  const ids = await backend.seed(['9003']);
+  const before = (await backend.get('/api/snapshot')).assessments.length;
+  const clock = {now: Date.parse('2028-03-05T10:00:00Z')};
+  // The observed course page without its assignment and quiz cards; the observed calendar lists only 9001/9002 events.
+  const noDeadlines = (page: string) => page.replace(/<li class="activity (assign|quiz) modtype_\1"[\s\S]*?<\/li>\n?/g, '');
+  const site = moodle(clock, url => url === courseUrl('9003') ? ok(coursePage('9003', noDeadlines)) : observedSite(url));
+  const app = install(backend, clock, site.fetcher);
+  expect((await app.bridge(1, 'syncAll')).ok).toBe(true);
+  const [run] = await backend.settled(1);
+  expect(site.starts().map(e => e.url).sort()).toEqual([CALENDAR, courseUrl('9003')].sort());
+  const snapshot = await backend.get('/api/snapshot');
+  expect(snapshot.sync.find((s: any) => s.courseId === ids['9003'])).toMatchObject({status: 'ok', coverage: 'full'});
+  expect(snapshot.assessments).toHaveLength(before);
+  expect(snapshot.collection.records.filter((r: any) => r.kind !== 'material')).toEqual([]);
+  const {pages} = await backend.pages(run.jobs[0].id);
+  expect(pages.filter((p: any) => ['assignment', 'quiz', 'submission'].includes(p.pageType)).map((p: any) => p.outcome)).toEqual(['undiscovered', 'undiscovered', 'undiscovered']);
+  app.worker.dispose();
+}, 60000);
+
 it('#95 AC2/AC3: unselected courses and unsupported pages save nothing and make no Moodle request; the popup says the page is not supported', async () => {
   const backend = new Backend('visit-refused'); await backend.start();
   await backend.seed(['9001']);
