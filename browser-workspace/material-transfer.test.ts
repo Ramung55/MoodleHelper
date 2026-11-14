@@ -87,13 +87,21 @@ describe("#41 safe filenames", () => {
 
 function harness(opts: { body?: Uint8Array; type?: string; cancelAt?: "validating" | "saving"; chrome?: "complete" | "interrupted" | "user_cancel" | "none" | "already"; backendDown?: boolean; descriptor?: Descriptor;
   /** Close the transfer tab during saving: Chrome's USER_CANCELED arrives before or after pagehide. */
-  closeDuringSaving?: "event_first" | "pagehide_first" } = {}) {
+  closeDuringSaving?: "event_first" | "pagehide_first";
+  /** #125: Chrome's DownloadItem.filename (a local path) from search; "fail" makes search reject, "none" returns no item. */
+  filename?: string | "fail" | "none";
+  /** #125: the dashboard's Cancel lands in the backend just as Chrome reports the interrupt. */
+  cancelAtInterrupt?: boolean } = {}) {
   const reports: any[] = [];
   let transfer: Transfer = { transferId: "t1", generation: 1, materialId: "m-pdf", state: "queued", cancelRequested: false };
   const listeners = new Set<(d: DownloadDelta) => void>();
   const created: string[] = [], revoked: string[] = [], downloaded: any[] = [], cancelled: number[] = [], blobTypes: string[] = [];
-  let failReports = false;
-  const emit = (d: DownloadDelta) => listeners.forEach((f) => f(d));
+  let failReports = false, interrupted = false;
+  const searches: number[] = [];
+  const emit = (d: DownloadDelta) => {
+    if (d.id === 9 && d.state?.current === "interrupted") { interrupted = true; if (opts.cancelAtInterrupt) transfer = { ...transfer, cancelRequested: true }; }
+    listeners.forEach((f) => f(d));
+  };
   const api = {
     descriptor: async () => opts.descriptor ?? desc(),
     read: async () => transfer,
@@ -113,7 +121,13 @@ function harness(opts: { body?: Uint8Array; type?: string; cancelAt?: "validatin
   const downloads = {
     download: async (o: any) => { downloaded.push(o); return 9; },
     cancel: async (id: number) => { cancelled.push(id); setTimeout(() => emit({ id, state: { current: "interrupted" }, error: { current: "USER_CANCELED" } }), 1); },
-    search: async ({ id }: { id: number }) => (opts.chrome === "already" ? [{ id, state: "complete" }] : []),
+    search: async ({ id }: { id: number }) => {
+      if (interrupted) searches.push(id);
+      if (opts.chrome === "already") return [{ id, state: "complete" }];
+      if (opts.filename === undefined || opts.filename === "none") return [];
+      if (opts.filename === "fail") throw new Error("search failed");
+      return [{ id, state: interrupted ? "interrupted" : "in_progress", ...(interrupted ? { error: "USER_CANCELED" } : {}), filename: opts.filename }];
+    },
     onChanged: { addListener: (f: any) => listeners.add(f), removeListener: (f: any) => listeners.delete(f) },
   };
   const closed = new AbortController();
@@ -123,7 +137,7 @@ function harness(opts: { body?: Uint8Array; type?: string; cancelAt?: "validatin
     blobs: { create: (b) => { created.push("blob:1"); blobTypes.push(b.type); return "blob:1"; }, revoke: (u) => revoked.push(u) },
     render: (v) => views.push(v), pollMs: 2, closed: closed.signal,
   });
-  return { go, reports, created, revoked, downloaded, cancelled, views, closed, blobTypes };
+  return { go, reports, created, revoked, downloaded, cancelled, views, closed, blobTypes, searches };
 }
 
 describe("#41 transfer state machine", () => {
@@ -152,11 +166,50 @@ describe("#41 transfer state machine", () => {
     const i = harness({ chrome: "interrupted" });
     expect((await i.go()).phase).toBe("interrupted");
     expect(i.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "download_interrupted" });
-    // A Chrome-side USER_CANCELED without the dashboard's Cancel is an interruption, not a user cancel.
-    const h = harness({ chrome: "user_cancel" });
+    expect(i.views.at(-1).message).toBe(REASON_TEXT.download_interrupted);
+    // A Chrome-side USER_CANCELED without the dashboard's Cancel, after Chrome chose a save path
+    // (cancelled from Chrome's download bar or downloads page), is an interruption, not a user cancel.
+    const h = harness({ chrome: "user_cancel", filename: "C:\Users\student\Downloads\Lecture 1.pdf" });
     expect((await h.go()).phase).toBe("interrupted");
     expect(h.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "download_interrupted", downloadId: 9 });
     expect(h.reports.some((r) => r.reason === "cancelled_by_user")).toBe(false);
+  });
+  it("#125 USER_CANCELED with no save path (Save As window closed) ends interrupted/save_as_closed", async () => {
+    const path = "";
+    const h = harness({ chrome: "user_cancel", filename: path });
+    const v = await h.go();
+    expect(v).toMatchObject({ phase: "interrupted", message: REASON_TEXT.save_as_closed, downloadId: 9 });
+    expect(REASON_TEXT.save_as_closed).toBe("Chrome asked where to save the file, and that window was closed, so nothing was saved. Retry, then choose Save in Chrome's window.");
+    expect(h.reports.at(-1)).toEqual({ generation: expect.any(Number), attemptId: "a1", state: "interrupted", reason: "save_as_closed", downloadId: 9 });
+    expect(h.searches).toEqual([9]); // read once after the interrupt
+    expect(h.revoked).toEqual(["blob:1"]);
+  });
+  it("#125 NETWORK_FAILED or no error stays download_interrupted even with no save path", async () => {
+    const i = harness({ chrome: "interrupted", filename: "" });
+    expect((await i.go()).message).toBe(REASON_TEXT.download_interrupted);
+    expect(i.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "download_interrupted" });
+    expect(i.searches).toEqual([]);
+  });
+  it.each(["fail", "none"] as const)("#125 a search that %s after USER_CANCELED is download_interrupted, never a guess", async (filename) => {
+    const h = harness({ chrome: "user_cancel", filename });
+    expect((await h.go()).message).toBe(REASON_TEXT.download_interrupted);
+    expect(h.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "download_interrupted", downloadId: 9 });
+  });
+  it("#125 the dashboard Cancel wins over USER_CANCELED with no save path", async () => {
+    const h = harness({ chrome: "user_cancel", filename: "", cancelAtInterrupt: true });
+    expect((await h.go()).phase).toBe("cancelled");
+    expect(h.reports.at(-1)).toMatchObject({ state: "cancelled", reason: "cancelled_by_user", downloadId: 9 });
+    expect(h.reports.some((r) => r.reason === "save_as_closed")).toBe(false);
+  });
+  it("#125 the Chrome path never leaves the page: no path or filename field in any report, never rendered", async () => {
+    const path = "C:\Users\student\Downloads\Lecture 1.pdf";
+    for (const filename of ["", path]) {
+      const h = harness({ chrome: "user_cancel", filename });
+      await h.go();
+      for (const r of h.reports) expect(Object.keys(r).filter((k) => /path|file/i.test(k))).toEqual([]);
+      expect(JSON.stringify(h.reports)).not.toContain("Downloads");
+      expect(JSON.stringify(h.views)).not.toContain("Downloads");
+    }
   });
   it("cancel during saving cancels only the owned download ID", async () => {
     const h = harness({ cancelAt: "saving", chrome: "none" });
@@ -173,7 +226,7 @@ describe("#41 transfer state machine", () => {
     expect(h.reports.at(-1)).toMatchObject({ state: "cancelled", reason: "cancelled_by_user" });
   });
   it("closing the tab during saving (Chrome reports USER_CANCELED first) ends interrupted/page_closed", async () => {
-    const h = harness({ closeDuringSaving: "event_first" });
+    const h = harness({ closeDuringSaving: "event_first", filename: "" });
     const v = await h.go();
     expect(v.phase).toBe("interrupted");
     expect(h.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "page_closed", downloadId: 9 });
@@ -181,7 +234,7 @@ describe("#41 transfer state machine", () => {
     expect(h.revoked).toEqual(["blob:1"]);
   });
   it("closing the tab during saving (pagehide first) ends interrupted/page_closed without waiting on Chrome", async () => {
-    const h = harness({ closeDuringSaving: "pagehide_first" });
+    const h = harness({ closeDuringSaving: "pagehide_first", filename: "" });
     const v = await h.go();
     expect(v.phase).toBe("interrupted");
     expect(h.reports.at(-1)).toMatchObject({ state: "interrupted", reason: "page_closed", downloadId: 9 });
