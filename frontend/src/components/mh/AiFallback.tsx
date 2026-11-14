@@ -7,6 +7,7 @@ import type { Snapshot } from "@/domain/types";
 import type { AiContextValue } from "@/services/ai-gateway";
 import {
   AI_CLIENT_TIMEOUT_MS,
+  AI_OFF_COPY,
   UNAVAILABLE_COPY,
   classifyAiFailure,
   freezePreview,
@@ -29,7 +30,11 @@ type Deps = {
   send?: typeof sendFrozen;
   route?: typeof routeAiRecords;
   dataset?: () => Promise<string | undefined>;
+  /** Settings → "Allow asking before sending excerpts", read fresh each time AI help opens (#112). */
+  aiEnabled?: () => Promise<boolean>;
 };
+
+const savedAiEnabled = async () => (await new HttpAdapter().load()).settings.ai.enabled;
 
 /** Optional, explicit, per-request consent. Never opens itself and never preselects text. */
 export function AiFallback({
@@ -53,7 +58,7 @@ export function AiFallback({
 }) {
   const dataset = deps.dataset ?? (() => currentDataset());
   const [open, setOpen] = useState(false);
-  const [info, setInfo] = useState<AvailableAi | null | undefined>();
+  const [info, setInfo] = useState<AvailableAi | null | "off" | undefined>();
   const [epoch, setEpoch] = useState<string>();
   const [selected, setSelected] = useState<string[]>([]);
   const [includeContext, setIncludeContext] = useState(false);
@@ -115,20 +120,23 @@ export function AiFallback({
     setInfo(undefined);
     setOutcome(undefined);
     invalidate();
-    const [loaded, current] = await Promise.all([
+    const [loaded, current, enabled] = await Promise.all([
       (deps.loadAvailability ?? loadAiAvailability)(),
       dataset(),
+      (deps.aiEnabled ?? savedAiEnabled)().catch(() => false),
     ]);
     if (attempt !== generation.current) return;
     setEpoch(current);
-    setInfo(loaded.available && current === association.datasetId ? loaded : null);
+    setInfo(
+      !loaded.available || current !== association.datasetId ? null : enabled ? loaded : "off",
+    );
   };
   const toggle = (id: string) => {
     invalidate(preview ? "Selection changed. Review a new preview before sending." : "");
     setSelected((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   };
   const review = async () => {
-    if (!info || !epoch) return;
+    if (!info || info === "off" || !epoch) return;
     const attempt = ++generation.current;
     try {
       if ((await dataset()) !== epoch)
@@ -292,15 +300,17 @@ export function AiFallback({
     <section aria-label="Optional AI help" className="space-y-2 rounded border p-2 text-xs">
       <h4 className="font-semibold">Optional AI help</h4>
       {info === undefined && <p role="status">Checking AI availability locally…</p>}
-      {info === null && (
+      {(info === null || info === "off") && (
         <div className="space-y-2">
-          <p role="status">{UNAVAILABLE_COPY}. No text was sent.</p>
+          <p role="status">
+            {info === "off" ? AI_OFF_COPY : `${UNAVAILABLE_COPY}. No text was sent.`}
+          </p>
           <Button size="sm" variant="outline" onClick={close}>
             Continue locally
           </Button>
         </div>
       )}
-      {info && !preview && (
+      {info && info !== "off" && !preview && (
         <fieldset className="space-y-1">
           <legend className="font-medium">Choose up to 8 excerpts to send.</legend>
           <Details>Each excerpt may contain up to 2,000 bytes.</Details>

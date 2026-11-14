@@ -11,6 +11,7 @@ import { LocalExtraction } from "@/components/mh/LocalExtraction";
 import type { AvailableAi } from "@/services/ai-fallback";
 import { saveLocalDocument, type LocalAssociation } from "@/services/local-documents";
 import { captureLocalFence, clearLocalDataset } from "@/services/local-erase";
+import { buildDemoSnapshot } from "@/services/fixtures";
 import { EXTRACTION_SETTINGS, saveStoredExtraction } from "@/services/local-extraction-store";
 import { indexedDbFixture } from "./indexeddb-fixture";
 
@@ -86,6 +87,12 @@ beforeEach(async () => {
       calls.push(url);
       if (url.endsWith("/api/local-context")) return new Response(JSON.stringify({ datasetId }));
       if (url.endsWith("/api/ai/availability")) return new Response(JSON.stringify(info));
+      if (url.endsWith("/api/snapshot")) {
+        // #112: Settings → "Allow asking before sending excerpts" is on.
+        const snapshot = buildDemoSnapshot();
+        snapshot.settings.ai.enabled = true;
+        return new Response(JSON.stringify(snapshot));
+      }
       if (url.endsWith("/api/bridge-context"))
         return new Response(JSON.stringify({ version: "1", binding: "b" }));
       if (url.endsWith("/api/ai/extract")) {

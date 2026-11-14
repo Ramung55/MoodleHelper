@@ -36,6 +36,9 @@ import {
 
 export const AI_CLIENT_TIMEOUT_MS = 30_000;
 export const UNAVAILABLE_COPY = "External AI unavailable; continue locally";
+/** #112: shown while Settings → "Allow asking before sending excerpts" is off. */
+export const AI_OFF_COPY =
+  "AI help is off in Settings (Allow asking before sending excerpts). No text was sent.";
 
 export const AiAvailabilityInfo = z.union([
   z.object({ available: z.literal(false), reason: z.string().max(500) }).passthrough(),
@@ -272,6 +275,8 @@ export function classifyAiFailure(error: unknown, cancelledByUser: boolean): AiO
         maybeReceived: false,
         message: `${code === "budget_exhausted" ? "AI cost cap reached." : code === "concurrency_limit" ? "Another AI request is in progress." : "AI rate limit reached."} Try again later or continue local review.${local}`,
       };
+    if (s === 403 && code === "ai_disabled")
+      return { kind: "unavailable", maybeReceived: false, message: `${AI_OFF_COPY}${local}` };
     if (s === 503)
       return {
         kind: "unavailable",
@@ -463,23 +468,24 @@ export async function validateAiResponse(
       },
     });
     const original = {
-      mention: { ...structuredClone(mention), reasons: [...mention.reasons, ...reasons] },
+      // Review requires original.mention.id === the record's mentionId (local-review.ts).
+      mention: {
+        ...structuredClone(mention),
+        id: mentionId,
+        reasons: [...mention.reasons, ...reasons],
+      },
       dates: [],
       week: { kind: "unknown" as const },
     };
     const format = preview.association.name.toLowerCase().endsWith(".docx")
       ? ("docx" as const)
       : ("pdf" as const);
+    // Same fields local-review.ts re-hashes; anything extra makes every AI card read as corrupt.
     const fingerprint = await localHash({
       original,
       proposal: proposalValue,
       format,
       pipelineVersion: LOCAL_PIPELINE_VERSION,
-      ai: {
-        requestId: preview.requestId,
-        payloadDigest: preview.payloadDigest,
-        evidence: proposal.evidence,
-      },
     });
     records.push({
       datasetId: preview.datasetId,

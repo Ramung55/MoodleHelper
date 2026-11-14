@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AiFallback } from "@/components/mh/AiFallback";
 import type { AssessmentMention } from "@/domain/assessment-mentions";
 import { AiRequestError } from "@/services/ai-gateway";
+import { localHash } from "@/services/local-evidence";
 import {
   classifyAiFailure,
   freezePreview,
@@ -153,7 +154,7 @@ it("previews inert text and named destination; cancel sends nothing; selection c
     <AiFallback
       document={association}
       mentions={[m1, m2]}
-      deps={{ send, loadAvailability: async () => info }}
+      deps={{ send, loadAvailability: async () => info, aiEnabled: async () => true }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Optional AI help" }));
@@ -178,7 +179,7 @@ it("invalidates a preview when the explicit context changes", async () => {
       document={association}
       mentions={[m1]}
       context={{ dateOrder: "DMY" }}
-      deps={{ send, loadAvailability: async () => info }}
+      deps={{ send, loadAvailability: async () => info, aiEnabled: async () => true }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Optional AI help" }));
@@ -190,7 +191,7 @@ it("invalidates a preview when the explicit context changes", async () => {
       document={association}
       mentions={[m1]}
       context={{ dateOrder: "MDY" }}
-      deps={{ send, loadAvailability: async () => info }}
+      deps={{ send, loadAvailability: async () => info, aiEnabled: async () => true }}
     />,
   );
   await waitFor(() => expect(screen.queryByRole("button", { name: "Send" })).toBeNull());
@@ -209,7 +210,7 @@ it("shows a sanitized failure and retries only explicitly with the same request 
     <AiFallback
       document={association}
       mentions={[m1]}
-      deps={{ send, loadAvailability: async () => info }}
+      deps={{ send, loadAvailability: async () => info, aiEnabled: async () => true }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Optional AI help" }));
@@ -224,6 +225,40 @@ it("shows a sanitized failure and retries only explicitly with the same request 
   expect(send).toHaveBeenCalledTimes(2);
   expect(send.mock.calls[1]![0].requestId).toBe(send.mock.calls[0]![0].requestId);
   expect(screen.getByRole("button", { name: "Continue local review" })).toBeVisible();
+});
+
+it("#112: while the Settings switch is off, offers no excerpts or Send, and a frozen preview refused by the backend shows a fixed message", async () => {
+  const send = vi.fn();
+  const view = render(
+    <AiFallback
+      document={association}
+      mentions={[m1]}
+      deps={{ send, loadAvailability: async () => info, aiEnabled: async () => false }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Optional AI help" }));
+  expect(await screen.findByText(/AI help is off in Settings.*No text was sent/)).toBeVisible();
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Continue locally" })).toBeVisible();
+  view.unmount();
+  // Preview frozen while on; the switch is then turned off elsewhere and the backend refuses the send.
+  send.mockRejectedValue(new AiRequestError("x (code: ai_disabled)", 403, "ai_disabled"));
+  render(
+    <AiFallback
+      document={association}
+      mentions={[m1]}
+      deps={{ send, loadAvailability: async () => info, aiEnabled: async () => true }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Optional AI help" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select excerpt Quiz m1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review what will be sent" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "AI help is off in Settings (Allow asking before sending excerpts). No text was sent. Imported document data and local review are unchanged.",
+  );
+  expect(screen.getByRole("alert")).not.toHaveTextContent("ai_disabled");
 });
 
 it("maps every failure to a fixed local-review message", () => {
@@ -303,6 +338,14 @@ it("validates evidence against selected excerpts, forces AI review and never inv
   expect(result.records[1]!.proposal.date).toEqual({ kind: "unknown" });
   expect(result.records[2]!.proposal.facts.inferredYear).toBe(true);
   expect(result.records[0]!.original.mention.excerpt).toBe(m1.excerpt);
+  // #112: review re-hashes exactly these stored fields and requires matching ids (local-review.ts),
+  // otherwise every AI card shows as corrupt or as not matching its location.
+  for (const r of result.records) {
+    const { fingerprint, original, proposal, format, pipelineVersion } = r;
+    expect(await localHash({ original, proposal, format, pipelineVersion })).toBe(fingerprint);
+    expect([original.mention.id, proposal.mentionId]).toEqual([r.mentionId, r.mentionId]);
+    expect(proposal.locationId).toBe(r.locationId);
+  }
   await expect(
     validateAiResponse(preview, { ...ok(preview, []), requestId: "other" }),
   ).rejects.toThrow("does not match");

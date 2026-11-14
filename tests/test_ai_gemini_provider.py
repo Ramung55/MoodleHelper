@@ -8,8 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.ai_gateway import AiGateway, GEMINI_MODEL, GEMINI_PROVIDER, GeminiProvider, gateway_from_environment, gemini_config
 from backend.main import create_app
-from backend.storage import InMemoryStore
-from tests.test_ai_gateway import Clock, body, no_network, post  # noqa: F401  (autouse network guard)
+from tests.test_ai_gateway import Clock, ai_on_store, body, no_network, post  # noqa: F401  (autouse network guard)
 
 TEXT = 'Essay deadline 2027-03-12.'
 
@@ -39,7 +38,7 @@ def proposal_text():
 def make(tmp_path, models, **overrides):
     provider = GeminiProvider(client=SimpleNamespace(aio=SimpleNamespace(models=models)))
     gateway = AiGateway(gemini_config(str(tmp_path / 'ledger.sqlite3'), **overrides), provider, Clock())
-    return TestClient(create_app(InMemoryStore(), ai_gateway=gateway)), gateway
+    return TestClient(create_app(ai_on_store(), ai_gateway=gateway)), gateway
 
 
 def send(client, request_id='req-1'):

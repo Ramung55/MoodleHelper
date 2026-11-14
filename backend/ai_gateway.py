@@ -84,6 +84,7 @@ FAILURES = {
     'concurrency_limit': (429, 'Another AI request is in progress. Wait for it to finish.'),
     'rate_limit': (429, 'AI request rate limit reached. Try again later.'),
     'budget_exhausted': (429, 'AI cost cap reached. No provider work was started.'),
+    'ai_disabled': (403, 'AI help is off in Settings. No text was sent.'),
     'unavailable': (503, UNAVAILABLE_REASON),
     'price_unavailable': (503, 'AI price table is missing or expired. No provider work was started.'),
     'timeout': (504, 'AI provider timed out. Nothing was retried; review and resend manually.'),

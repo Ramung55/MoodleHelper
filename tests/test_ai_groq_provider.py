@@ -17,8 +17,7 @@ from backend.ai_gateway import (GROQ_MAX_BODY_BYTES, GROQ_MODELS, GROQ_RETENTION
                                 GROQ_USER_AGENT, MAX_OUTPUT_TOKENS, MAX_RESPONSE_BYTES, AiGateway, GroqProvider,
                                 gateway_from_environment, groq_config, groq_fixed_input_bytes, groq_input_bound)
 from backend.main import create_app
-from backend.storage import InMemoryStore
-from tests.test_ai_gateway import Clock, body, no_network, post  # noqa: F401  (autouse network guard)
+from tests.test_ai_gateway import Clock, ai_on_store, body, no_network, post  # noqa: F401  (autouse network guard)
 from tools import run_ai_eval
 
 KEY = 'gsk_TEST-SECRET-KEY-MARKER'
@@ -73,7 +72,7 @@ class FakeOpener:
 def make(tmp_path, opener, model=MODEL, **overrides):
     provider = GroqProvider(api_key=KEY, model=model, opener=opener)
     gateway = AiGateway(groq_config(str(tmp_path / 'ledger.sqlite3'), model, **overrides), provider, Clock())
-    return TestClient(create_app(InMemoryStore(), ai_gateway=gateway)), gateway
+    return TestClient(create_app(ai_on_store(), ai_gateway=gateway)), gateway
 
 
 def send(client, request_id='req-1', texts=(TEXT,), model=MODEL):
