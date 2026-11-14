@@ -154,3 +154,24 @@ Known limitations cited, not duplicated: #3 live SDU compatibility, #7 Chrome UR
 fetches in a browser (unreachable without #20/#41 verified capability; SRC+NODE only); AI
 send-time preview decline and provider retention (blocked on #42). No new findings from the
 browser trace or AC4 probes.
+
+## 6. Addendum 2026-11-14 (#114): current inventory
+
+Records decisions already made; no permission, host or code changes. Checked on `main` `eea90eb`
+with a freshly rebuilt `extension/dist` (hash unchanged by the rebuild, `dist/manifest.json` byte-equal
+to `extension/manifest.json`, pinned by `test_manifest_matches_reviewed_inventory`).
+
+- `permissions`: `alarms`, `downloads`, `notifications`, `offscreen`. No `storage`, so `chrome.storage`
+  is unavailable to the extension; `extension/dist/*.js` has no `chrome.storage`, `indexedDB`,
+  `caches` or cookie API reference, and its only web storage is the popup's demo key `mock-start-key`.
+- `host_permissions`: `http://127.0.0.1:8000/*`, `https://moodle.sdu.edu.kz/*`.
+- Content scripts: `https://moodle.sdu.edu.kz/*` (`content.js`); `http://127.0.0.1:5173/*`,
+  `http://localhost:5173/*` and `https://ramung55.github.io/MoodleHelper/*` (`dashboard-relay.js`).
+  The HTTPS dashboard origin was approved and wired in #49 (`8b09b31`); it equals
+  `APPROVED_ORIGINS` (`test_bridge_allowlist_equals_dashboard_content_script_matches`). This
+  supersedes "No approved HTTPS dashboard origin" in section 1.
+- No `optional_permissions`, `externally_connectable` or `web_accessible_resources`.
+- AI: a provider (Groq, owner decision 2026-11-03) is active only when configured in the backend
+  environment. Send-time preview, decline, single send after consent and the Settings gate were
+  verified in #112 (`_docs/mvp-verification.md`, "Optional AI with consent for #112, 2026-11-14").
+  This supersedes "BLOCKED on #42" in section 4.
