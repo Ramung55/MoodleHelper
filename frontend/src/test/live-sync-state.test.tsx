@@ -205,7 +205,9 @@ describe("live sync state (#46)", () => {
 
   it("keeps Sync running while a selected course syncs, then clears it on Settings and Overview without a reload", async () => {
     mocks.adapter.load
-      .mockResolvedValueOnce(syncState({ "c-csc": ["syncing", "none"], "c-math": ["syncing", "none"] }))
+      .mockResolvedValueOnce(
+        syncState({ "c-csc": ["syncing", "none"], "c-math": ["syncing", "none"] }),
+      )
       .mockResolvedValueOnce(syncState({ "c-csc": ["ok", "full"], "c-math": ["syncing", "none"] }))
       .mockResolvedValue(syncState({ "c-csc": ["ok", "full"], "c-math": ["ok", "full"] }));
     renderReal();
@@ -246,12 +248,15 @@ describe("live sync state (#46)", () => {
     // Back-to-back reads (the old interval with a queue) would start right after each answer.
     expect(starts.length).toBeGreaterThanOrEqual(2);
     expect(starts.length).toBeLessThanOrEqual(3);
-    for (let i = 1; i < starts.length; i++) expect(starts[i]! - ends[i - 1]!).toBeGreaterThanOrEqual(1900);
+    for (let i = 1; i < starts.length; i++)
+      expect(starts[i]! - ends[i - 1]!).toBeGreaterThanOrEqual(1900);
   }, 15000);
 
   it("a sync that fails midway clears Sync running and shows the failed count", async () => {
     mocks.adapter.load
-      .mockResolvedValueOnce(syncState({ "c-csc": ["syncing", "none"], "c-math": ["syncing", "none"] }))
+      .mockResolvedValueOnce(
+        syncState({ "c-csc": ["syncing", "none"], "c-math": ["syncing", "none"] }),
+      )
       .mockResolvedValue(syncState({ "c-csc": ["ok", "full"], "c-math": ["failed", "none"] }));
     renderReal();
     await waitFor(() => expect(screen.getAllByText("Sync running…")).toHaveLength(2));
