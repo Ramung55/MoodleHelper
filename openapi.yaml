@@ -6868,7 +6868,7 @@ components:
           - complete
           - partial
           - none
-        reasons:
+        reasons: &id124
           type: array
           items:
             type: string
@@ -6882,8 +6882,54 @@ components:
             - request_failed
             - limit_reached
             - invalid_context
-          maxItems: 9
+            - collection_disabled
+            - envelope_unavailable
+            - collector_failed
+            - persistence_failed
+            - invalid_selection
+            - invalid_identity
+            - malformed_result
+            - invalid_observed_at
+            - invalid_batch_arguments
+            - invalid_page
+            - malformed_record
+            - empty_marker
+            - site_event
+            - personal_event
+            - non_assessment
+            - unselected_course
+            - unknown_kind
+            - missing_course
+            - unreliable_course
+            - unknown_date
+            - missing_dates
+            - event_conflict
+            - unsupported_structure
+            - identity_mismatch
+            - missing_identity
+            - malformed_candidate
+            - unsafe_url
+            - unsafe_external_url
+            - missing_metadata
+            - type_conflict
+            - invalid_mime
+            - unsafe_label
+            - field_conflict
+            - parent_conflict
+            - pagination_pending
+            - incomplete_list
+            - empty_unconfirmed
+            - empty_conflict
+            - folder_contents_uninspected
+            - listing_conflict
+            - invalid_date
+            - unsupported_date
+            - duplicate_date
+            - malformed_assignment
+            - incomplete_assignment
+          maxItems: 64
           uniqueItems: true
+          description: 'The recorded reasons. Besides the worker''s scan reasons, the backend adds the collector diagnostic or review reasons that make a calendar or material page a gap (#124 owner decision 2026-11-15, Show it in readback).'
         observedAt:
           type: string
           format: date-time
@@ -7004,7 +7050,7 @@ components:
           items:
             $ref: '#/components/schemas/ScanPageRecord'
           maxItems: 100
-        incompleteReasons: *id042
+        incompleteReasons: *id124
         nextCursor: *id030
         signInGuidance:
           type: string

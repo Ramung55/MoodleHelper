@@ -1287,6 +1287,9 @@ class QueueRenewResponse(QueueModel):
 
 ScanReason = Literal['undiscovered','unsupported_page','collector_unavailable','access_error','signed_out','forbidden','request_failed','limit_reached','invalid_context']
 ScanCollector = Literal['assignment','calendar','material','quiz','submission']
+# #124 owner decision 2026-11-15 ("Show it in readback"): a job's readback also names the
+# collector diagnostic or review reason that made a calendar or material page a gap.
+ScanRecordReason = Literal[ScanReason, CollectionDiagnostic.model_fields['reason'].annotation]
 ScanError = Literal['signed_out','request_failed','invalid_context']
 # claim_limit and the #93 account codes are server-assigned only; workers cannot submit them.
 ScanJobError = Literal['signed_out','request_failed','invalid_context','claim_limit','account_mismatch','account_unconfirmed']
@@ -1415,7 +1418,7 @@ class ScanPageRecord(QueueModel):
     scope: Literal['visited_activity_only','supplied_pages_only','supplied_ranges_only','unknown']
     outcome: Literal['ok','partial','failed','unavailable','forbidden','signed_out','undiscovered']
     coverage: Literal['complete','partial','none']
-    reasons: list[ScanReason] = Field(max_length=9,json_schema_extra={'uniqueItems':True})
+    reasons: list[ScanRecordReason] = Field(max_length=64,json_schema_extra={'uniqueItems':True})
     observedAt: str = Field(default=None,json_schema_extra={'format':'date-time'})
     pageUrl: str = Field(default=None,min_length=1,max_length=4096,json_schema_extra={'format':'uri'})
     collector: ScanCollector = None
@@ -1423,7 +1426,7 @@ class ScanPageRecord(QueueModel):
 class ScanPageList(QueueModel):
     model_config = ConfigDict(strict=True, extra='forbid', allow_inf_nan=False, json_schema_extra=lambda schema: (omit_absence_defaults(schema), schema.update(scan_list_schema())))
     pages: list[ScanPageRecord] = Field(max_length=100)
-    incompleteReasons: list[ScanReason] = Field(max_length=9,json_schema_extra={'uniqueItems':True})
+    incompleteReasons: list[ScanRecordReason] = Field(max_length=64,json_schema_extra={'uniqueItems':True})
     nextCursor: QueueId = None
     signInGuidance: Literal['Sign in to SDU Moodle to continue.'] = None
     signInUrl: Literal['https://moodle.sdu.edu.kz/login/index.php'] = None

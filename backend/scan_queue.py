@@ -36,6 +36,19 @@ GAP_REASONS = {'access_error', 'signed_out', 'forbidden', 'request_failed', 'lim
 EXCLUSIONS = {'unselected_course', 'site_event', 'personal_event', 'non_assessment'}
 
 
+def gap_reasons(page):
+    """The diagnostic and review reasons that make a calendar or material page a gap (#124)."""
+    result = page.get('result')
+    if page.get('collector') not in ('calendar', 'material') or result is None: return []
+    found = {d['reason'] for d in result['diagnostics']} | {r for review in result['reviews'] for r in review['reasons']}
+    return sorted(found - EXCLUSIONS)
+
+
+def with_gap_reasons(reasons, extra):
+    """#124 owner decision 2026-11-15 ("Show it in readback"): the readback names why a page counts."""
+    return [*reasons, *(r for r in extra if r not in reasons)]
+
+
 def course_gap(body):
     """True when something MoodleHelper should read for the course was not read (#124 D1/D1a)."""
     if GAP_REASONS & set(body['incompleteReasons']): return True
@@ -48,8 +61,7 @@ def course_gap(body):
         result = page.get('result')
         if page.get('collector') in ('calendar', 'material') and result is not None:
             # D1a: the upcoming window and unverified pagination (partial) and empty listings do not count.
-            if result['coverage'] == 'none' or result['reviews']: return True
-            if any(d['reason'] not in EXCLUSIONS for d in result['diagnostics']): return True
+            if result['coverage'] == 'none' or result['reviews'] or gap_reasons(page): return True
             continue
         if page['coverage'] != 'complete': return True
     return False
@@ -313,6 +325,7 @@ class ScanQueueService(QueueService):
                         self.collection._merge_refresh(snapshot, entry, {'collector':collector, 'result':page['result'],
                                                                          'observedAt':page['observedAt']}, body.get('moodleUserId'))
                 evidence = {k:v for k,v in page.items() if k != 'result'}
+                evidence['reasons'] = with_gap_reasons(page['reasons'], gap_reasons(page))
                 evidence['ordinal'] = ordinal
                 self.execute(c, 'INSERT INTO scan_pages(namespace,job_id,ordinal,page) VALUES(?,?,?,?)',
                              self.ns, row.id, ordinal, canonical(evidence))
@@ -332,8 +345,9 @@ class ScanQueueService(QueueService):
                              lastAttemptAt=now_iso())
             self._fail_jobs(c, cascade, 'signed_out', snapshot if self.verified else None)
             self._save(c, snapshot)
+            job_reasons = with_gap_reasons(body['incompleteReasons'], sorted({r for p in body['pages'] for r in gap_reasons(p)}))
             self.execute(c, 'INSERT INTO scan_coverage(namespace,job_id,reasons) VALUES(?,?,?)',
-                         self.ns, row.id, canonical(body['incompleteReasons']))
+                         self.ns, row.id, canonical(job_reasons))
             forget_job_failures(c, row.id)
             self.execute(c, 'UPDATE queue_jobs SET state=?,error_code=?,token=NULL,expires=NULL WHERE namespace=? AND id=?',
                          body['outcome'], body.get('errorCode'), self.ns, row.id)
