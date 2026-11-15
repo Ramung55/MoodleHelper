@@ -47,18 +47,10 @@ out of capacity, #134). Consequences:
 - `linux/arm64` **does not apply** to this VM. An ARM64 image build is **unverified** (an
   emulated build in 2026-11 stalled in the frontend stage); recheck only if the VM moves to A1.
 - The image builds and the Compose file runs on local x86_64 (section 9).
-- **Building on a 1 GB VM is a risk** (the Vite/bun frontend stage can run out of memory).
-  Add a 2 GB swap file before building on the VM (below). A native build on the VM is to
-  be verified in #138. If it still fails, build locally and copy the image instead:
-
-  ```sh
-  # on your x86_64 machine, from the approved commit
-  docker build -t moodlehelper-app:release .
-  docker save moodlehelper-app:release | ssh ubuntu@<machine> docker load
-  ```
-
-  then on the VM add `image: moodlehelper-app:release` next to `build: .` and start with
-  `up -d --no-build`.
+- **The VM no longer builds** (#146). CI pushes the image it tested to
+  `ghcr.io/ramung55/moodlehelper:<full commit sha>` on every push to `main`, and
+  `scripts/deploy.sh` pulls it (section 6). A native build on the VM took 5 minutes with
+  swap (#138); keep the swap file below for headroom, not for builds.
 
 Swap file (persistent across reboots):
 
@@ -139,8 +131,8 @@ filter here. Do not flush or reset iptables; Docker adds its own rules for the
 ## 6. Deploy the app
 
 Install Docker Engine and the Compose plugin (`sudo apt-get install docker.io docker-compose-v2`, verified in #138, or Docker's official Ubuntu repository).
-Clone the repository at the approved commit in a dedicated directory (no deployment keys or
-CI deployment are needed).
+Clone the repository in a dedicated directory (no deployment keys or CI access to the
+tailnet are needed: the VM pulls).
 
 ```sh
 cp .env.production.example .env.production && chmod 600 .env.production
@@ -148,15 +140,18 @@ cp .env.production.example .env.production && chmod 600 .env.production
 # no scheme/port/trailing dot). Optional AI: MOODLE_HELPER_AI_PROVIDER=groq, GROQ_API_KEY,
 # MOODLE_HELPER_AI_LEDGER_PATH=/data/ai-ledger.sqlite3 (must be on /data). Optional
 # identity: MOODLE_HELPER_DATASET, MOODLE_HELPER_STABLE_USER_ID, ... (see README).
-C="docker compose -f docker-compose.production.yaml --env-file .env.production"
-$C config --quiet
-$C up -d --build --wait
+scripts/deploy.sh <full 40-character commit sha on main>
+C="docker compose -f docker-compose.production.yaml --env-file .env.production --env-file .env.release"
 $C ps
-curl -fsS http://127.0.0.1:8000/health
 ```
 
-`.env.production` is Git-ignored (`.gitignore` `.env.*`) and excluded from the Docker build
-context (`.dockerignore` `**/.env.*`); check with `git check-ignore -v .env.production`.
+`.env.release` holds the deployed tag (`MOODLE_HELPER_RELEASE=<sha>`). `deploy.sh` writes
+it; every `$C` command in this runbook reads it, so `exec`, `stop`, `run` and `up -d --wait`
+keep the deployed image and never rebuild. Do not edit it by hand.
+
+`.env.production` and `.env.release` are Git-ignored (`.gitignore` `.env.*`) and excluded from
+the Docker build context (`.dockerignore` `**/.env.*`); check with
+`git check-ignore -v .env.production .env.release`.
 The `GROQ_API_KEY` is a backend secret: keep the file mode 600 and never paste it into
 GitHub, logs or chat. Data uses the image default
 `MOODLE_HELPER_DATABASE_URL=sqlite:////data/moodle-helper.sqlite3` on the `app-data` volume.
@@ -171,9 +166,31 @@ build (#136)"):
 **Never run `docker compose ... down --volumes`** (or `docker volume rm`, `docker system
 prune --volumes`) on the VM: it deletes the database. `down` keeps the volume.
 
-Upgrade: take and copy off a backup (section 7), `git pull` the approved commit,
-`$C up -d --build --wait`. Migrations run on startup and cannot be downgraded; to roll back
-after a schema change, restore the matching backup with the previous image.
+### Deploy and roll back (#146)
+
+`scripts/deploy.sh <sha>` deploys any commit on `main` from #146's merge onward (older
+commits have no image and are rejected). In order, it rejects a non-40-hex SHA and a clone
+with modified tracked files, runs `git fetch`, rejects a SHA that is not a commit, and pulls
+the image (fails if CI has not finished, the commit is not on `main`, or the package is
+private). Only then does it `git checkout --detach <sha>` (detached HEAD is normal), take
+the pre-deploy backup `/data/pre-deploy.sqlite3` (section 7; stops unless integrity is `ok`,
+skipped on a fresh volume), write `.env.release` and run `$C up -d --no-build --wait`. It
+exits 0 only if `/health` reports `status` `ok` and `release` `<sha>`. Any rejection before
+the `up` leaves the running container as it was.
+
+- **One-time owner step:** after the first `main` push publishes, GitHub → profile →
+  Packages → `moodlehelper` → Package settings → Change visibility → **Public**. The VM
+  pulls anonymously.
+- **One-time bootstrap** (clone still at an older commit without `deploy.sh`):
+  `git fetch && git checkout --detach <sha> && scripts/deploy.sh <sha>`.
+- **Upgrade:** copy an off-VM backup first (section 7), then `scripts/deploy.sh <new sha>`.
+- **Roll back:** `scripts/deploy.sh <older sha>`. Migrations run on startup and cannot be
+  downgraded. After a schema change, first copy the backup taken before the upgrade out of
+  the volume, because the rollback run overwrites it:
+  `$C cp app:/data/pre-deploy.sqlite3 ./moodlehelper-pre-deploy.sqlite3`. Then run
+  `deploy.sh <older sha>` and restore that file (or an off-VM backup) with the section 7
+  restore.
+- Old images stay on the VM; remove them manually with `docker image prune` when needed.
 
 ## 7. Backups and restore
 
@@ -207,6 +224,9 @@ $C up -d --wait
 `immutable=1` is needed: the backup keeps WAL mode, and SQLite cannot create its `-shm`
 file next to a read-only mounted file (`attempt to write a readonly database`).
 Test a restore after the first deployment and after upgrades, not only when you need it.
+
+`scripts/deploy.sh` also writes `/data/pre-deploy.sqlite3` (same backup API, overwritten on
+every deploy). It stays on the VM's volume, so it does not replace off-VM backups.
 
 ## 8. Live verification on the VM (#138, 2026-11-15)
 
