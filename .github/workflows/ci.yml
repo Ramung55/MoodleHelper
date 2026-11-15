@@ -1,4 +1,4 @@
-name: CI and deploy
+name: CI and publish
 on:
   push:
   pull_request:
@@ -67,53 +67,25 @@ jobs:
           name: tested-image
           path: tested-image.tar
           retention-days: 1
-  deploy:
-    # Disabled while the OCI deployment and access boundary await approval.
-    if: ${{ false }}
+  publish:
+    # Pushes the exact image the compose job tested; the VM pulls it by SHA (scripts/deploy.sh).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [backend, frontend, compose]
     runs-on: ubuntu-latest
-    environment: production
     permissions:
       contents: read
-      id-token: write
+      packages: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: tested-image
       - run: docker load -i tested-image.tar
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: Push tested image and deploy ECS service
+      - name: Push tested image to GHCR
         env:
-          REGION: ${{ vars.AWS_REGION }}
-          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-          CLUSTER: ${{ vars.ECS_CLUSTER }}
-          SERVICE: ${{ vars.ECS_SERVICE }}
-          CONTAINER: ${{ vars.ECS_CONTAINER }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          account=$(aws sts get-caller-identity --query Account --output text)
-          registry="$account.dkr.ecr.$REGION.amazonaws.com"
-          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
-          image="$registry/$REPOSITORY:${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          image="ghcr.io/ramung55/moodlehelper:${GITHUB_SHA}"
           docker tag moodlehelper:tested "$image"
           docker push "$image"
-          task=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
-          aws ecs describe-task-definition --task-definition "$task" --query taskDefinition > task.json
-          jq --arg container "$CONTAINER" --arg image "$image" --arg release "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" 'if ([.containerDefinitions[] | select(.name == $container)] | length) != 1 then error("container not found") else . end | .containerDefinitions |= map(if .name == $container then .image = $image | .environment = ((.environment // [] | map(select(.name != "MOODLE_HELPER_RELEASE"))) + [{"name":"MOODLE_HELPER_RELEASE","value":$release}]) else . end) | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' task.json > new-task.json
-          revision=$(aws ecs register-task-definition --cli-input-json file://new-task.json --query 'taskDefinition.taskDefinitionArn' --output text)
-          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$revision" > /dev/null
-          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
-          actual=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
-          test "$actual" = "$revision"
-      - name: Check deployed endpoint
-        env:
-          HEALTH_URL: ${{ vars.HEALTH_URL }}
-        run: |
-          set -euo pipefail
-          test -n "$HEALTH_URL"
-          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors --max-time 10 "${HEALTH_URL%/}/health" | jq -e --arg release "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" '.status == "ok" and .release == $release'
-
-

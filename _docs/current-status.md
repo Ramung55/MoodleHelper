@@ -1,61 +1,42 @@
 # Current status
 
-Audit date: 2026-11-12. Commit audited: `e63ac3d` (`main`, after PR #91), on Windows 11 with Docker 29.7.2. The working tree had no content changes; 59 files differed only in line endings. This report replaces the 2026-11-08 preliminary audit. It records test results, not a criterion-by-criterion acceptance audit of each closed issue. The MVP verdict in [mvp-verification.md](mvp-verification.md) remains **FAIL** for the live-Moodle reasons below.
+Date: 2026-11-15. Base commit: `dffbe8f` (`main`, after PR #145), plus branch
+`feat/issue-146-ghcr-deploy`. Replaces the 2026-11-12 audit; the MVP verdict lives in
+[mvp-verification.md](mvp-verification.md).
 
-## Test results
+## Where things stand
 
-All suites were run one at a time. Running them in parallel caused timeouts in earlier audits.
+- **Live on the OCI VM over Tailscale since #138.** One app container on `127.0.0.1:8000`,
+  SQLite on the `app-data` volume, `tailscale serve` for HTTPS on `<machine>.<tailnet>.ts.net`,
+  no public ingress. Runbook and evidence: [oracle-deployment.md](oracle-deployment.md).
+- **CI** (`.github/workflows/ci.yml`): `backend`, `frontend` (lint, typecheck, tests) and
+  `compose` (Compose integration and browser journey, saves the `tested-image` artifact) run
+  on every push and PR. #146 replaces the dead AWS/ECS `deploy` job with `publish`, which
+  pushes that tested image as `ghcr.io/ramung55/moodlehelper:<sha>` on pushes to `main` only.
+- **Deploy and rollback** (#146): on the VM, `scripts/deploy.sh <full commit sha>` (runbook
+  section 6). The VM no longer builds.
+- **Lint:** `main` at `dffbe8f` failed `bun run lint` on one Prettier error in
+  `frontend/src/test/tailnet-origin.test.tsx`; #146 reformats that file, so `frontend` passes
+  and `publish` can run.
 
-| Suite | Command | Result |
-| --- | --- | --- |
-| Backend | `uv run pytest` | **PASS**: 1497 passed, 9 skipped (Compose and PostgreSQL opt-in tests, run separately below), 2 warnings |
-| Frontend unit/component | `bun run test` (`frontend/`) | **PASS**: 78 files, 1525 tests |
-| Frontend typecheck | `bun run typecheck` (`frontend/`) | **PASS** |
-| Frontend lint | `bun run lint` (`frontend/`) | **FAIL**: 3 Prettier formatting errors, 26 warnings (see Findings) |
-| Frontend build | `bun run build` (`frontend/`) | **PASS** |
-| Extension and shared builds | `bun run --cwd extension build`, `bun run --cwd shared build` | **PASS** |
-| Browser workspace | `bun ./frontend/node_modules/vitest/vitest.mjs run --config ./browser-workspace/vitest.config.mjs` | **PASS with one harness error**: 18 files, 307 tests passed; `queue-network.test.ts` cleanup hit `EBUSY` (see Findings). That file passed alone (4/4). |
-| Browser E2E | `bun run test:e2e` (`frontend/`) | **PASS**: 38 passed. The intermittent "Start mock run" failure from 2026-11-09 did not occur. |
-| Deliberately broken E2E | `bun run test:e2e:broken` (`frontend/`) | **PASS**: failure detected with screenshot and trace, as designed |
-| Compose integration | `MOODLE_HELPER_COMPOSE_TEST=1 uv run pytest tests/test_compose_integration.py` | **PASS**: 5 passed |
-| Compose browser journey | `node e2e/compose.cjs` | **PASS**: workflow and persistence across container restart |
-| PostgreSQL | `MOODLE_HELPER_TEST_POSTGRES_URL=… uv run pytest tests/test_postgres.py` against a disposable `postgres:16` container on loopback, removed afterwards | **PASS**: 5 passed |
-| GitHub CI on `main` | `.github/workflows/ci.yml` at `e63ac3d` | **PASS**: backend, frontend and compose jobs. Deploy is disabled (`if: false`). Pages deploy succeeded. |
+## History since #93
 
-Not run: live SDU Moodle, a real external AI provider (Groq), and actual Chrome notification delivery.
-
-## Findings
-
-1. **Lint fails on formatting only.** Prettier reports 3 errors in lines added for the stale-submission hint: `frontend/src/components/mh/AssessmentSheet.tsx:365`, `frontend/src/test/deadline-list.test.tsx:84` and `frontend/src/test/page-refresh.test.ts:1287`. `eslint --fix` resolves them. CI does not run lint, so this went unnoticed.
-2. **Windows test cleanup is fragile.** `browser-workspace/queue-network.test.ts` deletes its temporary SQLite directory right after stopping uvicorn. On Windows the file can still be locked, which gives `EBUSY` and an unexpected worker exit after all tests passed. The cleanup should retry or wait for the process to exit.
-3. **Leftover Docker resources from an earlier aborted run.** Containers `moodlehelper-e2e-4a128395…-app-1` (created) and `…-postgres-1` (running) and volume `moodlehelper-e2e-4a128395…_postgres-data` were created at 15:55 on 2026-11-12, before this audit. This audit did not remove them. The `moodlehelper-*` stack from 2026-11-10 is separate and was also left untouched.
-4. **Expected noise in E2E logs.** `QuotaExceededError` comes from the deliberate quota-failure case in `document-import.spec.ts`, which passes. `ECONNREFUSED 127.0.0.1:8000` comes from specs that run the dashboard without a backend.
-5. **Pydantic warning.** `UnsupportedFieldAttributeWarning` (`alias='body'` on `Field()` without effect) appears in `tests/test_syllabus_revision.py`. It is harmless today but signals a field definition that does not do what it appears to.
-
-## Component status
-
-| Component | Status | Evidence |
-| --- | --- | --- |
-| Dashboard (frontend) | Working against fixtures and the local backend | Unit, typecheck, build and 38 E2E specs pass |
-| FastAPI backend and contract | Working | 1497 tests, including contract tests against `openapi.yaml` and Zod model parity |
-| Storage | Working | SQLite in the main suite; PostgreSQL and Compose persistence across restart pass |
-| Extension | Builds; fixture and synthetic flows pass | Browser workspace and E2E extension-shell specs |
-| Live Moodle collection | **Not verified** | Collectors pass on fixtures and observed HTML. No live end-to-end journey was run in this audit. |
-| Live submission status | **Disabled by design** | `extension/src/page-refresh.ts:142` registers `submission` as unavailable until the active Moodle account is bound. Backend ingestion rejects verified-mode submission observations. |
-| Hosted deployment | **Not approved** | No application authentication; see [oracle-deployment.md](oracle-deployment.md). CI deploy disabled. |
+- #93-#96: account binding, live submission status, live update while browsing, recorded
+  live SDU journey.
+- #97, #98: lint in CI, reliable Windows test cleanup.
+- #106-#114: end-to-end verification of deadlines, syllabus, calendar, personal deadlines,
+  workload, optional AI, backup/restore/erase and the full student journey.
+- #124-#129: live full sync, material download, submission status, fresh tabs, read-only
+  queue calls without the SQLite write lock.
+- #134-#138: Tailscale-only OCI deployment (Host check, hosted extension build, Compose
+  files and runbook, live VM verification).
 
 ## Backlog
 
-Update 2026-11-12: #93 (account binding) passed QA on branch `feat/issue-93-account-binding`. Verified scans and course discovery now save only when the `M.cfg` `"userId"` on the fetched SDU pages equals the dataset's numeric `MOODLE_HELPER_STABLE_USER_ID` (Addendum 7 in `compatibility/sdu-moodle.md`). QA run: `uv run pytest` 1532 passed, 9 skipped; frontend `bun run test` 1526 passed; touched browser-workspace files passed. Known limits: a direct dashboard `ingestCourseDiscovery` call in a real dataset gets 409, and account rejections record `request_failed` as the page reason.
+Open: #146 only (this branch; its live criteria run on the VM after merge).
 
-Update 2026-11-12: #94 (live submission status) passed QA on branch `feat/issue-94-submission-status`. Sync all now reads submission status from assignment pages it already fetches, saved only through the #93 account check. QA run: `uv run pytest` 1540 passed, 9 skipped; frontend 1558 passed; touched browser-workspace files passed.
+## Tests on this branch
 
-Open MVP issues, in order: #95 (live update while browsing), #96 (recorded live SDU journey). Gaps without issues:
-
-- lint formatting errors and adding lint to CI;
-- the Windows cleanup in `queue-network.test.ts`;
-- authentication, if hosted deployment is wanted at all.
-
-## Next step
-
-Merge #94, then continue with #95 through the orchestrator lifecycle in `_docs/process.md`.
+`uv run pytest`: 1605 passed, 9 skipped (opt-in Compose and PostgreSQL tests), 2 warnings.
+Frontend: the only frontend change is the Prettier reformat above; CI's `frontend` job
+(lint, typecheck, tests) passes on this branch.
