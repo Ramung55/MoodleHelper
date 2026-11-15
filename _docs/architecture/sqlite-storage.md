@@ -72,7 +72,18 @@ changes. SQLite serializes competing repository instances in the supported proce
 sequential mutations reread current committed state. Commit/validation/executed-write
 failures roll back. Input, callback and returned references cannot mutate saved data.
 One transaction also covers migrations and first namespace initialization. NullPool
-closes connections between operations; normal SQLite rollback-journal mode is used.
+closes connections between operations. SQLite files use WAL journal mode (#129, owner
+decision 2026-11-15, replacing the earlier rollback journal): the store sets
+`PRAGMA journal_mode=WAL` after a successful open and migration, outside any transaction, so
+an existing rollback-mode file is converted on its first open with its data unchanged and a
+rejected (future or unversioned) file stays byte-identical. Writes keep
+`BEGIN IMMEDIATE`, the 1 s busy timeout and the default `synchronous` setting.
+Read-only queue, scan, reminder-plan and material-download GETs (`_read_transaction`)
+use one plain `BEGIN` (deferred) read transaction: one consistent view of the last
+commit that neither waits for nor blocks the writer. PostgreSQL is unchanged; its read
+helper uses the same advisory-lock transaction as writes. If another process holds the
+file when the backend first switches it, startup fails with the existing "locked"
+message and nothing changes.
 
 `upsert_source(collection, record)` supports courses, assessments and materials,
 scoped by the configured namespace and stable record `id`. It validates opt-in
@@ -110,8 +121,10 @@ uv run pytest tests/test_sqlite_store.py::test_future_schema_fails_closed_withou
 ```
 
 Before changing application versions or manually relocating storage, stop the backend
-and all other writers, then copy the SQLite file to a separate known backup location.
-Wait for the process to exit; do not copy a changing file or delete journal files.
+and all other writers, then copy the SQLite file together with any `-wal` and `-shm`
+files beside it to a separate known backup location. Wait for the process to exit; do
+not copy a changing file, and never delete the `-wal`/`-shm` files: after a crash the
+`-wal` file holds committed data that the next start replays.
 Restart against the intended URL and confirm the expected namespace. A failed migration
 reports rollback: keep the unchanged prior file, retry the prior compatible application
 or restore the stopped-file backup. If using a separate new location, keep the original

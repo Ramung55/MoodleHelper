@@ -651,3 +651,34 @@ A complete independent criterion-by-criterion audit and complete test run remain
 ## Sequential frontend rerun, 2026-11-09
 
 `bun run test` completed successfully with 78 files and 1,525 tests passed (exit 0). Earlier concurrent runs were interrupted after timeouts and do not establish product failures. The user can provide one live SDU account, not two; a live two-account isolation check remains unavailable. The fail-closed submission gate remains in place and the MVP verdict remains FAIL.
+
+## Read-only GETs no longer wait on the write lock for #129, 2026-11-15 (automated and synthetic)
+
+Cause: every queue, scan, reminder-plan and material-download read ran in `BEGIN IMMEDIATE`, so during a large Sync all a dashboard poll of `GET /api/queue/current` queued behind each `finish` (about 1.3 s with a 850 KB Snapshot) and failed after the 1 s busy timeout with the "Database is locked" 503. Fix (owner decisions 2026-11-15): SQLite files open in WAL; `SQLiteStore._read_transaction` (plain `BEGIN`, PostgreSQL delegates to `_transaction`) serves `current()`, `QueueService.read`, `ScanQueueService.read`/`pages`, `ReminderService.read_plan` and the material-download list/get; `current()` reads only `settings.trackedCourseIds` with `json.loads`. Writes keep `BEGIN IMMEDIATE`, the 1 s timeout and the epoch fence. Synthetic evidence only; no live SDU Sync all timing was taken.
+
+Reproduction: `uv run python -m tests.load_repro_129 --port 8129 --rounds 2` (test only: fresh temp SQLite file outside the repo, `tests/live_scan_network_app.py` under uvicorn on 127.0.0.1:8129, fixed queue clock, 8 fictional mapped courses, Snapshot bloated to 848 KB by real finishes; then 2 Sync all rounds of claim, gate acquire, renew and finish with 10 quiz pages per course, first without and then with 3 pollers each reading `/api/queue/current`, `/api/snapshot` and `/api/connection` every 500 ms). "Before" ran on a worktree of `main` at 8aa0ab4, "after" on the branch. Latencies p50 / max in ms; no scan call returned 503 in either run.
+
+| Call | before, no pollers | before, 3 pollers | after, no pollers | after, 3 pollers | after limit max(no-poller + 100, no-poller × 1.2) |
+| --- | --- | --- | --- | --- | --- |
+| claim (n 18) | 59.7 / 83.8 | 97.9 / 193.7 | 75.7 / 89.0 | 71.4 / 148.5 | 175.7 / 189.0 — **PASS** |
+| gate acquire (n 16) | 9.1 / 31.8 | 29.4 / 69.3 | 28.9 / 43.8 | 24.2 / 41.7 | 128.9 / 143.8 — **PASS** |
+| renew (n 16) | 45.7 / 56.6 | 60.8 / 148.7 | 50.5 / 82.6 | 53.5 / 63.6 | 150.5 / 182.6 — **PASS** |
+| finish (n 16) | 1322.6 / 1371.0 | 1378.2 / 1501.8 | 1295.1 / 1340.8 | 1467.1 / 1548.4 | 1554.1 / 1609.0 — **PASS** (narrow) |
+| poll `/api/queue/current` | — | **13 × 503** of 47, 1201.1 / 1513.5 | — | **0 × 503** of 51, 489.1 / 894.0 | — |
+| poll `/api/snapshot` | — | 0 × 503, 103.4 / 690.6 | — | 0 × 503, 548.7 / 840.0 | — |
+| poll `/api/connection` | — | 0 × 503, 37.4 / 416.7 | — | 0 × 503, 25.8 / 369.0 | — |
+
+After the fix the polls no longer wait on the lock but still compete for the one Python process's CPU with each finish's merge, so their latency (and finish with pollers) rises by roughly the cost of decoding the Snapshot; the finish margin under the 1.2 × limit is small (1467 vs 1554 ms p50); an earlier after-run measured 1515 vs 1536 ms. Journal mode reported `delete` before and `wal` after.
+
+| #129 criterion | Evidence | Result |
+| --- | --- | --- |
+| 1 Reads in one read transaction, 200 within 200 ms while another connection holds `BEGIN IMMEDIATE` | `tests/test_read_lock_129.py::test_reads_return_last_commit_at_once_while_another_writer_holds_the_lock` (all 8 GETs, uncommitted writer change not visible) | **PASS** |
+| 2 `current()` reads tracked ids only; corrupt JSON 503 message; > 100 ids `QueueInvalid` | `test_current_reads_only_tracked_ids_and_keeps_its_errors` | **PASS** |
+| 3 WAL on new and converted rollback files, data identical, still WAL after reopen | `test_new_and_existing_rollback_files_switch_to_wal_with_data_unchanged` | **PASS** |
+| 4 PostgreSQL unchanged | `tests/test_postgres.py` skips as before (no PostgreSQL URL); read helper delegates to `_transaction` | **PASS** (skip as before) |
+| 5 Writer holds the lock 2 s; current, snapshot, queue run, scan run return 200 with committed data | same test as 1 (lock held ≥ 2 s); fails on `main` with 503 | **PASS** |
+| 6 Held reader does not delay claim, gate acquire, finish | `test_a_held_reader_never_delays_scan_writes` | **PASS** |
+| 7 Write safety unchanged | existing queue, scan, lock and epoch tests in the full suite, including `test_real_sqlite_errors_use_503_envelope_and_keep_prior_commit[locked]` and `test_startup_lock_is_actionable_and_recoverable` | **PASS** |
+| 8 Synthetic reproduction | table above | **PASS** |
+| 9 Storage doc | `_docs/architecture/sqlite-storage.md` WAL and `-wal`/`-shm` backup guidance | done |
+| 10 Full suite | `uv run pytest`: 1571 passed, 9 skipped (PostgreSQL and Compose skips as before); the 4 `tests/test_read_lock_129.py` tests: 3 fail on `main` (the `current()` test passes there by design) | **PASS** |
