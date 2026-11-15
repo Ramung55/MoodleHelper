@@ -328,9 +328,14 @@ Tailscale 1.104.7, Docker 29.1.3 and Compose 2.40.3 from Ubuntu's `docker.io` an
 | Public IP TCP 22/80/443/8000 from outside the tailnet | closed or time out |
 | Tailnet ACL denial for another user/device | **untested** (owner decision): the tailnet has one user and no shared nodes, so there is no second identity to test with, and editing the policy risks losing Tailscale SSH |
 
-**Auto-deploy timer (#148): not yet installed on the VM.** Pending the owner's go-ahead: install
-(section 6), one `up to date` tick in `journalctl`, then `deployed <sha>` and `/health`
-`release` within about 10 minutes of a `main` image being published. Record the result here.
+**Auto-deploy timer (#148), installed 2026-11-15 with the owner's go-ahead.** Off-VM backup
+first (section 7, `integrity ok`). Clone checked out at `c695db3` (PR #149 head), units
+installed with the section 6 commands, one tick started by hand:
+`auto-deploy: up to date f4554ba… (already deployed), recorded`. PR #149 merged as `61ecdfe`;
+the next scheduled tick (16:31 UTC, about 5 minutes later) logged
+`deploy: backup /data/pre-deploy.sqlite3 integrity ok`, `deploy: 61ecdfe… is live` and
+`auto-deploy: deployed 61ecdfe…`; `/health` reports `{"status":"ok","release":"61ecdfe…"}`
+and `.env.release` names `61ecdfe…`.
 
 Live data needs the four identity settings from the README in `.env.production`; without
 them the backend runs the demo dataset and the dashboard shows "Sync all courses (demo)".
