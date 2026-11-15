@@ -229,6 +229,62 @@ VM remain unverified.
 Order: the first step verifies on the real VM which Host header `tailscale serve`
 forwards. No Host-check change is made before that evidence exists.
 
+## Evidence: what `tailscale serve` forwards (#134, 2026-11-15)
+
+Names are placeholders: `<name>` = `<machine>.<tailnet>.ts.net`, `<vm-100>` = the VM's
+tailnet IPv4, `<client-100>` = the requesting device's tailnet IPv4.
+
+Setup: the VM is an OCI Always Free `VM.Standard.E2.1.Micro` (x86_64, 1 GB) running
+Ubuntu 24.04 Minimal, because `VM.Standard.A1.Flex` was out of capacity in all three
+Ashburn availability domains (2 OCPU/12 GB and 1 OCPU/6 GB). That differs from the ARM64
+assumption above; image build and runtime choices belong to #137. Tailscale 1.104.7,
+personal tailnet, MagicDNS and HTTPS certificates on. Command:
+`sudo tailscale serve --bg --https=443 http://127.0.0.1:8099`, in front of a throwaway
+Python listener on `127.0.0.1:8099` that logged request headers (no app, no student data).
+Listener and serve config were removed afterwards (`tailscale serve status`: "No serve
+config"). Certificate: Let's Encrypt, `CN=<name>`, 90 days.
+
+Requests from a tailnet Windows client with curl:
+
+| # | Request | Result | `Host` the backend received |
+|---|---|---|---|
+| 1 | `https://<name>/` | 200 | `<name>` (lowercase, no port, no trailing dot) |
+| 2 | same, `-H "Host: attacker.example"` | 200 | `attacker.example` (passed through unchanged) |
+| 3 | same, client sends `X-Forwarded-Host: <name>`, `X-Forwarded-For: 6.6.6.6` | 200 | `<name>`; serve **replaced** both headers |
+| 4 | `--resolve attacker.example:443:<vm-100>` `https://attacker.example/` (DNS rebinding shape, `-k`) | TLS handshake failure (curl 35) | none, request never reached the backend |
+| 5 | `https://<vm-100>/` (`-k`) | TLS handshake failure (curl 35) | none |
+| 6 | `-H "Host: <NAME-IN-CAPS>:443"` | 200 | `<NAME-IN-CAPS>:443` (case and port passed through) |
+| 7 | `https://<name>./` (trailing dot) | 200 | `<name>.` |
+| 8 | `http://<vm-100>/` (port 80) | connection refused | none |
+
+Headers serve adds on every request: `X-Forwarded-Host` (= the received Host),
+`X-Forwarded-For: <client-100>`, `X-Forwarded-Proto: https`, `Tailscale-Headers-Info`,
+and identity headers `Tailscale-User-Login` (the owner's login email),
+`Tailscale-User-Name`, `Tailscale-User-Profile-Pic`.
+
+Conclusions for #135:
+
+- Serve **passes the client's Host through unchanged**; it does not rewrite it. The
+  backend Host check therefore still decides, and it sees the real name.
+- Serve completes TLS only for SNI = `<name>`. A browser in a DNS-rebinding attack sends
+  SNI = the attacker's name, so the handshake fails before HTTP (row 4). The backend Host
+  check stays as defence in depth for non-browser tailnet clients, which can set any Host
+  with a valid SNI (row 2).
+- The allowlist must accept exactly `<name>` after the existing lowercasing, and decide
+  explicitly about `<name>:443` and `<name>.`: serve forwards both (rows 6, 7). Browsers
+  send neither for a default-port HTTPS URL; rejecting them is acceptable.
+- `X-Forwarded-*` from clients are overwritten by serve; the backend keeps ignoring them.
+- `Tailscale-User-Login` carries the owner's email. The backend must not log or store
+  these identity headers (privacy); using them for authorisation stays optional
+  (Security notes).
+- No public port is open: the OCI security list has no ingress rules and the VM has no
+  NSGs. From outside the tailnet, TCP 22/80/443/8000 on the public IP time out or are
+  closed. Admin access is Tailscale SSH; recovery is the OCI serial console (tested by the
+  owner via Cloud Shell with an RSA key) and the Run Command agent.
+  Both were confirmed working before any ingress rule was removed (2026-11-15): Tailscale
+  SSH (`ssh ubuntu@<machine>` from a tailnet client) logged in, and the owner opened the
+  serial console session.
+
 ## What would reopen this decision
 
 - Any user other than the owner, or any shared tailnet node, needs access.
