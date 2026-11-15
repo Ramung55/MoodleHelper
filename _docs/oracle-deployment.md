@@ -546,3 +546,50 @@ first tick then only records it.
 `@production` timer does not undo it: the branch head is already attempted. The next
 promotion of a newer SHA replaces the rollback. To fix forward, merge the fix to `main`,
 check it on dev, and promote it.
+
+## 12. Telemetry (OpenTelemetry over OTLP)
+
+The backend sends traces, metrics and logs over OTLP/HTTP (`backend/telemetry.py`) **only if
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set**. Local runs, tests and CI need no collector. The owner
+chose a hosted OTLP backend on 2026-11-16, so with telemetry on, this data **leaves the
+tailnet**. Nothing else changes: the app still has no public port.
+
+**What is sent (all of it):**
+
+| Signal | Content |
+|---|---|
+| Resource (on everything) | `service.name=moodlehelper-backend`, `service.version=<MOODLE_HELPER_RELEASE>` (the commit SHA), `deployment.environment.name=dev\|prod`, OpenTelemetry SDK name/version |
+| Traces | one server span per HTTP request, named `<METHOD> <route template>` (e.g. `GET /api/queue/runs/{runId}`), with only `http.request.method`, `http.route`, `http.response.status_code`; status `ERROR` on 5xx without a description |
+| Metrics | histogram `http.server.request.duration` (seconds) with the same three labels |
+| Logs | only the `moodle_helper` logger: today the two `ai_extract ok/failed request=<opaque id> ...` lines |
+
+**Never sent:** raw paths, query strings, headers, bodies, client addresses, exception
+messages or stack traces, uvicorn's access log, outgoing Moodle or Groq calls, SQL. There is no
+auto-instrumentation, only the hand-written middleware. Incoming `traceparent` headers are
+ignored. `tests/test_telemetry.py` checks this with a secret in the path, query and a header.
+
+**Environment:** `MOODLE_HELPER_ENVIRONMENT` must be `dev` or `prod`; any other value stops
+startup, and it is required once the endpoint is set. The compose files set it
+(`docker-compose.production.yaml`: `prod`, `docker-compose.dev.yaml`: `dev`).
+
+**Enable** (hosted backend, for example Grafana Cloud → your stack → OpenTelemetry → OTLP
+endpoint and an access-policy token with write scopes). Add to `.env.production`, and to
+`.env.dev` for dev, both mode 600:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-<region>.grafana.net/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20<base64 of instance-id:token>
+```
+
+Then recreate the container: `$C up -d --no-build --wait` (production) or `$D ...` (dev).
+The exporters append `/v1/traces`, `/v1/metrics` and `/v1/logs` themselves. Never commit the
+token or paste it into GitHub, logs or chat.
+
+**Disable:** empty or remove `OTEL_EXPORTER_OTLP_ENDPOINT` and recreate the container.
+
+**Cost on the 1 GB VM:** batch processors with bounded queues (2048 spans and log records),
+metrics exported every 60 s, nothing logged per request. If the backend is unreachable,
+exports fail in the background and are dropped; requests are not slowed (20 requests in
+0.1 s against a dead endpoint, measured 2026-11-16). Shutdown then retries the final flush for
+about 15 s, so `stop` and deploys take that much longer while the backend is unreachable;
+the exporters log `Failed to export ...` (endpoint only, no request data) to stderr.

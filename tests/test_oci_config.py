@@ -17,6 +17,7 @@ def test_tailscale_compose_is_one_loopback_app_on_sqlite():
     env = app["environment"]
     assert not any(e.startswith("MOODLE_HELPER_DATABASE_URL") for e in env)
     assert any(e.startswith("MOODLE_HELPER_TAILNET_HOST=${MOODLE_HELPER_TAILNET_HOST:?") for e in env)
+    assert "MOODLE_HELPER_ENVIRONMENT=prod" in env
     assert not (ROOT / "Caddyfile.oci").exists()
 
 
@@ -82,7 +83,9 @@ def test_dev_override_is_isolated_demo_only():
     assert app["volumes"] == ["app-data-dev:/data"]
     assert dev["volumes"] == {"app-data": None, "app-data-dev": {}}
     names = {e.split("=", 1)[0] for e in app["environment"]}
-    assert names == {"MOODLE_HELPER_TAILNET_HOST", "MOODLE_HELPER_TAILNET_PORT", "MOODLE_HELPER_RELEASE", "MOODLE_HELPER_DATASET"}
+    assert names == {"MOODLE_HELPER_TAILNET_HOST", "MOODLE_HELPER_TAILNET_PORT", "MOODLE_HELPER_RELEASE", "MOODLE_HELPER_DATASET",
+                     "MOODLE_HELPER_ENVIRONMENT", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS"}
+    assert "MOODLE_HELPER_ENVIRONMENT=dev" in app["environment"]
     assert "MOODLE_HELPER_DATASET=demo" in app["environment"] and "MOODLE_HELPER_TAILNET_PORT=8443" in app["environment"]
     keys = {line.split("=", 1)[0] for line in (ROOT / ".env.dev.example").read_text().splitlines()
             if line and not line.startswith("#")}
