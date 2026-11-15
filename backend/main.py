@@ -30,26 +30,29 @@ from backend.local_erase import EraseService
 from backend.storage import EpochConflict, expected_epoch
 
 
-# #63: loopback names only, any or no port. Exact match, so rebinding names such as
+# #63: loopback names only, any or no port (#135 adds one configured tailnet name, by equality). Exact match, so rebinding names such as
 # 127.0.0.1.attacker.example, a trailing-dot localhost. or unbracketed ::1 fail.
 LOOPBACK_HOST = re.compile(r'(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]{1,5})?')
+# #135: the setting must be a bare DNS name; no port or trailing dot, which browsers never send (#134).
+TAILNET_HOST = re.compile(r'(?:[a-z0-9-]+\.)*[a-z0-9-]+')
 
 
 class LoopbackHostMiddleware:
-    """Rejects any request whose single Host header is not loopback with 400, before routing.
+    """Rejects any request whose single Host header is not loopback or the configured tailnet_host with 400, before routing.
 
     Forwarded headers (X-Forwarded-Host) are ignored; only the Host header counts.
     """
 
-    def __init__(self, app):
+    def __init__(self, app, tailnet_host: str | None = None):
         self.app = app
+        self.tailnet_host = tailnet_host
 
     async def __call__(self, scope, receive, send):
         if scope['type'] not in ('http', 'websocket'):
             return await self.app(scope, receive, send)
         hosts = [value for name, value in scope.get('headers', []) if name.lower() == b'host']
         host = hosts[0].decode('latin-1').lower() if len(hosts) == 1 else ''
-        if LOOPBACK_HOST.fullmatch(host):
+        if LOOPBACK_HOST.fullmatch(host) or (self.tailnet_host is not None and host == self.tailnet_host):
             return await self.app(scope, receive, send)
         if scope['type'] == 'websocket':
             return await send({'type': 'websocket.close', 'code': 1008})
@@ -73,6 +76,12 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     if raw_concurrency not in ('1', '2', '3', '4'):
         raise ValueError('MOODLE_HELPER_QUEUE_CONCURRENCY must be an integer from 1 to 4.')
     concurrency = int(raw_concurrency)
+    tailnet_host = os.environ.get('MOODLE_HELPER_TAILNET_HOST')
+    if tailnet_host is not None:
+        tailnet_host = tailnet_host.lower()
+        if not TAILNET_HOST.fullmatch(tailnet_host):
+            raise ValueError('MOODLE_HELPER_TAILNET_HOST must be a bare DNS host name: no scheme, port, path, '
+                             'userinfo, wildcard, whitespace or trailing dot.')
     def make_queue(selected):
         return QueueService(selected, concurrency, **({'clock':queue_clock} if queue_clock else {}))
     def make_reminders(selected):
@@ -355,11 +364,13 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
             return FileResponse(static_dir / "_shell.html")
 
     # No credentials: the dashboard never sends cookies. Writes still need the bridge binding header.
-    app.add_middleware(CORSMiddleware, allow_origins=[DASHBOARD_ORIGIN], allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-                       allow_headers=['Accept', 'Content-Type', 'X-Moodle-Helper-Bridge-Binding', 'X-Moodle-Helper-Data-Epoch'],
-                       expose_headers=['Retry-After'], allow_credentials=False, allow_private_network=True, max_age=600)
+    # Hosted mode (#135) serves the dashboard same-origin, so it registers no CORS grant.
+    if tailnet_host is None:
+        app.add_middleware(CORSMiddleware, allow_origins=[DASHBOARD_ORIGIN], allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+                           allow_headers=['Accept', 'Content-Type', 'X-Moodle-Helper-Bridge-Binding', 'X-Moodle-Helper-Data-Epoch'],
+                           expose_headers=['Retry-After'], allow_credentials=False, allow_private_network=True, max_age=600)
     # Added last, so it is outermost: runs before every other middleware and routing.
-    app.add_middleware(LoopbackHostMiddleware)
+    app.add_middleware(LoopbackHostMiddleware, tailnet_host=tailnet_host)
     return app
 
 

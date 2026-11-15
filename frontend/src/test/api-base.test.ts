@@ -7,6 +7,8 @@ test("only the approved Pages origin talks to the loopback backend directly", ()
   expect(apiBase("http://127.0.0.1:5173")).toBe("");
   expect(apiBase("https://ramung55.github.io.evil.example")).toBe("");
   expect(apiBase(undefined)).toBe("");
+  // #135 hosted mode: the tailnet dashboard is same-origin with its backend.
+  expect(apiBase("https://mh.example-tailnet.ts.net")).toBe("");
 });
 
 test("the Pages origin is approved for the bridge, but not lookalikes", () => {
