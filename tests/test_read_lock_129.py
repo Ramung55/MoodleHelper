@@ -4,6 +4,7 @@ reader never delays the scan writes. File databases only; no Moodle request."""
 import sqlite3
 import time
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import URL
@@ -13,13 +14,20 @@ from backend.sync_queue import QueueInvalid, QueueService
 from tests.test_live_scan import Live, completed, full_scan, seeded
 
 INVALID = 'Stored Snapshot is invalid.'
+WALL_CLOCK = {'serverTime', 'nextWakeAt'}  # #151: the plan's only fields that vary between two identical reads
 
 
 @pytest.fixture
 def live(tmp_path):
-    harness = Live(seeded(tmp_path), [1000])
+    now = [datetime(2026, 11, 15, 10, 59, 59, 600000, tzinfo=timezone.utc)]  # 0.4 s before a second boundary
+    harness = Live(seeded(tmp_path), [1000], reminder_clock=lambda: now[0])
+    harness.now = now
     yield harness
     harness.close()
+
+
+def comparable(path, body):
+    return {k: v for k, v in body.items() if k not in WALL_CLOCK} if path == '/api/reminders/plan' else body
 
 
 def prepared(live):
@@ -45,6 +53,7 @@ def test_reads_return_last_commit_at_once_while_another_writer_holds_the_lock(li
     paths = prepared(live)
     headers = live.h()
     before = {p: live.client.get(p, headers=headers).json() for p in paths}
+    live.now[0] += timedelta(seconds=1.5)  # crosses a second boundary between the pre-lock and locked reads
     writer = sqlite3.connect(live.store.url.database, isolation_level=None)
     try:
         writer.execute('BEGIN IMMEDIATE')
@@ -55,12 +64,22 @@ def test_reads_return_last_commit_at_once_while_another_writer_holds_the_lock(li
             response = live.client.get(path, headers=headers)
             assert response.status_code == 200, (path, response.json())
             assert time.perf_counter() - started < 0.2, path
-            assert response.json() == before[path], path
+            assert comparable(path, response.json()) == comparable(path, before[path]), path
         time.sleep(max(0, 2 - (time.perf_counter() - held)))  # the lock outlives the 1 s busy timeout
         assert live.client.get('/api/queue/current').status_code == 200
     finally:
         writer.rollback()
         writer.close()
+
+
+def test_the_plan_comparison_ignores_only_the_wall_clock(live):
+    path = '/api/reminders/plan'
+    first = live.client.get(path, headers=live.h()).json()
+    live.now[0] += timedelta(seconds=1.5)
+    second = live.client.get(path, headers=live.h()).json()
+    assert first['serverTime'] != second['serverTime'] and comparable(path, first) == comparable(path, second)
+    for key, changed in [('generation', 'other'), ('items', first['items'] + [{'id': 'extra'}])]:
+        assert comparable(path, {**second, key: changed}) != comparable(path, first), key
 
 
 def test_a_held_reader_never_delays_scan_writes(live):

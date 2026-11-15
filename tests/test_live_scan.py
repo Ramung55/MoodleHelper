@@ -49,9 +49,9 @@ def seeded(tmp_path, selected=('c-csc', 'c-math'), mapped=('c-csc', 'c-math', 'c
 
 
 class Live:
-    def __init__(self, store, clock):
+    def __init__(self, store, clock, reminder_clock=None):
         self.clock = clock
-        self.client = TestClient(create_app(store, queue_clock=lambda: clock[0]))
+        self.client = TestClient(create_app(store, queue_clock=lambda: clock[0], reminder_clock=reminder_clock))
         self.client.__enter__()
         self.store = store
 
