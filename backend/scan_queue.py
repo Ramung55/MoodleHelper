@@ -376,7 +376,7 @@ class ScanQueueService(QueueService):
             if 'signed_out' in reasons:
                 result.update(signInGuidance=SIGN_IN, signInUrl='https://moodle.sdu.edu.kz/login/index.php')
             return result
-        return self.tx(action)
+        return self.tx(action, read=True)
 
     # Durable pacing for the extension's live request authority.
     def _gate(self):

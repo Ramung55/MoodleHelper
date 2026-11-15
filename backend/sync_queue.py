@@ -5,7 +5,7 @@ import sqlite3
 import time
 from uuid import uuid4
 from sqlalchemy.exc import SQLAlchemyError
-from backend.sqlite_store import SQLiteStore, StorageError, storage_failure
+from backend.sqlite_store import INVALID_SNAPSHOT, SQLiteStore, StorageError, storage_failure
 
 LEASE_SECONDS = 60
 STATES = ('pending', 'running', 'completed', 'failed', 'cancelled')
@@ -19,11 +19,11 @@ class QueueService:
     def __init__(self, store, concurrency=1, clock=time.time):
         self.store, self.concurrency, self.clock = store, concurrency, clock
 
-    def tx(self, operation):
+    def tx(self, operation, *, read=False):
         if not isinstance(self.store, SQLiteStore):
             raise StorageError('Queue requires file-backed SQLite storage.')
         try:
-            with self.store._transaction() as c:
+            with (self.store._read_transaction() if read else self.store._transaction()) as c:
                 return operation(c)
         except (SQLAlchemyError, sqlite3.Error) as exc:
             raise storage_failure(exc) from exc
@@ -80,8 +80,13 @@ class QueueService:
 
     def current(self):
         def action(c):
-            snapshot = self.store._decode(self.execute(c, 'SELECT snapshot FROM snapshots WHERE namespace=?', self.ns).scalar_one())
-            ids = sorted(snapshot['settings']['trackedCourseIds'])
+            # #129: only the tracked ids are needed; full Snapshot validation is the writers' job.
+            try:
+                ids = json.loads(self.execute(c, 'SELECT snapshot FROM snapshots WHERE namespace=?', self.ns).scalar_one())['settings']['trackedCourseIds']
+                if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids): raise TypeError()
+            except (ValueError, KeyError, TypeError) as exc:
+                raise StorageError(INVALID_SNAPSHOT) from exc
+            ids = sorted(ids)
             if len(ids)>100: raise QueueInvalid()
             run = self._matching(c, ids) if ids else None
             failed = self.execute(c, """SELECT r.id FROM queue_runs r WHERE r.namespace=? AND r.kind='mock' AND r.course_ids=? AND r.cancelled=0
@@ -89,7 +94,7 @@ class QueueService:
                 AND NOT EXISTS (SELECT 1 FROM queue_links l JOIN queue_jobs j ON j.namespace=l.namespace AND j.id=l.job_id WHERE l.namespace=r.namespace AND l.run_id=r.id AND j.state IN ('pending','running'))
                 ORDER BY r.rowid DESC LIMIT 1""", self.ns, json.dumps(ids, ensure_ascii=True)).first() if ids else None
             return {'courseIds':ids, **({'run':run} if run else {}), **({'lastFailedRun':self._run(c,failed.id,None,100)} if failed else {})}
-        return self.tx(action)
+        return self.tx(action, read=True)
 
     def _job(self, c, row):
         result = {'id':row.id, 'courseId':row.course_id, 'state':row.state, 'attempts':row.attempts, 'generation':row.generation}
@@ -110,7 +115,7 @@ class QueueService:
         if len(rows)>limit: out['nextCursor'] = rows[limit-1].id
         return out
 
-    def read(self, run_id, cursor=None, limit=100): return self.tx(lambda c:self._run(c, run_id, cursor, limit))
+    def read(self, run_id, cursor=None, limit=100): return self.tx(lambda c:self._run(c, run_id, cursor, limit), read=True)
 
     def cancel(self, run_id):
         return self.tx(lambda c: self._cancel(c, run_id))

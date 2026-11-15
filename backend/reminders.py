@@ -240,7 +240,7 @@ class MemoryLedger:
         self.receipts: dict[str, str] = {}
 
     @contextmanager
-    def transaction(self, store):
+    def transaction(self, store, read=False):
         with self._lock:
             requested, receipts = dict(self.requested), dict(self.receipts)
             self._store = store
@@ -274,13 +274,14 @@ class SqlLedger:
         self.store = store
 
     @contextmanager
-    def transaction(self, store):
+    def transaction(self, store, read=False):
         from sqlalchemy import text
         from sqlalchemy.exc import SQLAlchemyError
         import sqlite3
         from backend.sqlite_store import storage_failure
         try:
-            with store._transaction() as connection:
+            # #129: a read never waits on the writer lock.
+            with (store._read_transaction() if read else store._transaction()) as connection:
                 saved = connection.execute(text('SELECT snapshot FROM snapshots WHERE namespace=:namespace'), store._key).scalar_one()
                 yield store._decode(saved), _Rows(connection, store.namespace)
         except (SQLAlchemyError, sqlite3.Error) as exc:
@@ -355,7 +356,7 @@ class ReminderService:
 
     def read_plan(self, cursor: str | None = None, limit: int = PAGE) -> dict:
         now = self.clock()
-        with self.ledger.transaction(self.store) as (snapshot, rows):
+        with self.ledger.transaction(self.store, read=True) as (snapshot, rows):
             current = self._with_status(plan(snapshot, self.store.namespace, self.store.dataset_id, now, self.resolver), rows, now)
             current['pendingDeliveries'] = alert_delivery.pending(snapshot, self.store.namespace)
         items = current['items']

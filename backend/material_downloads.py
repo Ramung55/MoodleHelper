@@ -166,7 +166,7 @@ class _MemoryRows:
         self.lock, self.rows = RLock(), {}
 
     @contextmanager
-    def transaction(self, store):
+    def transaction(self, store, read=False):
         with self.lock:
             saved = json.dumps(self.rows)
             try:
@@ -187,8 +187,9 @@ class _SqlRows:
         self.connection = None
 
     @contextmanager
-    def transaction(self, store):
-        with store._transaction() as connection:
+    def transaction(self, store, read=False):
+        # #129: a read never waits on the writer lock.
+        with (store._read_transaction() if read else store._transaction()) as connection:
             self.connection = connection
             try:
                 yield self
@@ -258,11 +259,11 @@ class MaterialDownloadService:
             return {'supported': True, 'message': 'Download queued.', 'transfer': self.public(row)}
 
     def read(self, transfer_id: str) -> dict:
-        with self.rows.transaction(self.store) as rows:
+        with self.rows.transaction(self.store, read=True) as rows:
             return self.public(self._find(rows, transfer_id))
 
     def list(self) -> dict:
-        with self.rows.transaction(self.store) as rows:
+        with self.rows.transaction(self.store, read=True) as rows:
             latest = {}
             for r in self._mine(rows):
                 latest[r['materialId']] = r  # created order: last attempt wins
