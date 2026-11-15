@@ -1,7 +1,7 @@
 """Auto-deploy tick outcomes (#148) against stub git, docker, curl and flock on PATH.
 
-No network, Docker or VM: a temp clone holds a copy of scripts/auto-deploy.sh and a stub
-deploy.sh. The real-flock tests (shared lock, no deadlock, real deploy.sh) need util-linux
+No network, Docker or VM: a temp clone (and its sibling dev clone) holds a copy of
+scripts/auto-deploy.sh and a stub deploy.sh; HOME is the temp dir, so the shared lock is too. The real-flock tests (shared lock, no deadlock, real deploy.sh) need util-linux
 flock and python3, so they run on the CI Ubuntu runner and are skipped on Windows.
 """
 import os
@@ -34,7 +34,7 @@ STUBS = {
     "git": """echo "git $*" >> "$STUB_LOG"
 case "$1" in
   fetch) exit "${STUB_FETCH_RC:-0}" ;;
-  rev-parse) echo "$STUB_MAIN" ;;
+  rev-parse) [ -n "$STUB_MAIN" ] || exit 1; echo "$STUB_MAIN" ;;
   diff) exit "${STUB_DIRTY:-0}" ;;
 esac""",
     "docker": """echo "docker $*" >> "$STUB_LOG"
@@ -47,7 +47,7 @@ printf '{"status":"ok","release":"%s"}' "$STUB_HEALTH\"""",
     "flock": """echo "flock $*" >> "$STUB_LOG"
 exit "${STUB_FLOCK_RC:-0}\"""",
 }
-STUB_DEPLOY = """echo "deploy.sh $1 locked=${MOODLE_HELPER_DEPLOY_LOCKED:-}" >> "$STUB_LOG"
+STUB_DEPLOY = """echo "deploy.sh $1 $2 in $(basename "$PWD") locked=${MOODLE_HELPER_DEPLOY_LOCKED:-}" >> "$STUB_LOG"
 exit "${STUB_DEPLOY_RC:-0}\""""
 
 
@@ -56,27 +56,38 @@ def _write(path, body):
     path.chmod(0o755)
 
 
+def _make_clone(path):
+    (path / ".git").mkdir(parents=True)
+    (path / "scripts").mkdir()
+    shutil.copyfile(ROOT / "scripts" / "auto-deploy.sh", path / "scripts" / "auto-deploy.sh")
+    _write(path / "scripts" / "deploy.sh", STUB_DEPLOY)
+    return path
+
+
 @pytest.fixture
 def clone(tmp_path):
-    (tmp_path / ".git").mkdir()
-    (tmp_path / "scripts").mkdir()
-    (tmp_path / "bin").mkdir()
-    shutil.copyfile(ROOT / "scripts" / "auto-deploy.sh", tmp_path / "scripts" / "auto-deploy.sh")
-    _write(tmp_path / "scripts" / "deploy.sh", STUB_DEPLOY)
+    path = _make_clone(tmp_path / "MoodleHelper")
+    (path / "bin").mkdir()
     for name, body in STUBS.items():
-        _write(tmp_path / "bin" / name, body)
-    return tmp_path
+        _write(path / "bin" / name, body)
+    return path
 
 
-def tick(clone, *, attempted=None, deployed=None, script="auto-deploy.sh", args=(), **stub):
-    state = clone / ".git" / "moodlehelper-auto-deploy-attempted"
+@pytest.fixture
+def dev_clone(clone):
+    return _make_clone(clone.parent / "MoodleHelper-dev")
+
+
+def tick(clone, *, attempted=None, deployed=None, script="auto-deploy.sh", args=("production",), target_clone=None, **stub):
+    target = target_clone or clone
+    state = target / ".git" / "moodlehelper-auto-deploy-attempted"
     if attempted:
         state.write_text(attempted + "\n")
     if deployed:
-        (clone / ".env.release").write_text(f"MOODLE_HELPER_RELEASE={deployed}\n")
+        (target / ".env.release").write_text(f"MOODLE_HELPER_RELEASE={deployed}\n")
     log = clone / "calls.log"
     log.write_text("")
-    env = {**os.environ, "STUB_LOG": log.as_posix(), "STUB_MAIN": M}
+    env = {**os.environ, "STUB_LOG": log.as_posix(), "STUB_MAIN": M, "HOME": clone.parent.as_posix()}
     env.pop("MOODLE_HELPER_DEPLOY_LOCKED", None)
     env.update({f"STUB_{k.upper()}": str(v) for k, v in stub.items()})
     # Prepend the stubs inside bash: Git Bash puts its own git first on PATH at startup.
@@ -142,7 +153,7 @@ def test_modified_clone_is_not_deployed_and_not_recorded(clone):
 def test_new_image_is_recorded_then_deployed_under_the_held_lock(clone):
     rc, out, calls, recorded = tick(clone, attempted=OLD, deployed=OLD)
     assert rc == 0 and outcome(out) == f"auto-deploy: deployed {M}"
-    assert f"deploy.sh {M} locked=1" in calls and recorded == M
+    assert f"deploy.sh {M} production in MoodleHelper locked=1" in calls and recorded == M
 
 
 def test_first_tick_without_state_deploys_main(clone):
@@ -172,7 +183,7 @@ def test_lock_held_skips_and_records_nothing(clone):
 def _hold_lock(clone):
     import fcntl
 
-    fd = os.open(clone / ".git" / "moodlehelper-deploy.lock", os.O_WRONLY | os.O_CREAT)
+    fd = os.open(clone.parent / ".moodlehelper-deploy.lock", os.O_WRONLY | os.O_CREAT)
     fcntl.flock(fd, fcntl.LOCK_EX)
     return fd
 
@@ -182,6 +193,7 @@ def real_deploy(clone):
     (clone / "bin" / "flock").unlink()
     shutil.copyfile(ROOT / "scripts" / "deploy.sh", clone / "scripts" / "deploy.sh")
     (clone / "scripts" / "deploy.sh").chmod(0o755)
+    (clone / ".env.production").write_text("")
     return clone
 
 
@@ -205,3 +217,60 @@ def test_tick_runs_real_deploy_without_deadlock(real_deploy):
     assert f"deploy: {M} is live" in out and outcome(out) == f"auto-deploy: deployed {M}"
     assert (real_deploy / ".env.release").read_text() == f"MOODLE_HELPER_RELEASE={M}\n"
     assert recorded == M
+
+
+def test_production_follows_origin_production(clone):
+    rc, out, calls, recorded = tick(clone, attempted=OLD, deployed=OLD)
+    assert rc == 0 and "git rev-parse --verify --quiet origin/production" in calls and "origin/main" not in calls
+
+
+def test_production_without_branch_yet_does_nothing(clone):
+    rc, out, calls, recorded = tick(clone, attempted=OLD, deployed=OLD, main="")
+    assert rc == 0 and outcome(out) == "auto-deploy: no origin/production yet, nothing to deploy"
+    assert "docker" not in calls and "deploy.sh" not in calls and recorded == OLD
+
+
+def test_dev_follows_main_and_deploys_the_dev_clone(clone, dev_clone):
+    rc, out, calls, recorded = tick(clone, args=("dev",), target_clone=dev_clone, attempted=OLD, deployed=OLD)
+    assert rc == 0 and outcome(out) == f"auto-deploy: deployed {M}" and recorded == M
+    assert "git rev-parse --verify --quiet origin/main" in calls
+    assert f"deploy.sh {M} dev in MoodleHelper-dev locked=1" in calls
+    assert not (clone / ".git" / "moodlehelper-auto-deploy-attempted").exists()
+
+
+def test_dev_rollback_is_not_undone_and_checks_dev_health(clone, dev_clone):
+    rc, out, calls, recorded = tick(clone, args=("dev",), target_clone=dev_clone, attempted=M, deployed=OLD, health=OLD)
+    assert rc == 0 and outcome(out) == f"auto-deploy: already attempted {M}, now running release {OLD}"
+    assert "http://127.0.0.1:8001/health" in calls and "deploy.sh" not in calls
+
+
+def test_dev_without_dev_clone_fails_and_changes_nothing(clone):
+    rc, out, calls, recorded = tick(clone, args=("dev",))
+    assert rc == 1 and outcome(out).startswith("auto-deploy: no dev clone next to")
+    assert calls == ""
+
+
+@pytest.mark.parametrize("args", [(), ("prod",), ("main",)])
+def test_unknown_target_is_rejected(clone, args):
+    rc, out, calls, recorded = tick(clone, args=args, attempted=OLD)
+    assert rc == 2 and "give the target, dev or production" in outcome(out) and calls == ""
+
+
+@pytest.fixture
+def stubbed_real_deploy(clone):
+    shutil.copyfile(ROOT / "scripts" / "deploy.sh", clone / "scripts" / "deploy.sh")
+    return clone
+
+
+@pytest.mark.parametrize("target, env_file, other", [("production", ".env.production", ".env.dev"),
+                                                     ("dev", ".env.dev", ".env.production")])
+def test_deploy_refuses_a_clone_without_the_targets_env_file(stubbed_real_deploy, target, env_file, other):
+    (stubbed_real_deploy / other).write_text("")
+    rc, out, calls, _ = tick(stubbed_real_deploy, script="deploy.sh", args=(M, target))
+    assert rc == 1 and f"deploy: {env_file} is missing; is this the {target} clone?" in out
+    assert "git" not in calls and "docker" not in calls
+
+
+def test_deploy_rejects_unknown_target(stubbed_real_deploy):
+    rc, out, calls, _ = tick(stubbed_real_deploy, script="deploy.sh", args=(M, "prod"))
+    assert rc == 2 and "target must be production or dev" in out and calls == ""

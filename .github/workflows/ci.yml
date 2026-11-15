@@ -1,6 +1,8 @@
 name: CI and publish
 on:
   push:
+    # production only moves to commits main already tested (promote.yml); nothing to rerun there.
+    branches-ignore: [production]
   pull_request:
 
 permissions:
@@ -14,7 +16,14 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --locked
       - run: shellcheck scripts/deploy.sh scripts/auto-deploy.sh
-      - run: systemd-analyze verify scripts/moodlehelper-auto-deploy.service scripts/moodlehelper-auto-deploy.timer
+      - name: Verify the auto-deploy units as both instances
+        run: |
+          d=$(mktemp -d)
+          for t in dev production; do
+            cp 'scripts/moodlehelper-auto-deploy@.service' "$d/moodlehelper-auto-deploy@$t.service"
+            cp 'scripts/moodlehelper-auto-deploy@.timer' "$d/moodlehelper-auto-deploy@$t.timer"
+          done
+          systemd-analyze verify "$d"/*
       # Contract tests run the frontend Zod models through Node (typescript, zod)
       # and the privacy review reads the built extension manifest.
       - uses: oven-sh/setup-bun@v2

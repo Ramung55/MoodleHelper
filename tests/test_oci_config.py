@@ -70,4 +70,29 @@ def test_dev_override_is_isolated_demo_only():
     assert "MOODLE_HELPER_DATASET=demo" in app["environment"] and "MOODLE_HELPER_TAILNET_PORT=8443" in app["environment"]
     keys = {line.split("=", 1)[0] for line in (ROOT / ".env.dev.example").read_text().splitlines()
             if line and not line.startswith("#")}
-    assert keys == {"MOODLE_HELPER_TAILNET_HOST", "MOODLE_HELPER_RELEASE"}
+    assert keys == {"MOODLE_HELPER_TAILNET_HOST"}
+
+
+def test_promote_workflow_is_manual_approved_and_never_builds_or_reaches_the_vm():
+    text = (ROOT / ".github" / "workflows" / "promote.yml").read_text()
+    wf = yaml.safe_load(text)
+    on = wf[True]  # PyYAML reads the bare key `on` as True
+    assert set(on) == {"workflow_dispatch"}
+    assert on["workflow_dispatch"]["inputs"]["sha"]["required"] is True
+    assert wf["permissions"] == {"contents": "read"}
+    jobs = wf["jobs"]
+    assert "environment" not in jobs["check"] and jobs["promote"]["needs"] == "check"
+    assert jobs["promote"]["environment"] == "production"
+    # The input reaches shell only through env, never through ${{ }} inside run.
+    for job in jobs.values():
+        for step in job["steps"]:
+            assert "inputs." not in step.get("run", "")
+    for banned in ("docker build", "docker push", "ssh ", "tailscale", "--force", "-f origin", "+refs"):
+        assert banned not in text
+    assert 'git push origin "$SHA:refs/heads/production"' in text
+    assert 'docker manifest inspect "ghcr.io/ramung55/moodlehelper:$SHA"' in text
+
+
+def test_ci_does_not_rerun_on_production_pushes():
+    ci = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    assert ci[True]["push"] == {"branches-ignore": ["production"]}

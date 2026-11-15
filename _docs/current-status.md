@@ -14,10 +14,15 @@ Date: 2026-11-15. Base commit: `61ecdfe` (`main`, after PR #149). Replaces the 2
   pushes that tested image as `ghcr.io/ramung55/moodlehelper:<sha>` on pushes to `main` only.
 - **Deploy and rollback** (#146): on the VM, `scripts/deploy.sh <full commit sha>` (runbook
   section 6). The VM no longer builds.
-- **Auto-deploy** (#148): a systemd timer on the VM (`scripts/auto-deploy.sh`,
-  `scripts/moodlehelper-auto-deploy.{service,timer}`) deploys each new `main` commit once its
-  GHCR image exists, tries a SHA only once and leaves a manual rollback until the next push.
-  Installed on the VM 2026-11-15; it deployed `61ecdfe` on its own (runbook section 8).
+- **Auto-deploy** (#148): a systemd timer on the VM (`scripts/auto-deploy.sh`) deploys each
+  new commit once its GHCR image exists, tries a SHA only once and leaves a manual rollback
+  until the next new commit. Installed on the VM 2026-11-15; it deployed `61ecdfe` on its own
+  (runbook section 8). Since 2026-11-16 the units are a template with two instances:
+  `moodlehelper-auto-deploy@dev` follows `main` into the demo-only dev environment (runbook
+  section 10), and `@production` follows the `production` branch.
+- **Promotion** (2026-11-16): `.github/workflows/promote.yml` (manual, environment `production`
+  with a required reviewer) checks that the image of the SHA dev reports exists and
+  fast-forwards `production` to it (runbook section 11). Not yet set up on GitHub or the VM.
 - **Lint:** `main` at `dffbe8f` failed `bun run lint` on one Prettier error in
   `frontend/src/test/tailnet-origin.test.tsx`; #146 reformats that file, so `frontend` passes
   and `publish` can run.
