@@ -11,7 +11,7 @@ import {
   type Request,
   type Operation,
 } from "../../../shared/src/bridge";
-import { isTailnetOrigin } from "./api-base";
+import { bridgeMessage, isTailnetOrigin } from "./api-base";
 import type { RawCourseObservation, Snapshot, Settings, ReminderPlan } from "@/domain/types";
 import type {
   MoodleHelperAdapter,
@@ -80,6 +80,8 @@ export class BridgeClient implements MoodleHelperAdapter {
       }
       if (!value.ok) {
         const error = new BridgeError(value.error!.code);
+        // Every caller that shows error.message gets the tailnet wording too (#138).
+        error.message = bridgeMessage(error.code, e.origin);
         this.finish(value.requestId, error);
         if (["RECONNECT_REQUIRED", "PERMISSION_DENIED"].includes(value.error!.code))
           this.invalidate();
