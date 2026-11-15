@@ -42,6 +42,7 @@ import { friendlyInstant } from "@/domain/dates";
 import { MOODLE_LOGIN_URL } from "@/domain/onboarding";
 import { syncFreshness } from "../../../shared/src/full-sync";
 import { BridgeClient } from "@/services/extension-adapter";
+import { bridgeMessage, isTailnetOrigin } from "@/services/api-base";
 import { BridgeError, DISCOVERY_MESSAGES } from "../../../shared/src/bridge";
 import { TeachingCalendarSettings } from "@/components/mh/TeachingCalendarSettings";
 import { WorkloadWeights } from "@/components/mh/WorkloadWeights";
@@ -78,6 +79,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 /** #87 T1: the bridge guidance (Chrome version, origins, ports) kept verbatim for Details. */
 export function BridgeGuidance() {
+  if (isTailnetOrigin())
+    return (
+      <p>
+        Use Chrome 109 or newer with the hosted Moodle Helper extension and connect this device to
+        Tailscale. After a timeout, reload or backend restart, a write may have completed: reconnect
+        and refresh saved data before manually retrying. Live Moodle identity and collection setup
+        are separate and unavailable here.
+      </p>
+    );
   return (
     <p>
       Use Chrome 109 or newer on localhost:5173 or 127.0.0.1:5173. Enable the extension and allow
@@ -110,7 +120,9 @@ export function BridgeConnection({
           : "Extension connected. Moodle collection is unavailable, so saved data is shown.",
       );
     } catch (e) {
-      setChecked(e instanceof BridgeError ? e.message : "Reload the dashboard and reconnect.");
+      setChecked(
+        e instanceof BridgeError ? bridgeMessage(e.code) : "Reload the dashboard and reconnect.",
+      );
     } finally {
       client.dispose();
       setBusy(false);
