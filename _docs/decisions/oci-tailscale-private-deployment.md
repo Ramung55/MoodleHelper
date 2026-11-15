@@ -281,6 +281,9 @@ Conclusions for #135:
   NSGs. From outside the tailnet, TCP 22/80/443/8000 on the public IP time out or are
   closed. Admin access is Tailscale SSH; recovery is the OCI serial console (tested by the
   owner via Cloud Shell with an RSA key) and the Run Command agent.
+  Both were confirmed working before any ingress rule was removed (2026-11-15): Tailscale
+  SSH (`ssh ubuntu@<machine>` from a tailnet client) logged in, and the owner opened the
+  serial console session.
 
 ## What would reopen this decision
 
