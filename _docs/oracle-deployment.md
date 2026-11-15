@@ -213,7 +213,10 @@ every 5 minutes. CI never reaches the VM: the VM pulls.
 | `moodlehelper-auto-deploy@production` | `origin/production` (moved only by the promote workflow, section 11) | `~/MoodleHelper` with `deploy.sh <sha> production` | `127.0.0.1:8000` |
 
 So a push to `main` deploys **dev** automatically; production changes only after a promotion.
-Both instances run the script from the production clone (`ExecStart` in the service file);
+Both instances run an **installed copy**, `/usr/local/lib/moodlehelper/auto-deploy.sh`, with
+`MOODLE_HELPER_CLONE=/home/ubuntu/MoodleHelper` (service file), never the clone's checked-out
+script: after the first promotion or a rollback the production clone can be at a commit whose
+older script ignores the target and would deploy `main` to production (QA on #155).
 `@dev` changes into the sibling clone `~/MoodleHelper-dev`. Each tick takes the shared lock,
 runs `git fetch` in the target clone, reads the head of the target's branch (M) and writes one
 `auto-deploy:` outcome line to the journal:
@@ -263,27 +266,34 @@ service file if yours differ. Set up the dev clone first (section 10).
 > exists. Before enabling `@production`, create `production` at the SHA production already
 > runs (section 11, first promotion) and copy an off-VM backup (section 7).
 
+Run them **from the dev clone** `~/MoodleHelper-dev` (section 10), which is at `main` and so
+has the current script and units; the production clone may still be at an older commit.
+
 ```sh
+cd ~/MoodleHelper-dev
+sudo install -D -m 755 scripts/auto-deploy.sh /usr/local/lib/moodlehelper/auto-deploy.sh
 sudo cp 'scripts/moodlehelper-auto-deploy@.service' 'scripts/moodlehelper-auto-deploy@.timer' /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now moodlehelper-auto-deploy@dev.timer moodlehelper-auto-deploy@production.timer
 ```
 
 **Migrating from the single #148 timer** (it followed `main` into production). Do this
-before the first `main` push after this change merges, or that push still reaches production:
+**before this change merges**: the old timer's next tick would otherwise deploy the merge commit
+to production, and every later tick exits 2 (`give the target`) until the new units are in:
 
 ```sh
 sudo systemctl disable --now moodlehelper-auto-deploy.timer
 sudo rm /etc/systemd/system/moodlehelper-auto-deploy.service /etc/systemd/system/moodlehelper-auto-deploy.timer
 rm -f .git/moodlehelper-deploy.lock    # the old per-clone lock; the new one is ~/.moodlehelper-deploy.lock
-# then the three install commands above
+# then set up the dev clone (section 10) and run the four install commands above
 ```
 
 The old state file in `~/MoodleHelper` holds a `main` SHA; once `production` exists at the
 running release, the first `@production` tick only records it (`... (already deployed), recorded`).
 
 The installed copies do not change when a deploy checks out another commit; repeat the
-three install commands if a later commit changes the unit files.
+four install commands (from an up-to-date dev clone) when a later commit changes
+`scripts/auto-deploy.sh` or the unit files.
 
 - **Logs:** `journalctl -u moodlehelper-auto-deploy@production.service` (or `@dev`; every
   tick; add `-f` to follow).
@@ -292,7 +302,7 @@ three install commands if a later commit changes the unit files.
   `@dev`). **Resume:** `sudo systemctl enable --now moodlehelper-auto-deploy@production.timer`;
   the next tick deploys the branch head if it has moved since the last attempt.
 - **Remove permanently:** `sudo systemctl disable --now moodlehelper-auto-deploy@dev.timer moodlehelper-auto-deploy@production.timer`,
-  `sudo rm '/etc/systemd/system/moodlehelper-auto-deploy@.service' '/etc/systemd/system/moodlehelper-auto-deploy@.timer'`,
+  `sudo rm '/etc/systemd/system/moodlehelper-auto-deploy@.service' '/etc/systemd/system/moodlehelper-auto-deploy@.timer' /usr/local/lib/moodlehelper/auto-deploy.sh`,
   `sudo systemctl daemon-reload`.
 - The service is `Type=oneshot`, so an instance never starts a tick while its previous one
   runs; the shared lock keeps the two instances and a manual `deploy.sh` from deploying at

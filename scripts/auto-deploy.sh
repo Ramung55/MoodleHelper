@@ -4,6 +4,8 @@
 #   dev:        origin/main       -> the dev clone (this clone's sibling <name>-dev), 127.0.0.1:8001
 #   production: origin/production -> this clone, 127.0.0.1:8000 (moved only by the promote workflow)
 # Usage: scripts/auto-deploy.sh dev|production. Runbook: _docs/oracle-deployment.md sections 6 and 10.
+# The timer runs an installed copy with MOODLE_HELPER_CLONE=<production clone>: a checked-out older
+# commit (first promotion, rollback) must never decide which script runs.
 set -euo pipefail
 
 # What actually runs, from /health: after a failed health check .env.release already names M.
@@ -21,7 +23,7 @@ main() {
     dev) branch=main port=8001 ;;
     *) echo "auto-deploy: give the target, dev or production, got '${target}'" >&2; exit 2 ;;
   esac
-  cd "$(dirname "$0")/.."
+  cd "${MOODLE_HELPER_CLONE:-$(dirname "$0")/..}"
   if [ "$target" = dev ] && ! cd "../$(basename "$PWD")-dev" 2>/dev/null; then
     echo "auto-deploy: no dev clone next to $PWD, nothing changed" >&2
     exit 1

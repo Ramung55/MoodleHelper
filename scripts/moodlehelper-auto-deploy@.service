@@ -1,7 +1,8 @@
 # Auto-deploy tick (#148) for one target: moodlehelper-auto-deploy@dev or @production.
-# Install: _docs/oracle-deployment.md section 6. Both instances run the production clone's script;
-# @dev deploys the sibling clone ~/MoodleHelper-dev. User and path assume user ubuntu (in the
-# docker group) and the clone ~/MoodleHelper; edit both if not.
+# Install: _docs/oracle-deployment.md section 6. Both instances run the installed copy of
+# scripts/auto-deploy.sh, never the clone's checked-out one (which can be an older commit after a
+# rollback); @dev deploys the sibling clone ~/MoodleHelper-dev. User and paths assume user ubuntu
+# (in the docker group) and the clone ~/MoodleHelper; edit them if not.
 [Unit]
 Description=MoodleHelper auto-deploy tick (%i)
 Wants=network-online.target
@@ -10,4 +11,5 @@ After=network-online.target docker.service
 [Service]
 Type=oneshot
 User=ubuntu
-ExecStart=/bin/bash /home/ubuntu/MoodleHelper/scripts/auto-deploy.sh %i
+Environment=MOODLE_HELPER_CLONE=/home/ubuntu/MoodleHelper
+ExecStart=/bin/bash /usr/local/lib/moodlehelper/auto-deploy.sh %i
