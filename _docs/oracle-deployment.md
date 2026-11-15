@@ -362,3 +362,83 @@ With `.env.production` copied from the example (`example-vm.example-tailnet.ts.n
 The first restore attempt without `immutable=1` failed with `attempt to write a readonly
 database`; the runbook command was fixed and the rerun passed. Afterwards: `$C down`, test
 volume `mh137_app-data` removed, `.env.production` deleted. No Tailscale, OCI or real data.
+
+## 10. Dev environment (same VM, demo data only)
+
+A second, independent copy of the app on `mh-vm` for trying a commit before it reaches
+production. Production (sections 6-9) is unchanged and stays the only environment with real
+SDU data. No new OCI resources, no public ingress, no IaC.
+
+| | Production | Dev |
+|---|---|---|
+| Compose project | `moodlehelper` (clone directory name) | `moodlehelper-dev` (`name:` in `docker-compose.dev.yaml`) |
+| Clone | `~/MoodleHelper` | `~/MoodleHelper-dev` |
+| Env file | `.env.production` + `.env.release` | `.env.dev` (from `.env.dev.example`) |
+| Loopback port | `127.0.0.1:8000` | `127.0.0.1:8001` |
+| Volume | `moodlehelper_app-data` | `moodlehelper-dev_app-data-dev` |
+| URL (tailnet only) | `https://<machine>.<tailnet>.ts.net` | `https://<machine>.<tailnet>.ts.net:8443` |
+| Data | the owner's real data | `MOODLE_HELPER_DATASET=demo`, fictional |
+| Deploys | `scripts/deploy.sh`, auto-deploy timer | manual `up` below; never the timer |
+
+**Demo only, by construction.** `docker-compose.dev.yaml` replaces the production
+`environment` list with `!override`: the container gets only the tailnet name, port `8443`,
+the release tag and `MOODLE_HELPER_DATASET=demo`. A `MOODLE_HELPER_MOODLE_ORIGIN`,
+`GROQ_API_KEY`, AI or identity variable in `.env.dev` or the shell never reaches it, so dev
+has no live Moodle origin, no AI and no real namespace. Never copy a production backup or
+`.env.production` into dev.
+
+**Why its own clone:** `scripts/deploy.sh` and the timer check out other commits in
+`~/MoodleHelper`, and a rollback to a commit before this section would delete
+`docker-compose.dev.yaml` there. The dev clone moves only when you move it.
+
+**Host check:** browsers send `Host: <machine>.<tailnet>.ts.net:8443` on a non-default port.
+The backend accepts that one extra value only when `MOODLE_HELPER_TAILNET_PORT=8443` is set
+(dev only); production leaves it unset and still rejects any `name:<port>`.
+
+### Set up (once)
+
+```sh
+git clone https://github.com/Ramung55/MoodleHelper.git ~/MoodleHelper-dev
+cd ~/MoodleHelper-dev
+cp .env.dev.example .env.dev && chmod 600 .env.dev
+# set MOODLE_HELPER_TAILNET_HOST (same name as production) and MOODLE_HELPER_RELEASE to a
+# full main commit SHA whose CI image exists
+D="docker compose -f docker-compose.production.yaml -f docker-compose.dev.yaml --env-file .env.dev"
+git checkout --detach "$(grep ^MOODLE_HELPER_RELEASE= .env.dev | cut -d= -f2)"
+$D pull && $D up -d --no-build --wait
+curl -fsS http://127.0.0.1:8001/health
+sudo tailscale serve --bg --https=8443 http://127.0.0.1:8001
+tailscale serve status
+```
+
+`tailscale serve status` lists both `https://<machine>.<tailnet>.ts.net` (proxy to `:8000`)
+and `...:8443` (proxy to `:8001`). The 443 entry must stay unchanged. If the tailnet access
+policy from section 4 is in place, add `tcp:8443` to the owner's grant, otherwise dev times
+out from your devices.
+
+### Deploy another commit to dev
+
+Set `MOODLE_HELPER_RELEASE=<sha>` in `.env.dev`, then from `~/MoodleHelper-dev`:
+
+```sh
+git fetch && git checkout --detach <sha> && $D pull && $D up -d --no-build --wait
+curl -fsS http://127.0.0.1:8001/health   # reports release <sha>
+```
+
+There is no pre-deploy backup: dev data is demo data. Reset it from the dashboard
+(Settings → Reset demo), or delete the dev volume (below).
+
+### Stop or remove dev
+
+- Stop: `$D stop`. Start again: `$D up -d --no-build --wait`.
+- Unserve: `sudo tailscale serve --https=8443 off`. Check with `tailscale serve status`
+  that the 443 entry is still there.
+- Remove dev completely: `$D down --volumes` from `~/MoodleHelper-dev`. **Only with `$D`:**
+  `--volumes` there removes `moodlehelper-dev_app-data-dev` only. Never run it with the
+  production `$C` (section 6). Then `rm -rf ~/MoodleHelper-dev`.
+
+**Limits:** the hosted extension and the dashboard's Tailscale-origin checks
+(`isTailnetOrigin`, extension allowlist) know only the port-less production origin. Dev is
+for the dashboard and API with demo data; no extension, sync or Moodle collection runs
+against it. Both containers share the VM's 1 GB RAM (about 70 MB each, measured
+2026-11-16).

@@ -154,3 +154,24 @@ def test_invalid_tailnet_setting_stops_startup(monkeypatch, value):
     monkeypatch.setenv('MOODLE_HELPER_TAILNET_HOST', value)
     with pytest.raises(ValueError, match='MOODLE_HELPER_TAILNET_HOST'):
         create_app(InMemoryStore())
+
+
+# Dev environment: `tailscale serve --https=8443` makes browsers send name:8443; only that one port is added.
+@pytest.mark.parametrize('host,status', [(NAME, 200), (f'{NAME}:8443', 200), (f'{NAME}:443', 400),
+                                         (f'{NAME}:8444', 400), (f'other.example-tailnet.ts.net:8443', 400)])
+def test_configured_tailnet_port_admits_only_that_port(monkeypatch, host, status):
+    monkeypatch.setenv('MOODLE_HELPER_TAILNET_HOST', NAME)
+    monkeypatch.setenv('MOODLE_HELPER_TAILNET_PORT', '8443')
+    with TestClient(create_app(InMemoryStore())) as client:
+        assert client.get('/api/snapshot', headers={'host': host}).status_code == status
+
+
+@pytest.mark.parametrize('host,port', [(NAME, ''), (NAME, '0'), (NAME, '08443'), (NAME, '65536'), (NAME, ' 8443'), (None, '8443')])
+def test_invalid_tailnet_port_stops_startup(monkeypatch, host, port):
+    if host is None:
+        monkeypatch.delenv('MOODLE_HELPER_TAILNET_HOST', raising=False)
+    else:
+        monkeypatch.setenv('MOODLE_HELPER_TAILNET_HOST', host)
+    monkeypatch.setenv('MOODLE_HELPER_TAILNET_PORT', port)
+    with pytest.raises(ValueError, match='MOODLE_HELPER_TAILNET_PORT'):
+        create_app(InMemoryStore())

@@ -1,0 +1,21 @@
+# Dev environment on the same VM, layered on the production file. Runbook: _docs/oracle-deployment.md section 10.
+# docker compose -f docker-compose.production.yaml -f docker-compose.dev.yaml --env-file .env.dev ...
+# Its own project, port, volume and env file; demo data only, whatever .env.dev says.
+name: moodlehelper-dev
+services:
+  app:
+    # !override replaces the production lists instead of merging, so no live Moodle, Groq or identity
+    # variable from .env.dev or the shell can reach this container.
+    environment: !override
+      - MOODLE_HELPER_TAILNET_HOST=${MOODLE_HELPER_TAILNET_HOST:?Set MOODLE_HELPER_TAILNET_HOST to the VM's <machine>.<tailnet>.ts.net name}
+      - MOODLE_HELPER_TAILNET_PORT=8443
+      - MOODLE_HELPER_RELEASE=${MOODLE_HELPER_RELEASE:-local}
+      - MOODLE_HELPER_DATASET=demo
+    ports: !override
+      - "127.0.0.1:8001:8000"
+    volumes: !override
+      - app-data-dev:/data
+
+volumes:
+  app-data: !reset null
+  app-data-dev: {}

@@ -43,16 +43,21 @@ class LoopbackHostMiddleware:
     Forwarded headers (X-Forwarded-Host) are ignored; only the Host header counts.
     """
 
-    def __init__(self, app, tailnet_host: str | None = None):
+    def __init__(self, app, tailnet_host: str | None = None, tailnet_port: str | None = None):
         self.app = app
-        self.tailnet_host = tailnet_host
+        # Browsers omit :443; a non-default `tailscale serve --https=<port>` (dev, :8443) sends name:<port>.
+        self.tailnet_hosts = set()
+        if tailnet_host is not None:
+            self.tailnet_hosts.add(tailnet_host)
+            if tailnet_port is not None:
+                self.tailnet_hosts.add(f'{tailnet_host}:{tailnet_port}')
 
     async def __call__(self, scope, receive, send):
         if scope['type'] not in ('http', 'websocket'):
             return await self.app(scope, receive, send)
         hosts = [value for name, value in scope.get('headers', []) if name.lower() == b'host']
         host = hosts[0].decode('latin-1').lower() if len(hosts) == 1 else ''
-        if LOOPBACK_HOST.fullmatch(host) or (self.tailnet_host is not None and host == self.tailnet_host):
+        if LOOPBACK_HOST.fullmatch(host) or host in self.tailnet_hosts:
             return await self.app(scope, receive, send)
         if scope['type'] == 'websocket':
             return await send({'type': 'websocket.close', 'code': 1008})
@@ -82,6 +87,10 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         if not TAILNET_HOST.fullmatch(tailnet_host):
             raise ValueError('MOODLE_HELPER_TAILNET_HOST must be a bare DNS host name: no scheme, port, path, '
                              'userinfo, wildcard, whitespace or trailing dot.')
+    tailnet_port = os.environ.get('MOODLE_HELPER_TAILNET_PORT')
+    if tailnet_port is not None and (tailnet_host is None or not re.fullmatch(r'[1-9][0-9]{0,4}', tailnet_port)
+                                     or int(tailnet_port) > 65535):
+        raise ValueError('MOODLE_HELPER_TAILNET_PORT must be a port number from 1 to 65535 and needs MOODLE_HELPER_TAILNET_HOST.')
     def make_queue(selected):
         return QueueService(selected, concurrency, **({'clock':queue_clock} if queue_clock else {}))
     def make_reminders(selected):
@@ -370,7 +379,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
                            allow_headers=['Accept', 'Content-Type', 'X-Moodle-Helper-Bridge-Binding', 'X-Moodle-Helper-Data-Epoch'],
                            expose_headers=['Retry-After'], allow_credentials=False, allow_private_network=True, max_age=600)
     # Added last, so it is outermost: runs before every other middleware and routing.
-    app.add_middleware(LoopbackHostMiddleware, tailnet_host=tailnet_host)
+    app.add_middleware(LoopbackHostMiddleware, tailnet_host=tailnet_host, tailnet_port=tailnet_port)
     return app
 
 

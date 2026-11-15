@@ -51,3 +51,23 @@ def test_deploy_script_keeps_the_volume():
     assert "/data/pre-deploy.sqlite3" in script and "up -d --no-build --wait" in script
     assert not any(bad in script for bad in ("--volumes", "volume rm", "prune", "rm .env.production"))
     assert script.rstrip().endswith('main "$@"')
+
+
+def test_dev_override_is_isolated_demo_only():
+    class Loader(yaml.SafeLoader):
+        pass
+    # Compose's !override/!reset tags: keep the node's plain value.
+    Loader.add_multi_constructor("!", lambda loader, _tag, node: loader.construct_sequence(node)
+                                 if isinstance(node, yaml.SequenceNode) else None)
+    dev = yaml.load((ROOT / "docker-compose.dev.yaml").read_text(), Loader=Loader)
+    app = dev["services"]["app"]
+    assert dev["name"] == "moodlehelper-dev"
+    assert app["ports"] == ["127.0.0.1:8001:8000"]
+    assert app["volumes"] == ["app-data-dev:/data"]
+    assert dev["volumes"] == {"app-data": None, "app-data-dev": {}}
+    names = {e.split("=", 1)[0] for e in app["environment"]}
+    assert names == {"MOODLE_HELPER_TAILNET_HOST", "MOODLE_HELPER_TAILNET_PORT", "MOODLE_HELPER_RELEASE", "MOODLE_HELPER_DATASET"}
+    assert "MOODLE_HELPER_DATASET=demo" in app["environment"] and "MOODLE_HELPER_TAILNET_PORT=8443" in app["environment"]
+    keys = {line.split("=", 1)[0] for line in (ROOT / ".env.dev.example").read_text().splitlines()
+            if line and not line.startswith("#")}
+    assert keys == {"MOODLE_HELPER_TAILNET_HOST", "MOODLE_HELPER_RELEASE"}
