@@ -15,9 +15,9 @@ Date: 2026-11-15. Base commit: `dffbe8f` (`main`, after PR #145), plus branch
   pushes that tested image as `ghcr.io/ramung55/moodlehelper:<sha>` on pushes to `main` only.
 - **Deploy and rollback** (#146): on the VM, `scripts/deploy.sh <full commit sha>` (runbook
   section 6). The VM no longer builds.
-- **Known CI failure on `main`:** the `frontend` job at `dffbe8f` fails `bun run lint` on one
-  Prettier error in `frontend/src/test/tailnet-origin.test.tsx:8`. Because `publish` needs
-  `frontend`, no image is published until that is fixed.
+- **Lint:** `main` at `dffbe8f` failed `bun run lint` on one Prettier error in
+  `frontend/src/test/tailnet-origin.test.tsx`; #146 reformats that file, so `frontend` passes
+  and `publish` can run.
 
 ## History since #93
 
@@ -38,4 +38,5 @@ Open: #146 only (this branch; its live criteria run on the VM after merge).
 ## Tests on this branch
 
 `uv run pytest`: 1605 passed, 9 skipped (opt-in Compose and PostgreSQL tests), 2 warnings.
-Frontend suites were not rerun for this change (no frontend files touched).
+Frontend: the only frontend change is the Prettier reformat above; CI's `frontend` job
+(lint, typecheck, tests) passes on this branch.
