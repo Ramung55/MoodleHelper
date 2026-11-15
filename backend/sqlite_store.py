@@ -1,13 +1,14 @@
 """SQLAlchemy-backed, namespace-scoped complete Snapshot transactions."""
 import json
 import sqlite3
+import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.pool import NullPool
 from pydantic import ValidationError
 
@@ -16,6 +17,9 @@ from backend.identity import namespace_key, validate_namespace
 from backend.migrations import upgrade, MigrationError
 from backend.sample_data import build_sample_snapshot
 from backend.storage import InMemoryStore, SourceUpserts, expected_epoch, check_epoch
+
+
+INVALID_SNAPSHOT = "Stored Snapshot is invalid. Stop the backend and restore a known backup or select a new database location; existing data was preserved."
 
 
 class StorageError(RuntimeError):
@@ -93,12 +97,30 @@ class SQLiteStore(SourceUpserts):
                     self._decode(saved)
                 connection.execute(text("INSERT INTO local_datasets(namespace,dataset_id) VALUES(:namespace,:dataset_id) ON CONFLICT(namespace) DO NOTHING"),
                                    {**self._key, "dataset_id": str(uuid4())})
+            if not self._postgres:
+                self._use_wal(timeout)
         except MigrationError as exc:
             self.close()
             raise StorageError(str(exc)) from exc
         except (OSError, SQLAlchemyError, sqlite3.Error) as exc:
             self.close()
             raise storage_failure(exc) from exc
+
+    def _use_wal(self, timeout):
+        # #129: WAL lets read transactions run beside the single BEGIN IMMEDIATE writer. Persistent
+        # in the file, outside any transaction, and only after a successful migration so a
+        # rejected (future or unversioned) file stays byte-identical.
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                with self.engine.connect() as connection:
+                    connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+                return
+            except OperationalError as exc:
+                # SQLite skips the busy handler for this lock upgrade (deadlock avoidance), so wait here.
+                if "locked" not in str(exc.orig) or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
 
     @property
     def namespace(self):
@@ -122,7 +144,7 @@ class SQLiteStore(SourceUpserts):
         try:
             return self._validated(json.loads(value))
         except (ValueError, ValidationError) as exc:
-            raise StorageError("Stored Snapshot is invalid. Stop the backend and restore a known backup or select a new database location; existing data was preserved.") from exc
+            raise StorageError(INVALID_SNAPSHOT) from exc
 
     @contextmanager
     def _transaction(self):
@@ -143,6 +165,22 @@ class SQLiteStore(SourceUpserts):
             except BaseException:
                 connection.rollback()
                 raise
+
+    @contextmanager
+    def _read_transaction(self):
+        """One consistent read-only view (#129): BEGIN DEFERRED never waits on or blocks the writer in WAL."""
+        if self._postgres:
+            with self._transaction() as connection:
+                yield connection
+            return
+        with self.engine.connect() as connection:
+            connection.exec_driver_sql("BEGIN")
+            try:
+                if expected_epoch.get() is not None:
+                    check_epoch(connection.execute(text("SELECT COALESCE((SELECT epoch FROM data_lifecycle WHERE namespace=:namespace),0)"), self._key).scalar_one())
+                yield connection
+            finally:
+                connection.rollback()
 
     def read(self) -> dict:
         try:
