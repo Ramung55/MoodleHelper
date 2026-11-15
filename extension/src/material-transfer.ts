@@ -42,6 +42,7 @@ export type Transfer = { transferId: string; generation: number; materialId: str
 /** `busy` marks a 429/503 (reason network); `leaseLost` marks a worker restart (reason download_interrupted). */
 export type Acquired = { ok: true; blob: Blob; filename: string; size: number } | { ok: false; reason: Reason; busy?: true; leaseLost?: true };
 
+export const COMPLETE_TEXT = "Downloaded. This is a download record; the file may later be moved or removed.";
 export const BUSY_TEXT = "Moodle is busy. Try again later. Nothing was saved.";
 export const LEASE_LOST_TEXT = "The extension restarted while reading the file. Nothing was saved. Retry to download again.";
 export const REASON_TEXT: Record<Reason, string> = {
@@ -407,7 +408,7 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
   };
   const end = async (state: State, reason?: Reason, text?: string, networkDetail?: NetworkDetail): Promise<View> => {
     finished = true;
-    const message = text ?? (state === "complete" ? "Downloaded. This is a download record; the file may later be moved or removed." : REASON_TEXT[reason ?? "outcome_unknown"]);
+    const message = text ?? (state === "complete" ? COMPLETE_TEXT : REASON_TEXT[reason ?? "outcome_unknown"]);
     // The busy detail is sent only with failed/network, so the dashboard can show the same busy text.
     const detail = networkDetail && state === "failed" && reason === "network" ? { networkDetail } : {};
     for (let i = 0; i < 3; i++) {
@@ -423,7 +424,16 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
   }, deps.pollMs ?? 1000);
   try {
     let d: Descriptor;
-    try { d = await api.descriptor(transferId); } catch { finished = true; return view({ phase: "failed", message: "This transfer can no longer start (it was cancelled, already started or its material changed). Retry from the dashboard." }); }
+    try { d = await api.descriptor(transferId); } catch {
+      finished = true;
+      // #125: a reloaded page (e.g. a discarded tab restored by Chrome) shows the recorded outcome, not a start refusal.
+      const t = await api.read(transferId).catch(() => null);
+      if (t?.state === "complete") return view({ phase: "complete", message: COMPLETE_TEXT });
+      if (t && (t.state === "failed" || t.state === "cancelled" || t.state === "interrupted")) {
+        return view({ phase: t.state, message: t.networkDetail === "busy" && t.reason === "network" ? BUSY_TEXT : REASON_TEXT[t.reason ?? "outcome_unknown"] });
+      }
+      return view({ phase: "failed", message: "This transfer can no longer start (it was cancelled, already started or its material changed). Retry from the dashboard." });
+    }
     generation = d.generation; attemptId = d.attemptId;
     await report({ state: "validating" });
     view({ phase: "validating", message: "Checking the file from Moodle…" });

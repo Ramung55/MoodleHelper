@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { MIME, REASON_TEXT, acquire, dispositionName, isPdf, ooxmlType, runTransfer, sanitizeFilename, type Descriptor, type DownloadDelta, type LeaseRequester, type Transfer } from "../extension/src/material-transfer";
+import { BUSY_TEXT, COMPLETE_TEXT, MIME, REASON_TEXT, acquire, dispositionName, isPdf, ooxmlType, runTransfer, sanitizeFilename, type Descriptor, type DownloadDelta, type LeaseRequester, type Transfer } from "../extension/src/material-transfer";
 import { DOCX_MIME, DOCX_NAMES, PPTX_MIME, docx, epub, pptx, zip } from "./ooxml-fixtures";
 import { openTransferPage } from "../extension/src/dashboard-bridge";
 
@@ -91,9 +91,11 @@ function harness(opts: { body?: Uint8Array; type?: string; cancelAt?: "validatin
   /** #125: Chrome's DownloadItem.filename (a local path) from search; "fail" makes search reject, "none" returns no item. */
   filename?: string | "fail" | "none";
   /** #125: the dashboard's Cancel lands in the backend just as Chrome reports the interrupt. */
-  cancelAtInterrupt?: boolean } = {}) {
+  cancelAtInterrupt?: boolean;
+  /** #125: the page was reloaded after the transfer ended; the backend refuses a new descriptor. */
+  recorded?: Partial<Transfer> } = {}) {
   const reports: any[] = [];
-  let transfer: Transfer = { transferId: "t1", generation: 1, materialId: "m-pdf", state: "queued", cancelRequested: false };
+  let transfer: Transfer = { transferId: "t1", generation: 1, materialId: "m-pdf", state: "queued", cancelRequested: false, ...opts.recorded };
   const listeners = new Set<(d: DownloadDelta) => void>();
   const created: string[] = [], revoked: string[] = [], downloaded: any[] = [], cancelled: number[] = [], blobTypes: string[] = [];
   let failReports = false, interrupted = false;
@@ -103,7 +105,7 @@ function harness(opts: { body?: Uint8Array; type?: string; cancelAt?: "validatin
     listeners.forEach((f) => f(d));
   };
   const api = {
-    descriptor: async () => opts.descriptor ?? desc(),
+    descriptor: async () => { if (opts.recorded) throw new Error("backend 409"); return opts.descriptor ?? desc(); },
     read: async () => transfer,
     report: async (_id: string, b: any) => {
       if (failReports && ["complete", "failed", "cancelled", "interrupted"].includes(b.state)) throw new Error("down");
@@ -183,6 +185,22 @@ describe("#41 transfer state machine", () => {
     expect(h.reports.at(-1)).toEqual({ generation: expect.any(Number), attemptId: "a1", state: "interrupted", reason: "save_as_closed", downloadId: 9 });
     expect(h.searches).toEqual([9]); // read once after the interrupt
     expect(h.revoked).toEqual(["blob:1"]);
+  });
+  it.each<[Partial<Transfer>, string, string]>([
+    [{ state: "interrupted", reason: "save_as_closed", downloadId: 9 }, "interrupted", REASON_TEXT.save_as_closed],
+    [{ state: "interrupted", reason: "page_closed" }, "interrupted", REASON_TEXT.page_closed],
+    [{ state: "failed", reason: "network", networkDetail: "busy" }, "failed", BUSY_TEXT],
+    [{ state: "cancelled", reason: "cancelled_by_user" }, "cancelled", REASON_TEXT.cancelled_by_user],
+    [{ state: "complete", downloadId: 9 }, "complete", COMPLETE_TEXT],
+  ])("#125 a reloaded transfer page shows the recorded %j outcome, never a start refusal", async (recorded, phase, message) => {
+    const h = harness({ recorded });
+    expect(await h.go()).toEqual({ phase, message });
+    expect(h.downloaded).toEqual([]);
+    expect(h.reports).toEqual([]);
+  });
+  it("#125 a refused start with no terminal record keeps the start-refused text", async () => {
+    const h = harness({ recorded: { state: "validating" } });
+    expect((await h.go()).message).toContain("can no longer start");
   });
   it("#125 NETWORK_FAILED or no error stays download_interrupted even with no save path", async () => {
     const i = harness({ chrome: "interrupted", filename: "" });
