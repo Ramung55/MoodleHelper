@@ -4,9 +4,17 @@
 # Runbook: _docs/oracle-deployment.md section 6.
 set -euo pipefail
 
+# What actually runs, from /health: after a failed health check .env.release already names M.
+running() {
+  local release
+  release=$(curl -fsS --max-time 5 http://127.0.0.1:8000/health 2>/dev/null \
+    | sed -n 's/.*"release": *"\([^"]*\)".*/\1/p' || true)
+  echo "${release:+running release }${release:-health unreachable}"
+}
+
 main() {
   cd "$(dirname "$0")/.."
-  local state=.git/moodlehelper-auto-deploy-attempted m attempted deployed release
+  local state_file=.git/moodlehelper-auto-deploy-attempted m attempted deployed now
 
   exec 9>.git/moodlehelper-deploy.lock
   if ! flock -n 9; then
@@ -18,19 +26,20 @@ main() {
     exit 1
   fi
   m=$(git rev-parse origin/main)
-  attempted=$(cat "$state" 2>/dev/null || true)
+  attempted=$(cat "$state_file" 2>/dev/null || true)
   deployed=$(sed -n 's/^MOODLE_HELPER_RELEASE=//p' .env.release 2>/dev/null || true)
 
   if [ "$m" = "$attempted" ]; then
-    if [ "$m" = "$deployed" ]; then
+    now=$(running)
+    if [ "$now" = "running release $m" ]; then
       echo "auto-deploy: up to date $m"
     else
-      echo "auto-deploy: already attempted $m, deployed ${deployed:-none}"
+      echo "auto-deploy: already attempted $m, now $now"
     fi
     exit 0
   fi
   if [ "$m" = "$deployed" ]; then
-    printf '%s\n' "$m" > "$state"
+    printf '%s\n' "$m" > "$state_file"
     echo "auto-deploy: up to date $m (already deployed), recorded"
     exit 0
   fi
@@ -43,14 +52,11 @@ main() {
     exit 0
   fi
 
-  printf '%s\n' "$m" > "$state"
+  printf '%s\n' "$m" > "$state_file"
   if MOODLE_HELPER_DEPLOY_LOCKED=1 scripts/deploy.sh "$m"; then
     echo "auto-deploy: deployed $m"
   else
-    # Ask the running app, not .env.release: deploy.sh has rewritten it before its /health check.
-    release=$(curl -fsS --max-time 5 http://127.0.0.1:8000/health 2>/dev/null \
-      | sed -n 's/.*"release": *"\([^"]*\)".*/\1/p' || true)
-    echo "auto-deploy: deploy of $m failed; now ${release:+running release }${release:-health unreachable}" >&2
+    echo "auto-deploy: deploy of $m failed; now $(running)" >&2
     exit 1
   fi
 }

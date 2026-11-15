@@ -193,7 +193,8 @@ the `up` leaves the running container as it was.
 - Old images stay on the VM; remove them manually with `docker image prune` when needed.
 - `deploy.sh` and the auto-deploy timer below share one lock (`flock` on
   `.git/moodlehelper-deploy.lock`). A manual `deploy.sh` while a deploy runs exits 1 with
-  "another deploy is running"; run it again when that one finishes.
+  "another deploy is running"; run it again when that one finishes. Never run `deploy.sh` with
+  `sudo`: a root-owned lock file makes every tick fail (fix: `sudo rm .git/moodlehelper-deploy.lock`).
 
 ### Auto-deploy timer (#148)
 
@@ -203,8 +204,8 @@ reaches the VM: the VM pulls. Each tick takes the shared lock, runs `git fetch`,
 
 | Outcome | When | Effect |
 |---|---|---|
-| `up to date <M>` | M is the last attempted SHA and is deployed (or M is already in `.env.release`; then M is recorded) | nothing |
-| `already attempted <M>, deployed <sha>` | M was attempted before (failed deploy, or a manual rollback since) | nothing, no retry |
+| `up to date <M>` | M is the last attempted SHA and `/health` reports `release` M (or, with M not yet recorded, `.env.release` already names M; then M is recorded) | nothing |
+| `already attempted <M>, now running release <sha>` or `... now health unreachable` | M was attempted before but `/health` does not report it (failed deploy, or a manual rollback since) | nothing, no retry |
 | `waiting for image <M>` | `docker pull` of M fails: CI still running, CI failed, or GHCR/network unreachable | nothing recorded; next tick checks again |
 | `clone modified, not deploying <M>` | `git diff --quiet HEAD --` fails | nothing recorded; repeats every tick until the clone is clean, then deploys |
 | `git fetch failed, nothing changed` | network | exit 1; next tick tries again |

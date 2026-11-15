@@ -96,14 +96,14 @@ def outcome(out):
 
 
 def test_nothing_new_does_no_pull_and_no_deploy(clone):
-    rc, out, calls, recorded = tick(clone, attempted=M, deployed=M)
+    rc, out, calls, recorded = tick(clone, attempted=M, deployed=M, health=M)
     assert rc == 0 and outcome(out) == f"auto-deploy: up to date {M}"
     assert "docker" not in calls and "deploy.sh" not in calls and recorded == M
 
 
 def test_rollback_is_not_undone(clone):
-    rc, out, calls, recorded = tick(clone, attempted=M, deployed=OLD)
-    assert rc == 0 and outcome(out) == f"auto-deploy: already attempted {M}, deployed {OLD}"
+    rc, out, calls, recorded = tick(clone, attempted=M, deployed=OLD, health=OLD)
+    assert rc == 0 and outcome(out) == f"auto-deploy: already attempted {M}, now running release {OLD}"
     assert "docker" not in calls and "deploy.sh" not in calls and recorded == M
 
 
@@ -155,9 +155,12 @@ def test_failed_deploy_reports_running_state_and_is_not_retried(clone, health, s
     rc, out, calls, recorded = tick(clone, attempted=OLD, deployed=OLD, deploy_rc=1, health=health)
     assert rc != 0 and outcome(out) == f"auto-deploy: deploy of {M} failed; now {state}"
     assert recorded == M
-    # deploy.sh rewrote .env.release before its health check failed; the next tick does not retry.
-    rc, out, calls, _ = tick(clone, deployed=M if health else OLD)
-    assert rc == 0 and "deploy.sh" not in calls and "docker" not in calls
+    # deploy.sh rewrote .env.release before its health check failed: later ticks report what
+    # /health says, never "up to date", and do not retry.
+    for _ in range(2):
+        rc, out, calls, _ = tick(clone, deployed=M, health=health)
+        assert rc == 0 and outcome(out) == f"auto-deploy: already attempted {M}, now {state}"
+        assert "deploy.sh" not in calls and "docker" not in calls
 
 
 def test_lock_held_skips_and_records_nothing(clone):
