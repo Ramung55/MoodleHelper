@@ -1,0 +1,11 @@
+# Auto-deploy tick (#148). Install: _docs/oracle-deployment.md section 6.
+# User and path assume the clone ~/MoodleHelper of user ubuntu (in the docker group); edit both if not.
+[Unit]
+Description=MoodleHelper auto-deploy tick
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/bin/bash /home/ubuntu/MoodleHelper/scripts/auto-deploy.sh
