@@ -138,7 +138,7 @@ filter here. Do not flush or reset iptables; Docker adds its own rules for the
 
 ## 6. Deploy the app
 
-Install Docker Engine and the Compose plugin from Docker's official Ubuntu instructions.
+Install Docker Engine and the Compose plugin (`sudo apt-get install docker.io docker-compose-v2`, verified in #138, or Docker's official Ubuntu repository).
 Clone the repository at the approved commit in a dedicated directory (no deployment keys or
 CI deployment are needed).
 
@@ -208,11 +208,37 @@ $C up -d --wait
 file next to a read-only mounted file (`attempt to write a readonly database`).
 Test a restore after the first deployment and after upgrades, not only when you need it.
 
-## 8. Remaining verification (#138)
+## 8. Live verification on the VM (#138, 2026-11-15)
 
-Native image build on the 1 GB VM (with swap), the app behind `tailscale serve` from a
-tailnet browser, the hosted extension against the VM, ACL denial for other users/devices,
-public-IP port checks, and a backup/restore on the VM.
+Names are placeholders: `<name>` = `<machine>.<tailnet>.ts.net`. VM: OCI
+`VM.Standard.E2.1.Micro` (x86_64, 1 GB) + 2 GB swap file, Ubuntu 24.04 Minimal,
+Tailscale 1.104.7, Docker 29.1.3 and Compose 2.40.3 from Ubuntu's `docker.io` and
+`docker-compose-v2` packages. Revision: `8068cdc` (branch `feat/issue-138-frontend-tailnet`).
+
+| Check | Result |
+|---|---|
+| Native image build on the VM (`$C build`, with swap) | succeeded in 5 min; `linux/arm64` not applicable to this VM (still unverified) |
+| `$C up -d --wait`; `curl http://127.0.0.1:8000/health` | healthy; only `127.0.0.1:8000->8000` published |
+| `sudo tailscale serve --bg --https=443 http://127.0.0.1:8000` | `https://<name> (tailnet only)` |
+| Dashboard `https://<name>/` from a tailnet PC | 200, Let's Encrypt certificate (verify result 0); API 200; owner used it in Chrome with no CORS/401 errors |
+| Live mode (`MOODLE_HELPER_DATASET=moodle`, origin, profile label, stable user id in `.env.production`) | connection state "Real dataset" |
+| Hosted extension (built outside the repo with `MOODLE_HELPER_BACKEND_ORIGIN=https://<name>`), loaded unpacked by the owner | popup opened the hosted dashboard; two live read-only syncs wrote 8 courses (8 tracked, one scanned with full coverage) to the VM |
+| Packet capture on the VM during a sync (loopback :8000 and all traffic to Moodle's IP, 7 min) | 585 requests: no `Cookie` header and no `MoodleSession`, `sesskey`, `wstoken`, `token=` or `Authorization:`; 0 packets between the VM and Moodle. Captures shredded afterwards |
+| Foreign `Host: attacker.example` | 400 |
+| Preflight and GET with `Origin: https://ramung55.github.io` (with Private-Network header) | no `Access-Control-Allow-Origin` (preflight 405) |
+| POST `/api/sync` without the binding header | 409 (#62) |
+| `$C restart`, then VM reboot | same 8 courses, tracked list and last-sync time; app healthy, serve config and swap persisted |
+| WAL-safe backup (section 7) and `scp` off the VM | integrity `ok` on the VM and on the off-VM copy |
+| Restore (section 7) of that backup | integrity `ok`; data identical afterwards |
+| Dashboard backup export (Settings) | JSON file downloaded on the owner's PC |
+| Tailscale turned off on the owner's PC | dashboard unreachable; popup shows "Connect this device to Tailscale, then reconnect." |
+| Public IP TCP 22/80/443/8000 from outside the tailnet | closed or time out |
+| Tailnet ACL denial for another user/device | **untested** (owner decision): the tailnet has one user and no shared nodes, so there is no second identity to test with, and editing the policy risks losing Tailscale SSH |
+
+Live data needs the four identity settings from the README in `.env.production`; without
+them the backend runs the demo dataset and the dashboard shows "Sync all courses (demo)".
+`docker compose cp` run with `sudo` leaves the backup root-owned; run `$C` without `sudo`
+(user in the `docker` group) or `sudo chown` the file before `scp`.
 
 ## 9. Local verification (#137, 2026-11-15, Windows x86_64, Docker 29.7.2)
 
