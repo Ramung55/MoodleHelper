@@ -5,7 +5,14 @@ import { bridgeMessage, isTailnetOrigin } from "@/services/api-base";
 import { BridgeClient } from "@/services/extension-adapter";
 import { classifyHandshake } from "@/domain/onboarding";
 import { BridgeGuidance } from "@/routes/settings";
-import { approved, BridgeError, errors, rejection, success, type Request } from "../../../shared/src/bridge";
+import {
+  approved,
+  BridgeError,
+  errors,
+  rejection,
+  success,
+  type Request,
+} from "../../../shared/src/bridge";
 
 const TAILNET = "https://example-vm.example-tailnet.ts.net";
 afterEach(() => vi.unstubAllGlobals());
