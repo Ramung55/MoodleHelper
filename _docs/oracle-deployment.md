@@ -46,8 +46,7 @@ out of capacity, #134). Consequences:
 
 - `linux/arm64` **does not apply** to this VM. An ARM64 image build is **unverified** (an
   emulated build in 2026-11 stalled in the frontend stage); recheck only if the VM moves to A1.
-- The same Dockerfile built and ran on local x86_64 in earlier work; the Compose run of this
-  file is still to be done (section 9).
+- The image builds and the Compose file runs on local x86_64 (section 9).
 - **Building on a 1 GB VM is a risk** (the Vite/bun frontend stage can run out of memory).
   Add a 2 GB swap file before building on the VM (below). A native build on the VM is to
   be verified in #138. If it still fails, build locally and copy the image instead:
@@ -196,15 +195,17 @@ Keep backups **off the VM** (idle reclamation, single disk). Two methods:
    `scp ubuntu@<machine>:~/MoodleHelper/moodlehelper-YYYY-MM-DD.sqlite3 .`
    The file holds your personal data: store it encrypted.
 
-**Restore:** stop the app, write the backup into the volume with the
+**Restore (tested, section 9):** stop the app, write the backup into the volume with the
 same backup API as UID 10001, start again:
 
 ```sh
 $C stop app
-$C run --rm --no-deps -v "$PWD/moodlehelper-YYYY-MM-DD.sqlite3:/restore.sqlite3:ro" app /app/.venv/bin/python -c "import sqlite3; s=sqlite3.connect('/restore.sqlite3'); d=sqlite3.connect('/data/moodle-helper.sqlite3'); s.backup(d); d.close(); s.close()"
+$C run --rm --no-deps -v "$PWD/moodlehelper-YYYY-MM-DD.sqlite3:/restore.sqlite3:ro" app /app/.venv/bin/python -c "import sqlite3; s=sqlite3.connect('file:/restore.sqlite3?immutable=1', uri=True); d=sqlite3.connect('/data/moodle-helper.sqlite3'); s.backup(d); print(d.execute('pragma integrity_check').fetchone()[0]); d.close(); s.close()"
 $C up -d --wait
 ```
 
+`immutable=1` is needed: the backup keeps WAL mode, and SQLite cannot create its `-shm`
+file next to a read-only mounted file (`attempt to write a readonly database`).
 Test a restore after the first deployment and after upgrades, not only when you need it.
 
 ## 8. Remaining verification (#138)
@@ -213,24 +214,23 @@ Native image build on the 1 GB VM (with swap), the app behind `tailscale serve` 
 tailnet browser, the hosted extension against the VM, ACL denial for other users/devices,
 public-IP port checks, and a backup/restore on the VM.
 
-## 9. Local verification (#137, 2026-11-15, Windows x86_64)
+## 9. Local verification (#137, 2026-11-15, Windows x86_64, Docker 29.7.2)
 
-Done: with `.env.production` copied from the example (`example-vm.example-tailnet.ts.net`),
-`docker compose -f docker-compose.production.yaml --env-file .env.production config --quiet`
-succeeded; `git check-ignore` matched `.env.production` (`.gitignore` `.env.*`); the backup
-and restore Python snippets were run with plain Python against a WAL-mode SQLite file
-(integrity `ok`, restore brought back the backed-up row). `tests/test_oci_config.py` pins
-the Compose and env-example shape.
+With `.env.production` copied from the example (`example-vm.example-tailnet.ts.net`) and
+`C="docker compose -p mh137 -f docker-compose.production.yaml --env-file .env.production"`:
 
-**Not done:** Docker Desktop would not start on the test machine, so `up --build`, health,
-data persistence across `down`/`up`, the Host 200/400 checks and the snippets inside the
-container were **not** run. Do them before or in #138:
+| Step | Result |
+|---|---|
+| `$C config --quiet` | succeeded |
+| `$C up -d --build --wait` | built, container healthy |
+| `curl -H 'Host: example-vm.example-tailnet.ts.net' http://127.0.0.1:8000/health` | 200 (`127.0.0.1:8000` also 200) |
+| same with `Host: attacker.example` | 400 |
+| `POST /api/personal-events` "Sentinel137" (binding header) | 200, in `/api/snapshot` |
+| `$C down`, `$C up -d --wait` | healthy, `/health` 200, sentinel still present |
+| backup snippet (section 7) + `$C cp` | printed `ok`, 188 KB file copied out |
+| delete sentinel, `$C stop app`, restore snippet, `$C up -d --wait` | printed `ok`, sentinel back, `/health` 200 |
+| `git check-ignore -v .env.production` | matched `.gitignore` `.env.*` |
 
-```sh
-$C up -d --build --wait
-curl -s -o /dev/null -w '%{http_code}
-' -H 'Host: example-vm.example-tailnet.ts.net' http://127.0.0.1:8000/health  # 200
-curl -s -o /dev/null -w '%{http_code}
-' -H 'Host: attacker.example' http://127.0.0.1:8000/health                 # 400
-# write something (README: binding header), then: $C down && $C up -d --wait, and check it is still there
-```
+The first restore attempt without `immutable=1` failed with `attempt to write a readonly
+database`; the runbook command was fixed and the rerun passed. Afterwards: `$C down`, test
+volume `mh137_app-data` removed, `.env.production` deleted. No Tailscale, OCI or real data.
