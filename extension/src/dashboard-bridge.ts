@@ -20,7 +20,9 @@ import {
   type ErrorCode,
 } from "../../shared/src/bridge";
 
-export const BACKEND = "http://127.0.0.1:8000";
+declare const __MOODLE_HELPER_BACKEND_ORIGIN__: string | undefined;
+/** #136: the hosted build injects its tailnet origin (extension/build.ts); the local build keeps loopback. */
+export const BACKEND = typeof __MOODLE_HELPER_BACKEND_ORIGIN__ === "string" ? __MOODLE_HELPER_BACKEND_ORIGIN__ : "http://127.0.0.1:8000";
 const PAGES_ORIGIN = "https://ramung55.github.io";
 const PAGES_PATH = "/MoodleHelper/";
 export type Sender = {
@@ -48,8 +50,9 @@ export type Runtime = {
 function origin(url: unknown): string | null {
   try {
     const u = new URL(String(url));
-    // Dev servers are http; the GitHub Pages dashboard is https and limited to its project path.
-    const scheme = u.origin === PAGES_ORIGIN ? u.protocol === "https:" && u.pathname.startsWith(PAGES_PATH) : u.protocol === "http:";
+    // Dev servers are http; the GitHub Pages dashboard is https and limited to its project path;
+    // the hosted build's dashboard is its https tailnet backend origin (#136).
+    const scheme = u.origin === PAGES_ORIGIN ? u.protocol === "https:" && u.pathname.startsWith(PAGES_PATH) : u.protocol === "http:" || u.origin === BACKEND;
     return scheme &&
       !u.username &&
       !u.password &&

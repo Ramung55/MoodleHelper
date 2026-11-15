@@ -5,10 +5,11 @@ import { syncFreshness, type FullSyncAttestation } from '../../shared/src/full-s
 import { VISIT_MESSAGES, VISIT_STATE_SOURCE, visitRoute, type VisitState } from './page-visit';
 
 declare const __MOODLE_HELPER_DASHBOARD_URL__: string | undefined;
+declare const __MOODLE_HELPER_BACKEND_ORIGIN__: string | undefined;
 /** #86 D3: the approved Pages dashboard; a local dev build may inject an approved dev URL (extension/build.ts). */
 export const DASHBOARD_URL = typeof __MOODLE_HELPER_DASHBOARD_URL__ === 'string' ? __MOODLE_HELPER_DASHBOARD_URL__ : 'https://ramung55.github.io/MoodleHelper/';
 export const SIGN_IN_URL = 'https://moodle.sdu.edu.kz/login/index.php';
-export const START_COMMAND = 'uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000';
+export const START_COMMAND = typeof __MOODLE_HELPER_BACKEND_ORIGIN__ === 'string' ? 'Connect this device to Tailscale, then reconnect.' : 'uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000';
 
 /** #86 runtime/tab seam. The installed popup uses chrome.runtime and chrome.tabs. */
 export type PopupEnvironment = {
@@ -271,7 +272,7 @@ export function installPopup(doc:Document, fetcher:typeof fetch=fetch, storage:S
       if (loaded.kind === 'real') await probe(generation);
       else if (loaded.kind === 'demo') await mock?.reconnect();
       if (disposed) return;
-      const parts = loaded.kind === 'unreachable' ? ["Can't reach the local backend."]
+      const parts = loaded.kind === 'unreachable' ? [typeof __MOODLE_HELPER_BACKEND_ORIGIN__ === 'string' ? "Can't reach the backend." : "Can't reach the local backend."]
         : ['Backend connected', loaded.kind === 'real' ? 'Your data' : 'Demo data'];
       if (loaded.kind === 'real' && state?.kind === 'real') {
         const value = signInState(state.snapshot);

@@ -435,6 +435,17 @@ before tests: they import the actual built worker/shared ESM modules without
 Chrome globals, validate exact emitted assets/scope, and run the classic script
 with forbidden page/network/storage capabilities. These tests do not prove Chrome loading.
 
+Hosted build (#136) for the private Tailscale VM: set the VM's tailnet origin (never commit
+the real name) and build. It replaces `extension/dist/` with a build whose backend, dashboard
+and relay origin is that one origin (inventory: `_docs/reviews/privacy-permissions.md` section 7).
+Rebuild without the variable for the local build.
+
+```powershell
+$env:MOODLE_HELPER_BACKEND_ORIGIN = "https://<machine>.<tailnet>.ts.net"
+bun run --cwd extension build
+Remove-Item Env:MOODLE_HELPER_BACKEND_ORIGIN
+```
+
 To load manually in Chrome, open `chrome://extensions`, enable Developer mode,
 choose **Load unpacked**, and select the absolute directory
 `C:\Users\hpram\Desktop\MoodleHelper\extension\dist` for this checkout

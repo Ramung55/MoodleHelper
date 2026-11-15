@@ -175,3 +175,30 @@ to `extension/manifest.json`, pinned by `test_manifest_matches_reviewed_inventor
   environment. Send-time preview, decline, single send after consent and the Settings gate were
   verified in #112 (`_docs/mvp-verification.md`, "Optional AI with consent for #112, 2026-11-14").
   This supersedes "BLOCKED on #42" in section 4.
+
+## 7. Addendum 2026-11-15 (#136): hosted extension build
+
+A second build for the private Tailscale deployment
+(`_docs/decisions/oci-tailscale-private-deployment.md` section 4). The local build and its
+section 6 inventory are unchanged. The hosted build is selected by
+`MOODLE_HELPER_BACKEND_ORIGIN=https://<machine>.<tailnet>.ts.net`; `extension/build.ts` rejects
+anything else (non-https, path or trailing `/`, query, fragment, port, userinfo, uppercase, not
+exactly two labels before `ts.net`) before `dist` is touched. The real name is never committed;
+tests use `https://example-vm.example-tailnet.ts.net`.
+
+- `permissions`: unchanged (`alarms`, `downloads`, `notifications`, `offscreen`).
+- `host_permissions`: `<origin>/*`, `https://moodle.sdu.edu.kz/*`. No `127.0.0.1:8000`.
+- Content scripts: `https://moodle.sdu.edu.kz/*` (`content.js`); `<origin>/*` only
+  (`dashboard-relay.js`). Pages and dev dashboards are not matched: the hosted backend grants
+  them no CORS.
+- `APPROVED_ORIGINS` in the hosted extension is `[<origin>]`, equal to the relay matches; the
+  frontend and local build keep the section 6 list. The popup's Open dashboard target and
+  reminder links use `<origin>/`.
+- Every backend call and the permission probe use `<origin>`; hosted dist JS contains no
+  `127.0.0.1:8000`. Off the tailnet, calls fail with the existing `BACKEND_UNAVAILABLE` code,
+  whose hosted text is "Connect this device to Tailscale, then reconnect."
+- Everything else in the manifest equals the local manifest. Moodle reads stay in the browser;
+  nothing new is sent to the backend.
+- Pinned by `tests/test_privacy_review_48.py` (`test_hosted_manifest_matches_reviewed_inventory`,
+  `test_hosted_bridge_allowlist_equals_dashboard_content_script_matches`,
+  `test_hosted_dist_has_no_loopback_backend`) and `browser-workspace/hosted-build.test.ts`.

@@ -5,7 +5,10 @@ records confirmed findings as strict xfails so a fix flips them to failures
 that force this file (and _docs/reviews/privacy-permissions.md) to be updated.
 """
 import json
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -41,6 +44,52 @@ def test_bridge_allowlist_equals_dashboard_content_script_matches():
     # Dev origins match whole hosts; the one approved HTTPS origin (#49) is scoped to its project path.
     assert [o + '/*' for o in origins[:-1]] + [origins[-1] + '/MoodleHelper/*'] == relay
     assert all(o.startswith('http://') for o in origins[:-1]) and origins[-1] == 'https://ramung55.github.io'
+
+
+# #136 hosted build: built into a temp copy (never extension/dist) with a placeholder origin.
+HOSTED_ORIGIN = 'https://example-vm.example-tailnet.ts.net'
+
+
+@pytest.fixture(scope='module')
+def hosted_dist(tmp_path_factory):
+    root = tmp_path_factory.mktemp('hosted')
+    (root / 'extension').mkdir()
+    for part in ['build.ts', 'manifest.json', 'public', 'src']:
+        source, target = ROOT / 'extension' / part, root / 'extension' / part
+        shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
+    shutil.copytree(ROOT / 'shared' / 'src', root / 'shared' / 'src')
+    env = {k: v for k, v in os.environ.items() if k != 'MOODLE_HELPER_DASHBOARD_URL'}
+    subprocess.run(['bun', str(root / 'extension' / 'build.ts')], check=True, timeout=120,
+                   env={**env, 'MOODLE_HELPER_BACKEND_ORIGIN': HOSTED_ORIGIN})
+    return root / 'extension' / 'dist'
+
+
+def test_hosted_manifest_matches_reviewed_inventory(hosted_dist):
+    m = json.loads((hosted_dist / 'manifest.json').read_text(encoding='utf-8'))
+    assert m['host_permissions'] == [HOSTED_ORIGIN + '/*', 'https://moodle.sdu.edu.kz/*']
+    assert [c['matches'] for c in m['content_scripts']] == [['https://moodle.sdu.edu.kz/*'], [HOSTED_ORIGIN + '/*']]
+    # Everything else equals the reviewed local manifest.
+    local = manifest('extension/manifest.json')
+    local['host_permissions'], local['content_scripts'][1]['matches'] = m['host_permissions'], m['content_scripts'][1]['matches']
+    assert m == local
+
+
+def test_hosted_bridge_allowlist_equals_dashboard_content_script_matches(hosted_dist):
+    relay = json.loads((hosted_dist / 'manifest.json').read_text(encoding='utf-8'))['content_scripts'][1]['matches']
+    for name in ['index.js', 'dashboard-relay.js']:
+        origins = json.loads(re.search(r'APPROVED_ORIGINS = (\[[^\]]*\])', (hosted_dist / name).read_text(encoding='utf-8')).group(1))
+        assert [o + '/*' for o in origins] == relay == [HOSTED_ORIGIN + '/*'], name
+
+
+def test_hosted_dist_has_no_loopback_backend(hosted_dist):
+    scripts = sorted(hosted_dist.glob('*.js'))
+    assert len(scripts) == 6
+    for path in scripts:
+        assert '127.0.0.1:8000' not in path.read_text(encoding='utf-8'), path.name
+    assert f'BACKEND = "{HOSTED_ORIGIN}"' in (hosted_dist / 'index.js').read_text(encoding='utf-8')
+    popup = (hosted_dist / 'popup.html').read_text(encoding='utf-8')
+    assert 'Connect this device to Tailscale' in popup and 'uvicorn' not in popup
+    assert f'"{HOSTED_ORIGIN}/"' in (hosted_dist / 'popup.js').read_text(encoding='utf-8')  # Open dashboard target
 
 
 def _ops(client):
