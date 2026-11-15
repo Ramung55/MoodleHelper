@@ -6,6 +6,7 @@
  */
 import type { Snapshot } from "./types";
 import { BridgeError, type ErrorCode } from "../../../shared/src/bridge";
+import { bridgeMessage } from "../services/api-base";
 
 export const STEP_IDS = [
   "connection",
@@ -39,12 +40,12 @@ export function classifyHandshake(
     if (outcome.hello.backend !== "ready" || outcome.hello.localRepository !== "ready")
       return {
         kind: "backend_unavailable",
-        message: new BridgeError("BACKEND_UNAVAILABLE").message,
+        message: bridgeMessage("BACKEND_UNAVAILABLE"),
       };
     return { kind: "ready", moodleCollection: outcome.hello.moodleCollection };
   }
   const code: ErrorCode | null = outcome.error instanceof BridgeError ? outcome.error.code : null;
-  const message = code ? new BridgeError(code).message : "Reload the dashboard and reconnect.";
+  const message = code ? bridgeMessage(code) : "Reload the dashboard and reconnect.";
   if (code === "MISSING_EXTENSION") return { kind: "missing", message };
   if (
     code === "UNSUPPORTED_VERSION" ||

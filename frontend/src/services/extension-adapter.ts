@@ -11,6 +11,7 @@ import {
   type Request,
   type Operation,
 } from "../../../shared/src/bridge";
+import { isTailnetOrigin } from "./api-base";
 import type { RawCourseObservation, Snapshot, Settings, ReminderPlan } from "@/domain/types";
 import type {
   MoodleHelperAdapter,
@@ -59,7 +60,7 @@ export class BridgeClient implements MoodleHelperAdapter {
         win.top !== win ||
         e.source !== win ||
         e.origin !== win.location.origin ||
-        !approved(e.origin)
+        !(approved(e.origin) || isTailnetOrigin(e.origin))
       )
         return;
       const value = e.data;
@@ -124,7 +125,11 @@ export class BridgeClient implements MoodleHelperAdapter {
   }
   private send<T>(operation: Operation | "hello" | LocalOperation, payload: unknown): Promise<T> {
     const win = this.window;
-    if (!win || win.top !== win || !approved(win.location.origin))
+    if (
+      !win ||
+      win.top !== win ||
+      !(approved(win.location.origin) || isTailnetOrigin(win.location.origin))
+    )
       return Promise.reject(new BridgeError("PERMISSION_DENIED"));
     if (operation !== "hello" && !this.sessionId)
       return Promise.reject(new BridgeError("RECONNECT_REQUIRED"));
