@@ -307,6 +307,32 @@ describe("#41 explicit download control", () => {
       cleanup();
     }
   });
+  it("#125 a closed Save As window shows its own row text with Retry and no Cancel", async () => {
+    const text =
+      "Download not saved — Chrome asked where to save the file and that window was closed. Retry, then choose Save in Chrome's window.";
+    const l = transferLabel(
+      base({ state: "interrupted", reason: "save_as_closed", downloadId: 9 }),
+    );
+    expect(l).toMatchObject({ text, tone: "warning", canRetry: true, canCancel: false });
+    mount({
+      startMaterialDownload: vi.fn(),
+      listMaterialDownloads: vi.fn(async () => ({
+        transfers: [base({ state: "interrupted", reason: "save_as_closed", downloadId: 9 })],
+      })),
+      cancelMaterialDownload: vi.fn(),
+    });
+    const status = await screen.findByTestId("transfer-status");
+    expect(status.textContent).toContain(text);
+    expect(status.textContent).not.toContain(
+      "Chrome or an extension restart interrupted the download",
+    );
+    expect(screen.getByRole("button", { name: "Download again" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Cancel download" })).toBeNull();
+    // Existing records keep their texts.
+    expect(transferLabel(base({ state: "interrupted", reason: "download_interrupted" })).text).toBe(
+      "Download interrupted — Chrome or an extension restart interrupted the download; a partial file is not a download record, so retry.",
+    );
+  });
   it.each(["docx", "pptx"] as const)(
     "#85 a %s file gets the same one-click Download file control",
     async (fileType) => {

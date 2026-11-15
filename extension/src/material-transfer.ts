@@ -25,7 +25,7 @@ export const REQUEST_LIMIT_MS = 30_000;
 export const LEASE_WAIT_MS = 30_000;
 const HTML_PREFIX_BYTES = 256 * 1024;
 
-export type Reason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown" | "not_a_file";
+export type Reason = "sign_in_required" | "forbidden" | "not_found" | "network" | "unsupported_type" | "too_large" | "timeout" | "cancelled_by_user" | "page_closed" | "download_interrupted" | "outcome_unknown" | "not_a_file" | "save_as_closed";
 export type State = "queued" | "validating" | "saving" | "complete" | "failed" | "cancelled" | "interrupted";
 /** #85 (owner decision 2026-11-03): PDF, DOCX and PPTX only; EPUB and folder entries are declined. */
 export type Format = "pdf" | "docx" | "pptx";
@@ -42,6 +42,7 @@ export type Transfer = { transferId: string; generation: number; materialId: str
 /** `busy` marks a 429/503 (reason network); `leaseLost` marks a worker restart (reason download_interrupted). */
 export type Acquired = { ok: true; blob: Blob; filename: string; size: number } | { ok: false; reason: Reason; busy?: true; leaseLost?: true };
 
+export const COMPLETE_TEXT = "Downloaded. This is a download record; the file may later be moved or removed.";
 export const BUSY_TEXT = "Moodle is busy. Try again later. Nothing was saved.";
 export const LEASE_LOST_TEXT = "The extension restarted while reading the file. Nothing was saved. Retry to download again.";
 export const REASON_TEXT: Record<Reason, string> = {
@@ -57,6 +58,7 @@ export const REASON_TEXT: Record<Reason, string> = {
   download_interrupted: "Chrome interrupted the download. The file may be incomplete; retry to download again.",
   outcome_unknown: "The download outcome is unknown. Check Chrome's downloads list, or retry.",
   not_a_file: "This resource opens as a Moodle page, not a file. Open it in Moodle.",
+  save_as_closed: "Chrome asked where to save the file, and that window was closed, so nothing was saved. Retry, then choose Save in Chrome's window.",
 };
 
 const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i;
@@ -370,7 +372,7 @@ export type DownloadDelta = { id: number; state?: { current?: string }; error?: 
 export type DownloadsApi = {
   download(options: { url: string; filename: string; conflictAction: "uniquify"; saveAs: boolean }): Promise<number>;
   cancel(id: number): Promise<void>;
-  search(query: { id: number }): Promise<{ id: number; state: string; error?: string }[]>;
+  search(query: { id: number }): Promise<{ id: number; state: string; error?: string; filename?: string }[]>;
   onChanged: { addListener(f: (d: DownloadDelta) => void): void; removeListener(f: (d: DownloadDelta) => void): void };
 };
 export type View = { phase: State | "starting" | "unrecorded"; message: string; bytes?: number; total?: number | null; filename?: string; downloadId?: number };
@@ -406,7 +408,7 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
   };
   const end = async (state: State, reason?: Reason, text?: string, networkDetail?: NetworkDetail): Promise<View> => {
     finished = true;
-    const message = text ?? (state === "complete" ? "Downloaded. This is a download record; the file may later be moved or removed." : REASON_TEXT[reason ?? "outcome_unknown"]);
+    const message = text ?? (state === "complete" ? COMPLETE_TEXT : REASON_TEXT[reason ?? "outcome_unknown"]);
     // The busy detail is sent only with failed/network, so the dashboard can show the same busy text.
     const detail = networkDetail && state === "failed" && reason === "network" ? { networkDetail } : {};
     for (let i = 0; i < 3; i++) {
@@ -422,7 +424,16 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
   }, deps.pollMs ?? 1000);
   try {
     let d: Descriptor;
-    try { d = await api.descriptor(transferId); } catch { finished = true; return view({ phase: "failed", message: "This transfer can no longer start (it was cancelled, already started or its material changed). Retry from the dashboard." }); }
+    try { d = await api.descriptor(transferId); } catch {
+      finished = true;
+      // #125: a reloaded page (e.g. a discarded tab restored by Chrome) shows the recorded outcome, not a start refusal.
+      const t = await api.read(transferId).catch(() => null);
+      if (t?.state === "complete") return view({ phase: "complete", message: COMPLETE_TEXT });
+      if (t && (t.state === "failed" || t.state === "cancelled" || t.state === "interrupted")) {
+        return view({ phase: t.state, message: t.networkDetail === "busy" && t.reason === "network" ? BUSY_TEXT : REASON_TEXT[t.reason ?? "outcome_unknown"] });
+      }
+      return view({ phase: "failed", message: "This transfer can no longer start (it was cancelled, already started or its material changed). Retry from the dashboard." });
+    }
     generation = d.generation; attemptId = d.attemptId;
     await report({ state: "validating" });
     view({ phase: "validating", message: "Checking the file from Moodle…" });
@@ -451,14 +462,23 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
       else if (delta.state?.current === "interrupted") resolveTerminal({ state: "interrupted", ...(delta.error?.current ? { error: delta.error.current } : {}) });
     };
     // A Chrome-side stop: cancelled only if the dashboard's Cancel was pressed (seen now or by one
-    // last read), page_closed if the tab is going away, otherwise download_interrupted.
-    const chromeStopped = async (): Promise<View> => {
+    // last read), page_closed if the tab is going away, save_as_closed (#125) if Chrome says
+    // USER_CANCELED and never chose a save path, otherwise download_interrupted.
+    const chromeStopped = async (error?: string): Promise<View> => {
       if (!cancelClicked && !deps.closed.aborted) {
         const t = await api.read(transferId).catch(() => null);
         if (t?.cancelRequested) cancelClicked = true;
       }
       if (cancelClicked) return await end("cancelled", "cancelled_by_user");
-      return await end("interrupted", deps.closed.aborted ? "page_closed" : "download_interrupted");
+      if (deps.closed.aborted) return await end("interrupted", "page_closed");
+      if (error === "USER_CANCELED" && downloadId !== undefined) {
+        // The local path is only tested for emptiness; it is never sent, rendered, logged or kept.
+        const noPath = (await downloads.search({ id: downloadId }).catch(() => []))[0]?.filename === "";
+        if (cancelClicked) return await end("cancelled", "cancelled_by_user");
+        if (deps.closed.aborted) return await end("interrupted", "page_closed");
+        if (noPath) return await end("interrupted", "save_as_closed");
+      }
+      return await end("interrupted", "download_interrupted");
     };
     downloads.onChanged.addListener(listener);
     try {
@@ -486,7 +506,7 @@ export async function runTransfer(transferId: string, deps: PageDeps): Promise<V
         return await end("cancelled", after ? "cancelled_by_user" : "outcome_unknown");
       }
       if (first.state === "complete") return await end("complete");
-      return await chromeStopped();
+      return await chromeStopped(first.error);
     } finally {
       downloads.onChanged.removeListener(listener);
     }
