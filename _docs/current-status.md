@@ -1,7 +1,7 @@
 # Current status
 
-Date: 2026-11-15. Base commit: `dffbe8f` (`main`, after PR #145), plus branch
-`feat/issue-146-ghcr-deploy`. Replaces the 2026-11-12 audit; the MVP verdict lives in
+Date: 2026-11-15. Base commit: `f4554ba` (`main`, after PR #147), plus branch
+`feat/issue-148-deploy-timer`. Replaces the 2026-11-12 audit; the MVP verdict lives in
 [mvp-verification.md](mvp-verification.md).
 
 ## Where things stand
@@ -15,6 +15,10 @@ Date: 2026-11-15. Base commit: `dffbe8f` (`main`, after PR #145), plus branch
   pushes that tested image as `ghcr.io/ramung55/moodlehelper:<sha>` on pushes to `main` only.
 - **Deploy and rollback** (#146): on the VM, `scripts/deploy.sh <full commit sha>` (runbook
   section 6). The VM no longer builds.
+- **Auto-deploy** (#148, this branch): a systemd timer on the VM (`scripts/auto-deploy.sh`,
+  `scripts/moodlehelper-auto-deploy.{service,timer}`) deploys each new `main` commit once its
+  GHCR image exists, tries a SHA only once and leaves a manual rollback until the next push.
+  Not yet installed on the VM (owner-confirmed live step pending).
 - **Lint:** `main` at `dffbe8f` failed `bun run lint` on one Prettier error in
   `frontend/src/test/tailnet-origin.test.tsx`; #146 reformats that file, so `frontend` passes
   and `publish` can run.
@@ -33,7 +37,7 @@ Date: 2026-11-15. Base commit: `dffbe8f` (`main`, after PR #145), plus branch
 
 ## Backlog
 
-Open: #146 only (this branch; its live criteria run on the VM after merge).
+Open: #148 (this branch; its live step runs on the VM after the owner confirms). #146 closed.
 
 ## Tests on this branch
 

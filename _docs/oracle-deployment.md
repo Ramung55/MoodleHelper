@@ -191,6 +191,79 @@ the `up` leaves the running container as it was.
   `deploy.sh <older sha>` and restore that file (or an off-VM backup) with the section 7
   restore.
 - Old images stay on the VM; remove them manually with `docker image prune` when needed.
+- `deploy.sh` and the auto-deploy timer below share one lock (`flock` on
+  `.git/moodlehelper-deploy.lock`). A manual `deploy.sh` while a deploy runs exits 1 with
+  "another deploy is running"; run it again when that one finishes. Never run `deploy.sh` with
+  `sudo`: a root-owned lock file makes every tick fail (fix: `sudo rm .git/moodlehelper-deploy.lock`).
+
+### Auto-deploy timer (#148)
+
+A systemd timer on the VM runs `scripts/auto-deploy.sh` about every 5 minutes. CI never
+reaches the VM: the VM pulls. Each tick takes the shared lock, runs `git fetch`, reads
+`origin/main` (M) and writes one `auto-deploy:` outcome line to the journal:
+
+| Outcome | When | Effect |
+|---|---|---|
+| `up to date <M>` | M is the last attempted SHA and `/health` reports `release` M (or, with M not yet recorded, `.env.release` already names M; then M is recorded) | nothing |
+| `already attempted <M>, now running release <sha>` or `... now health unreachable` | M was attempted before but `/health` does not report it (failed deploy, or a manual rollback since) | nothing, no retry |
+| `waiting for image <M>` | `docker pull` of M fails: CI still running, CI failed, or GHCR/network unreachable | nothing recorded; next tick checks again |
+| `clone modified, not deploying <M>` | `git diff --quiet HEAD --` fails | nothing recorded; repeats every tick until the clone is clean, then deploys |
+| `git fetch failed, nothing changed` | network | exit 1; next tick tries again |
+| `deploy in progress, skipping` | the lock is held (manual `deploy.sh`) | nothing recorded, exit 0 |
+| `deployed <M>` | the image exists; M is recorded, then `scripts/deploy.sh M` exits 0 (`/health` reports `release` M) | new release live |
+| `deploy of <M> failed; now running release <sha>` or `... now health unreachable` | `deploy.sh M` exits non-zero; the state comes from `/health` at that moment, never from `.env.release` | M is recorded, so it is **not** retried; exit 1 |
+
+What a failed deploy leaves behind:
+
+- **Integrity failure** (pre-deploy backup not `ok`): the old container keeps running,
+  `.env.release` is unchanged, and the clone is checked out at M.
+- **Health failure:** the new container may be running unhealthy (`restart: unless-stopped`)
+  and `.env.release` names M.
+- Recover with `scripts/deploy.sh <good sha>`.
+
+The timer reacts only to a **new `main` commit**; it never moves the deployed SHA back to
+`main`. So:
+
+- **Rollback:** after a manual `scripts/deploy.sh <older sha>`, later ticks do not redeploy
+  the current `main` (it is already recorded), but the **next commit pushed to `main` is
+  deployed automatically** and replaces the rollback. To keep a rollback past new pushes,
+  pause the timer first (below).
+- **Retry a failed SHA:** the timer never retries. Run `scripts/deploy.sh <sha>` yourself, or
+  delete the state file so the next tick tries `main` again.
+
+**State file:** `.git/moodlehelper-auto-deploy-attempted` in the clone holds the last
+attempted SHA. It is inside `.git`, so it is not tracked, not in the Docker build context
+(`.dockerignore` `.git`) and not on the `app-data` volume. Deleting it is safe: the next tick
+behaves like the first tick.
+
+**Install** (as the clone owner, who is in the `docker` group). The units assume user
+`ubuntu` and the clone `/home/ubuntu/MoodleHelper`; edit `User=` and `ExecStart=` in the
+service file if yours differ.
+
+> **First tick:** with no state file, the first tick records M if `.env.release` already
+> equals `origin/main`; otherwise it **deploys `origin/main`** as soon as its image exists.
+> Deploy the SHA you want with `scripts/deploy.sh` and copy an off-VM backup (section 7)
+> before enabling the timer.
+
+```sh
+sudo cp scripts/moodlehelper-auto-deploy.service scripts/moodlehelper-auto-deploy.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now moodlehelper-auto-deploy.timer
+```
+
+The installed copies do not change when a deploy checks out another commit; repeat the
+three commands if a later commit changes the unit files.
+
+- **Logs:** `journalctl -u moodlehelper-auto-deploy.service` (every tick; add `-f` to follow).
+- **Next run:** `systemctl list-timers moodlehelper-auto-deploy.timer`.
+- **Pause:** `sudo systemctl disable --now moodlehelper-auto-deploy.timer`. **Resume:**
+  `sudo systemctl enable --now moodlehelper-auto-deploy.timer`; the next tick deploys `main`
+  if it has moved since the last attempt.
+- **Remove permanently:** `sudo systemctl disable --now moodlehelper-auto-deploy.timer`,
+  `sudo rm /etc/systemd/system/moodlehelper-auto-deploy.service /etc/systemd/system/moodlehelper-auto-deploy.timer`,
+  `sudo systemctl daemon-reload`.
+- The service is `Type=oneshot`, so a tick never starts while the previous one runs; the
+  shared lock keeps a tick and a manual `deploy.sh` from deploying at the same time.
 
 ## 7. Backups and restore
 
@@ -254,6 +327,10 @@ Tailscale 1.104.7, Docker 29.1.3 and Compose 2.40.3 from Ubuntu's `docker.io` an
 | Tailscale turned off on the owner's PC | dashboard unreachable; popup shows "Connect this device to Tailscale, then reconnect." |
 | Public IP TCP 22/80/443/8000 from outside the tailnet | closed or time out |
 | Tailnet ACL denial for another user/device | **untested** (owner decision): the tailnet has one user and no shared nodes, so there is no second identity to test with, and editing the policy risks losing Tailscale SSH |
+
+**Auto-deploy timer (#148): not yet installed on the VM.** Pending the owner's go-ahead: install
+(section 6), one `up to date` tick in `journalctl`, then `deployed <sha>` and `/health`
+`release` within about 10 minutes of a `main` image being published. Record the result here.
 
 Live data needs the four identity settings from the README in `.env.production`; without
 them the backend runs the demo dataset and the dashboard shows "Sync all courses (demo)".

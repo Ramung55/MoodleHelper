@@ -13,6 +13,14 @@ main() {
   cd "$(dirname "$0")/.."
   local C="docker compose -f docker-compose.production.yaml --env-file .env.production --env-file .env.release"
   image="ghcr.io/ramung55/moodlehelper:$sha"
+  # Shared with scripts/auto-deploy.sh (#148), which holds it and sets MOODLE_HELPER_DEPLOY_LOCKED.
+  if [ -z "${MOODLE_HELPER_DEPLOY_LOCKED:-}" ]; then
+    exec 9>.git/moodlehelper-deploy.lock
+    if ! flock -n 9; then
+      echo "deploy: another deploy is running (manual or the auto-deploy timer); try again when it finishes" >&2
+      exit 1
+    fi
+  fi
 
   if ! git diff --quiet HEAD --; then
     echo "deploy: the clone has modified tracked files; commit or discard them first" >&2
