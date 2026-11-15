@@ -2,11 +2,15 @@
 # on the host terminates HTTPS. Runbook: _docs/oracle-deployment.md
 services:
   app:
+    # Deploys pull the CI-tested image by commit SHA (scripts/deploy.sh writes .env.release);
+    # without a tag, `up --build` builds locally as :local.
+    image: ghcr.io/ramung55/moodlehelper:${MOODLE_HELPER_RELEASE:-local}
     build: .
     restart: unless-stopped
     # No MOODLE_HELPER_DATABASE_URL: the image default is SQLite at /data/moodle-helper.sqlite3.
     environment:
       - MOODLE_HELPER_TAILNET_HOST=${MOODLE_HELPER_TAILNET_HOST:?Set MOODLE_HELPER_TAILNET_HOST to the VM's <machine>.<tailnet>.ts.net name}
+      - MOODLE_HELPER_RELEASE=${MOODLE_HELPER_RELEASE:-local}
       - MOODLE_HELPER_DATASET
       - MOODLE_HELPER_MOODLE_ORIGIN
       - MOODLE_HELPER_PROFILE_LABEL
