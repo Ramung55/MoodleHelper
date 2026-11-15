@@ -60,6 +60,8 @@ interface AppState {
 }
 
 const Ctx = createContext<AppState | null>(null);
+/** #128: separate from the #56 `moodle-helper-lifecycle` erase channel. */
+const SYNC_CHANNEL = "moodle-helper-sync";
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const adapter = getAdapter();
@@ -86,8 +88,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLoadAttempt((attempt) => attempt + 1);
   }, []);
 
+  // #128: true only while this tab shows a loaded real-dataset Snapshot (not during a reload).
+  const liveTab = useRef(false);
   useEffect(() => {
     let alive = true;
+    liveTab.current = false;
     setDetecting(true);
     // #87 S2: the saved data renders as soon as load() and connection() resolve; extension
     // detection and the collection mode finish afterwards. Until then Sync all is disabled
@@ -99,6 +104,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setError(null);
         setSnap(s);
         setConn(c);
+        liveTab.current = c.state !== "demo";
         const detected = await detection;
         // #46: only the real dataset with the extension asks the backend for its collection mode.
         const mode =
@@ -152,6 +158,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
     };
   }, [selectedSyncing, adapter, enqueue]);
+  // #128: a sync started in another tab (sync message) or anywhere else (return to the tab)
+  // gets one queued Snapshot re-read; the #124 chain above then takes over. No timer: an idle
+  // tab never polls. Ignored while hidden, loading/erase-reloading or in the demo dataset.
+  const syncChannel = useRef<BroadcastChannel | null>(null);
+  useEffect(() => {
+    let reading = false;
+    const reread = () => {
+      if (reading || !liveTab.current || document.visibilityState === "hidden") return;
+      reading = true; // coalesces the focus + visibilitychange burst of one return
+      void enqueue(() => adapter.load())
+        .then((s) => liveTab.current && setSnap(s))
+        .catch(() => undefined)
+        .finally(() => {
+          reading = false;
+        });
+    };
+    const channel =
+      typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(SYNC_CHANNEL);
+    if (channel)
+      channel.onmessage = (e: MessageEvent) =>
+        (e.data as { type?: unknown } | null)?.type === "sync-started" && reread();
+    syncChannel.current = channel;
+    window.addEventListener("focus", reread);
+    document.addEventListener("visibilitychange", reread);
+    return () => {
+      channel?.close();
+      syncChannel.current = null;
+      window.removeEventListener("focus", reread);
+      document.removeEventListener("visibilitychange", reread);
+    };
+  }, [adapter, enqueue]);
 
   const run = useCallback(
     async (fn: (a: MoodleHelperAdapter) => Promise<Snapshot>) => {
@@ -206,6 +243,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         throughExtension ? syncAllThroughExtension(setSnap) : adapter.syncAll(setSnap),
       );
       setSnap(s);
+      // #128: tell other dashboard tabs; never from the demo dataset.
+      if (conn && conn.state !== "demo") syncChannel.current?.postMessage({ type: "sync-started" });
       // #20: a real-dataset Sync all only queues the scan (sync entries say syncing);
       // nothing has finished yet, so no success toast is shown.
       const queued = s.sync.some(
@@ -233,7 +272,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false);
     }
-  }, [adapter, enqueue, throughExtension, detecting]);
+  }, [adapter, enqueue, throughExtension, detecting, conn]);
 
   const [discovery, setDiscovery] = useState<{
     pending: boolean;

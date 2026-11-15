@@ -534,6 +534,31 @@ Defect found and fixed during the live run: after the first closed Save As windo
 
 Operator note: after reloading the extension, an already open dashboard tab must be reloaded before its download buttons work again (one click before that reload started nothing).
 
+## Cross-tab sync freshness for #128, 2026-11-15 (automated and synthetic, local stack)
+
+Mechanism (owner decision 2026-11-15, frontend only, `frontend/src/lib/app-store.tsx`): after a real-dataset Sync all returns, the tab posts `{type: "sync-started"}` on the BroadcastChannel `moodle-helper-sync` (not the #56 `moodle-helper-lifecycle` channel). Other tabs answer it, and any window `focus` or `visibilitychange`, with one Snapshot read queued through `enqueue`; a read already pending absorbs the rest of a burst. Nothing is read while the tab is hidden, before its first Snapshot, during an erase reload or in the demo dataset, and there is no timer. The #124 chained re-read is unchanged and remains the only repeated read. One Snapshot read per return to a real-dataset tab is accepted even when nothing syncs (owner decision).
+
+Synthetic setup: test-only backend `tests/live_scan_network_app.py` (real namespace) on 127.0.0.1:8765 with a temporary SQLite file; a separate Vite on 127.0.0.1:5180 started with an untracked copy of `vite.config.ts` whose `/api` proxy targets 8765 (deleted afterwards; `vite.config.ts` unchanged). Port 8000 and 5173 were not touched. The extension does not inject on 5180, so Sync all took the HTTP path. A scratchpad driver seeded two fictional courses and moved `sync[]` with `POST /api/scan/claim` and `/api/scan/finish` (completed with complete pages, or `signed_out`, which fails the other job by cascade). Two tabs in the owner's Chrome through Claude in Chrome, in one window; both reported `visibilityState` `visible` and `hasFocus()` true throughout (the tool keeps them so), so Sync all in tab B was clicked by script. In tab A a MutationObserver timed the status line and a PerformanceObserver timed `/api/snapshot` requests. Times are from tab B's Sync all returning or the driver's last finish.
+
+| #128 criterion | Route | Result |
+| --- | --- | --- |
+| 1 Sync running in tab A (other tab) | auto: `cross-tab-sync.test.tsx` (3 page pairs); synthetic run 1 (A Overview, B Settings): shown after 0.11 s, first read 0.08 s | **PASS** (auto + synthetic) |
+| 2 Result in tab A | auto as above; synthetic run 1: "2 of 2 courses fully scanned" 0.10 s after the last finish, then reads stopped | **PASS** (auto + synthetic) |
+| 3 Other page pairs | synthetic run 2 (A Settings, B Overview): shown 0.07 s, "2 of 2" 0.51 s after finish; run 3 (A and B Overview): shown 0.05 s | **PASS** (auto + synthetic) |
+| 4 Extension and HTTP paths notify | auto: extension-path test (`syncAllThroughExtension` called, adapter `syncAll` not) and the HTTP-path tests | **PASS** (auto) |
+| 5 Return to the tab | auto: focus + visibilitychange + focus burst → one read, then the chain clears it. synthetic run 5: sync started by `POST /api/sync` (no message), no reads in A for 8.9 s, then a dispatched focus/visibilitychange/focus burst in A → one read after 17 ms, "Sync running…" after 68 ms, "2 of 2" 1.8 s after finish. Not a real tab switch: the tool kept both tabs visible. One unscripted real return was logged in another tab (visibilitychange to visible and focus 7 ms apart) and caused exactly one read | **PASS** (auto); synthetic with dispatched events |
+| 6 Burst → at most one read | auto (exact count); synthetic as in 5 | **PASS** |
+| 7 Failure in tab A | auto: every course already failed before A's re-read → Settings "2 courses failed to sync. Details below.", Overview "Last sync failed for 2 courses". synthetic run 3 (A Overview): "Last sync failed for 2 courses" 1.5 s after the `signed_out` cascade; run 4 (A Settings): "2 courses failed to sync. Details below." 1.2 s after | **PASS** (auto + synthetic) |
+| 8 Idle tab makes no reads | auto: 61 s with fake timers, 0 reads. synthetic: tab A visible and idle 65.8 s after run 1, 0 Snapshot requests, no focus/visibility events | **PASS** (auto + synthetic) |
+| 9 Hidden tab | auto: focus/visibilitychange and a sync message while hidden → 0 reads; on becoming visible one read shows the current (failed) state | **PASS** (auto) |
+| 10 Demo | auto: a demo tab ignores focus, visibility and sync messages and its Sync all posts nothing | **PASS** (auto) |
+| 11 Through `enqueue`, chain unchanged | auto: a return during this tab's own pending Sync all does not read until it returns, and the newer state wins; the #124 tests in `live-sync-state.test.tsx` pass unchanged | **PASS** (auto) |
+| 12 No erase reload | auto: a sync message never calls `onLocalInvalidation`; an `erased` message on `moodle-helper-lifecycle` still does | **PASS** (auto) |
+| 13 Tests | `cross-tab-sync.test.tsx` 11 tests; 9 fail on the old store (the idle and demo tests pass there, as expected). `bun run test` 79 files, 1582 passed; `bun run typecheck` exit 0; CI-style eslint 0 errors, 26 warnings; `uv run pytest` 1567 passed, 9 skipped; extension and shared builds exit 0; browser workspace 19 files, 335 passed | **PASS** |
+| 14 Synthetic evidence | runs 1-5 above | done; tabs share one window (see setup) |
+
+Incident during the run: tab A (Settings) of a first attempt at run 2 was reloaded by something outside the run at the moment the other tab became visible (navigation type `reload`); that attempt was discarded and run 2 repeated. Not explained; no reload happened in the recorded runs (the in-page probe survived each).
+
 ## Read-only observation, 2026-11-13
 
 The owner's already signed-in in-app browser displayed a course list, a course page with assignment due dates and an assignment page with a due date and submission-status table. This confirms source fields are visible, not that MoodleHelper collects, displays or persists them. Course selection, Sync all, quiz/calendar comparisons, page refresh, restart persistence and an application-initiated PDF download were not verified. All requirement rows retain their existing verified/unverified/failed status and the MVP verdict remains FAIL. Issue #96 remains open; see `autonomous-work-2026-11-13.md` for the criterion-by-criterion record. No private identifiers or credentials are included.
