@@ -1,197 +1,236 @@
-# OCI Always Free deployment proposal
+# OCI deployment over Tailscale (runbook)
 
-Prepared 2026-11-12. **Not deployed or approved for public use.** The files
-`docker-compose.production.yaml`, `Caddyfile.oci`, and `.env.production.example`
-are a reviewable starting point. No OCI resources have been inspected, created,
-or modified. Do not expose the application until the security and live-Moodle
-limitations below have been resolved and the owner approves deployment.
+Rewritten 2026-11-15 for #137. Decision and reasoning:
+[decisions/oci-tailscale-private-deployment.md](decisions/oci-tailscale-private-deployment.md).
+Single user (the owner), private tailnet only, no public port, no application login.
+Deployment on the real VM and end-to-end checks are #138; nothing here has been run on the
+VM yet except the `tailscale serve` evidence from #134.
 
-## Architecture and security gate
+Shape: one app container (FastAPI serving the built dashboard and the API, SQLite on a named
+`/data` volume) publishes only `127.0.0.1:8000`. `tailscaled` on the VM terminates HTTPS
+for `<machine>.<tailnet>.ts.net` with `tailscale serve` and proxies to it. The OCI security
+list has no ingress rules. Files: `docker-compose.production.yaml`, `.env.production.example`.
 
-One existing eligible Ubuntu ARM64 A1 VM, if suitable and available, runs Docker
-Compose: Caddy terminates HTTPS; FastAPI serves the frontend and API; PostgreSQL
-stores the dataset on a named volume backed by the VM's boot volume. Only Caddy
-publishes 80/443, and its bindings default to `127.0.0.1`. The app has no published
-host port. PostgreSQL has no published port and joins only an internal database
-network. Caddy and the app communicate on a separate internal network. The app
-also has an outbound-capable network for existing opt-in AI provider calls.
-Docker host administrators can access containers and data; Docker networks are
-not an authorization boundary against the host.
+**Rejected proposal:** the earlier Caddy + Basic-auth stack (`Caddyfile.oci`, PostgreSQL,
+`.oci-secrets/caddy-users`) was deleted in #137. It did not work with the dashboard (every
+`/api` call got 401 because the frontend uses `credentials: "omit"`) and put one shared
+password on a public port. See the ADR's options table. Do not reintroduce it.
 
-**Blocking decision:** the approved application is a credential-free, local-only
-single-user tool. Its process binding is obtainable by any API caller and is not
-authentication. Caddy's proposed mandatory Basic authentication protects all
-proxied routes with a separately managed bcrypt hash, but this is a new perimeter,
-not approved application authentication; it has one shared identity, no logout,
-account isolation, built-in rate limiting, or recovery process. HTTPS alone does
-not authorize access. The proxy rewrites `Host` to `localhost` to satisfy the
-backend's loopback-only host check, so proxy access control becomes critical.
-Obtain a security review and a decision on authentication, rate limiting, secret
-rotation and network access before changing the loopback binding or exposing real
-student data. Test missing/invalid auth files, unauthorized access to every route,
-and bypass attempts through both Docker and the host. A failed or missing
-credential file must prevent Caddy from starting. Never remove the auth block as
-a workaround. The sample has no working credentials.
+## 1. Always Free and cost checks (before creating or changing anything)
 
-**Confirmed functional blocker:** a Chromium test against the isolated full
-Compose stack authenticated the page successfully but the dashboard's API requests
-returned 401. The frontend explicitly uses `credentials: 'omit'`, so the browser
-does not send its cached Basic credentials on those requests. A controlled request
-using `same-origin` returned 200. Consequently the proposed Basic-auth stack is
-not a working deployment for the current dashboard. An approved and independently
-reviewed authentication and same-origin credential strategy is needed before any
-deployment; do not remove the proxy gate or silently change the existing client
-contract. The original application remains unchanged.
+Inspect **Governance & Administration → Tenancy Management → Limits, Quotas and Usage**,
+billing/usage, the home region, existing instances, storage, backups, public addresses and
+network resources. Confirm the image and shape are marked **Always Free Eligible** and the
+change fits the remaining limits. Do not upgrade, purchase or provision a paid shape.
 
-The Chrome extension and dashboard-origin allowlists currently target local
-addresses, not this OCI domain. Live Moodle collection and active-account binding
-remain unverified. Hosting the dashboard does not make that integration work and
-changes the local-data privacy model; these decisions require separate approval.
-The proposed stack defaults to demo data. Existing identity and AI environment
-settings may be passed through explicitly only after the privacy and security
-decisions are approved. External AI remains opt-in and can incur separate provider
-charges; its durable cost ledger must use the persistent `/data` volume. Neither
-real identity nor external AI is verified by the proxy test.
-
-## Free-tier and cost checks before any provisioning
-
-Inspect **Governance & Administration → Tenancy Management → Limits, Quotas and
-Usage**, billing/usage, the home region, existing instances, storage, backups,
-public addresses and network resources. Prefer reusing a suitable existing VM
-without resizing, deleting or changing it. Confirm its image is marked **Always
-Free Eligible**, that it is Ubuntu ARM64, and that capacity and the intended
-changes fit the remaining tenancy limits. An out-of-capacity response is possible;
-wait or consider another eligible availability domain in the home region. Do not
-upgrade, purchase, provision a paid shape, or assume capacity exists.
-
-Oracle currently lists 1,500 A1 OCPU-hours and 9,000 GB-hours per month (the
-Always Free tenancy allowance is stated as 2 OCPUs and 12 GB continuously),
-200 GB combined boot/block storage, five volume backups, and 10 TB monthly
-outbound transfer. These are shared allowances, not additional resources for
-this project. Verify actual Console limits and usage before acting; Oracle's own
-page gives conflicting minimum boot-volume figures in different sections, so
-use the Console's current value. Idle Always Free instances can be reclaimed.
+Oracle lists (recheck; shared tenancy allowances, not per project): 2 AMD
+`VM.Standard.E2.1.Micro` instances, A1 Flex up to 4 OCPU / 24 GB total (when capacity
+exists), 200 GB combined boot/block storage, five volume backups, 10 TB monthly outbound
+transfer. Use the Console's current values.
 [Oracle Always Free resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
 
-Expected OCI cost is **$0 only if** every selected resource and usage stays within
-the applicable Always Free allowances. It is not guaranteed: this tenancy's
-account type, region, existing usage and selected configuration are unknown.
-Domain registration, paid DNS, excess transfer, backups or other selected services
-may cost extra. Verify pricing and enable cost alerts before provisioning; OCI
-budgets alert but do not stop charges.
+Expected cost is **$0 only if** everything stays within Always Free. Enable a budget alert;
+OCI budgets alert but do not stop charges.
 [Oracle cost guidance](https://docs.oracle.com/en/solutions/oci-best-practices/track-and-manage-usage-and-cost1.html)
+Tailscale Personal plan is free at this size (recheck limits).
 
-## ARM64 compatibility report
+**Idle reclamation:** Oracle may reclaim Always Free instances it considers idle (low CPU,
+network and memory use over 7 days). A single-user app is usually under that threshold.
+Reclamation loses the VM and its volume, so off-VM backups (section 7) are mandatory, not
+optional.
 
-On 2026-11-12, registry manifest inspection found `linux/arm64` variants for
-`node:22-bookworm-slim`, `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`,
-`postgres:16-alpine` and `caddy:2-alpine`. Tags are mutable; recheck and pin
-reviewed image digests before release. The frozen frontend dependency installation
-and Python dependency installation completed under ARM64 emulation. An ARM64
-backend-stage image built and imported FastAPI application and native dependencies
-including psycopg, cryptography and pydantic-core under emulation.
+## 2. The current VM and image architecture
 
-The complete `docker buildx build --platform linux/arm64 --load .` did **not**
-finish: Vite's frontend transformation stalled for several minutes under x86
-emulation and the build was interrupted. This does not prove native ARM failure,
-but it leaves the final image, frontend, all runtime dependencies and the full
-Compose stack unverified on ARM64. No ARM compatibility fix was justified by
-that result. The Dockerfile installs an unpinned Bun version, another reproducibility
-risk. Complete a native ARM64 build and isolated Compose/browser test on approved
-hardware before deployment; do not treat image manifests as end-to-end proof.
+The VM is `VM.Standard.E2.1.Micro`: **x86_64, 1 GB RAM**, Ubuntu 24.04 Minimal (A1 ARM was
+out of capacity, #134). Consequences:
 
-Local x86 Compose QA used an isolated, temporary test stack and test credentials.
-Caddy rejected unauthenticated dashboard/API/docs requests, accepted explicitly
-authenticated requests, rejected missing and malformed credentials, and the startup wrapper
-rejected an empty credential file. The app and database had no host-published
-ports. A subsequent real browser test found the credential incompatibility described
-above. These checks used local test TLS, not public certificate issuance or a native ARM
-deployment. The proxy health check establishes that its TLS port is listening,
-not that a public certificate is valid or authorization is correct.
+- `linux/arm64` **does not apply** to this VM. An ARM64 image build is **unverified** (an
+  emulated build in 2026-11 stalled in the frontend stage); recheck only if the VM moves to A1.
+- The image builds and the Compose file runs on local x86_64 (section 9).
+- **Building on a 1 GB VM is a risk** (the Vite/bun frontend stage can run out of memory).
+  Add a 2 GB swap file before building on the VM (below). A native build on the VM is to
+  be verified in #138. If it still fails, build locally and copy the image instead:
 
-## OCI Console and firewall actions (after approval only)
+  ```sh
+  # on your x86_64 machine, from the approved commit
+  docker build -t moodlehelper-app:release .
+  docker save moodlehelper-app:release | ssh ubuntu@<machine> docker load
+  ```
 
-1. Inventory the existing VM, VCN/subnet, public IP, storage, security lists and
-   network security groups; do not modify or delete unrelated resources. Verify
-   remaining Always Free quota and the instance's architecture and capacity.
-2. If an eligible VM exists, review its current workload, available disk/memory,
-   backups and change window. If none exists, check home-region A1 capacity and
-   the Always Free label before seeking approval for any creation.
-3. Set DNS A/AAAA records only to addresses actually assigned to the approved VM;
-   remove an AAAA record if IPv6 is not configured. Caddy's public certificate
-   requires an actual domain, correct DNS and externally reachable TCP 80/443.
-   The example domain is deliberately nonfunctional. Without a domain, keep the
-   service private; do not fall back to unauthenticated public HTTP.
-   [Caddy HTTPS documentation](https://caddyserver.com/docs/quick-starts/reverse-proxy)
-4. After the access gate is reviewed, permit TCP 80 and 443 in the applicable
-   OCI security list/NSG and preserve required egress. Restrict TCP 22 to trusted
-   administrator IPs; do not expose TCP 8000 or 5432. Check *both* OCI network
-   rules and the OS firewall. Oracle warns against enabling UFW on OCI Ubuntu
-   images because required boot-volume rules can be lost; inspect the existing
-   image-specific iptables rules, preserve them and arrange Console recovery.
-   Docker's published-port rules also affect host firewall behavior. Do not run
-   blanket firewall reset commands. [OCI Compute known issues](https://docs.oracle.com/en-us/iaas/Content/Compute/known-issues.htm)
+  then on the VM add `image: moodlehelper-app:release` next to `build: .` and start with
+  `up -d --no-build`.
 
-## Configuration and proposed deployment procedure
-
-Use a dedicated checkout of an approved commit on the VM; the present workspace
-contains extensive uncommitted work and is not an immutable release. Install
-Docker Engine and Compose from their official Ubuntu ARM64 instructions after
-reviewing the VM. No deployment automation or external registry is required.
-Back up the existing database and verify restoration before migrations. The app
-performs versioned migrations on startup; do not automatically import or overwrite
-local SQLite data. A separate approved export/restore plan is required for that.
-
-Create `.env.production` from `.env.production.example` locally on the VM with
-restrictive permissions. Replace all placeholders. Generate a unique URL-safe
-database password and put the same value in `POSTGRES_PASSWORD` and the database
-URL; percent-encode URL-special characters if used. Do not paste secrets into
-GitHub, command history, logs or support requests. Compose environment variables
-and Docker configuration are visible to privileged host users; use host access
-controls and a reviewed secret-management plan. `.env.production` and
-`.oci-secrets/` are Git- and Docker-context-ignored; verify before committing.
-The example is not a valid production secret.
-
-Create `.oci-secrets/caddy-users` with restrictive permissions. Each line must be
-`username bcrypt_hash`; generate the hash interactively with
-`docker run --rm -it caddy:2-alpine caddy hash-password` and put the hash, not the
-plaintext password, into the file. Keep the plaintext outside the repository and
-out of shell history. Verify the actual Caddy version's command before use. The
-file is mounted read-only and required; no default user is provided. Test the
-perimeter on isolated, non-student data before approving it.
-
-Only after security and deployment approval, review the rendered configuration
-without sharing its output (it contains secrets), choose whether to set
-`OCI_BIND_ADDRESS=0.0.0.0`, and run:
+Swap file (persistent across reboots):
 
 ```sh
-docker compose --env-file .env.production -f docker-compose.production.yaml config --quiet
-docker compose --env-file .env.production -f docker-compose.production.yaml up -d --build --wait
-docker compose --env-file .env.production -f docker-compose.production.yaml ps
-docker compose --env-file .env.production -f docker-compose.production.yaml logs --tail=100
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h
 ```
 
-Confirm anonymous requests to the dashboard, `/docs`, `/api/snapshot`,
-`/api/bridge-context` and mutation endpoints are denied; confirm authorized
-access, trusted TLS, static assets, API, PostgreSQL persistence and backups. A
-health check only establishes service readiness, not authentication or correctness.
-Review logs before sharing. `docker compose ... down` retains named volumes;
-never use `down --volumes` for a live database.
+## 3. Machine name
 
-## GitHub, rollback and remaining verification
+The machine name and tailnet name appear in the HTTPS certificate, which is published in
+public **Certificate Transparency logs**, and in the hosted extension build. Use a
+non-identifying machine name (not your name, student number or "moodle"). **Never commit
+the real name** anywhere in this repository: it lives only in `.env.production` on the VM
+and in the environment of your local hosted extension build. All docs use placeholders.
 
-No OCI API keys, deployment keys, GitHub secrets or CI deployment are required for
-the proposed manual review. The existing AWS deploy job is disabled; CI tests may
-still run. Do not add an automatic OCI deployment, SSH key or registry secret until
-the access design and deployment workflow are separately approved. Review the
-actual uncommitted diff and ensure no secrets are staged before making a release.
+## 4. Tailscale on the VM
 
-For rollback, record the previous image/commit and configuration, take and test a
-database backup before upgrade, stop traffic, and restore the prior image only if
-its schema is compatible. If a migration changed the schema, restore the verified
-matching backup instead of assuming a code rollback can downgrade it. Preserve
-Caddy certificate volumes and the database volume. The single VM and local volume
-are a single point of failure; plan off-VM encrypted backups and test restoration
-without assuming free backup capacity or cost. Public exposure, live extension
-integration, actual OCI quota, ARM runtime and certificate issuance are not proven
-by this proposal.
+1. Install `tailscaled` with Tailscale's official Linux instructions
+   (`https://tailscale.com/download/linux`; review the script or use their apt repository).
+2. `sudo tailscale up --ssh` and log in with the owner's account. Rename the machine in the
+   admin console if needed (section 3).
+3. Admin console → DNS: enable **MagicDNS** and **HTTPS Certificates**.
+4. After the app is running (section 6), serve it. Exact command, verified on Tailscale
+   1.104.7 in #134 (recheck `tailscale serve --help` if the version differs):
+
+   ```sh
+   sudo tailscale serve --bg --https=443 http://127.0.0.1:8000
+   tailscale serve status
+   ```
+
+   Serve passes the client's `Host` through unchanged and listens only on the tailnet; the
+   backend's Host check accepts exactly `MOODLE_HELPER_TAILNET_HOST` plus loopback (#135).
+   Never use Tailscale **Funnel** (that would make it public).
+
+5. Tailnet access policy: only the owner reaches the VM on 443, plus SSH for the owner.
+   Tag the VM (`tag:moodlehelper`) in the admin console and replace the default
+   allow-all policy with something like (placeholders; keep any rules your other devices
+   need, and remove the default `"*"` grant):
+
+   ```json
+   {
+     "tagOwners": { "tag:moodlehelper": ["owner@example.com"] },
+     "grants": [
+       { "src": ["owner@example.com"], "dst": ["tag:moodlehelper"], "ip": ["tcp:443"] }
+     ],
+     "ssh": [
+       { "action": "check", "src": ["owner@example.com"], "dst": ["tag:moodlehelper"], "users": ["ubuntu"] }
+     ]
+   }
+   ```
+
+   Use the policy editor's preview/tests to check that another user or device is denied.
+   No shared nodes, no `autogroup:member` grant to the VM.
+
+## 5. Remove OCI ingress (only after recovery paths work)
+
+1. Confirm **Tailscale SSH** works: `ssh ubuntu@<machine>` from a tailnet client.
+2. Confirm the **OCI serial console** (Cloud Shell connection) opens a session. This is the
+   recovery path if Tailscale breaks.
+3. Only then delete **all** ingress rules from the subnet's security list (including
+   TCP 22) and confirm the VM has no NSG allowing ingress. Keep egress: Tailscale needs
+   UDP 41641 and HTTPS to its coordination and DERP servers, and the opt-in AI gateway needs
+   HTTPS to Groq. An ephemeral public IP is free and helps direct connections.
+4. From outside the tailnet, TCP 22/80/443/8000 on the public IP must time out or be closed.
+
+Both recovery paths and the empty ingress list were confirmed on 2026-11-15 (#134).
+
+**No UFW.** Do not enable UFW on OCI Ubuntu images: the image ships iptables rules that
+the instance needs (for example for boot-volume/iSCSI and metadata access) and UFW can
+remove them, making the VM unbootable or unreachable. The OCI security list is the network
+filter here. Do not flush or reset iptables; Docker adds its own rules for the
+`127.0.0.1:8000` port, which stays loopback-only.
+[OCI Compute known issues](https://docs.oracle.com/en-us/iaas/Content/Compute/known-issues.htm)
+
+## 6. Deploy the app
+
+Install Docker Engine and the Compose plugin from Docker's official Ubuntu instructions.
+Clone the repository at the approved commit in a dedicated directory (no deployment keys or
+CI deployment are needed).
+
+```sh
+cp .env.production.example .env.production && chmod 600 .env.production
+# set MOODLE_HELPER_TAILNET_HOST to the exact <machine>.<tailnet>.ts.net name (lowercase,
+# no scheme/port/trailing dot). Optional AI: MOODLE_HELPER_AI_PROVIDER=groq, GROQ_API_KEY,
+# MOODLE_HELPER_AI_LEDGER_PATH=/data/ai-ledger.sqlite3 (must be on /data). Optional
+# identity: MOODLE_HELPER_DATASET, MOODLE_HELPER_STABLE_USER_ID, ... (see README).
+C="docker compose -f docker-compose.production.yaml --env-file .env.production"
+$C config --quiet
+$C up -d --build --wait
+$C ps
+curl -fsS http://127.0.0.1:8000/health
+```
+
+`.env.production` is Git-ignored (`.gitignore` `.env.*`) and excluded from the Docker build
+context (`.dockerignore` `**/.env.*`); check with `git check-ignore -v .env.production`.
+The `GROQ_API_KEY` is a backend secret: keep the file mode 600 and never paste it into
+GitHub, logs or chat. Data uses the image default
+`MOODLE_HELPER_DATABASE_URL=sqlite:////data/moodle-helper.sqlite3` on the `app-data` volume.
+
+Then serve it (section 4, step 4) and open `https://<machine>.<tailnet>.ts.net` from a
+tailnet device.
+
+**Hosted extension:** build it on your own machine with the same origin (README, "Hosted
+build (#136)"):
+`$env:MOODLE_HELPER_BACKEND_ORIGIN = "https://<machine>.<tailnet>.ts.net"; bun run --cwd extension build`.
+
+**Never run `docker compose ... down --volumes`** (or `docker volume rm`, `docker system
+prune --volumes`) on the VM: it deletes the database. `down` keeps the volume.
+
+Upgrade: take and copy off a backup (section 7), `git pull` the approved commit,
+`$C up -d --build --wait`. Migrations run on startup and cannot be downgraded; to roll back
+after a schema change, restore the matching backup with the previous image.
+
+## 7. Backups and restore
+
+Keep backups **off the VM** (idle reclamation, single disk). Two methods:
+
+1. **Dashboard backup export** (Settings → backup): downloads to the device you use; keep
+   it somewhere safe. Restore through the same dashboard screen.
+2. **WAL-safe SQLite copy.** The database runs in WAL mode, so never copy the live
+   `moodle-helper.sqlite3` file alone. The image has no `sqlite3` CLI; use Python's backup
+   API inside the container (consistent while the app runs):
+
+   ```sh
+   $C exec app /app/.venv/bin/python -c "import sqlite3; s=sqlite3.connect('/data/moodle-helper.sqlite3'); d=sqlite3.connect('/data/backup.sqlite3'); s.backup(d); print(d.execute('pragma integrity_check').fetchone()[0]); d.close(); s.close()"
+   $C cp app:/data/backup.sqlite3 ./moodlehelper-$(date +%F).sqlite3
+   $C exec app rm /data/backup.sqlite3
+   ```
+
+   It prints `ok`. Copy the file off the VM from a tailnet device, then delete it on the VM:
+   `scp ubuntu@<machine>:~/MoodleHelper/moodlehelper-YYYY-MM-DD.sqlite3 .`
+   The file holds your personal data: store it encrypted.
+
+**Restore (tested, section 9):** stop the app, write the backup into the volume with the
+same backup API as UID 10001, start again:
+
+```sh
+$C stop app
+$C run --rm --no-deps -v "$PWD/moodlehelper-YYYY-MM-DD.sqlite3:/restore.sqlite3:ro" app /app/.venv/bin/python -c "import sqlite3; s=sqlite3.connect('file:/restore.sqlite3?immutable=1', uri=True); d=sqlite3.connect('/data/moodle-helper.sqlite3'); s.backup(d); print(d.execute('pragma integrity_check').fetchone()[0]); d.close(); s.close()"
+$C up -d --wait
+```
+
+`immutable=1` is needed: the backup keeps WAL mode, and SQLite cannot create its `-shm`
+file next to a read-only mounted file (`attempt to write a readonly database`).
+Test a restore after the first deployment and after upgrades, not only when you need it.
+
+## 8. Remaining verification (#138)
+
+Native image build on the 1 GB VM (with swap), the app behind `tailscale serve` from a
+tailnet browser, the hosted extension against the VM, ACL denial for other users/devices,
+public-IP port checks, and a backup/restore on the VM.
+
+## 9. Local verification (#137, 2026-11-15, Windows x86_64, Docker 29.7.2)
+
+With `.env.production` copied from the example (`example-vm.example-tailnet.ts.net`) and
+`C="docker compose -p mh137 -f docker-compose.production.yaml --env-file .env.production"`:
+
+| Step | Result |
+|---|---|
+| `$C config --quiet` | succeeded |
+| `$C up -d --build --wait` | built, container healthy |
+| `curl -H 'Host: example-vm.example-tailnet.ts.net' http://127.0.0.1:8000/health` | 200 (`127.0.0.1:8000` also 200) |
+| same with `Host: attacker.example` | 400 |
+| `POST /api/personal-events` "Sentinel137" (binding header) | 200, in `/api/snapshot` |
+| `$C down`, `$C up -d --wait` | healthy, `/health` 200, sentinel still present |
+| backup snippet (section 7) + `$C cp` | printed `ok`, 188 KB file copied out |
+| delete sentinel, `$C stop app`, restore snippet, `$C up -d --wait` | printed `ok`, sentinel back, `/health` 200 |
+| `git check-ignore -v .env.production` | matched `.gitignore` `.env.*` |
+
+The first restore attempt without `immutable=1` failed with `attempt to write a readonly
+database`; the runbook command was fixed and the rerun passed. Afterwards: `$C down`, test
+volume `mh137_app-data` removed, `.env.production` deleted. No Tailscale, OCI or real data.

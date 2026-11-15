@@ -49,6 +49,12 @@ Keep the published port on loopback; the existing Host allowlist and security
 decision do not authorize public deployment. See
 [_docs/decisions/local-process-auth.md](_docs/decisions/local-process-auth.md).
 
+Private single-user hosting on an Oracle VM over Tailscale (no public port, SQLite,
+`docker-compose.production.yaml` with `.env.production.example`, which sets
+`MOODLE_HELPER_TAILNET_HOST`) is described in the runbook
+[_docs/oracle-deployment.md](_docs/oracle-deployment.md); the matching hosted extension
+build is under "Hosted build (#136)" below.
+
 ### Compose with PostgreSQL
 
 Copy `.env.example` to `.env`, choose a unique password using letters, digits,
@@ -170,8 +176,8 @@ reserved demo namespace initializes fictional samples only once. Explicit Moodle
 namespaces start empty, with default settings. No live Moodle collection or
 external AI is implemented; configured identity is partitioning, not authentication.
 No CORS permissions are enabled; the frontend development server proxies `/api`
-to FastAPI on the same browser origin. Hosted deployment and authentication remain
-undecided in #2; this implementation does not resolve that deployment design.
+to FastAPI on the same browser origin. Private hosting over Tailscale: see
+[_docs/oracle-deployment.md](_docs/oracle-deployment.md).
 
 `backend/storage.py` defines the repository protocol and explicit memory store;
 `backend/sqlite_store.py` implements SQLAlchemy transactions and namespace-scoped
