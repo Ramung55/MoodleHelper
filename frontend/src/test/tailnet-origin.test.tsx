@@ -5,7 +5,7 @@ import { bridgeMessage, isTailnetOrigin } from "@/services/api-base";
 import { BridgeClient } from "@/services/extension-adapter";
 import { classifyHandshake } from "@/domain/onboarding";
 import { BridgeGuidance } from "@/routes/settings";
-import { approved, BridgeError, errors, success, type Request } from "../../../shared/src/bridge";
+import { approved, BridgeError, errors, rejection, success, type Request } from "../../../shared/src/bridge";
 
 const TAILNET = "https://example-vm.example-tailnet.ts.net";
 afterEach(() => vi.unstubAllGlobals());
@@ -71,6 +71,20 @@ it("the adapter connects on a tailnet origin and still rejects an unapproved one
   await expect(denied.connect()).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
   expect(evil.messages).toHaveLength(0);
   denied.dispose();
+});
+
+it("extension errors carry the Tailscale wording on the tailnet origin only", async () => {
+  for (const [origin, text] of [
+    [TAILNET, "Connect this device to Tailscale, then reconnect."],
+    ["http://127.0.0.1:5173", errors.BACKEND_UNAVAILABLE],
+  ] as const) {
+    const win = new WindowShim({ origin });
+    const client = new BridgeClient(win as unknown as Window);
+    const connecting = client.connect();
+    win.emit(rejection(win.messages.at(-1)!, "BACKEND_UNAVAILABLE"));
+    await expect(connecting).rejects.toMatchObject({ code: "BACKEND_UNAVAILABLE", message: text });
+    client.dispose();
+  }
 });
 
 it("texts switch to Tailscale wording only on the tailnet origin", () => {
