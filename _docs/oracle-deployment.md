@@ -455,6 +455,23 @@ hand, from `~/MoodleHelper-dev`: `scripts/deploy.sh <sha> dev` (same checks, loc
 Check what dev runs with `curl -fsS http://127.0.0.1:8001/health` on the VM, or
 `https://<machine>.<tailnet>.ts.net:8443/health` from a tailnet device.
 
+**Deploy a branch to dev.** Actions → **CI and publish** → **Run workflow**, pick the branch
+under "Use workflow from" (or `gh workflow run ci.yml --ref <branch>`). It runs the same
+`backend`, `frontend` and `compose` jobs, and `publish` pushes that commit's tested image.
+Pushes publish automatically only on `main`. When the run is green, take the branch head's
+full SHA (`git rev-parse origin/<branch>`) and run `scripts/deploy.sh <sha> dev` in
+`~/MoodleHelper-dev`. The branch needs `docker-compose.dev.yaml`, so it must be based on a
+`main` that has it. `@dev` then logs `already attempted <main sha>, now running release <branch sha>`
+and leaves it alone; the next push to `main` replaces it. A branch SHA cannot be promoted
+(section 11).
+
+**Image tags.** `publish` pushes each image twice:
+`ghcr.io/ramung55/moodlehelper:<full sha>`, which `deploy.sh`, rollbacks and promotion use,
+and a human-readable `YYYYMMDD-HHMMSS-<short sha>` (UTC publish time, for example
+`20261116-101500-cf4c688`) for browsing the package page. A run for a commit whose full-SHA
+tag already exists (a manual re-run on `main`) pushes nothing, so a tag never points at a
+rebuilt image.
+
 Dev data is demo data. Reset it from the dashboard
 (Settings → Reset demo), or delete the dev volume (below).
 
@@ -503,11 +520,12 @@ never reaches the VM. It only fast-forwards the `production` branch, and the VM'
    Check dev at that release first.
 2. Actions → **Promote dev to production** → **Run workflow** on `main`, `sha` = that full
    SHA (or `gh workflow run promote.yml --ref main -f sha=<sha>`).
-3. Job `check` (no approval needed) rejects a SHA that is not 40 lowercase hex characters or
-   whose image `ghcr.io/ramung55/moodlehelper:<sha>` does not exist (`docker manifest
-   inspect`, anonymous: the package is public).
-4. Job `promote` waits for your approval (environment `production`). Then it checks that the
-   SHA is on `main` and that `production` is its ancestor, and runs a plain
+3. Job `check` (no approval needed) rejects a SHA that is not 40 lowercase hex characters,
+   is not on `main` (dev may be running a branch build, section 10), or has no image
+   `ghcr.io/ramung55/moodlehelper:<sha>` (`docker manifest inspect`, anonymous: the package
+   is public).
+4. Job `promote` waits for your approval (environment `production`). Then it checks again
+   that the SHA is on `main` and that `production` is its ancestor, and runs a plain
    `git push origin <sha>:refs/heads/production`, so a non-fast-forward is rejected.
 5. On the VM, the next `@production` tick logs `auto-deploy: deployed <sha>`
    (`journalctl -u moodlehelper-auto-deploy@production.service`) after `deploy.sh`'s backup,

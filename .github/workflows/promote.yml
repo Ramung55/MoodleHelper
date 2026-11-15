@@ -22,6 +22,10 @@ jobs:
     # Runs before the approval request, so the reviewer only sees promotions that can succeed.
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
       - name: Check the SHA and its published image
         env:
           SHA: ${{ inputs.sha }}
@@ -31,8 +35,13 @@ jobs:
             echo "::error::Give the full 40-character lowercase commit SHA from dev's /health release, got '$SHA'"
             exit 1
           fi
+          # Branch images exist too (manual CI runs, for dev); only main commits reach production.
+          if ! git merge-base --is-ancestor "$SHA" origin/main 2>/dev/null; then
+            echo "::error::$SHA is not a commit on main; merge it first (dev may be running a branch build)"
+            exit 1
+          fi
           if ! docker manifest inspect "ghcr.io/ramung55/moodlehelper:$SHA" > /dev/null; then
-            echo "::error::ghcr.io/ramung55/moodlehelper:$SHA does not exist (not a main commit, CI not finished, or CI failed)"
+            echo "::error::ghcr.io/ramung55/moodlehelper:$SHA does not exist (CI not finished or CI failed)"
             exit 1
           fi
           echo "Image ghcr.io/ramung55/moodlehelper:$SHA exists" >> "$GITHUB_STEP_SUMMARY"

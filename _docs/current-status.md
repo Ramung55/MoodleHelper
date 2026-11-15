@@ -12,6 +12,9 @@ Date: 2026-11-15. Base commit: `61ecdfe` (`main`, after PR #149). Replaces the 2
   `compose` (Compose integration and browser journey, saves the `tested-image` artifact) run
   on every push and PR. #146 replaces the dead AWS/ECS `deploy` job with `publish`, which
   pushes that tested image as `ghcr.io/ramung55/moodlehelper:<sha>` on pushes to `main` only.
+  Since 2026-11-16, a manual run (`workflow_dispatch`, any branch) runs the same jobs and also
+  publishes, for deploying a branch to dev by SHA. Each image also gets a readable
+  `YYYYMMDD-HHMMSS-<short sha>` tag, and an existing full-SHA tag is never overwritten.
 - **Deploy and rollback** (#146): on the VM, `scripts/deploy.sh <full commit sha>` (runbook
   section 6). The VM no longer builds.
 - **Auto-deploy** (#148): a systemd timer on the VM (`scripts/auto-deploy.sh`) deploys each
