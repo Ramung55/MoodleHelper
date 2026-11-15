@@ -78,7 +78,8 @@ def dev_clone(clone):
     return _make_clone(clone.parent / "MoodleHelper-dev")
 
 
-def tick(clone, *, attempted=None, deployed=None, script="auto-deploy.sh", args=("production",), target_clone=None, **stub):
+def tick(clone, *, attempted=None, deployed=None, script="auto-deploy.sh", args=("production",), target_clone=None,
+         script_path=None, clone_env=None, **stub):
     target = target_clone or clone
     state = target / ".git" / "moodlehelper-auto-deploy-attempted"
     if attempted:
@@ -89,11 +90,14 @@ def tick(clone, *, attempted=None, deployed=None, script="auto-deploy.sh", args=
     log.write_text("")
     env = {**os.environ, "STUB_LOG": log.as_posix(), "STUB_MAIN": M, "HOME": clone.parent.as_posix()}
     env.pop("MOODLE_HELPER_DEPLOY_LOCKED", None)
+    env.pop("MOODLE_HELPER_CLONE", None)
+    if clone_env:
+        env["MOODLE_HELPER_CLONE"] = clone_env
     env.update({f"STUB_{k.upper()}": str(v) for k, v in stub.items()})
     # Prepend the stubs inside bash: Git Bash puts its own git first on PATH at startup.
     prepend = 'PATH="$(cygpath -u "$1" 2>/dev/null || echo "$1"):$PATH"; shift; exec bash "$@"'
     proc = subprocess.run([BASH, "-c", prepend, "_", str(clone / "bin"),
-                           (clone / "scripts" / script).as_posix(), *args],
+                           Path(script_path or clone / "scripts" / script).as_posix(), *args],
                           env=env, capture_output=True, text=True, timeout=60)
     out = (proc.stdout + proc.stderr).strip()
     recorded = state.read_text().strip() if state.exists() else None
@@ -274,3 +278,23 @@ def test_deploy_refuses_a_clone_without_the_targets_env_file(stubbed_real_deploy
 def test_deploy_rejects_unknown_target(stubbed_real_deploy):
     rc, out, calls, _ = tick(stubbed_real_deploy, script="deploy.sh", args=(M, "prod"))
     assert rc == 2 and "target must be production or dev" in out and calls == ""
+
+
+def test_installed_copy_deploys_the_configured_clone_not_its_own_location(clone, dev_clone, tmp_path):
+    # The timer runs /usr/local/lib/moodlehelper/auto-deploy.sh with MOODLE_HELPER_CLONE set (QA on #155:
+    # an older checked-out script in the clone deployed main to production).
+    installed = tmp_path / "usr-local-lib" / "scripts"
+    installed.mkdir(parents=True)
+    shutil.copyfile(ROOT / "scripts" / "auto-deploy.sh", installed / "auto-deploy.sh")
+    (clone / "scripts" / "auto-deploy.sh").write_text("echo 'stale script ran' >&2; exit 99")
+    for target, where in (("production", clone), ("dev", dev_clone)):
+        rc, out, calls, recorded = tick(clone, args=(target,), script_path=installed / "auto-deploy.sh",
+                                        target_clone=where, attempted=OLD, deployed=OLD, clone_env=clone.as_posix())
+        assert rc == 0 and outcome(out) == f"auto-deploy: deployed {M}", out
+        assert f"deploy.sh {M} {target} in {where.name} locked=1" in calls and "stale" not in out
+
+
+def test_unit_runs_the_installed_copy():
+    unit = (ROOT / "scripts" / "moodlehelper-auto-deploy@.service").read_text()
+    assert "ExecStart=/bin/bash /usr/local/lib/moodlehelper/auto-deploy.sh %i" in unit
+    assert "Environment=MOODLE_HELPER_CLONE=/home/ubuntu/MoodleHelper" in unit
