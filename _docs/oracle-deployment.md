@@ -607,3 +607,108 @@ exports fail in the background and are dropped; requests are not slowed (20 requ
 0.1 s against a dead endpoint, measured 2026-11-16). Shutdown then retries the final flush for
 about 15 s, so `stop` and deploys take that much longer while the backend is unreachable;
 the exporters log `Failed to export ...` (endpoint only, no request data) to stderr.
+
+### 12.1 Dashboard and alert for personal event creation (#157)
+
+`observability/` holds a Grafana Cloud (Free) dashboard and alert that count `POST
+/api/personal-events` successes (2xx) and failures (5xx, which includes unhandled exceptions)
+from the existing `http.server.request.duration` histogram. 4xx validation errors are counted
+in neither. No new metric, attribute or data is sent.
+
+| File | Format (Grafana docs) |
+|---|---|
+| `observability/personal-events-dashboard.json` | [dashboard JSON import](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/import-dashboards/), datasource as the `${DS_PROMETHEUS}` import input |
+| `observability/personal-events-alert-rule.yaml` | [alerting file provisioning](https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/), the same format as [Export](https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/export-alerting-resources/) |
+| `observability/owner-email-contact-point.yaml` | same file-provisioning / export format, type `email` |
+
+There is **no notification policy file**: the rule uses simplified routing
+(`notification_settings.receiver`), which sends it straight to the contact point without
+touching the stack's policy tree.
+
+**Label mapping (checked 2026-11-16,
+[OTLP format considerations](https://grafana.com/docs/grafana-cloud/send-data/otlp/otlp-format-considerations/)):**
+Grafana Cloud promotes `deployment.environment.name` and `service.version` to series labels
+**by default** (dots become underscores), so every series carries them. No stack setting and
+no `target_info` join is needed. Changing the promoted list
+([promote resource attributes](https://grafana.com/docs/grafana-cloud/send-data/otlp/promote-resource-attributes/))
+is not used. The queries therefore use:
+
+| OTel | Prometheus/Mimir |
+|---|---|
+| `http.server.request.duration` (histogram, `s`) | `http_server_request_duration_seconds_count` |
+| `service.name=moodlehelper-backend` | `job="moodlehelper-backend"` (shared by dev and prod) |
+| `deployment.environment.name` | `deployment_environment_name` (`dev` / `prod`) |
+| `service.version` | `service_version` (commit SHA, or `local`) |
+| `http.route`, `http.request.method`, `http.response.status_code` | `http_route`, `http_request_method`, `http_response_status_code` (string, e.g. `"500"`) |
+
+**Dashboard** (`uid: moodlehelper-personal-events`): variable `environment` (`dev`/`prod`,
+single, default `prod`; a fixed list because the backend refuses any other value) and
+`version` (`label_values(...{job="moodlehelper-backend", deployment_environment_name="$environment"},
+service_version)`, "All" = `.*`, so it adds up every deployed SHA and `local`). Both stat
+panels show `round(sum(increase(...[$__range])))` for the selected range; `increase()` handles
+counter resets on restarts and deploys. With no traffic there is no series, so both panels show
+**"No data"** (not an error).
+
+**Alert** "Personal event creation failing" (folder `MoodleHelper`, group `personal-events`):
+
+```promql
+round(sum by (deployment_environment_name, service_version) (increase(http_server_request_duration_seconds_count{job="moodlehelper-backend", http_route="/api/personal-events", http_request_method="POST", http_response_status_code=~"5.."}[15m])))
+```
+
+Condition `$A >= 3` (math expression B), evaluated every 1m, pending period 5m.
+
+- Why: one student saves a few events a day. One 5xx, or two in a row, can be transient and
+  never fires. Three failed saves within 15 minutes mean the owner retried and still could
+  not save. The 5m pending period confirms it is not a single burst that a metric export or
+  restart has already resolved. `round()` absorbs `increase()` extrapolation.
+- Worst-case delay from the third failure to the email: about 60 s metric export + 1 m
+  evaluation + 5 m pending (≈ 7 min), plus Grafana's notification group wait (30 s default).
+- No data → **OK (Normal)**, so the alert stays quiet when nobody creates events. Execution
+  error → **Error** (Grafana shows the rule as errored and notifies with an error alert).
+- It fires per environment and version (`sum by`), so dev and prod alert separately. **Dev
+  alerts go to the same email**; the subject and labels name the environment, and
+  notifications are grouped by `environment`. To mute dev, add a silence with matcher
+  `environment=dev`.
+- Labels: `service`, `environment`, `version`, `owner` (placeholder `<owner>`, not an email),
+  `severity=warning`. Annotations: `summary`, `description` (count, environment, version),
+  `dashboard_url`, `runbook_url` (this section). The rule is linked to the dashboard
+  (`dashboardUid`/`panelId`, Grafana's `__dashboardUid__`/`__panelId__`).
+
+**Import** (Grafana Cloud UI). Grafana Cloud does not offer file provisioning, so the YAML
+files are the reference: steps 3 and 4 enter the same values in the UI, then compare with the
+UI's **Export**. Placeholders: `<your-stack>` (stack URL), `<PROMETHEUS_DATASOURCE_UID>`,
+`<owner-email>`, `<owner>`.
+
+1. **Labels (no setting needed).** In Explore, with the stack's Prometheus data source
+   (usually `grafanacloud-<stack>-prom`), run
+   `count by (deployment_environment_name, service_version) (http_server_request_duration_seconds_count{job="moodlehelper-backend"})`.
+   Both labels should show values. If they do not, stop: the default promotion has changed.
+2. **Dashboard.** Dashboards → New → Import → upload `personal-events-dashboard.json` →
+   select the Prometheus data source for the `Prometheus` input → Import. Keep the uid
+   `moodlehelper-personal-events`.
+3. **Contact point.** Alerting → Contact points → Add contact point: name
+   `MoodleHelper owner email`, integration Email, Addresses = your address in place of
+   `<owner-email>`, "Single email" on → Save.
+4. **Alert rule.** Alerting → Alert rules → New alert rule, using the values in
+   `personal-events-alert-rule.yaml`: name; query A on the Prometheus data source (the UID
+   that replaces `<PROMETHEUS_DATASOURCE_UID>`) in code mode with the query above, type
+   Instant; replace the default expressions with Math `$A >= 3` as the alert condition;
+   folder `MoodleHelper`, new evaluation group `personal-events` every 1m, pending period
+   5m; under "Configure no data and error handling" No data = Normal, Error = Error; labels
+   and annotations from the file (replace `<your-stack>` in `dashboard_url` and `<owner>`);
+   link dashboard "MoodleHelper personal events", panel "Personal event creation failures";
+   contact point `MoodleHelper owner email` (group by `alertname`, `grafana_folder`,
+   `environment`) → Save. Then More → Export (YAML) and compare with the file: only UIDs and
+   the replaced placeholders should differ.
+5. **Routing.** Nothing to do: simplified routing (step 4) sends the rule to the contact
+   point; no notification policy is created or changed.
+6. **Test.** Contact point → Test → check the email arrives. Then create one personal event on
+   dev and, after about a minute, set the dashboard to `environment=dev`: "Personal events
+   created" shows 1 and failures show "No data". No 5xx is triggered on purpose.
+
+**Privacy:** the dashboard and alert read only the metric listed under "What is sent"; nothing
+new is sent. The alert email contains only service, environment, version, the failure count
+and the dashboard link (plus Grafana's own rule and silence links), never request data.
+Enter the owner email and any token only in the Grafana UI; never commit them or paste them
+into GitHub, logs or chat. Keep real stack URLs, stack names and data source UIDs out of the
+repo.

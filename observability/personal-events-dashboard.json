@@ -1,0 +1,109 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Grafana Cloud hosted Prometheus (Mimir) data source",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" }
+  ],
+  "uid": "moodlehelper-personal-events",
+  "title": "MoodleHelper personal events",
+  "tags": ["moodlehelper"],
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-24h", "to": "now" },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "custom",
+        "query": "dev,prod",
+        "current": { "selected": true, "text": "prod", "value": "prod" },
+        "options": [
+          { "selected": false, "text": "dev", "value": "dev" },
+          { "selected": true, "text": "prod", "value": "prod" }
+        ],
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "version",
+        "label": "Version",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "definition": "label_values(http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\"}, service_version)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\"}, service_version)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 0,
+        "multi": false,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "selected": true, "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Personal events created",
+      "description": "POST /api/personal-events with a 2xx response in the selected range.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "round(sum(increase(http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"2..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}[$__range])))",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Personal event creation failures",
+      "description": "POST /api/personal-events with a 5xx response (including unhandled exceptions) in the selected range. 4xx validation errors are not counted.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "round(sum(increase(http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"5..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}[$__range])))",
+          "instant": true,
+          "range": false
+        }
+      ]
+    }
+  ]
+}
