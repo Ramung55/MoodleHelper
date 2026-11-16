@@ -138,7 +138,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance) (moodlehelper_sync_runs_started_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance) (moodlehelper_sync_runs_started_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}) offset $__range) or max_over_time((max by (deployment_environment_name, service_version, instance) (moodlehelper_sync_runs_started_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
+          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance) (moodlehelper_sync_runs_started_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance) (moodlehelper_sync_runs_started_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"} offset $__range)) or max_over_time((max by (deployment_environment_name, service_version, instance) (moodlehelper_sync_runs_started_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
           "instant": true,
           "range": false
         }
@@ -232,7 +232,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance) (moodlehelper_personal_events_created_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance) (moodlehelper_personal_events_created_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}) offset $__range) or max_over_time((max by (deployment_environment_name, service_version, instance) (moodlehelper_personal_events_created_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
+          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance) (moodlehelper_personal_events_created_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance) (moodlehelper_personal_events_created_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"} offset $__range)) or max_over_time((max by (deployment_environment_name, service_version, instance) (moodlehelper_personal_events_created_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
           "instant": true,
           "range": false
         }
@@ -279,7 +279,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance, error_type) (moodlehelper_personal_events_failures_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance, error_type) (moodlehelper_personal_events_failures_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}) offset $__range) or max_over_time((max by (deployment_environment_name, service_version, instance, error_type) (moodlehelper_personal_events_failures_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
+          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance, error_type) (moodlehelper_personal_events_failures_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance, error_type) (moodlehelper_personal_events_failures_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"} offset $__range)) or max_over_time((max by (deployment_environment_name, service_version, instance, error_type) (moodlehelper_personal_events_failures_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
           "instant": true,
           "range": false
         }
