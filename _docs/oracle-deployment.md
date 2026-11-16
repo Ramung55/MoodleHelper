@@ -285,8 +285,12 @@ to production, and every later tick exits 2 (`give the target`) until the new un
 sudo systemctl disable --now moodlehelper-auto-deploy.timer
 sudo rm /etc/systemd/system/moodlehelper-auto-deploy.service /etc/systemd/system/moodlehelper-auto-deploy.timer
 rm -f .git/moodlehelper-deploy.lock    # the old per-clone lock; the new one is ~/.moodlehelper-deploy.lock
-# then set up the dev clone (section 10) and run the four install commands above
 ```
+
+**After** the dev environment (#154) and this change are merged into `main`, set up the dev
+clone (section 10) and run the four install commands above. They cannot run earlier: before
+the merge, `main` has neither `docker-compose.dev.yaml` nor the `@` unit files. Between the two
+steps nothing deploys automatically; production keeps running its current release.
 
 The old state file in `~/MoodleHelper` holds a `main` SHA; once `production` exists at the
 running release, the first `@production` tick only records it (`... (already deployed), recorded`).
