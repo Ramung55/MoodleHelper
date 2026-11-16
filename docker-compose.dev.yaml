@@ -11,6 +11,9 @@ services:
       - MOODLE_HELPER_TAILNET_PORT=8443
       - MOODLE_HELPER_RELEASE=${MOODLE_HELPER_RELEASE:-local}
       - MOODLE_HELPER_DATASET=demo
+      - MOODLE_HELPER_ENVIRONMENT=dev
+      - OTEL_EXPORTER_OTLP_ENDPOINT
+      - OTEL_EXPORTER_OTLP_HEADERS
     ports: !override
       - "127.0.0.1:8001:8000"
     volumes: !override

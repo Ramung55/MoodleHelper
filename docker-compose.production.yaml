@@ -12,6 +12,10 @@ services:
       - MOODLE_HELPER_TAILNET_HOST=${MOODLE_HELPER_TAILNET_HOST:?Set MOODLE_HELPER_TAILNET_HOST to the VM's <machine>.<tailnet>.ts.net name}
       - MOODLE_HELPER_TAILNET_PORT
       - MOODLE_HELPER_RELEASE=${MOODLE_HELPER_RELEASE:-local}
+      - MOODLE_HELPER_ENVIRONMENT=prod
+      # Telemetry is off unless the endpoint is set (runbook section 12); the headers carry the backend token.
+      - OTEL_EXPORTER_OTLP_ENDPOINT
+      - OTEL_EXPORTER_OTLP_HEADERS
       - MOODLE_HELPER_DATASET
       - MOODLE_HELPER_MOODLE_ORIGIN
       - MOODLE_HELPER_PROFILE_LABEL

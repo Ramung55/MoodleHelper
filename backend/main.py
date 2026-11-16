@@ -28,6 +28,7 @@ from backend.scan_queue import ScanQueueService, SyncConflict
 from backend.backup_restore import RestoreService, MAX_BACKUP_BYTES
 from backend.local_erase import EraseService
 from backend.storage import EpochConflict, expected_epoch
+from backend.telemetry import TelemetryMiddleware, setup as setup_telemetry
 
 
 # #63: loopback names only, any or no port (#135 adds one configured tailnet name, by equality). Exact match, so rebinding names such as
@@ -72,8 +73,9 @@ DASHBOARD_ORIGIN = 'https://ramung55.github.io'
 
 def create_app(store: SnapshotStore | None = None, *, collection_provider=None, queue_clock=None, reminder_clock=None, reminder_resolver=None,
                store_factory: Callable[[], SnapshotStore] | None = None, ai_gateway: AiGateway | None = None,
-               material_download_capability=None) -> FastAPI:
+               material_download_capability=None, telemetry_exporters=None) -> FastAPI:
     # Trusted construction only: no request, query, header or page message selects a provider.
+    telemetry = setup_telemetry(os.environ, telemetry_exporters)
     gateway = ai_gateway or gateway_from_environment()
     if store is not None and store_factory is not None:
         raise ValueError('Provide either store or store_factory, not both.')
@@ -378,6 +380,8 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.add_middleware(CORSMiddleware, allow_origins=[DASHBOARD_ORIGIN], allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
                            allow_headers=['Accept', 'Content-Type', 'X-Moodle-Helper-Bridge-Binding', 'X-Moodle-Helper-Data-Epoch'],
                            expose_headers=['Retry-After'], allow_credentials=False, allow_private_network=True, max_age=600)
+    if telemetry is not None:
+        app.add_middleware(TelemetryMiddleware, telemetry=telemetry)
     # Added last, so it is outermost: runs before every other middleware and routing.
     app.add_middleware(LoopbackHostMiddleware, tailnet_host=tailnet_host, tailnet_port=tailnet_port)
     return app
