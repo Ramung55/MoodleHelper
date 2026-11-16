@@ -184,3 +184,15 @@ def test_failed_sign_in_preserves_prior_source_and_provides_fixed_guidance(servi
     assert page_list['signInGuidance']=='Sign in to SDU Moodle to continue.'
     assert page_list['signInUrl']=='https://moodle.sdu.edu.kz/login/index.php'
     assert page_list['incompleteReasons']==['signed_out','undiscovered']
+
+
+def test_started_counter_skips_replays_and_active_runs_drop_on_cancel(service):
+    queue, _ = service
+    added = []
+    queue.telemetry = type('T', (), {'sync_runs_started': type('C', (), {'add': lambda self, n: added.append(n)})()})()
+    assert queue.active_runs() == 0
+    run = queue.start('metrics')
+    queue.start('metrics')  # idempotent replay
+    assert added == [1] and queue.active_runs() == 1
+    queue.cancel(run['id'])
+    assert queue.active_runs() == 0

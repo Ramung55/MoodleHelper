@@ -163,8 +163,17 @@ def overlay(assessmentId: str, body: s.OverlayPatch, api: Service):
 
 
 @router.post("/personal-events", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="addPersonalEvent", tags=["Assessments"])
-def add_personal_event(body: s.PersonalEventInput, api: Service):
-    return api.add_personal_event(wire(body))
+def add_personal_event(body: s.PersonalEventInput, api: Service, request: Request):
+    telemetry = request.app.state.telemetry
+    try:
+        snapshot = api.add_personal_event(wire(body))
+    except Exception as error:
+        if telemetry is not None:
+            telemetry.personal_event_failures.add(1, {'error.type': type(error).__name__})
+        raise
+    if telemetry is not None:
+        telemetry.personal_events_created.add(1)
+    return snapshot
 
 
 @router.delete("/personal-events/{id:path}", response_model=s.Snapshot, response_model_exclude_none=True, operation_id="deletePersonalEvent", tags=["Assessments"])
