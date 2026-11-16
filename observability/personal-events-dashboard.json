@@ -75,7 +75,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "round(sum(increase(http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"2..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}[$__range])))",
+          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance, http_response_status_code) (http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"2..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance, http_response_status_code) (http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"2..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"} offset $__range)) or max_over_time((max by (deployment_environment_name, service_version, instance, http_response_status_code) (http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"2..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
           "instant": true,
           "range": false
         }
@@ -99,7 +99,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "round(sum(increase(http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"5..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}[$__range])))",
+          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance, http_response_status_code) (http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"5..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance, http_response_status_code) (http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"5..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"} offset $__range)) or max_over_time((max by (deployment_environment_name, service_version, instance, http_response_status_code) (http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", http_route=\"/api/personal-events\", http_request_method=\"POST\", http_response_status_code=~\"5..\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
           "instant": true,
           "range": false
         }

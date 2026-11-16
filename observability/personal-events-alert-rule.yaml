@@ -20,11 +20,22 @@ groups:
               refId: A
               instant: true
               range: false
+              # Per process (instance) and status, max merges series split by Grafana's Asserts relabeling;
+              # a process seen 15m ago counts its increase, a newer one counts from 0 (max_over_time).
               expr: >-
-                round(sum by (deployment_environment_name, service_version)
-                (increase(http_server_request_duration_seconds_count{job="moodlehelper-backend",
+                round(sum by (deployment_environment_name, service_version) (
+                (increase((max by (deployment_environment_name, service_version, instance, http_response_status_code)
+                (http_server_request_duration_seconds_count{job="moodlehelper-backend",
                 http_route="/api/personal-events", http_request_method="POST",
-                http_response_status_code=~"5.."}[15m])))
+                http_response_status_code=~"5.."}))[15m:1m])
+                and max by (deployment_environment_name, service_version, instance, http_response_status_code)
+                (http_server_request_duration_seconds_count{job="moodlehelper-backend",
+                http_route="/api/personal-events", http_request_method="POST",
+                http_response_status_code=~"5.."} offset 15m))
+                or max_over_time((max by (deployment_environment_name, service_version, instance, http_response_status_code)
+                (http_server_request_duration_seconds_count{job="moodlehelper-backend",
+                http_route="/api/personal-events", http_request_method="POST",
+                http_response_status_code=~"5.."}))[15m:1m])))
           - refId: B
             datasourceUid: __expr__
             model:
@@ -40,10 +51,11 @@ groups:
         execErrState: Error
         for: 5m
         isPaused: false
+        # Templated labels use $$labels, as Grafana's export escapes them; annotations keep $labels.
         labels:
           service: moodlehelper-backend
-          environment: "{{ $labels.deployment_environment_name }}"
-          version: "{{ $labels.service_version }}"
+          environment: "{{ $$labels.deployment_environment_name }}"
+          version: "{{ $$labels.service_version }}"
           owner: "<owner>"
           severity: warning
         annotations:

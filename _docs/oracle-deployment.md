@@ -640,20 +640,37 @@ is not used. The queries therefore use:
 | `deployment.environment.name` | `deployment_environment_name` (`dev` / `prod`) |
 | `service.version` | `service_version` (commit SHA, or `local`) |
 | `http.route`, `http.request.method`, `http.response.status_code` | `http_route`, `http_request_method`, `http_response_status_code` (string, e.g. `"500"`) |
+| (not set by the backend) | `instance` / `service_instance_id`: a UUID Grafana Cloud adds, new for every process start |
+
+Grafana Cloud's Asserts (knowledge graph) can also add `asserts_*` and `service` labels to
+existing series mid-stream, which splits one counter into two series.
 
 **Dashboard** (`uid: moodlehelper-personal-events`): variable `environment` (`dev`/`prod`,
 single, default `prod`; a fixed list because the backend refuses any other value) and
 `version` (`label_values(...{job="moodlehelper-backend", deployment_environment_name="$environment"},
 service_version)`, "All" = `.*`, so it adds up every deployed SHA and `local`). Both stat
-panels show `round(sum(increase(...[$__range])))` for the selected range; `increase()` handles
-counter resets on restarts and deploys. With no traffic there is no series, so both panels show
-**"No data"** (not an error).
+panels use the same counting as the alert (below) with `[$__range:1m]` and `offset $__range`
+in place of 15m, and `sum()` over everything selected. With no traffic there is no series, so
+both panels show **"No data"** (not an error).
 
 **Alert** "Personal event creation failing" (folder `MoodleHelper`, group `personal-events`):
 
 ```promql
-round(sum by (deployment_environment_name, service_version) (increase(http_server_request_duration_seconds_count{job="moodlehelper-backend", http_route="/api/personal-events", http_request_method="POST", http_response_status_code=~"5.."}[15m])))
+round(sum by (deployment_environment_name, service_version) ((increase((max by (deployment_environment_name, service_version, instance, http_response_status_code) (http_server_request_duration_seconds_count{job="moodlehelper-backend", http_route="/api/personal-events", http_request_method="POST", http_response_status_code=~"5.."}))[15m:1m]) and max by (deployment_environment_name, service_version, instance, http_response_status_code) (http_server_request_duration_seconds_count{job="moodlehelper-backend", http_route="/api/personal-events", http_request_method="POST", http_response_status_code=~"5.."} offset 15m)) or max_over_time((max by (deployment_environment_name, service_version, instance, http_response_status_code) (http_server_request_duration_seconds_count{job="moodlehelper-backend", http_route="/api/personal-events", http_request_method="POST", http_response_status_code=~"5.."}))[15m:1m])))
 ```
+
+How it counts: `max by (..., instance, http_response_status_code)` merges the series that
+Asserts relabeling split (same counter, so the larger value is the current one). For each
+process that already existed 15m ago, `increase()` over a 1m subquery counts its failures in
+the window; a process that started inside the window (new deploy or restart, so its counter
+began at 0) counts its whole value via `max_over_time`. Then it sums per environment and
+version and rounds.
+
+Why not plain `increase(...[15m])`: in a live dev test (2026-11-16) six 5xx and two 2xx within
+about 5 minutes gave 1 and 0. `increase()` ignores the first sample of a series, and every
+deploy (new `service_version`) and restart (new `instance`) starts new series whose first
+60 s export already held failures; Asserts then split the 5xx counter again (samples 2→3 on
+the old series, 6 on the new one).
 
 Condition `$A >= 3` (math expression B), evaluated every 1m, pending period 5m.
 
@@ -661,6 +678,8 @@ Condition `$A >= 3` (math expression B), evaluated every 1m, pending period 5m.
   never fires. Three failed saves within 15 minutes mean the owner retried and still could
   not save. The 5m pending period confirms it is not a single burst that a metric export or
   restart has already resolved. `round()` absorbs `increase()` extrapolation.
+- Counter resets: a restart is a new `instance`, counted from 0 as above; `increase()` still
+  handles a reset inside one series.
 - Worst-case delay from the third failure to the email: about 60 s metric export + 1 m
   evaluation + 5 m pending (≈ 7 min), plus Grafana's notification group wait (30 s default).
 - No data → **OK (Normal)**, so the alert stays quiet when nobody creates events. Execution
@@ -691,11 +710,14 @@ UI's **Export**. Placeholders: `<your-stack>` (stack URL), `<PROMETHEUS_DATASOUR
    `<owner-email>`, "Single email" on → Save.
 4. **Alert rule.** Alerting → Alert rules → New alert rule, using the values in
    `personal-events-alert-rule.yaml`: name; query A on the Prometheus data source (the UID
-   that replaces `<PROMETHEUS_DATASOURCE_UID>`) in code mode with the query above, type
+   that replaces `<PROMETHEUS_DATASOURCE_UID>`) in code mode with the query above (the long
+   `round(sum by ... max_over_time(...)[15m:1m])))` text, pasted as one line), type
    Instant; replace the default expressions with Math `$A >= 3` as the alert condition;
    folder `MoodleHelper`, new evaluation group `personal-events` every 1m, pending period
    5m; under "Configure no data and error handling" No data = Normal, Error = Error; labels
-   and annotations from the file (replace `<your-stack>` in `dashboard_url` and `<owner>`);
+   and annotations from the file (replace `<your-stack>` in `dashboard_url` and `<owner>`;
+   in the UI type label templates as `{{ $labels.x }}`: the file writes them as
+   `{{ $$labels.x }}` because Grafana's export escapes `$` in labels, not in annotations);
    link dashboard "MoodleHelper personal events", panel "Personal event creation failures";
    contact point `MoodleHelper owner email` (group by `alertname`, `grafana_folder`,
    `environment`) → Save. Then More → Export (YAML) and compare with the file: only UIDs and
