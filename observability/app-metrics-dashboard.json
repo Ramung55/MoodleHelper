@@ -1,0 +1,334 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Grafana Cloud hosted Prometheus (Mimir) data source",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    }
+  ],
+  "uid": "moodlehelper-app-metrics",
+  "title": "MoodleHelper app metrics",
+  "tags": [
+    "moodlehelper"
+  ],
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "custom",
+        "query": "dev,prod",
+        "current": {
+          "selected": true,
+          "text": "prod",
+          "value": "prod"
+        },
+        "options": [
+          {
+            "selected": false,
+            "text": "dev",
+            "value": "dev"
+          },
+          {
+            "selected": true,
+            "text": "prod",
+            "value": "prod"
+          }
+        ],
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "version",
+        "label": "Version",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\"}, service_version)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(http_server_request_duration_seconds_count{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\"}, service_version)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 0,
+        "multi": false,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Sync runs started",
+      "description": "New Moodle sync runs (Sync all or POST /api/scan/runs) in the selected range; replays are not counted.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance) (moodlehelper_sync_runs_started_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance) (moodlehelper_sync_runs_started_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}) offset $__range) or max_over_time((max by (deployment_environment_name, service_version, instance) (moodlehelper_sync_runs_started_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Active sync runs",
+      "description": "Sync runs that currently have a pending or running job (latest value).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(moodlehelper_sync_runs_active{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"})",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Personal events created",
+      "description": "Personal events created in the selected range.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance) (moodlehelper_personal_events_created_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance) (moodlehelper_personal_events_created_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}) offset $__range) or max_over_time((max by (deployment_environment_name, service_version, instance) (moodlehelper_personal_events_created_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Personal event failures",
+      "description": "Personal event creations that raised in the selected range, any error type (includes validation errors that become 4xx).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "round(sum((increase((max by (deployment_environment_name, service_version, instance, error_type) (moodlehelper_personal_events_failures_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m]) and max by (deployment_environment_name, service_version, instance, error_type) (moodlehelper_personal_events_failures_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}) offset $__range) or max_over_time((max by (deployment_environment_name, service_version, instance, error_type) (moodlehelper_personal_events_failures_total{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"}))[$__range:1m])))",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Active sync runs over time",
+      "description": "Sync runs with a pending or running job.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(moodlehelper_sync_runs_active{job=\"moodlehelper-backend\", deployment_environment_name=\"$environment\", service_version=~\"$version\"})",
+          "legendFormat": "active runs",
+          "range": true
+        }
+      ]
+    }
+  ]
+}
