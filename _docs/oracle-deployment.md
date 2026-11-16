@@ -734,3 +734,32 @@ and the dashboard link (plus Grafana's own rule and silence links), never reques
 Enter the owner email and any token only in the Grafana UI; never commit them or paste them
 into GitHub, logs or chat. Keep real stack URLs, stack names and data source UIDs out of the
 repo.
+
+### 12.2 App metrics dashboard
+
+`observability/app-metrics-dashboard.json` (`uid: moodlehelper-app-metrics`, "MoodleHelper
+app metrics") shows the application metrics from `backend/telemetry.py`. It has the same
+`environment` and `version` variables as 12.1. Grafana Cloud's OTLP translation drops the
+`{run}`/`{event}` units and adds `_total` to counters:
+
+| Panel | OTel metric | Prometheus series | Query |
+|---|---|---|---|
+| Sync runs started | `moodlehelper.sync.runs.started` | `moodlehelper_sync_runs_started_total` | total in the selected range |
+| Active sync runs (stat + time series) | `moodlehelper.sync.runs.active` | `moodlehelper_sync_runs_active` | `max(...)`: instances in one environment share one database |
+| Personal events created | `moodlehelper.personal_events.created` | `moodlehelper_personal_events_created_total` | total in the selected range |
+| Personal event failures | `moodlehelper.personal_events.failures` | `moodlehelper_personal_events_failures_total` | total over all `error_type` values |
+
+The range totals use the same query shape as 12.1 (`increase(...)` with a `max_over_time`
+fallback per environment, version and instance), so series that start inside the range are
+counted in full. Unlike 12.1, "Personal event failures" counts every exception, including
+validation errors that become 4xx; the alert still uses only 5xx from the HTTP histogram.
+Counters appear only after their first increment, so a fresh deploy shows **"No data"**.
+
+**Import:** first check the names in Explore with
+`count by (__name__) ({__name__=~"moodlehelper_.*", job="moodlehelper-backend"})`. If they
+differ from the table, stop and fix the queries. Then Dashboards → New → Import → upload
+`app-metrics-dashboard.json` → select the Prometheus data source → Import.
+**Test:** on dev, create one personal event. After about a minute, with `environment=dev`,
+"Personal events created" is at least 1. Dev holds demo data only and demo syncs are not
+counted, so the two sync panels stay at "No data" on dev; check them on prod after a real
+Sync all.
