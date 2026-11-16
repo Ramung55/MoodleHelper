@@ -1,7 +1,12 @@
 name: CI and publish
 on:
   push:
+    # production only moves to commits main already tested (promote.yml); nothing to rerun there.
+    branches-ignore: [production]
   pull_request:
+  # Manual run for any branch ("Use workflow from"): same tests, then publishes that commit's
+  # image, so a branch can be deployed to dev by SHA (runbook section 10).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,7 +19,14 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --locked
       - run: shellcheck scripts/deploy.sh scripts/auto-deploy.sh
-      - run: systemd-analyze verify scripts/moodlehelper-auto-deploy.service scripts/moodlehelper-auto-deploy.timer
+      - name: Verify the auto-deploy units as both instances
+        run: |
+          d=$(mktemp -d)
+          for t in dev production; do
+            cp 'scripts/moodlehelper-auto-deploy@.service' "$d/moodlehelper-auto-deploy@$t.service"
+            cp 'scripts/moodlehelper-auto-deploy@.timer' "$d/moodlehelper-auto-deploy@$t.timer"
+          done
+          systemd-analyze verify "$d"/*
       # Contract tests run the frontend Zod models through Node (typescript, zod)
       # and the privacy review reads the built extension manifest.
       - uses: oven-sh/setup-bun@v2
@@ -71,7 +83,8 @@ jobs:
           retention-days: 1
   publish:
     # Pushes the exact image the compose job tested; the VM pulls it by SHA (scripts/deploy.sh).
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Automatically only for main; any branch only when started by hand.
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     needs: [backend, frontend, compose]
     runs-on: ubuntu-latest
     permissions:
@@ -88,6 +101,17 @@ jobs:
         run: |
           set -euo pipefail
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          image="ghcr.io/ramung55/moodlehelper:${GITHUB_SHA}"
-          docker tag moodlehelper:tested "$image"
-          docker push "$image"
+          repo=ghcr.io/ramung55/moodlehelper
+          # A SHA's image is immutable: deploys and rollbacks pull it by this tag, and promotion
+          # moves exactly what dev ran. A re-run for a published commit never overwrites it.
+          if docker manifest inspect "$repo:${GITHUB_SHA}" > /dev/null 2>&1; then
+            echo "::notice::$repo:${GITHUB_SHA} already exists; not overwriting it"
+            exit 0
+          fi
+          # Extra human-readable tag: UTC publish time and short SHA, e.g. 20261116-101500-cf4c688.
+          readable="$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+          for tag in "${GITHUB_SHA}" "$readable"; do
+            docker tag moodlehelper:tested "$repo:$tag"
+            docker push "$repo:$tag"
+          done
+          echo "Published $repo:${GITHUB_SHA} and $repo:$readable" >> "$GITHUB_STEP_SUMMARY"

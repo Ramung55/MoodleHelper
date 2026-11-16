@@ -33,17 +33,33 @@ def test_app_runs_the_ghcr_image_tagged_by_release():
     assert "MOODLE_HELPER_RELEASE=${MOODLE_HELPER_RELEASE:-local}" in app["environment"]
 
 
-def test_ci_publishes_only_on_main_and_has_no_aws_deploy():
+def test_ci_publishes_automatically_only_on_main_and_has_no_aws_deploy():
     text = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
     jobs = yaml.safe_load(text)["jobs"]
     assert "deploy" not in jobs
     assert not any(word in text.lower() for word in ("aws", "ecs", "ecr"))
     publish = jobs["publish"]
-    assert publish["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    assert publish["if"] == ("(github.event_name == 'push' && github.ref == 'refs/heads/main') "
+                             "|| github.event_name == 'workflow_dispatch'")
     assert publish["needs"] == ["backend", "frontend", "compose"]
     assert publish["permissions"] == {"contents": "read", "packages": "write"}
     assert all("packages" not in job.get("permissions", {}) for name, job in jobs.items() if name != "publish")
-    assert 'ghcr.io/ramung55/moodlehelper:${GITHUB_SHA}' in text
+    assert set(yaml.safe_load(text)[True]) == {"push", "pull_request", "workflow_dispatch"}
+    push = next(step["run"] for step in publish["steps"] if step.get("name") == "Push tested image to GHCR")
+    # Full-SHA tag (deploy.sh, rollback, promotion) plus the readable one; never overwritten.
+    assert 'for tag in "${GITHUB_SHA}" "$readable"' in push
+    assert 'readable="$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"' in push
+    assert push.index('docker manifest inspect "$repo:${GITHUB_SHA}"') < push.index("docker push")
+    assert "docker build" not in push
+
+
+def test_readable_tag_format():
+    import re
+    import subprocess
+    sha = "cf4c688a89c523c6b882df3b9069f8155d1f8216"
+    out = subprocess.run(["bash", "-c", 'GITHUB_SHA=$1; echo "$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"', "_", sha],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert re.fullmatch(r"20\d{6}-\d{6}-cf4c688", out), out
 
 
 def test_deploy_script_keeps_the_volume():
@@ -70,4 +86,32 @@ def test_dev_override_is_isolated_demo_only():
     assert "MOODLE_HELPER_DATASET=demo" in app["environment"] and "MOODLE_HELPER_TAILNET_PORT=8443" in app["environment"]
     keys = {line.split("=", 1)[0] for line in (ROOT / ".env.dev.example").read_text().splitlines()
             if line and not line.startswith("#")}
-    assert keys == {"MOODLE_HELPER_TAILNET_HOST", "MOODLE_HELPER_RELEASE"}
+    assert keys == {"MOODLE_HELPER_TAILNET_HOST"}
+
+
+def test_promote_workflow_is_manual_approved_and_never_builds_or_reaches_the_vm():
+    text = (ROOT / ".github" / "workflows" / "promote.yml").read_text()
+    wf = yaml.safe_load(text)
+    on = wf[True]  # PyYAML reads the bare key `on` as True
+    assert set(on) == {"workflow_dispatch"}
+    assert on["workflow_dispatch"]["inputs"]["sha"]["required"] is True
+    assert wf["permissions"] == {"contents": "read"}
+    jobs = wf["jobs"]
+    assert "environment" not in jobs["check"] and jobs["promote"]["needs"] == "check"
+    assert jobs["promote"]["environment"] == "production"
+    # The input reaches shell only through env, never through ${{ }} inside run.
+    for job in jobs.values():
+        for step in job["steps"]:
+            assert "inputs." not in step.get("run", "")
+    for banned in ("docker build", "docker push", "ssh ", "tailscale", "--force", "-f origin", "+refs"):
+        assert banned not in text
+    assert 'git push origin "$SHA:refs/heads/production"' in text
+    assert 'docker manifest inspect "ghcr.io/ramung55/moodlehelper:$SHA"' in text
+    # Branch images exist too: the main-only check runs before the approval request.
+    check = next(step["run"] for step in jobs["check"]["steps"] if "run" in step)
+    assert 'git merge-base --is-ancestor "$SHA" origin/main' in check
+
+
+def test_ci_does_not_rerun_on_production_pushes():
+    ci = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    assert ci[True]["push"] == {"branches-ignore": ["production"]}

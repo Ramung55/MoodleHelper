@@ -1,0 +1,78 @@
+# Promote the release dev runs to production (runbook: _docs/oracle-deployment.md section 11).
+# It only moves the `production` branch; the VM's moodlehelper-auto-deploy@production timer pulls
+# and deploys it. Actions never reaches the VM and never rebuilds: the image CI published from main is reused.
+name: Promote dev to production
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full 40-character commit SHA that dev's /health reports as "release"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-production
+  cancel-in-progress: false
+
+jobs:
+  check:
+    # Runs before the approval request, so the reviewer only sees promotions that can succeed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Check the SHA and its published image
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Give the full 40-character lowercase commit SHA from dev's /health release, got '$SHA'"
+            exit 1
+          fi
+          # Branch images exist too (manual CI runs, for dev); only main commits reach production.
+          if ! git merge-base --is-ancestor "$SHA" origin/main 2>/dev/null; then
+            echo "::error::$SHA is not a commit on main; merge it first (dev may be running a branch build)"
+            exit 1
+          fi
+          if ! docker manifest inspect "ghcr.io/ramung55/moodlehelper:$SHA" > /dev/null; then
+            echo "::error::ghcr.io/ramung55/moodlehelper:$SHA does not exist (CI not finished or CI failed)"
+            exit 1
+          fi
+          echo "Image ghcr.io/ramung55/moodlehelper:$SHA exists" >> "$GITHUB_STEP_SUMMARY"
+
+  promote:
+    needs: check
+    runs-on: ubuntu-latest
+    # Required reviewer: the job waits for manual approval; the deploy key is an environment secret.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          # GITHUB_TOKEN may not push refs that change .github/workflows; a write deploy key may.
+          ssh-key: ${{ secrets.PRODUCTION_DEPLOY_KEY }}
+      - name: Fast-forward production
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::$SHA is not a commit on main"
+            exit 1
+          fi
+          if git rev-parse --verify --quiet origin/production > /dev/null; then
+            if ! git merge-base --is-ancestor origin/production "$SHA"; then
+              echo "::error::production ($(git rev-parse origin/production)) is not an ancestor of $SHA: not a fast-forward. Roll back on the VM instead (runbook section 11)."
+              exit 1
+            fi
+          fi
+          # A plain push: GitHub rejects anything but a fast-forward anyway.
+          git push origin "$SHA:refs/heads/production"
+          echo "production -> $SHA; the VM deploys it on its next auto-deploy tick (about 5 minutes)" >> "$GITHUB_STEP_SUMMARY"

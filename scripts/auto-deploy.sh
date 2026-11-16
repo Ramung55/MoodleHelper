@@ -1,22 +1,36 @@
 #!/usr/bin/env bash
-# One auto-deploy tick (#148), run by moodlehelper-auto-deploy.timer on the VM: deploys a new
-# origin/main commit once its CI-published image exists, and never retries an attempted SHA.
-# Runbook: _docs/oracle-deployment.md section 6.
+# One auto-deploy tick (#148), run by moodlehelper-auto-deploy@<target>.timer on the VM: deploys a
+# new commit of the target's branch once its CI-published image exists, and never retries an attempted SHA.
+#   dev:        origin/main       -> the dev clone (this clone's sibling <name>-dev), 127.0.0.1:8001
+#   production: origin/production -> this clone, 127.0.0.1:8000 (moved only by the promote workflow)
+# Usage: scripts/auto-deploy.sh dev|production. Runbook: _docs/oracle-deployment.md sections 6 and 10.
+# The timer runs an installed copy with MOODLE_HELPER_CLONE=<production clone>: a checked-out older
+# commit (first promotion, rollback) must never decide which script runs.
 set -euo pipefail
 
 # What actually runs, from /health: after a failed health check .env.release already names M.
 running() {
   local release
-  release=$(curl -fsS --max-time 5 http://127.0.0.1:8000/health 2>/dev/null \
+  release=$(curl -fsS --max-time 5 "http://127.0.0.1:$port/health" 2>/dev/null \
     | sed -n 's/.*"release": *"\([^"]*\)".*/\1/p' || true)
   echo "${release:+running release }${release:-health unreachable}"
 }
 
 main() {
-  cd "$(dirname "$0")/.."
-  local state_file=.git/moodlehelper-auto-deploy-attempted m attempted deployed now
+  local target="${1:-}" branch port state_file=.git/moodlehelper-auto-deploy-attempted m attempted deployed now
+  case "$target" in
+    production) branch=production port=8000 ;;
+    dev) branch=main port=8001 ;;
+    *) echo "auto-deploy: give the target, dev or production, got '${target}'" >&2; exit 2 ;;
+  esac
+  cd "${MOODLE_HELPER_CLONE:-$(dirname "$0")/..}"
+  if [ "$target" = dev ] && ! cd "../$(basename "$PWD")-dev" 2>/dev/null; then
+    echo "auto-deploy: no dev clone next to $PWD, nothing changed" >&2
+    exit 1
+  fi
 
-  exec 9>.git/moodlehelper-deploy.lock
+  # One lock for both clones (shared with scripts/deploy.sh), so dev and production never deploy at once.
+  exec 9>"$HOME/.moodlehelper-deploy.lock"
   if ! flock -n 9; then
     echo "auto-deploy: deploy in progress, skipping"
     exit 0
@@ -25,7 +39,10 @@ main() {
     echo "auto-deploy: git fetch failed, nothing changed" >&2
     exit 1
   fi
-  m=$(git rev-parse origin/main)
+  if ! m=$(git rev-parse --verify --quiet "origin/$branch"); then
+    echo "auto-deploy: no origin/$branch yet, nothing to deploy"
+    exit 0
+  fi
   attempted=$(cat "$state_file" 2>/dev/null || true)
   deployed=$(sed -n 's/^MOODLE_HELPER_RELEASE=//p' .env.release 2>/dev/null || true)
 
@@ -53,7 +70,7 @@ main() {
   fi
 
   printf '%s\n' "$m" > "$state_file"
-  if MOODLE_HELPER_DEPLOY_LOCKED=1 scripts/deploy.sh "$m"; then
+  if MOODLE_HELPER_DEPLOY_LOCKED=1 scripts/deploy.sh "$m" "$target"; then
     echo "auto-deploy: deployed $m"
   else
     echo "auto-deploy: deploy of $m failed; now $(running)" >&2

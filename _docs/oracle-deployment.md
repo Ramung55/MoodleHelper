@@ -183,7 +183,8 @@ the `up` leaves the running container as it was.
   pulls anonymously.
 - **One-time bootstrap** (clone still at an older commit without `deploy.sh`):
   `git fetch && git checkout --detach <sha> && scripts/deploy.sh <sha>`.
-- **Upgrade:** copy an off-VM backup first (section 7), then `scripts/deploy.sh <new sha>`.
+- **Upgrade:** normally a promotion (section 11). Copy an off-VM backup first (section 7);
+  by hand, `scripts/deploy.sh <new sha>`.
 - **Roll back:** `scripts/deploy.sh <older sha>`. Migrations run on startup and cannot be
   downgraded. After a schema change, first copy the backup taken before the upgrade out of
   the volume, because the rollback run overwrites it:
@@ -191,16 +192,34 @@ the `up` leaves the running container as it was.
   `deploy.sh <older sha>` and restore that file (or an off-VM backup) with the section 7
   restore.
 - Old images stay on the VM; remove them manually with `docker image prune` when needed.
-- `deploy.sh` and the auto-deploy timer below share one lock (`flock` on
-  `.git/moodlehelper-deploy.lock`). A manual `deploy.sh` while a deploy runs exits 1 with
-  "another deploy is running"; run it again when that one finishes. Never run `deploy.sh` with
-  `sudo`: a root-owned lock file makes every tick fail (fix: `sudo rm .git/moodlehelper-deploy.lock`).
+- `deploy.sh` and both auto-deploy timers below share one lock (`flock` on
+  `~/.moodlehelper-deploy.lock`, the same file for the production and the dev clone), so only
+  one deploy of either environment runs at a time. A manual `deploy.sh` while a deploy runs
+  exits 1 with "another deploy is running"; run it again when that one finishes. Never run
+  `deploy.sh` with `sudo`: a root-owned lock file makes every tick fail (fix:
+  `sudo rm ~/.moodlehelper-deploy.lock`).
+- `deploy.sh <sha>` (or `<sha> production`) needs `.env.production`; `deploy.sh <sha> dev`
+  needs `.env.dev`. So each clone deploys only its own environment: in the wrong clone it
+  exits 1 (`... is missing; is this the ... clone?`) before touching anything.
 
-### Auto-deploy timer (#148)
+### Auto-deploy timers (#148)
 
-A systemd timer on the VM runs `scripts/auto-deploy.sh` about every 5 minutes. CI never
-reaches the VM: the VM pulls. Each tick takes the shared lock, runs `git fetch`, reads
-`origin/main` (M) and writes one `auto-deploy:` outcome line to the journal:
+Two instances of one systemd template on the VM run `scripts/auto-deploy.sh <target>` about
+every 5 minutes. CI never reaches the VM: the VM pulls.
+
+| Instance | Follows | Deploys | `/health` |
+|---|---|---|---|
+| `moodlehelper-auto-deploy@dev` | `origin/main` (every merge) | the dev clone `~/MoodleHelper-dev` with `deploy.sh <sha> dev` | `127.0.0.1:8001` |
+| `moodlehelper-auto-deploy@production` | `origin/production` (moved only by the promote workflow, section 11) | `~/MoodleHelper` with `deploy.sh <sha> production` | `127.0.0.1:8000` |
+
+So a push to `main` deploys **dev** automatically; production changes only after a promotion.
+Both instances run an **installed copy**, `/usr/local/lib/moodlehelper/auto-deploy.sh`, with
+`MOODLE_HELPER_CLONE=/home/ubuntu/MoodleHelper` (service file), never the clone's checked-out
+script: after the first promotion or a rollback the production clone can be at a commit whose
+older script ignores the target and would deploy `main` to production (QA on #155).
+`@dev` changes into the sibling clone `~/MoodleHelper-dev`. Each tick takes the shared lock,
+runs `git fetch` in the target clone, reads the head of the target's branch (M) and writes one
+`auto-deploy:` outcome line to the journal:
 
 | Outcome | When | Effect |
 |---|---|---|
@@ -208,10 +227,12 @@ reaches the VM: the VM pulls. Each tick takes the shared lock, runs `git fetch`,
 | `already attempted <M>, now running release <sha>` or `... now health unreachable` | M was attempted before but `/health` does not report it (failed deploy, or a manual rollback since) | nothing, no retry |
 | `waiting for image <M>` | `docker pull` of M fails: CI still running, CI failed, or GHCR/network unreachable | nothing recorded; next tick checks again |
 | `clone modified, not deploying <M>` | `git diff --quiet HEAD --` fails | nothing recorded; repeats every tick until the clone is clean, then deploys |
+| `no origin/production yet, nothing to deploy` | `@production` before the first promotion | nothing, exit 0 |
+| `no dev clone next to <path>, nothing changed` | `@dev` without `~/MoodleHelper-dev` | exit 1 |
 | `git fetch failed, nothing changed` | network | exit 1; next tick tries again |
-| `deploy in progress, skipping` | the lock is held (manual `deploy.sh`) | nothing recorded, exit 0 |
-| `deployed <M>` | the image exists; M is recorded, then `scripts/deploy.sh M` exits 0 (`/health` reports `release` M) | new release live |
-| `deploy of <M> failed; now running release <sha>` or `... now health unreachable` | `deploy.sh M` exits non-zero; the state comes from `/health` at that moment, never from `.env.release` | M is recorded, so it is **not** retried; exit 1 |
+| `deploy in progress, skipping` | the lock is held (manual `deploy.sh` or the other instance) | nothing recorded, exit 0 |
+| `deployed <M>` | the image exists; M is recorded, then `scripts/deploy.sh M <target>` exits 0 (`/health` reports `release` M) | new release live |
+| `deploy of <M> failed; now running release <sha>` or `... now health unreachable` | `deploy.sh M <target>` exits non-zero; the state comes from `/health` at that moment, never from `.env.release` | M is recorded, so it is **not** retried; exit 1 |
 
 What a failed deploy leaves behind:
 
@@ -219,51 +240,77 @@ What a failed deploy leaves behind:
   `.env.release` is unchanged, and the clone is checked out at M.
 - **Health failure:** the new container may be running unhealthy (`restart: unless-stopped`)
   and `.env.release` names M.
-- Recover with `scripts/deploy.sh <good sha>`.
+- Recover with `scripts/deploy.sh <good sha> [dev]` in that clone.
 
-The timer reacts only to a **new `main` commit**; it never moves the deployed SHA back to
-`main`. So:
+Each timer reacts only to a **new commit on its branch**; it never moves the deployed SHA back.
+So:
 
 - **Rollback:** after a manual `scripts/deploy.sh <older sha>`, later ticks do not redeploy
-  the current `main` (it is already recorded), but the **next commit pushed to `main` is
-  deployed automatically** and replaces the rollback. To keep a rollback past new pushes,
-  pause the timer first (below).
-- **Retry a failed SHA:** the timer never retries. Run `scripts/deploy.sh <sha>` yourself, or
-  delete the state file so the next tick tries `main` again.
+  the branch head (it is already recorded), but the **next commit on that branch is deployed
+  automatically** and replaces the rollback: for dev the next push to `main`, for production
+  the next promotion. To keep a rollback, pause that instance first (below).
+- **Retry a failed SHA:** the timer never retries. Run `scripts/deploy.sh <sha> [dev]`
+  yourself, or delete that clone's state file so the next tick tries the branch head again.
 
-**State file:** `.git/moodlehelper-auto-deploy-attempted` in the clone holds the last
-attempted SHA. It is inside `.git`, so it is not tracked, not in the Docker build context
-(`.dockerignore` `.git`) and not on the `app-data` volume. Deleting it is safe: the next tick
+**State file:** `.git/moodlehelper-auto-deploy-attempted` in each clone holds the last SHA
+attempted for that environment. It is inside `.git`, so it is not tracked, not in the Docker
+build context (`.dockerignore` `.git`) and not on a volume. Deleting it is safe: the next tick
 behaves like the first tick.
 
 **Install** (as the clone owner, who is in the `docker` group). The units assume user
 `ubuntu` and the clone `/home/ubuntu/MoodleHelper`; edit `User=` and `ExecStart=` in the
-service file if yours differ.
+service file if yours differ. Set up the dev clone first (section 10).
 
 > **First tick:** with no state file, the first tick records M if `.env.release` already
-> equals `origin/main`; otherwise it **deploys `origin/main`** as soon as its image exists.
-> Deploy the SHA you want with `scripts/deploy.sh` and copy an off-VM backup (section 7)
-> before enabling the timer.
+> equals the branch head; otherwise it **deploys the branch head** as soon as its image
+> exists. Before enabling `@production`, create `production` at the SHA production already
+> runs (section 11, first promotion) and copy an off-VM backup (section 7).
+
+Run them **from the dev clone** `~/MoodleHelper-dev` (section 10), which is at `main` and so
+has the current script and units; the production clone may still be at an older commit.
 
 ```sh
-sudo cp scripts/moodlehelper-auto-deploy.service scripts/moodlehelper-auto-deploy.timer /etc/systemd/system/
+cd ~/MoodleHelper-dev
+sudo install -D -m 755 scripts/auto-deploy.sh /usr/local/lib/moodlehelper/auto-deploy.sh
+sudo cp 'scripts/moodlehelper-auto-deploy@.service' 'scripts/moodlehelper-auto-deploy@.timer' /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now moodlehelper-auto-deploy.timer
+sudo systemctl enable --now moodlehelper-auto-deploy@dev.timer moodlehelper-auto-deploy@production.timer
 ```
 
-The installed copies do not change when a deploy checks out another commit; repeat the
-three commands if a later commit changes the unit files.
+**Migrating from the single #148 timer** (it followed `main` into production). Do this
+**before this change merges**: the old timer's next tick would otherwise deploy the merge commit
+to production, and every later tick exits 2 (`give the target`) until the new units are in:
 
-- **Logs:** `journalctl -u moodlehelper-auto-deploy.service` (every tick; add `-f` to follow).
-- **Next run:** `systemctl list-timers moodlehelper-auto-deploy.timer`.
-- **Pause:** `sudo systemctl disable --now moodlehelper-auto-deploy.timer`. **Resume:**
-  `sudo systemctl enable --now moodlehelper-auto-deploy.timer`; the next tick deploys `main`
-  if it has moved since the last attempt.
-- **Remove permanently:** `sudo systemctl disable --now moodlehelper-auto-deploy.timer`,
-  `sudo rm /etc/systemd/system/moodlehelper-auto-deploy.service /etc/systemd/system/moodlehelper-auto-deploy.timer`,
+```sh
+sudo systemctl disable --now moodlehelper-auto-deploy.timer
+sudo rm /etc/systemd/system/moodlehelper-auto-deploy.service /etc/systemd/system/moodlehelper-auto-deploy.timer
+rm -f .git/moodlehelper-deploy.lock    # the old per-clone lock; the new one is ~/.moodlehelper-deploy.lock
+```
+
+**After** the dev environment (#154) and this change are merged into `main`, set up the dev
+clone (section 10) and run the four install commands above. They cannot run earlier: before
+the merge, `main` has neither `docker-compose.dev.yaml` nor the `@` unit files. Between the two
+steps nothing deploys automatically; production keeps running its current release.
+
+The old state file in `~/MoodleHelper` holds a `main` SHA; once `production` exists at the
+running release, the first `@production` tick only records it (`... (already deployed), recorded`).
+
+The installed copies do not change when a deploy checks out another commit; repeat the
+four install commands (from an up-to-date dev clone) when a later commit changes
+`scripts/auto-deploy.sh` or the unit files.
+
+- **Logs:** `journalctl -u moodlehelper-auto-deploy@production.service` (or `@dev`; every
+  tick; add `-f` to follow).
+- **Next run:** `systemctl list-timers 'moodlehelper-auto-deploy@*'`.
+- **Pause:** `sudo systemctl disable --now moodlehelper-auto-deploy@production.timer` (or
+  `@dev`). **Resume:** `sudo systemctl enable --now moodlehelper-auto-deploy@production.timer`;
+  the next tick deploys the branch head if it has moved since the last attempt.
+- **Remove permanently:** `sudo systemctl disable --now moodlehelper-auto-deploy@dev.timer moodlehelper-auto-deploy@production.timer`,
+  `sudo rm '/etc/systemd/system/moodlehelper-auto-deploy@.service' '/etc/systemd/system/moodlehelper-auto-deploy@.timer' /usr/local/lib/moodlehelper/auto-deploy.sh`,
   `sudo systemctl daemon-reload`.
-- The service is `Type=oneshot`, so a tick never starts while the previous one runs; the
-  shared lock keeps a tick and a manual `deploy.sh` from deploying at the same time.
+- The service is `Type=oneshot`, so an instance never starts a tick while its previous one
+  runs; the shared lock keeps the two instances and a manual `deploy.sh` from deploying at
+  the same time.
 
 ## 7. Backups and restore
 
@@ -373,12 +420,12 @@ SDU data. No new OCI resources, no public ingress, no IaC.
 |---|---|---|
 | Compose project | `moodlehelper` (clone directory name) | `moodlehelper-dev` (`name:` in `docker-compose.dev.yaml`) |
 | Clone | `~/MoodleHelper` | `~/MoodleHelper-dev` |
-| Env file | `.env.production` + `.env.release` | `.env.dev` (from `.env.dev.example`) |
+| Env file | `.env.production` + `.env.release` | `.env.dev` (from `.env.dev.example`) + `.env.release` |
 | Loopback port | `127.0.0.1:8000` | `127.0.0.1:8001` |
 | Volume | `moodlehelper_app-data` | `moodlehelper-dev_app-data-dev` |
 | URL (tailnet only) | `https://<machine>.<tailnet>.ts.net` | `https://<machine>.<tailnet>.ts.net:8443` |
 | Data | the owner's real data | `MOODLE_HELPER_DATASET=demo`, fictional |
-| Deploys | `scripts/deploy.sh`, auto-deploy timer | manual `up` below; never the timer |
+| Deploys | promotion (section 11), then `moodlehelper-auto-deploy@production` | every `main` push, `moodlehelper-auto-deploy@dev` |
 
 **Demo only, by construction.** `docker-compose.dev.yaml` replaces the production
 `environment` list with `!override`: the container gets only the tailnet name, port `8443`,
@@ -387,9 +434,9 @@ the release tag and `MOODLE_HELPER_DATASET=demo`. A `MOODLE_HELPER_MOODLE_ORIGIN
 has no live Moodle origin, no AI and no real namespace. Never copy a production backup or
 `.env.production` into dev.
 
-**Why its own clone:** `scripts/deploy.sh` and the timer check out other commits in
-`~/MoodleHelper`, and a rollback to a commit before this section would delete
-`docker-compose.dev.yaml` there. The dev clone moves only when you move it.
+**Why its own clone:** each deploy checks out its SHA in its clone. Dev runs ahead of
+production, so the two clones are usually at different commits, and each keeps its own
+`.env.release` and auto-deploy state file.
 
 **Host check:** browsers send `Host: <machine>.<tailnet>.ts.net:8443` on a non-default port.
 The backend accepts that one extra value only when `MOODLE_HELPER_TAILNET_PORT=8443` is set
@@ -401,12 +448,10 @@ The backend accepts that one extra value only when `MOODLE_HELPER_TAILNET_PORT=8
 git clone https://github.com/Ramung55/MoodleHelper.git ~/MoodleHelper-dev
 cd ~/MoodleHelper-dev
 cp .env.dev.example .env.dev && chmod 600 .env.dev
-# set MOODLE_HELPER_TAILNET_HOST (same name as production) and MOODLE_HELPER_RELEASE to a
-# full main commit SHA whose CI image exists
-D="docker compose -f docker-compose.production.yaml -f docker-compose.dev.yaml --env-file .env.dev"
-git checkout --detach "$(grep ^MOODLE_HELPER_RELEASE= .env.dev | cut -d= -f2)"
-$D pull && $D up -d --no-build --wait
-curl -fsS http://127.0.0.1:8001/health
+# set MOODLE_HELPER_TAILNET_HOST (same name as production)
+scripts/deploy.sh <full main commit sha> dev   # a commit with docker-compose.dev.yaml
+D="docker compose -f docker-compose.production.yaml -f docker-compose.dev.yaml --env-file .env.dev --env-file .env.release"
+$D ps
 sudo tailscale serve --bg --https=8443 http://127.0.0.1:8001
 tailscale serve status
 ```
@@ -414,18 +459,34 @@ tailscale serve status
 `tailscale serve status` lists both `https://<machine>.<tailnet>.ts.net` (proxy to `:8000`)
 and `...:8443` (proxy to `:8001`). The 443 entry must stay unchanged. If the tailnet access
 policy from section 4 is in place, add `tcp:8443` to the owner's grant, otherwise dev times
-out from your devices.
+out from your devices. Then install the timers (section 6, "Auto-deploy timers").
 
-### Deploy another commit to dev
+### Deploys to dev
 
-Set `MOODLE_HELPER_RELEASE=<sha>` in `.env.dev`, then from `~/MoodleHelper-dev`:
+`moodlehelper-auto-deploy@dev` deploys every new `main` commit once its image exists. By
+hand, from `~/MoodleHelper-dev`: `scripts/deploy.sh <sha> dev` (same checks, lock and
+`/health` check as production, on port 8001). Dev's pre-deploy backup holds only demo data.
+Check what dev runs with `curl -fsS http://127.0.0.1:8001/health` on the VM, or
+`https://<machine>.<tailnet>.ts.net:8443/health` from a tailnet device.
 
-```sh
-git fetch && git checkout --detach <sha> && $D pull && $D up -d --no-build --wait
-curl -fsS http://127.0.0.1:8001/health   # reports release <sha>
-```
+**Deploy a branch to dev.** Actions → **CI and publish** → **Run workflow**, pick the branch
+under "Use workflow from" (or `gh workflow run ci.yml --ref <branch>`). It runs the same
+`backend`, `frontend` and `compose` jobs, and `publish` pushes that commit's tested image.
+Pushes publish automatically only on `main`. When the run is green, take the branch head's
+full SHA (`git rev-parse origin/<branch>`) and run `scripts/deploy.sh <sha> dev` in
+`~/MoodleHelper-dev`. The branch needs `docker-compose.dev.yaml`, so it must be based on a
+`main` that has it. `@dev` then logs `already attempted <main sha>, now running release <branch sha>`
+and leaves it alone; the next push to `main` replaces it. A branch SHA cannot be promoted
+(section 11).
 
-There is no pre-deploy backup: dev data is demo data. Reset it from the dashboard
+**Image tags.** `publish` pushes each image twice:
+`ghcr.io/ramung55/moodlehelper:<full sha>`, which `deploy.sh`, rollbacks and promotion use,
+and a human-readable `YYYYMMDD-HHMMSS-<short sha>` (UTC publish time, for example
+`20261116-101500-cf4c688`) for browsing the package page. A run for a commit whose full-SHA
+tag already exists (a manual re-run on `main`) pushes nothing, so a tag never points at a
+rebuilt image.
+
+Dev data is demo data. Reset it from the dashboard
 (Settings → Reset demo), or delete the dev volume (below).
 
 ### Stop or remove dev
@@ -442,3 +503,60 @@ There is no pre-deploy backup: dev data is demo data. Reset it from the dashboar
 for the dashboard and API with demo data; no extension, sync or Moodle collection runs
 against it. Both containers share the VM's 1 GB RAM (about 70 MB each, measured
 2026-11-16).
+
+## 11. Promote dev to production
+
+`main` deploys to dev (section 10). Production moves only when you promote the release dev
+runs. `.github/workflows/promote.yml` (manual, `workflow_dispatch`) never rebuilds and
+never reaches the VM. It only fast-forwards the `production` branch, and the VM's
+`moodlehelper-auto-deploy@production` timer pulls that within about 5 minutes.
+
+### One-time owner setup (GitHub)
+
+1. **Environment:** Settings → Environments → **New environment** `production` → enable
+   **Required reviewers**, add yourself, and turn **Prevent self-review** off (you are the
+   only reviewer). Deployment branches: **Selected branches and tags**, add `main` (the
+   workflow is dispatched from `main`).
+2. **Deploy key** (the push needs it: `GITHUB_TOKEN` may not push a ref whose new commits
+   change `.github/workflows`). On your own machine:
+   `ssh-keygen -t ed25519 -N "" -C moodlehelper-promote -f moodlehelper-promote`.
+   Add `moodlehelper-promote.pub` under Settings → Deploy keys → **Allow write access**.
+   Add the private key as an **environment** secret of `production` named
+   `PRODUCTION_DEPLOY_KEY` (not a repository secret, so only an approved promotion can read
+   it). Then delete both local files.
+3. Optional: a ruleset on `production` that blocks deletion and force pushes. Allow the
+   deploy key to bypass it if the ruleset also restricts updates.
+
+### Promote
+
+1. Read dev's release from a tailnet device:
+   `curl -fsS https://<machine>.<tailnet>.ts.net:8443/health` → `"release": "<sha>"`.
+   Check dev at that release first.
+2. Actions → **Promote dev to production** → **Run workflow** on `main`, `sha` = that full
+   SHA (or `gh workflow run promote.yml --ref main -f sha=<sha>`).
+3. Job `check` (no approval needed) rejects a SHA that is not 40 lowercase hex characters,
+   is not on `main` (dev may be running a branch build, section 10), or has no image
+   `ghcr.io/ramung55/moodlehelper:<sha>` (`docker manifest inspect`, anonymous: the package
+   is public).
+4. Job `promote` waits for your approval (environment `production`). Then it checks again
+   that the SHA is on `main` and that `production` is its ancestor, and runs a plain
+   `git push origin <sha>:refs/heads/production`, so a non-fast-forward is rejected.
+5. On the VM, the next `@production` tick logs `auto-deploy: deployed <sha>`
+   (`journalctl -u moodlehelper-auto-deploy@production.service`) after `deploy.sh`'s backup,
+   `up` and `/health` check. Confirm with `https://<machine>.<tailnet>.ts.net/health`.
+
+The promotion succeeds once `production` moves. A failed deploy on the VM does not show up
+in Actions, only in the journal and `/health`. Like any other SHA, a promoted SHA is tried once
+(section 6 table).
+
+**First promotion:** promote the SHA production already runs
+(`curl -fsS http://127.0.0.1:8000/health` on the VM) before enabling `@production`. The
+first tick then only records it.
+
+### Roll back production
+
+`production` only fast-forwards, so a rollback happens on the VM:
+`cd ~/MoodleHelper && scripts/deploy.sh <older sha>` (section 6, "Roll back"). The
+`@production` timer does not undo it: the branch head is already attempted. The next
+promotion of a newer SHA replaces the rollback. To fix forward, merge the fix to `main`,
+check it on dev, and promote it.
