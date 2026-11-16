@@ -25,10 +25,14 @@ def environment(env) -> str | None:
 class Telemetry(NamedTuple):
     tracer: object
     duration: object
+    sync_runs_started: object
+    personal_events_created: object
+    personal_event_failures: object
 
 
-def setup(env, exporters=None) -> Telemetry | None:
-    """Returns None (telemetry off) without an endpoint. `exporters` = (span, metric_reader, log) for tests only."""
+def setup(env, exporters=None, active_sync_runs=None) -> Telemetry | None:
+    """Returns None (telemetry off) without an endpoint. `exporters` = (span, metric_reader, log) for tests only.
+    `active_sync_runs` is called at each metric export and returns the current count."""
     deployment = environment(env)
     if not env.get('OTEL_EXPORTER_OTLP_ENDPOINT') and exporters is None:
         return None
@@ -66,9 +70,25 @@ def setup(env, exporters=None) -> Telemetry | None:
     app_logger.setLevel(logging.INFO)  # root's last-resort stderr handler still prints only WARNING and up
 
     meter = meter_provider.get_meter('moodlehelper-backend')
+    from opentelemetry.metrics import Observation
+
+    def observe_active(_options):
+        try:
+            return [Observation(active_sync_runs())] if active_sync_runs else []
+        except Exception:  # storage unavailable (e.g. in-memory store): skip this sample, never break export
+            return []
+
+    meter.create_observable_up_down_counter('moodlehelper.sync.runs.active', [observe_active], unit='{run}',
+                                            description='Moodle sync runs with a pending or running job.')
     return Telemetry(tracer_provider.get_tracer('moodlehelper-backend'),
                      meter.create_histogram('http.server.request.duration', unit='s',
-                                            description='Duration of HTTP server requests.'))
+                                            description='Duration of HTTP server requests.'),
+                     meter.create_counter('moodlehelper.sync.runs.started', unit='{run}',
+                                          description='Moodle sync runs started (new runs only, not replays).'),
+                     meter.create_counter('moodlehelper.personal_events.created', unit='{event}',
+                                          description='Personal events created.'),
+                     meter.create_counter('moodlehelper.personal_events.failures', unit='{event}',
+                                          description='Personal event creations that raised; error.type is the exception class.'))
 
 
 class TelemetryMiddleware:

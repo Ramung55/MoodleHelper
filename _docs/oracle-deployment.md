@@ -574,7 +574,7 @@ tailnet**. Nothing else changes: the app still has no public port.
 |---|---|
 | Resource (on everything) | `service.name=moodlehelper-backend`, `service.version=<MOODLE_HELPER_RELEASE>` (the commit SHA), `deployment.environment.name=dev\|prod`, OpenTelemetry SDK name/version |
 | Traces | one server span per HTTP request, named `<METHOD> <route template>` (e.g. `GET /api/queue/runs/{runId}`), with only `http.request.method`, `http.route`, `http.response.status_code`; status `ERROR` on 5xx without a description |
-| Metrics | histogram `http.server.request.duration` (seconds) with the same three labels |
+| Metrics | histogram `http.server.request.duration` (seconds) with the same three labels; counter `moodlehelper.sync.runs.started` (new Moodle scan runs from Sync all or `/api/scan/runs`, not replays or demo syncs); gauge `moodlehelper.sync.runs.active` (scan runs not cancelled with a pending or running job, read from the queue at each export); counters `moodlehelper.personal_events.created` and `moodlehelper.personal_events.failures` (label `error.type` = exception class name only; 422 validation rejections show up in the HTTP histogram, not here) |
 | Logs | only the `moodle_helper` logger: today the two `ai_extract ok/failed request=<opaque id> ...` lines |
 
 **Never sent:** raw paths, query strings, headers, bodies, client addresses, exception

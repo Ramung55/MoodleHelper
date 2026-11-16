@@ -75,7 +75,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
                store_factory: Callable[[], SnapshotStore] | None = None, ai_gateway: AiGateway | None = None,
                material_download_capability=None, telemetry_exporters=None) -> FastAPI:
     # Trusted construction only: no request, query, header or page message selects a provider.
-    telemetry = setup_telemetry(os.environ, telemetry_exporters)
+    telemetry = setup_telemetry(os.environ, telemetry_exporters, active_sync_runs=lambda: app.state.scan.active_runs())
     gateway = ai_gateway or gateway_from_environment()
     if store is not None and store_factory is not None:
         raise ValueError('Provide either store or store_factory, not both.')
@@ -128,7 +128,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.restore = RestoreService(selected, reminder_clock, reminder_resolver,
                                            None if hasattr(app.state.material_downloads.rows, 'connection') else app.state.material_downloads.rows)
         app.state.erase = make_erase(app, selected)
-        app.state.scan = ScanQueueService(selected, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
+        app.state.scan = ScanQueueService(selected, app.state.collection, telemetry=telemetry, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
         app.state.ai_gateway = gateway
         try:
             yield
@@ -139,6 +139,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
     app = FastAPI(title="Moodle Helper", version="0.1.0",
                   description="Local fictional demo API; one process-local dataset, no authentication or live Moodle access.", lifespan=lifespan)
     app.state.ai_gateway = gateway
+    app.state.telemetry = telemetry
     @app.get('/health', include_in_schema=False)
     def health():
         try:
@@ -157,7 +158,7 @@ def create_app(store: SnapshotStore | None = None, *, collection_provider=None, 
         app.state.restore = RestoreService(store, reminder_clock, reminder_resolver,
                                            None if hasattr(app.state.material_downloads.rows, 'connection') else app.state.material_downloads.rows)
         app.state.erase = make_erase(app, store)
-        app.state.scan = ScanQueueService(store, app.state.collection, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
+        app.state.scan = ScanQueueService(store, app.state.collection, telemetry=telemetry, concurrency=concurrency, **({'clock':queue_clock} if queue_clock else {}))
 
     @app.middleware("http")
     async def bridge_precondition(request: Request, call_next):

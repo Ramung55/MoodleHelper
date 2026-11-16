@@ -94,9 +94,19 @@ def set_sync(snapshot, course_id, **fields):
 class ScanQueueService(QueueService):
     kind = 'scan'
 
-    def __init__(self, store, collection, **kwargs):
+    def __init__(self, store, collection, telemetry=None, **kwargs):
         super().__init__(store, **kwargs)
-        self.collection = collection
+        self.collection, self.telemetry = collection, telemetry
+
+    def _count_started(self, created):
+        if created and self.telemetry is not None:
+            self.telemetry.sync_runs_started.add(1)
+
+    def active_runs(self):
+        """Scan runs not cancelled that still have a pending or running job."""
+        return self.tx(lambda c: self.execute(c, """SELECT COUNT(*) FROM queue_runs r WHERE r.namespace=? AND r.kind='scan' AND r.cancelled=0
+            AND EXISTS (SELECT 1 FROM queue_links l JOIN queue_jobs j ON j.namespace=l.namespace AND j.id=l.job_id
+            WHERE l.namespace=r.namespace AND l.run_id=r.id AND j.state IN ('pending','running'))""", self.ns).scalar_one(), read=True)
 
     @property
     def verified(self):
@@ -149,7 +159,7 @@ class ScanQueueService(QueueService):
         old = self.execute(c, 'SELECT id,kind FROM queue_runs WHERE namespace=? AND idem=?', self.ns, key).first()
         if old:
             if old.kind != self.kind: raise QueueConflict()
-            return self._run(c, old.id, None, 100)
+            return self._run(c, old.id, None, 100), False
         _, context = self._snapshot_context(c)
         ids = sorted(course['courseId'] for course in context['courses'])
         now = int(self.clock()); run_id = uuid4().hex
@@ -162,11 +172,13 @@ class ScanQueueService(QueueService):
             if not job:
                 self.execute(c, "INSERT INTO queue_jobs(namespace,id,course_id,created,state,kind) VALUES(?,?,?,?,'pending','scan')", self.ns, job_id, course_id, now)
             self.execute(c, 'INSERT INTO queue_links(namespace,run_id,job_id) VALUES(?,?,?)', self.ns, run_id, job_id)
-        return self._run(c, run_id, None, 100)
+        return self._run(c, run_id, None, 100), True
 
     def start(self, key):
         with self.collection.lock:
-            return self.tx(lambda c: self._start(c, key))
+            run, created = self.tx(lambda c: self._start(c, key))
+        self._count_started(created)  # after commit; idempotent replays are not new runs
+        return run
 
     def sync(self):
         """Real-namespace Sync all: one transaction or nothing (fixed 409 messages)."""
@@ -188,13 +200,15 @@ class ScanQueueService(QueueService):
                 if job and job.kind != self.kind:
                     raise SyncConflict(schemas.SYNC_ALREADY_RUNNING)
             # Server-generated key: a client can never replay or choose the run.
-            run = self._start(c, 'sync-' + uuid4().hex)
+            run, _ = self._start(c, 'sync-' + uuid4().hex)
             for course_id in run['courseIds']:
                 set_sync(snapshot, course_id, status='syncing', progress=0, error=None)
             self._save(c, snapshot)
             return self.store._validated(snapshot)
         with self.collection.lock:
-            return self.tx(action)
+            result = self.tx(action)
+        self._count_started(True)
+        return result
 
     def _fail_jobs(self, c, rows, code, snapshot):
         for row in rows:

@@ -95,3 +95,25 @@ def test_only_the_app_logger_is_exported(telemetry):
     exported = _wait(logs.get_finished_logs)
     bodies = [str(item.log_record.body) for item in exported]
     assert bodies == ['ai_extract ok request=r-1 proposals=2']
+
+
+def _points(metrics, name):
+    return [point for rm in metrics.get_metrics_data().resource_metrics for sm in rm.scope_metrics
+            for metric in sm.metrics if metric.name == name for point in metric.data.data_points]
+
+
+def test_personal_event_counters_and_app_metrics_carry_environment_and_version(telemetry, monkeypatch):
+    client, _, metrics, _ = telemetry
+    event = {'courseId': 'c-csc', 'title': SECRET, 'type': 'other', 'date': {'kind': 'week', 'week': 8}}
+    assert client.post('/api/personal-events', json=event).status_code == 200
+    monkeypatch.setattr(client.app.state.service, 'add_personal_event', lambda _e: (_ for _ in ()).throw(OSError(SECRET)))
+    assert client.post('/api/personal-events', json=event).status_code == 500
+    data = metrics.get_metrics_data()
+    assert [p.value for p in _points(metrics, 'moodlehelper.personal_events.created')] == [1]
+    failures = _points(metrics, 'moodlehelper.personal_events.failures')
+    assert [(p.value, dict(p.attributes)) for p in failures] == [(1, {'error.type': 'OSError'})]
+    # In-memory store has no queue: the active gauge skips its sample instead of breaking export.
+    assert _points(metrics, 'moodlehelper.sync.runs.active') == []
+    assert SECRET not in data.to_json()
+    for rm in data.resource_metrics:
+        assert {'service.version': 'c' * 40, 'deployment.environment.name': 'prod'}.items() <= dict(rm.resource.attributes).items()
