@@ -1,0 +1,13 @@
+# Grafana contact point in Grafana's alerting file-provisioning / export format.
+# Replace <owner-email> only in the Grafana UI; never commit the real address.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: MoodleHelper owner email
+    receivers:
+      - uid: moodlehelper-owner-email
+        type: email
+        disableResolveMessage: false
+        settings:
+          addresses: "<owner-email>"
+          singleEmail: true

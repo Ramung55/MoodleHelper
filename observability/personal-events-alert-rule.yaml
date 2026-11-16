@@ -1,0 +1,62 @@
+# Grafana-managed alert rule in Grafana's alerting file-provisioning / export format.
+# Import steps, placeholders and reasoning: _docs/oracle-deployment.md section 12.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: personal-events
+    folder: MoodleHelper
+    interval: 1m
+    rules:
+      - uid: moodlehelper-personal-event-failures
+        title: Personal event creation failing
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: "<PROMETHEUS_DATASOURCE_UID>"
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                round(sum by (deployment_environment_name, service_version)
+                (increase(http_server_request_duration_seconds_count{job="moodlehelper-backend",
+                http_route="/api/personal-events", http_request_method="POST",
+                http_response_status_code=~"5.."}[15m])))
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: "$A >= 3"
+              datasource:
+                type: __expr__
+                uid: __expr__
+        dashboardUid: moodlehelper-personal-events
+        panelId: 2
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        labels:
+          service: moodlehelper-backend
+          environment: "{{ $labels.deployment_environment_name }}"
+          version: "{{ $labels.service_version }}"
+          owner: "<owner>"
+          severity: warning
+        annotations:
+          summary: "Personal events cannot be saved ({{ $labels.deployment_environment_name }})"
+          description: >-
+            {{ $values.A.Value }} failed POST /api/personal-events requests (5xx) in the
+            last 15 minutes on environment {{ $labels.deployment_environment_name }},
+            version {{ $labels.service_version }}.
+          dashboard_url: "https://<your-stack>.grafana.net/d/moodlehelper-personal-events?var-environment={{ $labels.deployment_environment_name }}"
+          runbook_url: https://github.com/Ramung55/MoodleHelper/blob/main/_docs/oracle-deployment.md#12-telemetry-opentelemetry-over-otlp
+        notification_settings:
+          receiver: MoodleHelper owner email
+          group_by:
+            - alertname
+            - grafana_folder
+            - environment
