@@ -98,7 +98,7 @@ This document records the agreed product scope. The local FastAPI backend and fr
 ## Development workflow
 
 - Follow [AGENTS.md](../AGENTS.md) for project commands and dependency rules, and [process.md](process.md) for the working process.
-- Tasks are tracked as [GitHub issues](https://github.com/Ramung55/MoodleHelper/issues); [tasks.md](tasks.md) is the local issue index. Work on one issue at a time.
+- Tasks are tracked as [GitHub issues](https://github.com/Ramung55/MoodleHelper/issues). Work on one issue at a time.
 - Read the issue's acceptance criteria before starting and before closing it. All issues now use [task-template.md](task-template.md), following the [PM role](team/pm.md), with Goal, Acceptance criteria, Out of scope, and Constraints sections.
 - Commit regularly. When revising documents based on corrections, commit current work before making those revisions.
 - Ask before adding a dependency. Dependency additions belong in `pyproject.toml`, as specified in AGENTS.md.
@@ -111,7 +111,7 @@ The backend now implements environment-configured file SQLite through explicitly
 
 ## Current planning status
 
-All 49 original GitHub issues were groomed one at a time, followed by seven linked planning/scope follow-ups (#50–#56). Focused backend and integration follow-ups were added as #57 and #58 where no existing issue owned that work. GitHub remains the source of truth for current issue state; [tasks.md](tasks.md) is the historical local index and [backlog-feasibility.md](backlog-feasibility.md) records the remaining dependency and blocker review.
+All 49 original GitHub issues were groomed one at a time, followed by seven linked planning/scope follow-ups (#50–#56). Focused backend and integration follow-ups were added as #57 and #58 where no existing issue owned that work. GitHub is the only backlog and the source of truth for issue state; [backlog-feasibility.md](backlog-feasibility.md) records the remaining dependency and blocker review.
 
 Bootstrap [#1](https://github.com/Ramung55/MoodleHelper/issues/1), in-memory API [#57](https://github.com/Ramung55/MoodleHelper/issues/57) and frontend/API integration [#58](https://github.com/Ramung55/MoodleHelper/issues/58) are closed after independent QA. The [backend checkpoint](milestone-1-checkpoint.md) records the first gate; the [integration checkpoint](milestone-2-checkpoint.md) and final [QA PASS](https://github.com/Ramung55/MoodleHelper/issues/58#issuecomment-6397890196) record the second. Current engineering verification includes 91 backend tests, 49 frontend tests and a passing frontend production build; QA verified the real browser create/reload workflow and the escaped-identifier fix. This is not completion of the broader product backlog.
 
